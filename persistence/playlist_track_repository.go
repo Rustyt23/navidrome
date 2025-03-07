@@ -21,7 +21,14 @@ type dbPlaylistTrack struct {
 	dbMediaFile
 	*model.PlaylistTrack `structs:",flatten"`
 }
-
+func (r *playlistTrackRepository) Search(q string, offset int, size int, includeMissing bool) (model.PlaylistTracks, error) {
+	var res dbPlaylistTracks
+	err := r.doSearch(r.newSelect(), q, offset, size, includeMissing, &res, "title")
+	if err != nil {
+		return nil, err
+	}
+	return res.toModels(), err
+}
 func (t *dbPlaylistTrack) PostScan() error {
 	if err := t.dbMediaFile.PostScan(); err != nil {
 		return err

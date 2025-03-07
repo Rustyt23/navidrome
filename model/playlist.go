@@ -57,11 +57,8 @@ func (pls *Playlist) RemoveTracks(idxToRemove []int) {
 // https://docs.fileformat.com/audio/m3u/#extended-m3u
 func (pls *Playlist) ToM3U8() string {
 	buf := strings.Builder{}
-	buf.WriteString("#EXTM3U\n")
-	buf.WriteString(fmt.Sprintf("#PLAYLIST:%s\n", pls.Name))
 	for _, t := range pls.Tracks {
-		buf.WriteString(fmt.Sprintf("#EXTINF:%.f,%s - %s\n", t.Duration, t.Artist, t.Title))
-		buf.WriteString(t.AbsolutePath() + "\n")
+		buf.WriteString(fmt.Sprintf("%s - %s.mp3\n", t.Artist, t.Title))
 	}
 	return buf.String()
 }
@@ -141,4 +138,7 @@ type PlaylistTrackRepository interface {
 	Delete(id ...string) error
 	DeleteAll() error
 	Reorder(pos int, newPos int) error
+	AnnotatedRepository
+	
+	SearchableRepository[PlaylistTracks]
 }
