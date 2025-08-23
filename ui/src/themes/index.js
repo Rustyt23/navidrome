@@ -5,6 +5,7 @@ import GreenTheme from './green'
 import SpotifyTheme from './spotify'
 import LigeraTheme from './ligera'
 import MonokaiTheme from './monokai'
+import MusicMattersTheme from './jared'
 import ElectricPurpleTheme from './electricPurple'
 import NordTheme from './nord'
 import GruvboxDarkTheme from './gruvboxDark'
@@ -27,4 +28,5 @@ export default {
   NordTheme,
   NuclearTheme,
   SpotifyTheme,
+  MusicMattersTheme,
 }
