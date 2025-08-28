@@ -186,6 +186,8 @@
         "path": "Import from"
       },
       "actions": {
+        "create": "Create Playlist",
+        "createFolder": "Create Folder",
         "selectPlaylist": "Select a playlist:",
         "addNewPlaylist": "Create \"%{name}\"",
         "export": "Export",
@@ -195,6 +197,15 @@
       "message": {
         "duplicate_song": "Add duplicated songs",
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?"
+      }
+    },
+    "folder": {
+      "name": "Folder |||| Folders",
+      "fields": {
+        "name": "Name",
+        "ownerName": "Owner Name",
+        "public": "Public",
+        "updatedAt": "Updated at"
       }
     },
     "radio": {

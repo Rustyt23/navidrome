@@ -58,6 +58,7 @@ func (n *Router) routes() http.Handler {
 		}
 
 		n.addPlaylistRoute(r)
+		n.addPlaylistFolderRoute(r)
 		n.addPlaylistTrackRoute(r)
 		n.addMissingFilesRoute(r)
 		n.addInspectRoute(r)
@@ -125,7 +126,46 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 			r.Get("/", rest.Get(constructor))
 			r.Put("/", rest.Put(constructor))
 			r.Delete("/", rest.Delete(constructor))
+
+			r.Patch("/folder", func(w http.ResponseWriter, r *http.Request) {
+				id := chi.URLParam(r, "id")
+				type reqBody struct{ FolderID *string `json:"folderId"` }
+				var body reqBody
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest); return
+				}
+				if body.FolderID != nil && *body.FolderID == "" {
+					http.Error(w, "folderId cannot be empty; use null for unassigned", http.StatusBadRequest); return
+				}
+				if err := n.ds.Playlist(r.Context()).UpdatePlaylistFolder(id, body.FolderID); err != nil {
+					http.Error(w, err.Error(), statusFor(err)); return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
 		})
+	})
+}
+
+func (n *Router) addPlaylistFolderRoute(r chi.Router) {
+	constructor := func(ctx context.Context) rest.Repository {
+		return n.ds.Resource(ctx, model.PlaylistFolder{})
+	}
+
+	r.Route("/folder", func(r chi.Router) {
+		// Combined list (folders + playlists)
+		r.Get("/", ListFoldersAndPlaylists(n.ds))
+		r.Post("/", rest.Post(constructor))
+
+		r.Route("/{id}", func(r chi.Router) {
+			r.Use(server.URLParamsMiddleware)
+			r.Get("/", rest.Get(constructor))
+			r.Put("/", rest.Put(constructor))
+			r.Delete("/", rest.Delete(constructor))
+
+			r.Patch("/parent", MoveFolder(n.ds))
+		})
+
+		r.Patch("/move", BulkMove(n.ds))
 	})
 }
 

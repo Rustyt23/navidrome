@@ -7,23 +7,24 @@ import (
 )
 
 type MockDataStore struct {
-	RealDS               model.DataStore
-	MockedLibrary        model.LibraryRepository
-	MockedFolder         model.FolderRepository
-	MockedGenre          model.GenreRepository
-	MockedAlbum          model.AlbumRepository
-	MockedArtist         model.ArtistRepository
-	MockedMediaFile      model.MediaFileRepository
-	MockedTag            model.TagRepository
-	MockedUser           model.UserRepository
-	MockedProperty       model.PropertyRepository
-	MockedPlayer         model.PlayerRepository
-	MockedPlaylist       model.PlaylistRepository
-	MockedShare          model.ShareRepository
-	MockedTranscoding    model.TranscodingRepository
-	MockedUserProps      model.UserPropsRepository
-	MockedScrobbleBuffer model.ScrobbleBufferRepository
-	MockedRadio          model.RadioRepository
+	RealDS               		model.DataStore
+	MockedLibrary        		model.LibraryRepository
+	MockedFolder         		model.FolderRepository
+	MockedGenre          		model.GenreRepository
+	MockedAlbum          		model.AlbumRepository
+	MockedArtist         		model.ArtistRepository
+	MockedMediaFile      		model.MediaFileRepository
+	MockedTag            		model.TagRepository
+	MockedUser           		model.UserRepository
+	MockedProperty       		model.PropertyRepository
+	MockedPlayer         		model.PlayerRepository
+	MockedPlaylist       		model.PlaylistRepository
+	MockedPlaylistFolder 		model.PlaylistFolderRepository
+	MockedShare          		model.ShareRepository
+	MockedTranscoding    		model.TranscodingRepository
+	MockedUserProps      		model.UserPropsRepository
+	MockedScrobbleBuffer 		model.ScrobbleBufferRepository
+	MockedRadio          		model.RadioRepository
 }
 
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {

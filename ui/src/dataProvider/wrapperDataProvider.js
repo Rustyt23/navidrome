@@ -42,6 +42,12 @@ const callDeleteMany = (resource, params) => {
   }).then((response) => ({ data: response.json.ids || [] }))
 }
 
+const emitFoldersChanged = (detail) => {
+  try {
+    window.dispatchEvent(new CustomEvent('folder:changed', { detail }))
+  } catch {}
+}
+
 const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
@@ -62,7 +68,14 @@ const wrapperDataProvider = {
   },
   update: (resource, params) => {
     const [r, p] = mapResource(resource, params)
-    return dataProvider.update(r, p)
+    return dataProvider.update(r, p).then((res) => {
+      if (resource === 'playlist' || resource === 'folder') {
+        const parentId =
+          (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
+        emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
+      }
+      return res
+    })
   },
   updateMany: (resource, params) => {
     const [r, p] = mapResource(resource, params)
@@ -70,11 +83,23 @@ const wrapperDataProvider = {
   },
   create: (resource, params) => {
     const [r, p] = mapResource(resource, params)
-    return dataProvider.create(r, p)
+    return dataProvider.create(r, p).then((res) => {
+      if (resource === 'playlist' || resource === 'folder') {
+        const parentId =
+          (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
+        emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
+      }
+      return res
+    })
   },
   delete: (resource, params) => {
     const [r, p] = mapResource(resource, params)
-    return dataProvider.delete(r, p)
+    return dataProvider.delete(r, p).then((res) => {
+      if (resource === 'playlist' || resource === 'folder') {
+        emitFoldersChanged({ type: 'delete', resource, targetParentId: '' })
+      }
+      return res
+    })
   },
   deleteMany: (resource, params) => {
     const [r, p] = mapResource(resource, params)
@@ -88,6 +113,53 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify(data),
     }).then(({ json }) => ({ data: json }))
+  },
+  setPlaylistFolder: ({ playlistId, targetFolderId, sourceParentId }) => {
+    return httpClient(`${REST_URL}/playlist/${playlistId}/folder`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        folderId: targetFolderId
+      }),
+    }).then(() => {
+      emitFoldersChanged({
+        type: 'move',
+        resource: 'playlist',
+        sourceParentId: sourceParentId ?? '',
+        targetParentId: targetFolderId ?? '',
+      })
+      return { data: { id: playlistId, folderId: targetFolderId } }
+    })
+  },
+  moveFolder: ({ folderId, targetParentId, sourceParentId }) => {
+    return httpClient(`${REST_URL}/folder/${folderId}/parent`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        parentId: targetParentId
+      }),
+    }).then(({ json }) => {
+      emitFoldersChanged({
+        type: 'move',
+        resource: 'folder',
+        sourceParentId: sourceParentId ?? '',
+        targetParentId: targetParentId ?? '',
+      })
+      return { data: json }
+    })
+  },
+  bulkMove: ({ playlistIds = [], folderIds = [], targetParentId = null }) => {
+    return httpClient(`${REST_URL}/folder/move`, {
+      method: 'PATCH',
+      body: JSON.stringify({ playlistIds, folderIds, targetParentId }),
+    }).then(({ json }) => {
+      emitFoldersChanged({
+        type: 'bulkMove',
+        targetParentId: targetParentId ?? '',
+      })
+      if ((targetParentId ?? '') === '') {
+        emitFoldersChanged({ type: 'bulkMove', targetParentId: '' })
+      }
+      return { data: json }
+    })
   },
 }
 

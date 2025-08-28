@@ -1,4 +1,3 @@
-import React from 'react'
 import {
   Create,
   SimpleForm,
@@ -8,12 +7,12 @@ import {
   useTranslate,
   useRefresh,
   useNotify,
-  useRedirect,
+  useRedirect
 } from 'react-admin'
 import { Title } from '../common'
+import { useLocation } from 'react-router-dom'
 
 const PlaylistCreate = (props) => {
-  const { basePath } = props
   const refresh = useRefresh()
   const notify = useNotify()
   const redirect = useRedirect()
@@ -22,10 +21,13 @@ const PlaylistCreate = (props) => {
   const title = translate('ra.page.create', {
     name: `${resourceName}`,
   })
+  const location = useLocation()
+  const playlistFolderId = location.state?.playlistFolderId || null
 
   const onSuccess = () => {
     notify('ra.notification.created', 'info', { smart_count: 1 })
-    redirect('list', basePath)
+    if (playlistFolderId) redirect(`/folder/${playlistFolderId}/show`)
+    else redirect('list', '/folder')
     refresh()
   }
 
@@ -34,6 +36,7 @@ const PlaylistCreate = (props) => {
       <SimpleForm redirect="list" variant={'outlined'}>
         <TextInput source="name" validate={required()} />
         <TextInput multiline source="comment" />
+        <TextInput source="folderId" defaultValue={playlistFolderId} style={{ display: 'none' }} />
         <BooleanInput source="public" initialValue={true} />
       </SimpleForm>
     </Create>

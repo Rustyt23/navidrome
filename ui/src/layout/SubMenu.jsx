@@ -1,4 +1,4 @@
-import React, { Fragment } from 'react'
+import React, { Fragment, forwardRef } from 'react'
 import { useDispatch } from 'react-redux'
 import ExpandMore from '@material-ui/icons/ExpandMore'
 import ArrowRightOutlined from '@material-ui/icons/ArrowRightOutlined'
@@ -13,114 +13,121 @@ import { setSidebarVisibility, useTranslate } from 'react-admin'
 import { IconButton, useMediaQuery } from '@material-ui/core'
 
 const useStyles = makeStyles(
-  (theme) => ({
+    (theme) => ({
     icon: { minWidth: theme.spacing(5) },
-    sidebarIsOpen: {
-      '& a': {
-        transition: 'padding-left 195ms cubic-bezier(0.4, 0, 0.6, 1) 0ms',
-        paddingLeft: theme.spacing(4),
-      },
-    },
-    sidebarIsClosed: {
-      '& a': {
-        transition: 'padding-left 195ms cubic-bezier(0.4, 0, 0.6, 1) 0ms',
-        paddingLeft: theme.spacing(2),
-      },
-    },
-    actionIcon: {
-      opacity: 0,
-    },
-    menuHeader: {
-      width: '100%',
-    },
-    headerWrapper: {
-      display: 'flex',
-      '&:hover $actionIcon': {
-        opacity: 1,
-      },
-    },
-  }),
-  {
+        sidebarIsOpen: {
+            '& a': {
+                transition: 'padding-left 195ms cubic-bezier(0.4, 0, 0.6, 1) 0ms',
+                paddingLeft: theme.spacing(4),
+            },
+        },
+        sidebarIsClosed: {
+            '& a': {
+                transition: 'padding-left 195ms cubic-bezier(0.4, 0, 0.6, 1) 0ms',
+                paddingLeft: theme.spacing(2),
+            },
+        },
+        actionIcon: {
+            opacity: 0,
+        },
+        menuHeader: {
+            width: '100%',
+        },
+        headerWrapper: {
+            display: 'flex',
+            '&:hover $actionIcon': {
+                opacity: 1,
+            },
+        },
+    }),
+      {
     name: 'NDSubMenu',
   },
 )
 
-const SubMenu = ({
-  handleToggle,
-  sidebarIsOpen,
-  isOpen,
-  name,
-  icon,
-  children,
-  dense,
-  onAction,
-  actionIcon,
-}) => {
-  const translate = useTranslate()
-  const classes = useStyles()
-  const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('sm'))
-  const isSmall = useMediaQuery((theme) => theme.breakpoints.down('sm'))
-  const dispatch = useDispatch()
+const SubMenu = forwardRef(
+    (
+        {
+            handleToggle,
+            sidebarIsOpen,
+            isOpen,
+            name,
+            icon,
+            children,
+            dense,
+            onAction,
+            actionIcon,
+        },
+        ref
+    ) => {
+        const translate = useTranslate()
+        const classes = useStyles()
+        const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('sm'))
+        const isSmall = useMediaQuery((theme) => theme.breakpoints.down('sm'))
+        const dispatch = useDispatch()
 
-  const handleOnClick = (e) => {
+        const handleOnClick = (e) => {
     e.stopPropagation()
     onAction(e)
-    if (isSmall) {
+            if (isSmall) {
       dispatch(setSidebarVisibility(false))
-    }
-  }
+            }
+        };
 
-  const header = (
-    <div className={classes.headerWrapper}>
-      <MenuItem
-        dense={dense}
-        button
-        className={classes.menuHeader}
-        onClick={handleToggle}
-      >
-        <ListItemIcon className={classes.icon}>
-          {isOpen ? <ExpandMore /> : icon}
-        </ListItemIcon>
-        <Typography variant="inherit" color="textSecondary">
-          {translate(name)}
-        </Typography>
-        {onAction && sidebarIsOpen && (
-          <IconButton
+        const header = (
+            <div className={classes.headerWrapper} ref={ref}>
+                <MenuItem
+                    dense={dense}
+                    button
+                    className={classes.menuHeader}
+                    onClick={handleToggle}
+                  >
+                    <ListItemIcon className={classes.icon}>
+                        {isOpen ? <ExpandMore /> : icon}
+                    </ListItemIcon>
+                    <Typography variant="inherit" color="textSecondary">
+                        {translate(name)}
+                    </Typography>
+                    {onAction && sidebarIsOpen && (
+                        <IconButton
             size={'small'}
             className={isDesktop ? classes.actionIcon : null}
             onClick={handleOnClick}
-          >
-            {actionIcon}
-          </IconButton>
-        )}
-      </MenuItem>
-    </div>
+                        >
+                            {actionIcon}
+                        </IconButton>
+                    )}
+                </MenuItem>
+            </div>
   )
 
-  return (
-    <Fragment>
-      {sidebarIsOpen || isOpen ? (
+        return (
+            <Fragment>
+                {sidebarIsOpen || isOpen ? (
         header
-      ) : (
-        <Tooltip title={translate(name)} placement="right">
+                ) : (
+                    <Tooltip title={translate(name)} placement="right">
           {header}
-        </Tooltip>
-      )}
-      <Collapse in={isOpen} timeout="auto" unmountOnExit>
-        <List
-          dense={dense}
-          component="div"
-          disablePadding
+                    </Tooltip>
+                )}
+                <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                    <List
+                        dense={dense}
+                        component="div"
+                        disablePadding
           className={
             sidebarIsOpen ? classes.sidebarIsOpen : classes.sidebarIsClosed
           }
-        >
-          {children}
-        </List>
-      </Collapse>
-    </Fragment>
-  )
-}
+                    >
+                        {children}
+                    </List>
+                </Collapse>
+            </Fragment>
+        )
+    }
+);
+
+SubMenu.displayName = 'SubMenu'
 
 SubMenu.defaultProps = {
   action: null,
