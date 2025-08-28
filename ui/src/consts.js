@@ -13,6 +13,8 @@ export const DraggableTypes = {
   DISC: 'disc',
   ARTIST: 'artist',
   ALL: [],
+  PLAYLIST: 'playlist',
+  FOLDER: 'folder',
 }
 
 DraggableTypes.ALL.push(

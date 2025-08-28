@@ -26,18 +26,16 @@ import Button from '@material-ui/core/Button'
 import DeleteIcon from '@material-ui/icons/Delete'
 import { isWritable, Title } from '../common'
 
-const SyncFragment = ({ formData, variant, ...rest }) => {
-  return (
+const SyncFragment = ({ formData, ...rest }) => (
   <>
-    {formData.path && <BooleanInput source="sync" {...rest} />}
-    {formData.path && <TextField source="path" {...rest} />}
+    {formData?.path && <BooleanInput source="sync" {...rest} />}
+    {formData?.path && <TextField source="path" {...rest} />}
   </>
 )
-}
 
-const PlaylistTitle = ({ record }) => {
+const PlaylistFolderTitle = ({ record }) => {
   const translate = useTranslate()
-  const resourceName = translate('resources.playlist.name', { smart_count: 1 })
+  const resourceName = translate('resources.folder.name', { smart_count: 1 })
   return <Title subTitle={`${resourceName} "${record ? record.name : ''}"`} />
 }
 
@@ -47,7 +45,7 @@ const useToolbarStyles = makeStyles((theme) => ({
   delete: { color: theme.palette.error.main },
 }))
 
-const PlaylistEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
+const FolderEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   const classes = useToolbarStyles()
   const record = useRecordContext()
   const dataProvider = useDataProvider()
@@ -64,11 +62,11 @@ const PlaylistEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   const handleDelete = async () => {
     if (!record?.id) return
     try {
-      await dataProvider.delete('playlist', { id: record.id })
+      await dataProvider.delete('folder', { id: record.id })
       notify('ra.notification.deleted', { type: 'info', messageArgs: { smart_count: 1 } })
 
-      const folderId = record?.folderId ?? location.state?.folderId ?? null
-      if (folderId) redirect(`/folder/${folderId}/show`)
+      const parentId = record?.parentId ?? location.state?.parentId ?? null
+      if (parentId) redirect(`/folder/${parentId}/show`)
       else redirect('list', '/folder')
 
       refresh()
@@ -94,7 +92,7 @@ const PlaylistEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   )
 }
 
-const PlaylistEditForm = () => {
+const PlaylistFolderEditForm = () => {
   const { permissions } = usePermissions()
   const record = useRecordContext()
   const dataProvider = useDataProvider()
@@ -103,18 +101,18 @@ const PlaylistEditForm = () => {
   const refresh = useRefresh()
   const location = useLocation()
 
-  const savePlaylist = useCallback(
+  const saveFolder = useCallback(
     async (values) => {
       if (!record?.id) return
       try {
-        const res = await dataProvider.update('playlist', { id: record.id, data: values })
+        const res = await dataProvider.update('folder', { id: record.id, data: values })
         const saved = res?.data ?? values
         notify('ra.notification.updated', { type: 'info', messageArgs: { smart_count: 1 } })
 
-        const folderId =
-          saved?.folderId ?? saved?.folder_id ?? location.state?.folderId ?? null
+        const parentId =
+          saved?.parentId ?? saved?.parent_id ?? location.state?.parentId ?? null
 
-        if (folderId) redirect(`/folder/${folderId}/show`)
+        if (parentId) redirect(`/folder/${parentId}/show`)
         else redirect('list', '/folder')
 
         refresh()
@@ -127,13 +125,13 @@ const PlaylistEditForm = () => {
 
   return (
     <SimpleForm
-      save={savePlaylist}
+      save={saveFolder}
       variant={'outlined'}
       redirect={false}
-      toolbar={<PlaylistEditToolbar />}
+      toolbar={<FolderEditToolbar />}
     >
       <TextInput source="name" validate={required()} />
-      <TextInput multiline source="comment" />
+
       {permissions === 'admin' ? (
         <ReferenceInput
           source="ownerId"
@@ -142,7 +140,7 @@ const PlaylistEditForm = () => {
           sort={{ field: 'name', order: 'ASC' }}
         >
           <SelectInput
-            label={'resources.playlist.fields.ownerName'}
+            label="resources.folder.fields.ownerName"
             optionText="userName"
           />
         </ReferenceInput>
@@ -163,10 +161,10 @@ const PlaylistEditForm = () => {
   )
 }
 
-const PlaylistEdit = (props) => (
-  <Edit title={<PlaylistTitle />} actions={false} {...props}>
-    <PlaylistEditForm />
+const PlaylistFolderEdit = (props) => (
+  <Edit title={<PlaylistFolderTitle />} actions={false} {...props}>
+    <PlaylistFolderEditForm />
   </Edit>
 )
 
-export default PlaylistEdit
+export default PlaylistFolderEdit

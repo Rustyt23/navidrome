@@ -14,6 +14,7 @@ import album from './album'
 import artist from './artist'
 import playlist from './playlist'
 import radio from './radio'
+import playlist_folder from './playlist_folder'
 import share from './share'
 import { Player } from './audioplayer'
 import customRoutes from './routes'
@@ -39,6 +40,9 @@ import SharePlayer from './share/SharePlayer'
 import { HTML5Backend } from 'react-dnd-html5-backend'
 import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
+import PlaylistCreate from './playlist/PlaylistCreate'
+import PlaylistShow from './playlist/PlaylistShow'
+import PlaylistEdit from './playlist/PlaylistEdit'
 
 const history = createHashHistory()
 
@@ -102,7 +106,13 @@ const Admin = (props) => {
         config.enableSharing && <Resource name="share" {...share} />,
         <Resource
           name="playlist"
-          {...playlist}
+          create={PlaylistCreate}
+          show={PlaylistShow}
+          edit={PlaylistEdit}
+        />,
+        <Resource
+          {...playlist_folder}
+          name="folder"
           options={{ subMenu: 'playlist' }}
         />,
         <Resource name="user" {...user} options={{ subMenu: 'settings' }} />,

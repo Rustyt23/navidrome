@@ -57,6 +57,10 @@ func (s *SQLStore) Playlist(ctx context.Context) model.PlaylistRepository {
 	return NewPlaylistRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) PlaylistFolder(ctx context.Context) model.PlaylistFolderRepository {
+    return NewPlaylistFolderRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) Property(ctx context.Context) model.PropertyRepository {
 	return NewPropertyRepository(ctx, s.getDBXBuilder())
 }

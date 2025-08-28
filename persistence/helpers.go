@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"errors"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/fatih/structs"
@@ -97,4 +98,13 @@ func mapSortOrder(tableName, order string) string {
 	order = strings.ToLower(order)
 	repl := fmt.Sprintf("(coalesce(nullif(%[1]s.sort_$1,''),%[1]s.order_$1) collate nocase)", tableName)
 	return sortOrderRegex.ReplaceAllString(order, repl)
+}
+
+var ErrInvalidRequest = errors.New("Invalid Request")
+
+func rejectEmptyOptionalID(id *string) error {
+    if id != nil && *id == "" {
+        return ErrInvalidRequest
+    }
+    return nil
 }
