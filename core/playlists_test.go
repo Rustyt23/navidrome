@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -92,6 +93,28 @@ var _ = Describe("Playlists", func() {
 			It("returns an error if the playlist is not well-formed", func() {
 				_, err := ps.ImportFile(ctx, folder, "invalid_json.nsp")
 				Expect(err.Error()).To(ContainSubstring("line 19, column 1: invalid character '\\n'"))
+			})
+		})
+
+		Context("Playlist folders", func() {
+			It("creates folders based on path", func() {
+				root := GinkgoT().TempDir()
+				conf.Server.PlaylistsPath = root
+				pfRepo := tests.NewMockPlaylistFolderRepo()
+				ds.MockedPlaylistFolder = pfRepo
+				ps = NewPlaylists(ds)
+				os.MkdirAll(filepath.Join(root, "rock"), 0755)
+				playlistFile := filepath.Join(root, "rock", "test.m3u")
+				_ = os.WriteFile(playlistFile, []byte{}, 0600)
+				lib := model.Library{ID: 1, Path: root}
+				folder = model.NewFolder(lib, "rock")
+				folder.LibraryPath = root
+				pls, err := ps.ImportFile(ctx, folder, "test.m3u")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pls.FolderID).ToNot(BeNil())
+				saved, ok := pfRepo.Folders[*pls.FolderID]
+				Expect(ok).To(BeTrue())
+				Expect(saved.Name).To(Equal("rock"))
 			})
 		})
 	})

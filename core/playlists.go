@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/RaveNoX/go-jsoncommentstrip"
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/navidrome/navidrome/conf"
@@ -51,11 +52,78 @@ func InPlaylistsPath(folder model.Folder) bool {
 	return false
 }
 
+func (s *playlists) ensurePlaylistFolder(ctx context.Context, playlistPath string) (*string, error) {
+	if conf.Server.PlaylistsPath == "" {
+		return nil, nil
+	}
+	dir := filepath.Dir(playlistPath)
+	paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
+	for _, root := range paths {
+		root = strings.TrimSuffix(root, "**")
+		root = strings.TrimSuffix(root, string(os.PathSeparator))
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absRoot, dir)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		if rel == "." {
+			return nil, nil
+		}
+		owner, _ := request.UserFrom(ctx)
+		repo := s.ds.PlaylistFolder(ctx)
+		parts := strings.Split(rel, string(os.PathSeparator))
+		var parentID *string
+		for _, p := range parts {
+			if p == "" {
+				continue
+			}
+			filters := sq.And{
+				sq.Eq{"playlist_folder.name": p},
+				sq.Eq{"playlist_folder.owner_id": owner.ID},
+			}
+			if parentID == nil {
+				filters = append(filters, sq.Eq{"playlist_folder.parent_id": nil})
+			} else {
+				filters = append(filters, sq.Eq{"playlist_folder.parent_id": *parentID})
+			}
+			folders, err := repo.GetAll(model.QueryOptions{Filters: filters, Max: 1})
+			if err != nil {
+				return nil, err
+			}
+			var id string
+			if len(folders) > 0 {
+				id = folders[0].ID
+			} else {
+				f := &model.PlaylistFolder{Name: p, OwnerID: owner.ID, Public: conf.Server.DefaultPlaylistPublicVisibility}
+				if parentID != nil {
+					f.ParentID = parentID
+				}
+				if err := repo.Put(f); err != nil {
+					return nil, err
+				}
+				id = f.ID
+			}
+			idCopy := id
+			parentID = &idCopy
+		}
+		return parentID, nil
+	}
+	return nil, nil
+}
+
 func (s *playlists) ImportFile(ctx context.Context, folder *model.Folder, filename string) (*model.Playlist, error) {
 	pls, err := s.parsePlaylist(ctx, filename, folder)
 	if err != nil {
 		log.Error(ctx, "Error parsing playlist", "path", filepath.Join(folder.AbsolutePath(), filename), err)
 		return nil, err
+	}
+	if fid, err := s.ensurePlaylistFolder(ctx, pls.Path); err == nil {
+		pls.FolderID = fid
+	} else {
+		log.Error(ctx, "Error ensuring playlist folder", "path", pls.Path, err)
 	}
 	log.Debug("Found playlist", "name", pls.Name, "lastUpdated", pls.UpdatedAt, "path", pls.Path, "numTracks", len(pls.Tracks))
 	err = s.updatePlaylist(ctx, pls)

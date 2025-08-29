@@ -3,7 +3,9 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -53,6 +55,41 @@ func (p *phasePlaylists) produce(put func(entry *model.Folder)) error {
 	if !u.IsAdmin {
 		log.Warn(p.ctx, "Playlists will not be imported, as there are no admin users yet, "+
 			"Please create an admin user first, and then update the playlists for them to be imported")
+		return nil
+	}
+
+	if conf.Server.PlaylistsPath != "" {
+		count := 0
+		for _, root := range strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator)) {
+			root = strings.TrimSuffix(root, "**")
+			root = strings.TrimSuffix(root, string(os.PathSeparator))
+			err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return nil
+				}
+				if !d.IsDir() {
+					return nil
+				}
+				if strings.HasPrefix(d.Name(), ".") {
+					return filepath.SkipDir
+				}
+				rel, _ := filepath.Rel(root, path)
+				lib := model.Library{ID: 0, Path: root}
+				f := model.NewFolder(lib, rel)
+				f.LibraryPath = root
+				count++
+				put(f)
+				return nil
+			})
+			if err != nil {
+				log.Error(p.ctx, "Scanner: error walking playlists path", "path", root, err)
+			}
+		}
+		if count == 0 {
+			log.Debug(p.ctx, "Scanner: No playlists need refreshing")
+		} else {
+			log.Debug(p.ctx, "Scanner: Found folders with playlists that may need refreshing", "count", count)
+		}
 		return nil
 	}
 
