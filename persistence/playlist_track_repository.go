@@ -2,6 +2,8 @@ package persistence
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
@@ -125,6 +127,31 @@ func (r *playlistTrackRepository) GetAlbumIDs(options ...model.QueryOptions) ([]
 		return nil, err
 	}
 	return ids, nil
+}
+
+func (r *playlistTrackRepository) Search(q string, offset, size int, options ...model.QueryOptions) (model.PlaylistTracks, error) {
+	q = strings.TrimSpace(q)
+	q = strings.TrimSuffix(q, "*")
+	if len(q) < 2 {
+		return nil, nil
+	}
+
+	sel := r.newSelect(options...).
+		Join("media_file f on f.id = media_file_id").
+		Where(Eq{"playlist_id": r.playlistId})
+
+	if filter := fullTextExpr("f", q); filter != nil {
+		sel = sel.Where(filter).OrderBy("order_title")
+	} else {
+		sel = sel.OrderBy("playlist_tracks.rowid")
+	}
+	sel = sel.Where(Eq{"f.missing": false}).Limit(uint64(size)).Offset(uint64(offset))
+
+	tracks, err := r.playlistRepo.loadTracks(sel, r.playlistId)
+	if err != nil {
+		return nil, fmt.Errorf("searching playlist tracks by query %q: %w", q, err)
+	}
+	return tracks, nil
 }
 
 func (r *playlistTrackRepository) ReadAll(options ...rest.QueryOptions) (interface{}, error) {
