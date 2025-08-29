@@ -129,6 +129,7 @@ func (r *playlistRepository) Put(p *model.Playlist) error {
 		return err
 	}
 	p.ID = id
+	p.Type = "playlist"
 
 	if p.IsSmartPlaylist() {
 		// Do not update tracks at this point, as it may take a long time and lock the DB, breaking the scan process
@@ -161,7 +162,7 @@ func (r *playlistRepository) GetWithTracks(id string, refreshSmartPlaylist, incl
 		log.Error(r.ctx, "Error loading playlist tracks ", "playlist", pls.Name, "id", pls.ID, err)
 		return nil, err
 	}
-	pls.Tracks = tracks
+	pls.SetTracks(tracks)
 	return pls, nil
 }
 
@@ -180,7 +181,9 @@ func (r *playlistRepository) findBy(sql Sqlizer) (*model.Playlist, error) {
 		return nil, model.ErrNotFound
 	}
 
-	return &pls[0].Playlist, nil
+    p := &pls[0].Playlist
+    p.Type = "playlist"
+    return p, nil
 }
 
 func (r *playlistRepository) GetAll(options ...model.QueryOptions) (model.Playlists, error) {
@@ -195,6 +198,62 @@ func (r *playlistRepository) GetAll(options ...model.QueryOptions) (model.Playli
 		playlists[i] = p.Playlist
 	}
 	return playlists, err
+}
+
+func (r *playlistRepository) GetAllByPlaylistFolder(options ...model.QueryOptions) (model.Playlists, error) {
+	hasFolderFilter := r.hasFolderIDFilter(options...)
+	sel := r.selectPlaylist(options...).Where(r.userFilter())
+	if !hasFolderFilter {
+		sel = sel.Where(Eq{"folder_id": nil}) // root only
+	}
+	var res []dbPlaylist
+	if err := r.queryAll(sel, &res); err != nil {
+		return nil, err
+	}
+	out := make(model.Playlists, 0, len(res))
+	for _, pf := range res {
+		out = append(out, pf.Playlist)
+	}
+	return out, nil
+}
+
+func (r *playlistRepository) hasFolderIDFilter(options ...model.QueryOptions) bool {
+	if len(options) == 0 || options[0].Filters == nil {
+		return false
+	}
+	switch f := options[0].Filters.(type) {
+	case Eq:
+		_, exists := f["folder_id"]
+		return exists
+	case And:
+		for _, sub := range f {
+			if eq, ok := sub.(Eq); ok {
+				if _, exists := eq["folder_id"]; exists {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (r *playlistRepository) GetPlaylists(mediaFileId string) (model.Playlists, error) {
+	sel := r.selectPlaylist(model.QueryOptions{Sort: "name"}).
+		Join("playlist_tracks on playlist.id = playlist_tracks.playlist_id").
+		Where(And{Eq{"playlist_tracks.media_file_id": mediaFileId}, r.userFilter()})
+	var res []dbPlaylist
+	err := r.queryAll(sel, &res)
+	if err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			return model.Playlists{}, nil
+		}
+		return nil, err
+	}
+	playlists := make(model.Playlists, len(res))
+	for i, p := range res {
+		playlists[i] = p.Playlist
+	}
+	return playlists, nil
 }
 
 func (r *playlistRepository) selectPlaylist(options ...model.QueryOptions) SelectBuilder {
@@ -244,7 +303,7 @@ func (r *playlistRepository) refreshSmartPlaylist(pls *model.Playlist) bool {
 		From("media_file").LeftJoin("annotation on (" +
 		"annotation.item_id = media_file.id" +
 		" AND annotation.item_type = 'media_file'" +
-		" AND annotation.user_id = '" + userId(r.ctx) + "')")
+		" AND annotation.user_id = '" + usr.ID + "')")
 	sq = r.addCriteria(sq, rules)
 	insSql := Insert("playlist_tracks").Columns("id", "playlist_id", "media_file_id").Select(sq)
 	_, err = r.executeSQL(insSql)
@@ -360,6 +419,8 @@ func (r *playlistRepository) refreshCounters(pls *model.Playlist) error {
 }
 
 func (r *playlistRepository) loadTracks(sel SelectBuilder, id string) (model.PlaylistTracks, error) {
+	sel = r.applyLibraryFilter(sel, "f")
+	userID := loggedUser(r.ctx).ID
 	tracksQuery := sel.
 		Columns(
 			"coalesce(starred, 0) as starred",
@@ -370,11 +431,12 @@ func (r *playlistRepository) loadTracks(sel SelectBuilder, id string) (model.Pla
 			"f.*",
 			"playlist_tracks.*",
 			"library.path as library_path",
+			"library.name as library_name",
 		).
 		LeftJoin("annotation on (" +
 			"annotation.item_id = media_file_id" +
 			" AND annotation.item_type = 'media_file'" +
-			" AND annotation.user_id = '" + userId(r.ctx) + "')").
+			" AND annotation.user_id = '" + userID + "')").
 		Join("media_file f on f.id = media_file_id").
 		Join("library on f.library_id = library.id").
 		Where(Eq{"playlist_id": id})
@@ -493,6 +555,32 @@ func (r *playlistRepository) isWritable(playlistId string) bool {
 	}
 	pls, err := r.Get(playlistId)
 	return err == nil && pls.OwnerID == usr.ID
+}
+
+func (r *playlistRepository) UpdatePlaylistFolder(id string, folderID *string) error {
+	if err := rejectEmptyOptionalID(folderID); err != nil { return err }
+
+	playlist, err := r.Get(id)
+	if err != nil { return err }
+
+	if (playlist.FolderID == nil && folderID == nil) ||
+	   (playlist.FolderID != nil && folderID != nil && *playlist.FolderID == *folderID) {
+		return nil
+	}
+
+	if folderID != nil {
+		var dstOwner struct{ OwnerID string }
+		if err := r.queryOne(Select("owner_id").From("playlist_folder").Where(Eq{"id": *folderID}), &dstOwner); err != nil {
+			return err
+		}
+		usr := loggedUser(r.ctx)
+		if !usr.IsAdmin && dstOwner.OwnerID != usr.ID {
+			return rest.ErrPermissionDenied
+		}
+	}
+
+	playlist.FolderID = folderID
+	return r.Update(id, playlist, "folderId")
 }
 
 var _ model.PlaylistRepository = (*playlistRepository)(nil)

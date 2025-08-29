@@ -13,15 +13,19 @@ import song from './song'
 import album from './album'
 import artist from './artist'
 import playlist from './playlist'
+import playlist_folder from './playlist_folder'
 import radio from './radio'
 import share from './share'
+import library from './library'
 import { Player } from './audioplayer'
 import customRoutes from './routes'
 import {
+  libraryReducer,
   themeReducer,
   addToPlaylistDialogReducer,
   expandInfoDialogReducer,
   listenBrainzTokenDialogReducer,
+  saveQueueDialogReducer,
   playerReducer,
   albumViewReducer,
   activityReducer,
@@ -39,6 +43,9 @@ import SharePlayer from './share/SharePlayer'
 import { HTML5Backend } from 'react-dnd-html5-backend'
 import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
+import PlaylistCreate from './playlist/PlaylistCreate'
+import PlaylistShow from './playlist/PlaylistShow'
+import PlaylistEdit from './playlist/PlaylistEdit'
 
 const history = createHashHistory()
 
@@ -55,6 +62,7 @@ const adminStore = createAdminStore({
   dataProvider,
   history,
   customReducers: {
+    library: libraryReducer,
     player: playerReducer,
     albumView: albumViewReducer,
     theme: themeReducer,
@@ -62,6 +70,7 @@ const adminStore = createAdminStore({
     downloadMenuDialog: downloadMenuDialogReducer,
     expandInfoDialog: expandInfoDialogReducer,
     listenBrainzTokenDialog: listenBrainzTokenDialogReducer,
+    saveQueueDialog: saveQueueDialogReducer,
     shareDialog: shareDialogReducer,
     activity: activityReducer,
     settings: settingsReducer,
@@ -102,7 +111,13 @@ const Admin = (props) => {
         config.enableSharing && <Resource name="share" {...share} />,
         <Resource
           name="playlist"
-          {...playlist}
+          create={PlaylistCreate}
+          show={PlaylistShow}
+          edit={PlaylistEdit}
+        />,
+        <Resource
+          {...playlist_folder}
+          name="folder"
           options={{ subMenu: 'playlist' }}
         />,
         <Resource name="user" {...user} options={{ subMenu: 'settings' }} />,
@@ -120,7 +135,13 @@ const Admin = (props) => {
         ) : (
           <Resource name="transcoding" />
         ),
-
+        permissions === 'admin' ? (
+          <Resource
+            name="library"
+            {...library}
+            options={{ subMenu: 'settings' }}
+          />
+        ) : null,
         permissions === 'admin' ? (
           <Resource
             name="missing"
@@ -135,6 +156,7 @@ const Admin = (props) => {
         <Resource name="playlistTrack" />,
         <Resource name="keepalive" />,
         <Resource name="insights" />,
+        <Resource name="config" />,
         <Player />,
       ]}
     </RAAdmin>

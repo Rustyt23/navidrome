@@ -10,6 +10,7 @@ import {
   ReferenceArrayInput,
   ReferenceInput,
   SearchInput,
+  usePermissions,
   useRefresh,
   useTranslate,
   useVersion,
@@ -31,7 +32,7 @@ import albumLists, { defaultAlbumList } from './albumLists'
 import config from '../config'
 import AlbumInfo from './AlbumInfo'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
-import inflection from 'inflection'
+import { humanize } from 'inflection'
 import { makeStyles } from '@material-ui/core/styles'
 
 const useStyles = makeStyles({
@@ -44,6 +45,8 @@ const useStyles = makeStyles({
 const AlbumFilter = (props) => {
   const classes = useStyles()
   const translate = useTranslate()
+  const { permissions } = usePermissions()
+  const isAdmin = permissions === 'admin'
   return (
     <Filter {...props} variant={'outlined'}>
       <SearchInput id="search" source="name" alwaysOn />
@@ -140,9 +143,7 @@ const AlbumFilter = (props) => {
         <AutocompleteInput
           emptyText="-- None --"
           optionText={(record) =>
-            record?.tagValue
-              ? inflection.humanize(record?.tagValue)
-              : '-- None --'
+            record?.tagValue ? humanize(record?.tagValue) : '-- None --'
           }
         />
       </ReferenceInput>
@@ -155,6 +156,7 @@ const AlbumFilter = (props) => {
           defaultValue={true}
         />
       )}
+      {isAdmin && <NullableBooleanInput source="missing" />}
     </Filter>
   )
 }
@@ -198,6 +200,7 @@ const AlbumList = (props) => {
       'songCount',
       'playCount',
       'year',
+      'mood',
       'duration',
       'rating',
       'size',

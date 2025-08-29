@@ -18,7 +18,7 @@ import {
   useTranslate,
   useVersion,
 } from 'react-admin'
-import Logo from '../icons/logo.png'
+import Logo from '../icons/android-icon-192x192.png'
 
 import Notification from './Notification'
 import useCurrentTheme from '../themes/useCurrentTheme'
@@ -125,12 +125,12 @@ const FormLogin = ({ loading, handleSubmit, validate }) => {
               </div>
               <div className={classes.systemName}>
                 <a
-                  href="https://musicmatters.rustyt.in"
+                  href="https://www.navidrome.org"
                   target="_blank"
                   rel="noopener noreferrer"
                   className={classes.systemNameLink}
                 >
-                  MusicMatters
+                  Navidrome
                 </a>
               </div>
               {config.welcomeMessage && (

@@ -14,6 +14,9 @@ const (
 	DefaultDbPath                 = "navidrome.db?cache=shared&_busy_timeout=15000&_journal_mode=WAL&_foreign_keys=on&synchronous=normal"
 	InitialSetupFlagKey           = "InitialSetup"
 	FullScanAfterMigrationFlagKey = "FullScanAfterMigration"
+	LastScanErrorKey              = "LastScanError"
+	LastScanTypeKey               = "LastScanType"
+	LastScanStartTimeKey          = "LastScanStartTime"
 
 	UIAuthorizationHeader  = "X-ND-Authorization"
 	UIClientUniqueIDHeader = "X-ND-Client-Unique-Id"
@@ -112,6 +115,12 @@ const (
 	InsightsInitialDelay   = 30 * time.Minute
 )
 
+const (
+	PurgeMissingNever  = "never"
+	PurgeMissingAlways = "always"
+	PurgeMissingFull   = "full"
+)
+
 var (
 	DefaultDownsamplingFormat = "opus"
 	DefaultTranscodings       = []struct {
@@ -151,13 +160,17 @@ var (
 	UnknownArtistID     = id.NewHash(strings.ToLower(UnknownArtist))
 	VariousArtistsMbzId = "89ad4ac3-39f7-470e-963a-56509c546377"
 
-	ServerStart = time.Now()
+	ArtistJoiner = " • "
 )
 
-var InContainer = func() bool {
-	// Check if the /.nddockerenv file exists
-	if _, err := os.Stat("/.nddockerenv"); err == nil {
-		return true
-	}
-	return false
-}()
+var (
+	ServerStart = time.Now()
+
+	InContainer = func() bool {
+		// Check if the /.nddockerenv file exists
+		if _, err := os.Stat("/.nddockerenv"); err == nil {
+			return true
+		}
+		return false
+	}()
+)

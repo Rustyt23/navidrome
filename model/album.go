@@ -14,10 +14,12 @@ type Album struct {
 
 	ID            string `structs:"id" json:"id"`
 	LibraryID     int    `structs:"library_id" json:"libraryId"`
+	LibraryPath   string `structs:"-" json:"libraryPath" hash:"ignore"`
+	LibraryName   string `structs:"-" json:"libraryName" hash:"ignore"`
 	Name          string `structs:"name" json:"name"`
 	EmbedArtPath  string `structs:"embed_art_path" json:"-"`
 	AlbumArtistID string `structs:"album_artist_id" json:"albumArtistId"` // Deprecated, use Participants
-	// BFR Rename to AlbumArtistDisplayName
+	// AlbumArtist is the display name used for the album artist.
 	AlbumArtist          string   `structs:"album_artist" json:"albumArtist"`
 	MaxYear              int      `structs:"max_year" json:"maxYear"`
 	MinYear              int      `structs:"min_year" json:"minYear"`

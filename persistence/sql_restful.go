@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"reflect"
@@ -32,6 +33,11 @@ func (r *sqlRepository) parseRestFilters(ctx context.Context, options rest.Query
 			if filter := ff(f, v); filter != nil {
 				filters = append(filters, filter)
 			}
+			continue
+		}
+		// Ignore invalid filters (not based on a field or filter function)
+		if r.isFieldWhiteListed != nil && !r.isFieldWhiteListed(f) {
+			log.Warn(ctx, "Ignoring filter not whitelisted", "filter", f, "table", r.tableName)
 			continue
 		}
 		// For fields ending in "id", use an exact match
@@ -100,8 +106,15 @@ func booleanFilter(field string, value any) Sqlizer {
 	return Eq{field: v == "true"}
 }
 
-func fullTextFilter(tableName string) func(string, any) Sqlizer {
-	return func(field string, value any) Sqlizer { return fullTextExpr(tableName, value.(string)) }
+func fullTextFilter(tableName string, mbidFields ...string) func(string, any) Sqlizer {
+	return func(field string, value any) Sqlizer {
+		v := strings.ToLower(value.(string))
+		cond := cmp.Or(
+			mbidExpr(tableName, v, mbidFields...),
+			fullTextExpr(tableName, v),
+		)
+		return cond
+	}
 }
 
 func substringFilter(field string, value any) Sqlizer {

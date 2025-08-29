@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"errors"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/fatih/structs"
@@ -57,14 +58,6 @@ func toCamelCase(str string) string {
 	})
 }
 
-// rawSQL is a string that will be used as is in the SQL query executor
-// It does not support arguments
-type rawSQL string
-
-func (r rawSQL) ToSql() (string, []interface{}, error) {
-	return string(r), nil, nil
-}
-
 func Exists(subTable string, cond squirrel.Sqlizer) existsCond {
 	return existsCond{subTable: subTable, cond: cond, not: false}
 }
@@ -97,4 +90,13 @@ func mapSortOrder(tableName, order string) string {
 	order = strings.ToLower(order)
 	repl := fmt.Sprintf("(coalesce(nullif(%[1]s.sort_$1,''),%[1]s.order_$1) collate nocase)", tableName)
 	return sortOrderRegex.ReplaceAllString(order, repl)
+}
+
+var ErrInvalidRequest = errors.New("Invalid Request")
+
+func rejectEmptyOptionalID(id *string) error {
+    if id != nil && *id == "" {
+        return ErrInvalidRequest
+    }
+    return nil
 }

@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo } from 'react'
 import {
   AutocompleteArrayInput,
   Filter,
@@ -8,6 +8,8 @@ import {
   SearchInput,
   TextField,
   useTranslate,
+  NullableBooleanInput,
+  usePermissions,
 } from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
 import FavoriteIcon from '@material-ui/icons/Favorite'
@@ -26,10 +28,10 @@ import {
   ArtistLinkField,
   PathField,
 } from '../common'
-import { useSelector, useDispatch } from 'react-redux'
+import { useDispatch } from 'react-redux'
 import { makeStyles } from '@material-ui/core/styles'
 import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
-import { playTracks } from '../actions'
+import { setTrack } from '../actions'
 import { SongListActions } from './SongListActions'
 import { AlbumLinkField } from './AlbumLinkField'
 import { SongBulkActions, QualityInfo, useSelectedFields } from '../common'
@@ -67,6 +69,8 @@ const useStyles = makeStyles({
 const SongFilter = (props) => {
   const classes = useStyles()
   const translate = useTranslate()
+  const { permissions } = usePermissions()
+  const isAdmin = permissions === 'admin'
   return (
     <Filter {...props} variant={'outlined'}>
       <SearchInput source="title" alwaysOn />
@@ -121,6 +125,7 @@ const SongFilter = (props) => {
           defaultValue={true}
         />
       )}
+      {isAdmin && <NullableBooleanInput source="missing" />}
     </Filter>
   )
 }
@@ -131,40 +136,11 @@ const SongList = (props) => {
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   useResourceRefresh('song')
-  const songs = useSelector((state) => state.admin.resources.song)
 
-  const handleRowClick = useCallback((id, basePath, record) => {
-      // Convert songs.data to an array if it's an object
-      const songsArray = Array.isArray(songs.data) ? songs.data : Object.values(songs.data);
-    
-      if (songsArray.length > 0 && Array.isArray(songs.list?.ids)) {
-        // Filter songs to include only those whose IDs exist in songs.list.ids
-        const filteredSongs = songsArray.filter(song => songs.list.ids.includes(song.id));
-    
-        // Find the index of the selected song
-        const index = filteredSongs.findIndex(song => song.id === record.id);
-    
-        if (index !== -1) {
-          // Rearrange array to start from the selected song
-          const orderedSongs = [
-            ...filteredSongs.slice(index),
-            ...filteredSongs.slice(0, index)
-          ];
-    
-          // Convert the array into an object where key = song.id, value = song
-          // const updatedSongs = Object.fromEntries(orderedSongs.map(song => [song.id, song]));
+  const handleRowClick = (id, basePath, record) => {
+    dispatch(setTrack(record))
+  }
 
-          // Convert array to an object with index-based keys, updating the song id as well
-          const updatedSongs = Object.fromEntries(
-            orderedSongs.map((song, idx) => 
-               [idx, song] // Setting both the key and `id` inside each song
-            )
-          );
-          
-          dispatch(playTracks(updatedSongs,0));
-        }
-      }
-    }, [dispatch, songs.data, songs.list?.ids]);
   const toggleableFields = useMemo(() => {
     return {
       album: isDesktop && <AlbumLinkField source="album" sortByOrder={'ASC'} />,
@@ -197,9 +173,18 @@ const SongList = (props) => {
       ),
       bpm: isDesktop && <NumberField source="bpm" />,
       genre: <TextField source="genre" />,
+      mood: isDesktop && (
+        <FunctionField
+          source="mood"
+          render={(r) => r.tags?.mood?.[0] || ''}
+          sortable={false}
+        />
+      ),
       comment: <TextField source="comment" />,
       path: <PathField source="path" />,
-      createdAt: <DateField source="createdAt" showTime />,
+      createdAt: (
+        <DateField source="createdAt" sortBy="recently_added" showTime />
+      ),
     }
   }, [isDesktop, classes.ratingField])
 
@@ -212,6 +197,7 @@ const SongList = (props) => {
       'playDate',
       'albumArtist',
       'genre',
+      'mood',
       'comment',
       'path',
       'createdAt',

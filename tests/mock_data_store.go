@@ -2,28 +2,33 @@ package tests
 
 import (
 	"context"
+	"sync"
 
 	"github.com/navidrome/navidrome/model"
 )
 
 type MockDataStore struct {
-	RealDS               model.DataStore
-	MockedLibrary        model.LibraryRepository
-	MockedFolder         model.FolderRepository
-	MockedGenre          model.GenreRepository
-	MockedAlbum          model.AlbumRepository
-	MockedArtist         model.ArtistRepository
-	MockedMediaFile      model.MediaFileRepository
-	MockedTag            model.TagRepository
-	MockedUser           model.UserRepository
-	MockedProperty       model.PropertyRepository
-	MockedPlayer         model.PlayerRepository
-	MockedPlaylist       model.PlaylistRepository
-	MockedShare          model.ShareRepository
-	MockedTranscoding    model.TranscodingRepository
-	MockedUserProps      model.UserPropsRepository
-	MockedScrobbleBuffer model.ScrobbleBufferRepository
-	MockedRadio          model.RadioRepository
+	RealDS               		model.DataStore
+	MockedLibrary        		model.LibraryRepository
+	MockedFolder         		model.FolderRepository
+	MockedGenre          		model.GenreRepository
+	MockedAlbum          		model.AlbumRepository
+	MockedArtist         		model.ArtistRepository
+	MockedMediaFile      		model.MediaFileRepository
+	MockedTag            		model.TagRepository
+	MockedUser           		model.UserRepository
+	MockedProperty       		model.PropertyRepository
+	MockedPlayer         		model.PlayerRepository
+	MockedPlaylist       		model.PlaylistRepository
+	MockedPlaylistFolder 		model.PlaylistFolderRepository
+	MockedPlayQueue      		model.PlayQueueRepository
+	MockedShare          		model.ShareRepository
+	MockedTranscoding    		model.TranscodingRepository
+	MockedUserProps      		model.UserPropsRepository
+	MockedScrobbleBuffer 		model.ScrobbleBufferRepository
+	MockedRadio          		model.RadioRepository
+	scrobbleBufferMu     		sync.Mutex
+	repoMu               		sync.Mutex
 }
 
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {
@@ -82,6 +87,8 @@ func (db *MockDataStore) Artist(ctx context.Context) model.ArtistRepository {
 }
 
 func (db *MockDataStore) MediaFile(ctx context.Context) model.MediaFileRepository {
+	db.repoMu.Lock()
+	defer db.repoMu.Unlock()
 	if db.MockedMediaFile == nil {
 		if db.RealDS != nil {
 			db.MockedMediaFile = db.RealDS.MediaFile(ctx)
@@ -114,11 +121,26 @@ func (db *MockDataStore) Playlist(ctx context.Context) model.PlaylistRepository 
 	return db.MockedPlaylist
 }
 
-func (db *MockDataStore) PlayQueue(ctx context.Context) model.PlayQueueRepository {
-	if db.RealDS != nil {
-		return db.RealDS.PlayQueue(ctx)
+func (db *MockDataStore) PlaylistFolder(ctx context.Context) model.PlaylistFolderRepository {
+	if db.MockedPlaylistFolder == nil {
+		if db.RealDS != nil {
+			db.MockedPlaylistFolder = db.RealDS.PlaylistFolder(ctx)
+		} else {
+			db.MockedPlaylistFolder = &MockPlaylistFolderRepo{}
+		}
 	}
-	return struct{ model.PlayQueueRepository }{}
+	return db.MockedPlaylistFolder
+}
+
+func (db *MockDataStore) PlayQueue(ctx context.Context) model.PlayQueueRepository {
+	if db.MockedPlayQueue == nil {
+		if db.RealDS != nil {
+			db.MockedPlayQueue = db.RealDS.PlayQueue(ctx)
+		} else {
+			db.MockedPlayQueue = &MockPlayQueueRepo{}
+		}
+	}
+	return db.MockedPlayQueue
 }
 
 func (db *MockDataStore) UserProps(ctx context.Context) model.UserPropsRepository {
@@ -188,6 +210,8 @@ func (db *MockDataStore) Player(ctx context.Context) model.PlayerRepository {
 }
 
 func (db *MockDataStore) ScrobbleBuffer(ctx context.Context) model.ScrobbleBufferRepository {
+	db.scrobbleBufferMu.Lock()
+	defer db.scrobbleBufferMu.Unlock()
 	if db.MockedScrobbleBuffer == nil {
 		if db.RealDS != nil {
 			db.MockedScrobbleBuffer = db.RealDS.ScrobbleBuffer(ctx)
@@ -217,8 +241,33 @@ func (db *MockDataStore) WithTxImmediate(block func(tx model.DataStore) error, l
 	return block(db)
 }
 
-func (db *MockDataStore) Resource(context.Context, any) model.ResourceRepository {
-	return struct{ model.ResourceRepository }{}
+func (db *MockDataStore) Resource(ctx context.Context, m any) model.ResourceRepository {
+	switch m.(type) {
+	case model.MediaFile, *model.MediaFile:
+		return db.MediaFile(ctx).(model.ResourceRepository)
+	case model.Album, *model.Album:
+		return db.Album(ctx).(model.ResourceRepository)
+	case model.Artist, *model.Artist:
+		return db.Artist(ctx).(model.ResourceRepository)
+	case model.User, *model.User:
+		return db.User(ctx).(model.ResourceRepository)
+	case model.Playlist, *model.Playlist:
+		return db.Playlist(ctx).(model.ResourceRepository)
+	case model.Radio, *model.Radio:
+		return db.Radio(ctx).(model.ResourceRepository)
+	case model.Share, *model.Share:
+		return db.Share(ctx).(model.ResourceRepository)
+	case model.Genre, *model.Genre:
+		return db.Genre(ctx).(model.ResourceRepository)
+	case model.Tag, *model.Tag:
+		return db.Tag(ctx).(model.ResourceRepository)
+	case model.Transcoding, *model.Transcoding:
+		return db.Transcoding(ctx).(model.ResourceRepository)
+	case model.Player, *model.Player:
+		return db.Player(ctx).(model.ResourceRepository)
+	default:
+		return struct{ model.ResourceRepository }{}
+	}
 }
 
 func (db *MockDataStore) GC(context.Context) error {

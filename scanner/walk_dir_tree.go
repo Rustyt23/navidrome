@@ -9,77 +9,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
-	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils"
-	"github.com/navidrome/navidrome/utils/chrono"
 	ignore "github.com/sabhiram/go-gitignore"
 )
-
-type folderEntry struct {
-	job             *scanJob
-	elapsed         chrono.Meter
-	path            string    // Full path
-	id              string    // DB ID
-	modTime         time.Time // From FS
-	updTime         time.Time // from DB
-	audioFiles      map[string]fs.DirEntry
-	imageFiles      map[string]fs.DirEntry
-	numPlaylists    int
-	numSubFolders   int
-	imagesUpdatedAt time.Time
-	tracks          model.MediaFiles
-	albums          model.Albums
-	albumIDMap      map[string]string
-	artists         model.Artists
-	tags            model.TagList
-	missingTracks   []*model.MediaFile
-}
-
-func (f *folderEntry) hasNoFiles() bool {
-	return len(f.audioFiles) == 0 && len(f.imageFiles) == 0 && f.numPlaylists == 0 && f.numSubFolders == 0
-}
-
-func (f *folderEntry) isNew() bool {
-	return f.updTime.IsZero()
-}
-
-func (f *folderEntry) toFolder() *model.Folder {
-	folder := model.NewFolder(f.job.lib, f.path)
-	folder.NumAudioFiles = len(f.audioFiles)
-	if core.InPlaylistsPath(*folder) {
-		folder.NumPlaylists = f.numPlaylists
-	}
-	folder.ImageFiles = slices.Collect(maps.Keys(f.imageFiles))
-	folder.ImagesUpdatedAt = f.imagesUpdatedAt
-	return folder
-}
-
-func newFolderEntry(job *scanJob, path string) *folderEntry {
-	id := model.FolderID(job.lib, path)
-	f := &folderEntry{
-		id:         id,
-		job:        job,
-		path:       path,
-		audioFiles: make(map[string]fs.DirEntry),
-		imageFiles: make(map[string]fs.DirEntry),
-		albumIDMap: make(map[string]string),
-		updTime:    job.popLastUpdate(id),
-	}
-	f.elapsed.Start()
-	return f
-}
-
-func (f *folderEntry) isOutdated() bool {
-	if f.job.lib.FullScanInProgress {
-		return f.updTime.Before(f.job.lib.LastScanStartedAt)
-	}
-	return f.updTime.Before(f.modTime)
-}
 
 func walkDirTree(ctx context.Context, job *scanJob) (<-chan *folderEntry, error) {
 	results := make(chan *folderEntry)
@@ -115,6 +52,8 @@ func walkFolder(ctx context.Context, job *scanJob, currentFolder string, ignoreP
 		"images", maps.Keys(folder.imageFiles), "playlists", folder.numPlaylists, "imagesUpdatedAt", folder.imagesUpdatedAt,
 		"updTime", folder.updTime, "modTime", folder.modTime, "numChildren", len(children))
 	folder.path = dir
+	folder.elapsed.Start()
+
 	results <- folder
 
 	return nil
@@ -145,7 +84,10 @@ func loadIgnoredPatterns(ctx context.Context, fsys fs.FS, currentFolder string, 
 		}
 		// If the .ndignore file is empty, mimic the current behavior and ignore everything
 		if len(newPatterns) == 0 {
+			log.Trace(ctx, "Scanner: .ndignore file is empty, ignoring everything", "path", currentFolder)
 			newPatterns = []string{"**/*"}
+		} else {
+			log.Trace(ctx, "Scanner: .ndignore file found ", "path", ignoreFilePath, "patterns", newPatterns)
 		}
 	}
 	// Combine the patterns from the .ndignore file with the ones passed as argument
@@ -180,7 +122,7 @@ func loadDir(ctx context.Context, job *scanJob, dirPath string, ignorePatterns [
 	children = make([]string, 0, len(entries))
 	for _, entry := range entries {
 		entryPath := path.Join(dirPath, entry.Name())
-		if len(ignorePatterns) > 0 && isScanIgnored(ignoreMatcher, entryPath) {
+		if len(ignorePatterns) > 0 && isScanIgnored(ctx, ignoreMatcher, entryPath) {
 			log.Trace(ctx, "Scanner: Ignoring entry", "path", entryPath)
 			continue
 		}
@@ -262,6 +204,10 @@ func isDirOrSymlinkToDir(fsys fs.FS, baseDir string, dirEnt fs.DirEntry) (bool, 
 	if dirEnt.Type()&fs.ModeSymlink == 0 {
 		return false, nil
 	}
+	// If symlinks are disabled, return false for symlinks
+	if !conf.Server.Scanner.FollowSymlinks {
+		return false, nil
+	}
 	// Does this symlink point to a directory?
 	fileInfo, err := fs.Stat(fsys, path.Join(baseDir, dirEnt.Name()))
 	if err != nil {
@@ -309,6 +255,10 @@ func isEntryIgnored(name string) bool {
 	return strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "..")
 }
 
-func isScanIgnored(matcher *ignore.GitIgnore, entryPath string) bool {
-	return matcher.MatchesPath(entryPath)
+func isScanIgnored(ctx context.Context, matcher *ignore.GitIgnore, entryPath string) bool {
+	matches := matcher.MatchesPath(entryPath)
+	if matches {
+		log.Trace(ctx, "Scanner: Ignoring entry matching .ndignore: ", "path", entryPath)
+	}
+	return matches
 }

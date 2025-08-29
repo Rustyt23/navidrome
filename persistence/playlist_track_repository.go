@@ -21,14 +21,7 @@ type dbPlaylistTrack struct {
 	dbMediaFile
 	*model.PlaylistTrack `structs:",flatten"`
 }
-func (r *playlistTrackRepository) Search(q string, offset int, size int, includeMissing bool) (model.PlaylistTracks, error) {
-	var res dbPlaylistTracks
-	err := r.doSearch(r.newSelect(), q, offset, size, includeMissing, &res, "title")
-	if err != nil {
-		return nil, err
-	}
-	return res.toModels(), err
-}
+
 func (t *dbPlaylistTrack) PostScan() error {
 	if err := t.dbMediaFile.PostScan(); err != nil {
 		return err
@@ -54,15 +47,21 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 	p.db = r.db
 	p.tableName = "playlist_tracks"
 	p.registerModel(&model.PlaylistTrack{}, map[string]filterFunc{
-		"missing": booleanFilter,
+		"missing":    booleanFilter,
+		"library_id": libraryIdFilter,
 	})
 	p.setSortMappings(
 		map[string]string{
-			"id":       "playlist_tracks.id",
-			"artist":   "order_artist_name",
-			"album":    "order_album_name, order_album_artist_name",
-			"title":    "order_title",
-			"duration": "duration", // To make sure the field will be whitelisted
+			"id":           "playlist_tracks.id",
+			"artist":       "order_artist_name",
+			"album_artist": "order_album_artist_name",
+			"album":        "order_album_name, order_album_artist_name",
+			"title":        "order_title",
+			// To make sure these fields will be whitelisted
+			"duration": "duration",
+			"year":     "year",
+			"bpm":      "bpm",
+			"channels": "channels",
 		},
 		"f") // TODO I don't like this solution, but I won't change it now as it's not the focus of BFR.
 
@@ -86,11 +85,12 @@ func (r *playlistTrackRepository) Count(options ...rest.QueryOptions) (int64, er
 }
 
 func (r *playlistTrackRepository) Read(id string) (interface{}, error) {
+	userID := loggedUser(r.ctx).ID
 	sel := r.newSelect().
 		LeftJoin("annotation on ("+
 			"annotation.item_id = media_file_id"+
 			" AND annotation.item_type = 'media_file'"+
-			" AND annotation.user_id = '"+userId(r.ctx)+"')").
+			" AND annotation.user_id = '"+userID+"')").
 		Columns(
 			"coalesce(starred, 0) as starred",
 			"coalesce(play_count, 0) as play_count",
@@ -101,10 +101,10 @@ func (r *playlistTrackRepository) Read(id string) (interface{}, error) {
 			"playlist_tracks.*",
 		).
 		Join("media_file f on f.id = media_file_id").
-		Where(And{Eq{"playlist_id": r.playlistId}, Eq{"id": id}})
+		Where(And{Eq{"playlist_id": r.playlistId}, Eq{"playlist_tracks.id": id}})
 	var trk dbPlaylistTrack
 	err := r.queryOne(sel, &trk)
-	return trk.PlaylistTrack.MediaFile, err
+	return trk.PlaylistTrack, err
 }
 
 func (r *playlistTrackRepository) GetAll(options ...model.QueryOptions) (model.PlaylistTracks, error) {

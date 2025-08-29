@@ -92,7 +92,6 @@ type MusicFolders struct {
 type Artist struct {
 	Id             string     `xml:"id,attr"                           json:"id"`
 	Name           string     `xml:"name,attr"                         json:"name"`
-	AlbumCount     int32      `xml:"albumCount,attr,omitempty"         json:"albumCount,omitempty"`
 	Starred        *time.Time `xml:"starred,attr,omitempty"            json:"starred,omitempty"`
 	UserRating     int32      `xml:"userRating,attr,omitempty"         json:"userRating,omitempty"`
 	CoverArt       string     `xml:"coverArt,attr,omitempty"           json:"coverArt,omitempty"`
@@ -177,6 +176,7 @@ type OpenSubsonicChild struct {
 	SortName           string              `xml:"sortName,attr,omitempty"           json:"sortName"`
 	MediaType          MediaType           `xml:"mediaType,attr,omitempty"          json:"mediaType"`
 	MusicBrainzId      string              `xml:"musicBrainzId,attr,omitempty"      json:"musicBrainzId"`
+	Isrc               Array[string]       `xml:"isrc,omitempty"                  json:"isrc"`
 	Genres             Array[ItemGenre]    `xml:"genres,omitempty"                  json:"genres"`
 	ReplayGain         ReplayGain          `xml:"replayGain,omitempty"              json:"replayGain"`
 	ChannelCount       int32               `xml:"channelCount,attr,omitempty"       json:"channelCount"`
@@ -233,7 +233,7 @@ type ArtistID3 struct {
 	Id                     string     `xml:"id,attr"                            json:"id"`
 	Name                   string     `xml:"name,attr"                          json:"name"`
 	CoverArt               string     `xml:"coverArt,attr,omitempty"            json:"coverArt,omitempty"`
-	AlbumCount             int32      `xml:"albumCount,attr,omitempty"          json:"albumCount,omitempty"`
+	AlbumCount             int32      `xml:"albumCount,attr"                    json:"albumCount"`
 	Starred                *time.Time `xml:"starred,attr,omitempty"             json:"starred,omitempty"`
 	UserRating             int32      `xml:"userRating,attr,omitempty"          json:"userRating,omitempty"`
 	ArtistImageUrl         string     `xml:"artistImageUrl,attr,omitempty"      json:"artistImageUrl,omitempty"`
@@ -285,7 +285,7 @@ type OpenSubsonicAlbumID3 struct {
 
 type ArtistWithAlbumsID3 struct {
 	ArtistID3
-	Album []Child `xml:"album"                              json:"album,omitempty"`
+	Album []AlbumID3 `xml:"album"                              json:"album,omitempty"`
 }
 
 type AlbumWithSongsID3 struct {
@@ -477,10 +477,13 @@ type Shares struct {
 }
 
 type ScanStatus struct {
-	Scanning    bool       `xml:"scanning,attr"            json:"scanning"`
-	Count       int64      `xml:"count,attr"               json:"count"`
-	FolderCount int64      `xml:"folderCount,attr"         json:"folderCount"`
-	LastScan    *time.Time `xml:"lastScan,attr,omitempty"  json:"lastScan,omitempty"`
+	Scanning    bool       `xml:"scanning,attr"              json:"scanning"`
+	Count       int64      `xml:"count,attr"                 json:"count"`
+	FolderCount int64      `xml:"folderCount,attr"           json:"folderCount"`
+	LastScan    *time.Time `xml:"lastScan,attr,omitempty"    json:"lastScan,omitempty"`
+	Error       string     `xml:"error,attr,omitempty"       json:"error,omitempty"`
+	ScanType    string     `xml:"scanType,attr,omitempty"    json:"scanType,omitempty"`
+	ElapsedTime int64      `xml:"elapsedTime,attr,omitempty" json:"elapsedTime,omitempty"`
 }
 
 type Lyrics struct {
@@ -543,16 +546,16 @@ type ItemGenre struct {
 }
 
 type ReplayGain struct {
-	TrackGain    float64 `xml:"trackGain,omitempty,attr"    json:"trackGain,omitempty"`
-	AlbumGain    float64 `xml:"albumGain,omitempty,attr"    json:"albumGain,omitempty"`
-	TrackPeak    float64 `xml:"trackPeak,omitempty,attr"    json:"trackPeak,omitempty"`
-	AlbumPeak    float64 `xml:"albumPeak,omitempty,attr"    json:"albumPeak,omitempty"`
-	BaseGain     float64 `xml:"baseGain,omitempty,attr"     json:"baseGain,omitempty"`
-	FallbackGain float64 `xml:"fallbackGain,omitempty,attr" json:"fallbackGain,omitempty"`
+	TrackGain    *float64 `xml:"trackGain,omitempty,attr"    json:"trackGain,omitempty"`
+	AlbumGain    *float64 `xml:"albumGain,omitempty,attr"    json:"albumGain,omitempty"`
+	TrackPeak    *float64 `xml:"trackPeak,omitempty,attr"    json:"trackPeak,omitempty"`
+	AlbumPeak    *float64 `xml:"albumPeak,omitempty,attr"    json:"albumPeak,omitempty"`
+	BaseGain     *float64 `xml:"baseGain,omitempty,attr"     json:"baseGain,omitempty"`
+	FallbackGain *float64 `xml:"fallbackGain,omitempty,attr" json:"fallbackGain,omitempty"`
 }
 
 func (r ReplayGain) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
-	if r.TrackGain == 0 && r.AlbumGain == 0 && r.TrackPeak == 0 && r.AlbumPeak == 0 && r.BaseGain == 0 && r.FallbackGain == 0 {
+	if r.TrackGain == nil && r.AlbumGain == nil && r.TrackPeak == nil && r.AlbumPeak == nil && r.BaseGain == nil && r.FallbackGain == nil {
 		return nil
 	}
 	type replayGain ReplayGain

@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import {
   Edit,
   FormDataConsumer,
@@ -10,16 +11,28 @@ import {
   usePermissions,
   ReferenceInput,
   SelectInput,
+  useNotify,
+  useRedirect,
+  useRefresh,
+  useDataProvider,
+  useRecordContext,
+  Toolbar,
+  SaveButton,
 } from 'react-admin'
+import { useLocation } from 'react-router-dom'
+import { useFormState } from 'react-final-form'
+import { makeStyles } from '@material-ui/core/styles'
+import Button from '@material-ui/core/Button'
+import DeleteIcon from '@material-ui/icons/Delete'
 import { isWritable, Title } from '../common'
 
 const SyncFragment = ({ formData, variant, ...rest }) => {
   return (
-    <>
-      {formData.path && <BooleanInput source="sync" {...rest} />}
-      {formData.path && <TextField source="path" {...rest} />}
-    </>
-  )
+  <>
+    {formData.path && <BooleanInput source="sync" {...rest} />}
+    {formData.path && <TextField source="path" {...rest} />}
+  </>
+)
 }
 
 const PlaylistTitle = ({ record }) => {
@@ -28,11 +41,97 @@ const PlaylistTitle = ({ record }) => {
   return <Title subTitle={`${resourceName} "${record ? record.name : ''}"`} />
 }
 
-const PlaylistEditForm = (props) => {
-  const { record } = props
-  const { permissions } = usePermissions()
+const useToolbarStyles = makeStyles((theme) => ({
+  root: { display: 'flex', alignItems: 'center', padding: theme.spacing(1, 2) },
+  grow: { flex: 1 },
+  delete: { color: theme.palette.error.main },
+}))
+
+const PlaylistEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
+  const classes = useToolbarStyles()
+  const record = useRecordContext()
+  const dataProvider = useDataProvider()
+  const notify = useNotify()
+  const redirect = useRedirect()
+  const refresh = useRefresh()
+  const location = useLocation()
+
+  const { pristine, submitting, invalid } = useFormState({
+    subscription: { pristine: true, submitting: true, invalid: true },
+  })
+  const saveDisabled = pristine || submitting || invalid
+
+  const handleDelete = async () => {
+    if (!record?.id) return
+    try {
+      await dataProvider.delete('playlist', { id: record.id })
+      notify('ra.notification.deleted', { type: 'info', messageArgs: { smart_count: 1 } })
+
+      const folderId = record?.folderId ?? location.state?.folderId ?? null
+      if (folderId) redirect(`/folder/${folderId}/show`)
+      else redirect('list', '/folder')
+
+      refresh()
+    } catch (e) {
+      notify(e?.message || 'ra.notification.http_error', { type: 'warning' })
+    }
+  }
+
   return (
-    <SimpleForm redirect="list" variant={'outlined'} {...props}>
+    <Toolbar className={classes.root}>
+      <SaveButton
+        variant="contained"
+        color="primary"
+        disabled={saveDisabled}
+        saving={saving ?? submitting}
+        handleSubmitWithRedirect={handleSubmitWithRedirect}
+      />
+      <span className={classes.grow} />
+      <Button onClick={handleDelete} startIcon={<DeleteIcon />} className={classes.delete}>
+        DELETE
+      </Button>
+    </Toolbar>
+  )
+}
+
+const PlaylistEditForm = () => {
+  const { permissions } = usePermissions()
+  const record = useRecordContext()
+  const dataProvider = useDataProvider()
+  const notify = useNotify()
+  const redirect = useRedirect()
+  const refresh = useRefresh()
+  const location = useLocation()
+
+  const savePlaylist = useCallback(
+    async (values) => {
+      if (!record?.id) return
+      try {
+        const res = await dataProvider.update('playlist', { id: record.id, data: values })
+        const saved = res?.data ?? values
+        notify('ra.notification.updated', { type: 'info', messageArgs: { smart_count: 1 } })
+
+        const folderId =
+          saved?.folderId ?? saved?.folder_id ?? location.state?.folderId ?? null
+
+        if (folderId) redirect(`/folder/${folderId}/show`)
+        else redirect('list', '/folder')
+
+        refresh()
+      } catch (e) {
+        notify(e?.message || 'ra.page.error', { type: 'warning' })
+      }
+    },
+    [dataProvider, record?.id, notify, redirect, refresh, location]
+  )
+
+  return (
+    <SimpleForm
+      save={savePlaylist}
+      variant={'outlined'}
+      redirect={false}
+      toolbar={<PlaylistEditToolbar />}
+    >
       <TextInput source="name" validate={required()} />
       <TextInput multiline source="comment" />
       {permissions === 'admin' ? (
@@ -50,7 +149,13 @@ const PlaylistEditForm = (props) => {
       ) : (
         <TextField source="ownerName" />
       )}
-      <BooleanInput source="public" disabled={!isWritable(record.ownerId)} />
+
+      <FormDataConsumer>
+        {({ formData }) => (
+          <BooleanInput source="public" disabled={!isWritable(formData?.ownerId)} />
+        )}
+      </FormDataConsumer>
+
       <FormDataConsumer>
         {(formDataProps) => <SyncFragment {...formDataProps} />}
       </FormDataConsumer>
@@ -60,7 +165,7 @@ const PlaylistEditForm = (props) => {
 
 const PlaylistEdit = (props) => (
   <Edit title={<PlaylistTitle />} actions={false} {...props}>
-    <PlaylistEditForm {...props} />
+    <PlaylistEditForm />
   </Edit>
 )
 

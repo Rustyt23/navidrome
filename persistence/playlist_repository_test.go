@@ -79,13 +79,13 @@ var _ = Describe("PlaylistRepository", func() {
 	It("Put/Exists/Delete", func() {
 		By("saves the playlist to the DB")
 		newPls := model.Playlist{Name: "Great!", OwnerID: "userid"}
-		newPls.AddTracks([]string{"1004", "1003"})
+		newPls.AddMediaFilesByID([]string{"1004", "1003"})
 
 		By("saves the playlist to the DB")
 		Expect(repo.Put(&newPls)).To(BeNil())
 
 		By("adds repeated songs to a playlist and keeps the order")
-		newPls.AddTracks([]string{"1004"})
+		newPls.AddMediaFilesByID([]string{"1004"})
 		Expect(repo.Put(&newPls)).To(BeNil())
 		saved, _ := repo.GetWithTracks(newPls.ID, true, false)
 		Expect(saved.Tracks).To(HaveLen(3))
@@ -109,6 +109,21 @@ var _ = Describe("PlaylistRepository", func() {
 			Expect(err).To(BeNil())
 			Expect(all[0].ID).To(Equal(plsBest.ID))
 			Expect(all[1].ID).To(Equal(plsCool.ID))
+		})
+	})
+
+	Describe("GetPlaylists", func() {
+		It("returns playlists for a track", func() {
+			pls, err := repo.GetPlaylists(songRadioactivity.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pls).To(HaveLen(1))
+			Expect(pls[0].ID).To(Equal(plsBest.ID))
+		})
+
+		It("returns empty when none", func() {
+			pls, err := repo.GetPlaylists("9999")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pls).To(HaveLen(0))
 		})
 	})
 
@@ -145,7 +160,7 @@ var _ = Describe("PlaylistRepository", func() {
 			})
 		})
 
-		// BFR Validate these tests
+		// TODO Validate these tests
 		XContext("child smart playlists", func() {
 			When("refresh day has expired", func() {
 				It("should refresh tracks for smart playlist referenced in parent smart playlist criteria", func() {

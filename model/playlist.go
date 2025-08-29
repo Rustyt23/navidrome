@@ -1,30 +1,31 @@
 package model
 
 import (
-	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/navidrome/navidrome/model/criteria"
 )
 
 type Playlist struct {
-	ID        string         `structs:"id" json:"id"`
-	Name      string         `structs:"name" json:"name"`
-	Comment   string         `structs:"comment" json:"comment"`
-	Duration  float32        `structs:"duration" json:"duration"`
-	Size      int64          `structs:"size" json:"size"`
-	SongCount int            `structs:"song_count" json:"songCount"`
-	OwnerName string         `structs:"-" json:"ownerName"`
-	OwnerID   string         `structs:"owner_id" json:"ownerId"`
-	Public    bool           `structs:"public" json:"public"`
-	Tracks    PlaylistTracks `structs:"-" json:"tracks,omitempty"`
-	Path      string         `structs:"path" json:"path"`
-	Sync      bool           `structs:"sync" json:"sync"`
-	CreatedAt time.Time      `structs:"created_at" json:"createdAt"`
-	UpdatedAt time.Time      `structs:"updated_at" json:"updatedAt"`
+	ID                 string     `structs:"id" json:"id"`
+	Name               string     `structs:"name" json:"name"`
+	Comment            string     `structs:"comment" json:"comment"`
+	Duration           float32    `structs:"duration" json:"duration"`
+	Size               int64      `structs:"size" json:"size"`
+	SongCount          int        `structs:"song_count" json:"songCount"`
+	OwnerName          string     `structs:"-" json:"ownerName"`
+	OwnerID            string     `structs:"owner_id" json:"ownerId"`
+	FolderID           *string    `structs:"folder_id" json:"folderId,omitempty"`
+	Public             bool       `structs:"public" json:"public"`
+	Tracks             PlaylistTracks `structs:"-" json:"tracks,omitempty"`
+	Path               string     `structs:"path" json:"path"`
+	Sync               bool       `structs:"sync" json:"sync"`
+	CreatedAt          time.Time  `structs:"created_at" json:"createdAt"`
+	UpdatedAt          time.Time  `structs:"updated_at" json:"updatedAt"`
+
+	Type               string     `structs:"-" json:"type,omitempty"`
 
 	// SmartPlaylist attributes
 	Rules       *criteria.Criteria `structs:"rules" json:"rules"`
@@ -42,6 +43,21 @@ func (pls Playlist) MediaFiles() MediaFiles {
 	return pls.Tracks.MediaFiles()
 }
 
+func (pls *Playlist) refreshStats() {
+	pls.SongCount = len(pls.Tracks)
+	pls.Duration = 0
+	pls.Size = 0
+	for _, t := range pls.Tracks {
+		pls.Duration += t.MediaFile.Duration
+		pls.Size += t.MediaFile.Size
+	}
+}
+
+func (pls *Playlist) SetTracks(tracks PlaylistTracks) {
+	pls.Tracks = tracks
+	pls.refreshStats()
+}
+
 func (pls *Playlist) RemoveTracks(idxToRemove []int) {
 	var newTracks PlaylistTracks
 	for i, t := range pls.Tracks {
@@ -51,19 +67,15 @@ func (pls *Playlist) RemoveTracks(idxToRemove []int) {
 		newTracks = append(newTracks, t)
 	}
 	pls.Tracks = newTracks
+	pls.refreshStats()
 }
 
-// ToM3U8 exports the playlist to the Extended M3U8 format, as specified in
-// https://docs.fileformat.com/audio/m3u/#extended-m3u
+// ToM3U8 exports the playlist to the Extended M3U8 format
 func (pls *Playlist) ToM3U8() string {
-	buf := strings.Builder{}
-	for _, t := range pls.Tracks {
-		buf.WriteString(fmt.Sprintf("%s - %s.mp3\n", t.Artist, t.Title))
-	}
-	return buf.String()
+	return pls.MediaFiles().ToM3U8(pls.Name, true)
 }
 
-func (pls *Playlist) AddTracks(mediaFileIds []string) {
+func (pls *Playlist) AddMediaFilesByID(mediaFileIds []string) {
 	pos := len(pls.Tracks)
 	for _, mfId := range mediaFileIds {
 		pos++
@@ -75,6 +87,7 @@ func (pls *Playlist) AddTracks(mediaFileIds []string) {
 		}
 		pls.Tracks = append(pls.Tracks, t)
 	}
+	pls.refreshStats()
 }
 
 func (pls *Playlist) AddMediaFiles(mfs MediaFiles) {
@@ -89,6 +102,7 @@ func (pls *Playlist) AddMediaFiles(mfs MediaFiles) {
 		}
 		pls.Tracks = append(pls.Tracks, t)
 	}
+	pls.refreshStats()
 }
 
 func (pls Playlist) CoverArtID() ArtworkID {
@@ -98,17 +112,23 @@ func (pls Playlist) CoverArtID() ArtworkID {
 type Playlists []Playlist
 
 type PlaylistRepository interface {
-	ResourceRepository
-	CountAll(options ...QueryOptions) (int64, error)
-	Exists(id string) (bool, error)
-	Put(pls *Playlist) error
-	Get(id string) (*Playlist, error)
-	GetWithTracks(id string, refreshSmartPlaylist, includeMissing bool) (*Playlist, error)
-	GetAll(options ...QueryOptions) (Playlists, error)
-	FindByPath(path string) (*Playlist, error)
-	Delete(id string) error
-	Tracks(playlistId string, refreshSmartPlaylist bool) PlaylistTrackRepository
+    ResourceRepository
+    CountAll(options ...QueryOptions) (int64, error)
+    Exists(id string) (bool, error)
+    Put(pls *Playlist) error
+    Get(id string) (*Playlist, error)
+    GetWithTracks(id string, refreshSmartPlaylist, includeMissing bool) (*Playlist, error)
+    GetAll(options ...QueryOptions) (Playlists, error)
+    FindByPath(path string) (*Playlist, error)
+    Delete(id string) error
+    Tracks(playlistId string, refreshSmartPlaylist bool) PlaylistTrackRepository
+    GetPlaylists(mediaFileId string) (Playlists, error)
+
+    UpdatePlaylistFolder(id string, playlistFolderId *string) error
+
+    GetAllByPlaylistFolder(options ...QueryOptions) (Playlists, error)
 }
+
 
 type PlaylistTrack struct {
 	ID          string `json:"id"`
@@ -138,7 +158,4 @@ type PlaylistTrackRepository interface {
 	Delete(id ...string) error
 	DeleteAll() error
 	Reorder(pos int, newPos int) error
-	AnnotatedRepository
-	
-	SearchableRepository[PlaylistTracks]
 }

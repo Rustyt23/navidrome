@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <string.h>
-#include <typeinfo>
 
 #define TAGLIB_STATIC
 #include <apeproperties.h>
@@ -113,7 +112,7 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
             strncpy(language, bv.data(), 3);
           }
 
-          char *val = (char *)frame->text().toCString(true);
+          char *val = const_cast<char*>(frame->text().toCString(true));
 
           goPutLyrics(id, language, val);
         }
@@ -132,7 +131,7 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
           if (format == TagLib::ID3v2::SynchronizedLyricsFrame::AbsoluteMilliseconds) {
 
             for (const auto &line: frame->synchedText()) {
-              char *text = (char *)line.text.toCString(true);
+              char *text = const_cast<char*>(line.text.toCString(true));
               goPutLyricLine(id, language, text, line.time);
             }
           } else if (format == TagLib::ID3v2::SynchronizedLyricsFrame::AbsoluteMpegFrames) {
@@ -141,7 +140,7 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
             if (sampleRate != 0) {
               for (const auto &line: frame->synchedText()) {
                 const int timeInMs = (line.time * 1000) / sampleRate;
-                char *text = (char *)line.text.toCString(true);
+                char *text = const_cast<char*>(line.text.toCString(true));
                 goPutLyricLine(id, language, text, timeInMs);
               }
             }
@@ -160,9 +159,9 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
   if (m4afile != NULL) {
     const auto itemListMap = m4afile->tag()->itemMap();
     for (const auto item: itemListMap) {
-      char *key = (char *)item.first.toCString(true);
+      char *key = const_cast<char*>(item.first.toCString(true));
       for (const auto value: item.second.toStringList()) {
-        char *val = (char *)value.toCString(true);
+        char *val = const_cast<char*>(value.toCString(true));
         goPutM4AStr(id, key, val);
       }
     }
@@ -174,17 +173,24 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
     const TagLib::ASF::Tag *asfTags{asfFile->tag()};
     const auto itemListMap = asfTags->attributeListMap();
     for (const auto item : itemListMap) {
-      tags.insert(item.first, item.second.front().toString());
+      char *key = const_cast<char*>(item.first.toCString(true));
+
+      for (auto j = item.second.begin();
+           j != item.second.end(); ++j) {
+
+        char *val = const_cast<char*>(j->toString().toCString(true));
+        goPutStr(id, key, val);
+      }
     }
   }
 
   // Send all collected tags to the Go map
   for (TagLib::PropertyMap::ConstIterator i = tags.begin(); i != tags.end();
        ++i) {
-    char *key = (char *)i->first.toCString(true);
+    char *key = const_cast<char*>(i->first.toCString(true));
     for (TagLib::StringList::ConstIterator j = i->second.begin();
          j != i->second.end(); ++j) {
-      char *val = (char *)(*j).toCString(true);
+      char *val = const_cast<char*>((*j).toCString(true));
       goPutStr(id, key, val);
     }
   }
@@ -201,40 +207,60 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
 char has_cover(const TagLib::FileRef f) {
   char hasCover = 0;
   // ----- MP3
-  if (TagLib::MPEG::File *
-      mp3File{dynamic_cast<TagLib::MPEG::File *>(f.file())}) {
+  if (TagLib::MPEG::File * mp3File{dynamic_cast<TagLib::MPEG::File *>(f.file())}) {
     if (mp3File->ID3v2Tag()) {
       const auto &frameListMap{mp3File->ID3v2Tag()->frameListMap()};
       hasCover = !frameListMap["APIC"].isEmpty();
     }
   }
   // ----- FLAC
-  else if (TagLib::FLAC::File *
-           flacFile{dynamic_cast<TagLib::FLAC::File *>(f.file())}) {
+  else if (TagLib::FLAC::File * flacFile{dynamic_cast<TagLib::FLAC::File *>(f.file())}) {
     hasCover = !flacFile->pictureList().isEmpty();
   }
   // ----- MP4
-  else if (TagLib::MP4::File *
-           mp4File{dynamic_cast<TagLib::MP4::File *>(f.file())}) {
+  else if (TagLib::MP4::File * mp4File{dynamic_cast<TagLib::MP4::File *>(f.file())}) {
     auto &coverItem{mp4File->tag()->itemMap()["covr"]};
     TagLib::MP4::CoverArtList coverArtList{coverItem.toCoverArtList()};
     hasCover = !coverArtList.isEmpty();
   }
   // ----- Ogg
-  else if (TagLib::Ogg::Vorbis::File *
-           vorbisFile{dynamic_cast<TagLib::Ogg::Vorbis::File *>(f.file())}) {
+  else if (TagLib::Ogg::Vorbis::File * vorbisFile{dynamic_cast<TagLib::Ogg::Vorbis::File *>(f.file())}) {
     hasCover = !vorbisFile->tag()->pictureList().isEmpty();
   }
   // ----- Opus
-  else if (TagLib::Ogg::Opus::File *
-           opusFile{dynamic_cast<TagLib::Ogg::Opus::File *>(f.file())}) {
+  else if (TagLib::Ogg::Opus::File * opusFile{dynamic_cast<TagLib::Ogg::Opus::File *>(f.file())}) {
     hasCover = !opusFile->tag()->pictureList().isEmpty();
   }
+  // ----- WAV
+  else if (TagLib::RIFF::WAV::File * wavFile{ dynamic_cast<TagLib::RIFF::WAV::File*>(f.file()) }) {
+    if (wavFile->hasID3v2Tag()) {
+      const auto& frameListMap{ wavFile->ID3v2Tag()->frameListMap() };
+      hasCover = !frameListMap["APIC"].isEmpty();
+    }
+  }
+  // ----- AIFF 
+  else if (TagLib::RIFF::AIFF::File * aiffFile{ dynamic_cast<TagLib::RIFF::AIFF::File *>(f.file())}) {
+    if (aiffFile->hasID3v2Tag()) {
+      const auto& frameListMap{ aiffFile->tag()->frameListMap() };
+      hasCover = !frameListMap["APIC"].isEmpty();
+    }
+  }
   // ----- WMA
-  if (TagLib::ASF::File *
-      asfFile{dynamic_cast<TagLib::ASF::File *>(f.file())}) {
-    const TagLib::ASF::Tag *tag{asfFile->tag()};
+  else if (TagLib::ASF::File * asfFile{dynamic_cast<TagLib::ASF::File *>(f.file())}) {
+    const TagLib::ASF::Tag *tag{ asfFile->tag() };
     hasCover = tag && tag->attributeListMap().contains("WM/Picture");
+  }
+  // ----- DSF
+  else if (TagLib::DSF::File * dsffile{ dynamic_cast<TagLib::DSF::File *>(f.file())}) {
+    const TagLib::ID3v2::Tag *tag { dsffile->tag() };
+    hasCover = tag && !tag->frameListMap()["APIC"].isEmpty();
+  }
+  // ----- WAVPAK (APE tag)
+  else if (TagLib::WavPack::File * wvFile{dynamic_cast<TagLib::WavPack::File *>(f.file())}) {
+    if (wvFile->hasAPETag()) {
+      // This is the particular string that Picard uses
+      hasCover = !wvFile->APETag()->itemListMap()["COVER ART (FRONT)"].isEmpty();
+    }
   }
 
   return hasCover;

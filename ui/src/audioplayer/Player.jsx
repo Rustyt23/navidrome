@@ -162,7 +162,7 @@ const Player = () => {
   const onAudioProgress = useCallback(
     (info) => {
       if (info.ended) {
-        document.title = 'MusicMatters'
+        document.title = 'Navidrome'
       }
 
       const progress = (info.currentTime / info.duration) * 100
@@ -212,9 +212,10 @@ const Player = () => {
       }
       if (info.duration) {
         const song = info.song
-        document.title = `${song.title} - ${song.artist} - MusicMatters`
+        document.title = `${song.title} - ${song.artist} - Navidrome`
         if (!info.isRadio) {
-          subsonic.nowPlaying(info.trackId)
+          const pos = startTime === null ? null : Math.floor(info.currentTime)
+          subsonic.nowPlaying(info.trackId, pos)
         }
         setPreload(false)
         if (config.gaTrackingId) {
@@ -277,7 +278,7 @@ const Player = () => {
   }, [dispatch])
 
   if (!visible) {
-    document.title = 'MusicMatters'
+    document.title = 'Navidrome'
   }
 
   const handlers = useMemo(

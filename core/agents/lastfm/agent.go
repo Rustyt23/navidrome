@@ -72,16 +72,23 @@ func (l *lastfmAgent) GetAlbumInfo(ctx context.Context, name, artist, mbid strin
 		return nil, err
 	}
 
-	response := agents.AlbumInfo{
+	return &agents.AlbumInfo{
 		Name:        a.Name,
 		MBID:        a.MBID,
 		Description: a.Description.Summary,
 		URL:         a.URL,
-		Images:      make([]agents.ExternalImage, 0),
+	}, nil
+}
+
+func (l *lastfmAgent) GetAlbumImages(ctx context.Context, name, artist, mbid string) ([]agents.ExternalImage, error) {
+	a, err := l.callAlbumGetInfo(ctx, name, artist, mbid)
+	if err != nil {
+		return nil, err
 	}
 
 	// Last.fm can return duplicate sizes.
 	seenSizes := map[int]bool{}
+	images := make([]agents.ExternalImage, 0)
 
 	// This assumes that Last.fm returns images with size small, medium, and large.
 	// This is true as of December 29, 2022
@@ -92,23 +99,20 @@ func (l *lastfmAgent) GetAlbumInfo(ctx context.Context, name, artist, mbid strin
 			log.Trace(ctx, "LastFM/albuminfo image URL does not match expected regex or is empty", "url", img.URL, "size", img.Size)
 			continue
 		}
-
 		numericSize, err := strconv.Atoi(size[0][2:])
 		if err != nil {
 			log.Error(ctx, "LastFM/albuminfo image URL does not match expected regex", "url", img.URL, "size", img.Size, err)
 			return nil, err
-		} else {
-			if _, exists := seenSizes[numericSize]; !exists {
-				response.Images = append(response.Images, agents.ExternalImage{
-					Size: numericSize,
-					URL:  img.URL,
-				})
-				seenSizes[numericSize] = true
-			}
+		}
+		if _, exists := seenSizes[numericSize]; !exists {
+			images = append(images, agents.ExternalImage{
+				Size: numericSize,
+				URL:  img.URL,
+			})
+			seenSizes[numericSize] = true
 		}
 	}
-
-	return &response, nil
+	return images, nil
 }
 
 func (l *lastfmAgent) GetArtistMBID(ctx context.Context, id string, name string) (string, error) {
@@ -279,14 +283,21 @@ func (l *lastfmAgent) callArtistGetTopTracks(ctx context.Context, artistName str
 	return t.Track, nil
 }
 
-func (l *lastfmAgent) NowPlaying(ctx context.Context, userId string, track *model.MediaFile) error {
+func (l *lastfmAgent) getArtistForScrobble(track *model.MediaFile) string {
+	if conf.Server.LastFM.ScrobbleFirstArtistOnly && len(track.Participants[model.RoleArtist]) > 0 {
+		return track.Participants[model.RoleArtist][0].Name
+	}
+	return track.Artist
+}
+
+func (l *lastfmAgent) NowPlaying(ctx context.Context, userId string, track *model.MediaFile, position int) error {
 	sk, err := l.sessionKeys.Get(ctx, userId)
 	if err != nil || sk == "" {
 		return scrobbler.ErrNotAuthorized
 	}
 
 	err = l.client.updateNowPlaying(ctx, sk, ScrobbleInfo{
-		artist:      track.Artist,
+		artist:      l.getArtistForScrobble(track),
 		track:       track.Title,
 		album:       track.Album,
 		trackNumber: track.TrackNumber,
@@ -296,7 +307,7 @@ func (l *lastfmAgent) NowPlaying(ctx context.Context, userId string, track *mode
 	})
 	if err != nil {
 		log.Warn(ctx, "Last.fm client.updateNowPlaying returned error", "track", track.Title, err)
-		return scrobbler.ErrUnrecoverable
+		return errors.Join(err, scrobbler.ErrUnrecoverable)
 	}
 	return nil
 }
@@ -304,7 +315,7 @@ func (l *lastfmAgent) NowPlaying(ctx context.Context, userId string, track *mode
 func (l *lastfmAgent) Scrobble(ctx context.Context, userId string, s scrobbler.Scrobble) error {
 	sk, err := l.sessionKeys.Get(ctx, userId)
 	if err != nil || sk == "" {
-		return scrobbler.ErrNotAuthorized
+		return errors.Join(err, scrobbler.ErrNotAuthorized)
 	}
 
 	if s.Duration <= 30 {
@@ -312,7 +323,7 @@ func (l *lastfmAgent) Scrobble(ctx context.Context, userId string, s scrobbler.S
 		return nil
 	}
 	err = l.client.scrobble(ctx, sk, ScrobbleInfo{
-		artist:      s.Artist,
+		artist:      l.getArtistForScrobble(&s.MediaFile),
 		track:       s.Title,
 		album:       s.Album,
 		trackNumber: s.TrackNumber,
@@ -328,12 +339,12 @@ func (l *lastfmAgent) Scrobble(ctx context.Context, userId string, s scrobbler.S
 	isLastFMError := errors.As(err, &lfErr)
 	if !isLastFMError {
 		log.Warn(ctx, "Last.fm client.scrobble returned error", "track", s.Title, err)
-		return scrobbler.ErrRetryLater
+		return errors.Join(err, scrobbler.ErrRetryLater)
 	}
 	if lfErr.Code == 11 || lfErr.Code == 16 {
-		return scrobbler.ErrRetryLater
+		return errors.Join(err, scrobbler.ErrRetryLater)
 	}
-	return scrobbler.ErrUnrecoverable
+	return errors.Join(err, scrobbler.ErrUnrecoverable)
 }
 
 func (l *lastfmAgent) IsAuthorized(ctx context.Context, userId string) bool {
@@ -344,6 +355,8 @@ func (l *lastfmAgent) IsAuthorized(ctx context.Context, userId string) bool {
 func init() {
 	conf.AddHook(func() {
 		agents.Register(lastFMAgentName, func(ds model.DataStore) agents.Interface {
+			// This is a workaround for the fact that a (Interface)(nil) is not the same as a (*lastfmAgent)(nil)
+			// See https://go.dev/doc/faq#nil_error
 			a := lastFMConstructor(ds)
 			if a != nil {
 				return a
@@ -351,6 +364,8 @@ func init() {
 			return nil
 		})
 		scrobbler.Register(lastFMAgentName, func(ds model.DataStore) scrobbler.Scrobbler {
+			// Same as above - this is a workaround for the fact that a (Scrobbler)(nil) is not the same as a (*lastfmAgent)(nil)
+			// See https://go.dev/doc/faq#nil_error
 			a := lastFMConstructor(ds)
 			if a != nil {
 				return a
