@@ -158,4 +158,8 @@ type PlaylistTrackRepository interface {
 	Delete(id ...string) error
 	DeleteAll() error
 	Reorder(pos int, newPos int) error
+
+	AnnotatedRepository
+
+	SearchableRepository[PlaylistTracks]
 }

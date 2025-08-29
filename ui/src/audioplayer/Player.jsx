@@ -162,7 +162,7 @@ const Player = () => {
   const onAudioProgress = useCallback(
     (info) => {
       if (info.ended) {
-        document.title = 'Navidrome'
+        document.title = 'MusicMatters'
       }
 
       const progress = (info.currentTime / info.duration) * 100

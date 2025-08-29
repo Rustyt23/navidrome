@@ -35,11 +35,6 @@ func (r *sqlRepository) parseRestFilters(ctx context.Context, options rest.Query
 			}
 			continue
 		}
-		// Ignore invalid filters (not based on a field or filter function)
-		if r.isFieldWhiteListed != nil && !r.isFieldWhiteListed(f) {
-			log.Warn(ctx, "Ignoring filter not whitelisted", "filter", f, "table", r.tableName)
-			continue
-		}
 		// For fields ending in "id", use an exact match
 		if strings.HasSuffix(f, "id") {
 			filters = append(filters, eqFilter(f, v))

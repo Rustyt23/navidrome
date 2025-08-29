@@ -20,7 +20,7 @@ const Personal = () => {
 
   return (
     <Card className={classes.root}>
-      <Title title={'Navidrome - ' + translate('menu.personal.name')} />
+      <Title title={'MusicMatters - ' + translate('menu.personal.name')} />
       <SimpleForm toolbar={null} variant={'outlined'}>
         <SelectTheme />
         <SelectLanguage />
