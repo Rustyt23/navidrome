@@ -126,16 +126,21 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 
 			r.Patch("/folder", func(w http.ResponseWriter, r *http.Request) {
 				id := chi.URLParam(r, "id")
-				type reqBody struct{ FolderID *string `json:"folderId"` }
+				type reqBody struct {
+					FolderID *string `json:"folderId"`
+				}
 				var body reqBody
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest); return
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
 				}
 				if body.FolderID != nil && *body.FolderID == "" {
-					http.Error(w, "folderId cannot be empty; use null for unassigned", http.StatusBadRequest); return
+					http.Error(w, "folderId cannot be empty; use null for unassigned", http.StatusBadRequest)
+					return
 				}
-				if err := n.ds.Playlist(r.Context()).UpdatePlaylistFolder(id, body.FolderID); err != nil {
-					http.Error(w, err.Error(), statusFor(err)); return
+				if err := n.playlists.SetFolder(r.Context(), id, body.FolderID); err != nil {
+					http.Error(w, err.Error(), statusFor(err))
+					return
 				}
 				w.WriteHeader(http.StatusNoContent)
 			})
@@ -162,7 +167,7 @@ func (n *Router) addPlaylistFolderRoute(r chi.Router) {
 			r.Patch("/parent", MoveFolder(n.ds))
 		})
 
-		r.Patch("/move", BulkMove(n.ds))
+		r.Patch("/move", BulkMove(n.ds, n.playlists))
 	})
 }
 
