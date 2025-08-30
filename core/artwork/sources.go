@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dhowden/tag"
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/external"
 	"github.com/navidrome/navidrome/core/ffmpeg"
@@ -153,6 +154,12 @@ func fromAlbum(ctx context.Context, a *artwork, id model.ArtworkID) sourceFunc {
 
 func fromAlbumPlaceholder() sourceFunc {
 	return func() (io.ReadCloser, string, error) {
+		if conf.Server.AlbumArtPlaceholder != "" {
+			r, err := os.Open(conf.Server.AlbumArtPlaceholder)
+			if err == nil {
+				return r, conf.Server.AlbumArtPlaceholder, nil
+			}
+		}
 		r, _ := resources.FS().Open(consts.PlaceholderAlbumArt)
 		return r, consts.PlaceholderAlbumArt, nil
 	}

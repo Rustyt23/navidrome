@@ -5,8 +5,10 @@ import (
 	"errors"
 	_ "image/gif"
 	"io"
+	"os"
 	"time"
 
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/external"
 	"github.com/navidrome/navidrome/core/ffmpeg"
@@ -49,6 +51,11 @@ func (a *artwork) GetOrPlaceholder(ctx context.Context, id string, size int, squ
 	if errors.Is(err, ErrUnavailable) {
 		if artID.Kind == model.KindArtistArtwork {
 			reader, _ = resources.FS().Open(consts.PlaceholderArtistArt)
+		} else if conf.Server.AlbumArtPlaceholder != "" {
+			reader, err = os.Open(conf.Server.AlbumArtPlaceholder)
+			if err != nil {
+				reader, _ = resources.FS().Open(consts.PlaceholderAlbumArt)
+			}
 		} else {
 			reader, _ = resources.FS().Open(consts.PlaceholderAlbumArt)
 		}

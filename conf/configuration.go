@@ -65,6 +65,7 @@ type configOptions struct {
 	MPVCmdTemplate                  string
 	CoverArtPriority                string
 	CoverJpegQuality                int
+	AlbumArtPlaceholder             string
 	ArtistArtPriority               string
 	LyricsPriority                  string
 	EnableGravatar                  bool
@@ -511,6 +512,7 @@ func setViperDefaults() {
 	viper.SetDefault("mpvcmdtemplate", "mpv --audio-device=%d --no-audio-display %f --input-ipc-server=%s")
 	viper.SetDefault("coverartpriority", "cover.*, folder.*, front.*, embedded, external")
 	viper.SetDefault("coverjpegquality", 75)
+	viper.SetDefault("albumartplaceholder", "")
 	viper.SetDefault("artistartpriority", "artist.*, album/artist.*, external")
 	viper.SetDefault("lyricspriority", ".lrc,.txt,embedded")
 	viper.SetDefault("enablegravatar", false)
