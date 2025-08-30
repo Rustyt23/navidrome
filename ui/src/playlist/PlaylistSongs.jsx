@@ -79,6 +79,9 @@ const useStyles = makeStyles(
     ratingField: {
       visibility: 'hidden',
     },
+    draggable: {
+      cursor: 'move',
+    },
   }),
   { name: 'RaList' },
 )
@@ -221,6 +224,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
             readOnly={readOnly}
             onDragEnd={handleDragEnd}
             nodeSelector={'tr'}
+            handleSelector={'.draggable'}
           >
             <SongDatagrid
               rowClick={(id) => dispatch(playTracks(data, ids, id))}
