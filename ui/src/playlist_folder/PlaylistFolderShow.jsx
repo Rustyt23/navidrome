@@ -12,6 +12,7 @@ import {
   useNotify,
   useRecordContext,
   usePermissions,
+  Title as RaTitle,
 } from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
 import Switch from '@material-ui/core/Switch'
@@ -21,6 +22,7 @@ import {
   isWritable,
   useSelectedFields,
   useResourceRefresh,
+  Title,
 } from '../common'
 import PlaylistListActions from './PlaylistListActions'
 import EmptyPlaylist from './EmptyPlaylist'
@@ -123,27 +125,30 @@ const FolderChildrenList = (props) => {
   const parentId = record?.id ?? ''
 
   return (
-    <List
-      {...props}
-      resource="folder"
-      exporter={false}
-      filters={<PlaylistFolderFilter />}
-      actions={<PlaylistListActions />}
-      bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
-      empty={<EmptyPlaylist />}
-      perPage={isXsmall ? 50 : 25}
-      filter={{ parent_id: parentId }}
-      filterDefaultValues={{ parent_id: parentId }}
-    >
-      <PlaylistFolderDataGrid rowClick={rowClick}>
-        <TypeIconField label={false} />
-        <TextField source="name" />
-        {columns}
-        <Writable>
-          <TypeAwareEditButton />
-        </Writable>
-      </PlaylistFolderDataGrid>
-    </List>
+    <>
+      {record && <RaTitle title={<Title subTitle={record.name} />} />}
+      <List
+        {...props}
+        resource="folder"
+        exporter={false}
+        filters={<PlaylistFolderFilter />}
+        actions={<PlaylistListActions />}
+        bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
+        empty={<EmptyPlaylist />}
+        perPage={isXsmall ? 50 : 25}
+        filter={{ parent_id: parentId }}
+        filterDefaultValues={{ parent_id: parentId }}
+      >
+        <PlaylistFolderDataGrid rowClick={rowClick}>
+          <TypeIconField label={false} />
+          <TextField source="name" />
+          {columns}
+          <Writable>
+            <TypeAwareEditButton />
+          </Writable>
+        </PlaylistFolderDataGrid>
+      </List>
+    </>
   )
 }
 
