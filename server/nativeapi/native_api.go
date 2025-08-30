@@ -112,7 +112,7 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 		r.Get("/", rest.GetAll(constructor))
 		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Content-type") == "application/json" {
-				rest.Post(constructor)(w, r)
+				createPlaylist(n.ds, n.playlists)(w, r)
 				return
 			}
 			createPlaylistFromM3U(n.playlists)(w, r)
@@ -178,10 +178,10 @@ func (n *Router) addPlaylistTrackRoute(r chi.Router) {
 		})
 		r.With(server.URLParamsMiddleware).Route("/", func(r chi.Router) {
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-				deleteFromPlaylist(n.ds)(w, r)
+				deleteFromPlaylist(n.ds, n.playlists)(w, r)
 			})
 			r.Post("/", func(w http.ResponseWriter, r *http.Request) {
-				addToPlaylist(n.ds)(w, r)
+				addToPlaylist(n.ds, n.playlists)(w, r)
 			})
 		})
 		r.Route("/{id}", func(r chi.Router) {
@@ -190,10 +190,10 @@ func (n *Router) addPlaylistTrackRoute(r chi.Router) {
 				getPlaylistTrack(n.ds)(w, r)
 			})
 			r.Put("/", func(w http.ResponseWriter, r *http.Request) {
-				reorderItem(n.ds)(w, r)
+				reorderItem(n.ds, n.playlists)(w, r)
 			})
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-				deleteFromPlaylist(n.ds)(w, r)
+				deleteFromPlaylist(n.ds, n.playlists)(w, r)
 			})
 		})
 	})

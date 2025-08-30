@@ -421,6 +421,9 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 
 		if pls.Sync {
 			ext := filepath.Ext(oldPath)
+			if ext == "" {
+				ext = ".m3u8"
+			}
 			newPath, err := s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
 			if err != nil {
 				return err
@@ -442,7 +445,7 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 			if err := os.MkdirAll(filepath.Dir(pls.Path), 0o755); err != nil {
 				return err
 			}
-			if oldPath != pls.Path {
+			if oldPath != "" && oldPath != pls.Path {
 				if err := os.Rename(oldPath, pls.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
 					return err
 				}

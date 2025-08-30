@@ -62,6 +62,41 @@ func getPlaylistTrack(ds model.DataStore) http.HandlerFunc {
 	return wrapper(rest.Get)
 }
 
+func createPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
+	constructor := func(ctx context.Context) rest.Repository {
+		return ds.Resource(ctx, model.Playlist{})
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		c := rest.Controller{Repository: constructor(r.Context())}
+		rp, ok := c.Repository.(rest.Persistable)
+		if !ok {
+			rest.RespondWithError(w, http.StatusMethodNotAllowed, "405 Method Not Allowed")
+			return
+		}
+		entity := c.Repository.NewInstance().(*model.Playlist)
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(entity); err != nil {
+			rest.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid request payload")
+			return
+		}
+		entity.Sync = true
+		id, err := rp.Save(entity)
+		if err == rest.ErrPermissionDenied {
+			rest.RespondWithError(w, http.StatusForbidden, "Saving playlist: Permission denied")
+			return
+		}
+		if err != nil {
+			rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := syncPlaylist(playlists, ds, r.Context(), id); err != nil {
+			rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		rest.RespondWithJSON(w, http.StatusOK, &map[string]string{"id": id})
+	}
+}
+
 func createPlaylistFromM3U(playlists core.Playlists) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -112,7 +147,7 @@ func handleExportPlaylist(ds model.DataStore) http.HandlerFunc {
 	}
 }
 
-func deleteFromPlaylist(ds model.DataStore) http.HandlerFunc {
+func deleteFromPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := req.Params(r)
 		playlistId, _ := p.String(":playlistId")
@@ -131,11 +166,15 @@ func deleteFromPlaylist(ds model.DataStore) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		writeDeleteManyResponse(w, r, ids)
 	}
 }
 
-func addToPlaylist(ds model.DataStore) http.HandlerFunc {
+func addToPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
 	type addTracksPayload struct {
 		Ids       []string       `json:"ids"`
 		AlbumIds  []string       `json:"albumIds"`
@@ -175,6 +214,11 @@ func addToPlaylist(ds model.DataStore) http.HandlerFunc {
 		}
 		count += c
 
+		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		// Must return an object with an ID, to satisfy ReactAdmin `create` call
 		_, err = fmt.Fprintf(w, `{"added":%d}`, count)
 		if err != nil {
@@ -183,7 +227,7 @@ func addToPlaylist(ds model.DataStore) http.HandlerFunc {
 	}
 }
 
-func reorderItem(ds model.DataStore) http.HandlerFunc {
+func reorderItem(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
 	type reorderPayload struct {
 		InsertBefore string `json:"insert_before"`
 	}
@@ -218,6 +262,11 @@ func reorderItem(ds model.DataStore) http.HandlerFunc {
 			return
 		}
 
+		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		_, err = w.Write([]byte(fmt.Sprintf(`{"id":"%d"}`, id)))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -241,4 +290,12 @@ func getSongPlaylists(ds model.DataStore) http.HandlerFunc {
 		}
 		_, _ = w.Write(data)
 	}
+}
+
+func syncPlaylist(playlists core.Playlists, ds model.DataStore, ctx context.Context, playlistId string) error {
+	pls, err := ds.Playlist(ctx).Get(playlistId)
+	if err != nil {
+		return err
+	}
+	return playlists.Update(ctx, playlistId, &pls.Name, &pls.Comment, &pls.Public, nil, nil)
 }
