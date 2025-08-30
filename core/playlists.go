@@ -421,9 +421,9 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 
 		if pls.Sync {
 			ext := filepath.Ext(oldPath)
-                        if ext == "" {
-                                ext = ".m3u"
-                        }
+			if ext == "" {
+				ext = ".m3u"
+			}
 			newPath, err := s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
 			if err != nil {
 				return err
@@ -476,6 +476,9 @@ func (s *playlists) SetFolder(ctx context.Context, playlistID string, folderID *
 			return nil
 		}
 		ext := filepath.Ext(oldPath)
+		if ext == "" {
+			ext = ".m3u"
+		}
 		newPath, err := s.buildPlaylistPath(ctx, tx, folderID, pls.Name, ext)
 		if err != nil {
 			return err
@@ -488,8 +491,13 @@ func (s *playlists) SetFolder(ctx context.Context, playlistID string, folderID *
 		if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
 			return err
 		}
-		if err := os.Rename(oldPath, newPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+		if err := os.Rename(oldPath, newPath); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			if writeErr := s.writePlaylistFile(newPath, pls); writeErr != nil {
+				return writeErr
+			}
 		}
 		return nil
 	})
