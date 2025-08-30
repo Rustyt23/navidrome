@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -302,60 +301,62 @@ func normalizePathForComparison(path string) string {
 
 // TODO This won't work for multiple libraries
 func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, folder *model.Folder, lines []string) ([]string, error) {
-	libRegex, err := s.compileLibraryPaths(ctx)
+	libs, err := s.ds.Library(ctx).GetAll()
 	if err != nil {
 		return nil, err
 	}
 
 	res := make([]string, 0, len(lines))
 	for idx, line := range lines {
-		var libPath string
-		var filePath string
+		cleanLine := filepath.Clean(line)
+		var relPath string
+		found := false
 
-		if folder != nil && !filepath.IsAbs(line) {
-			libPath = folder.LibraryPath
-			filePath = filepath.Join(folder.AbsolutePath(), line)
+		if filepath.IsAbs(cleanLine) {
+			for _, lib := range libs {
+				base := filepath.Clean(lib.Path)
+				if strings.HasPrefix(cleanLine, base+string(os.PathSeparator)) || cleanLine == base {
+					if rel, err := filepath.Rel(base, cleanLine); err == nil {
+						relPath = rel
+						found = true
+					}
+					break
+				}
+			}
 		} else {
-			cleanLine := filepath.Clean(line)
-			if libPath = libRegex.FindString(cleanLine); libPath != "" {
-				filePath = cleanLine
+			for _, lib := range libs {
+				if folder != nil && filepath.Clean(lib.Path) == filepath.Clean(folder.LibraryPath) {
+					continue
+				}
+				candidate := filepath.Join(lib.Path, cleanLine)
+				if _, err := os.Stat(candidate); err == nil {
+					if rel, err := filepath.Rel(lib.Path, candidate); err == nil {
+						relPath = rel
+						found = true
+						break
+					}
+				} else {
+					base := filepath.Base(cleanLine)
+					pattern := filepath.Join(lib.Path, "**", base)
+					matches, _ := doublestar.FilepathGlob(pattern)
+					if len(matches) > 0 {
+						if rel, err := filepath.Rel(lib.Path, matches[0]); err == nil {
+							relPath = rel
+							found = true
+							break
+						}
+					}
+				}
 			}
 		}
 
-		if libPath != "" {
-			if rel, err := filepath.Rel(libPath, filePath); err == nil {
-				res = append(res, rel)
-			} else {
-				log.Debug(ctx, "Error getting relative path", "playlist", pls.Name, "path", line, "libPath", libPath,
-					"filePath", filePath, err)
-			}
+		if found {
+			res = append(res, relPath)
 		} else {
 			log.Warn(ctx, "Path in playlist not found in any library", "path", line, "line", idx)
 		}
 	}
 	return slice.Map(res, filepath.ToSlash), nil
-}
-
-func (s *playlists) compileLibraryPaths(ctx context.Context) (*regexp.Regexp, error) {
-	libs, err := s.ds.Library(ctx).GetAll()
-	if err != nil {
-		return nil, err
-	}
-
-	// Create regex patterns for each library path
-	patterns := make([]string, len(libs))
-	for i, lib := range libs {
-		cleanPath := filepath.Clean(lib.Path)
-		escapedPath := regexp.QuoteMeta(cleanPath)
-		patterns[i] = fmt.Sprintf("^%s(?:/|$)", escapedPath)
-	}
-	// Combine all patterns into a single regex
-	combinedPattern := strings.Join(patterns, "|")
-	re, err := regexp.Compile(combinedPattern)
-	if err != nil {
-		return nil, fmt.Errorf("compiling library paths `%s`: %w", combinedPattern, err)
-	}
-	return re, nil
 }
 
 func (s *playlists) updatePlaylist(ctx context.Context, newPls *model.Playlist) error {
