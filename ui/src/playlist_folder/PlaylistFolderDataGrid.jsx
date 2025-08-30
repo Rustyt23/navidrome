@@ -55,9 +55,19 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
   const handleDrop = useCallback(
     async (item) => {
       try {
-        if (!item || item.id === record.id) return
+        if (!item) return
         const currentSourceId = sourceIdRef.current ?? ''
         const isTargetFolder = record.type === 'folder'
+        const isTargetPlaylist = record.type === 'playlist'
+
+        if (isTargetPlaylist && item.type !== 'playlist' && item.type !== 'folder') {
+          const res = await dataProvider.addToPlaylist(record.id, item)
+          notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
+          refresh()
+          return
+        }
+
+        if (item.id === record.id) return
 
         if (item.type === 'playlist') {
           const targetFolderId = isTargetFolder ? record.id : null
@@ -86,7 +96,7 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
   const { dragDropRef, isDragging } = useDragAndDrop(
     record.type === 'playlist' ? DraggableTypes.PLAYLIST : DraggableTypes.FOLDER,
     { id: record.id, type: record.type },
-    record.type === 'playlist' ? [] : [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
+    record.type === 'playlist' ? DraggableTypes.ALL : [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
     handleDrop
   )
 

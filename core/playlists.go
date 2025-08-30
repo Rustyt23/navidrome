@@ -421,9 +421,9 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 
 		if pls.Sync {
 			ext := filepath.Ext(oldPath)
-			if ext == "" {
-				ext = ".m3u8"
-			}
+                        if ext == "" {
+                                ext = ".m3u"
+                        }
 			newPath, err := s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
 			if err != nil {
 				return err
