@@ -51,7 +51,9 @@ const Menu = ({ dense = false }) => {
   const translate = useTranslate()
   const queue = useSelector((state) => state.player?.queue)
   const classes = useStyles({ addPadding: queue.length > 0 })
-  const resources = useSelector(getResources)
+  const resources = useSelector(getResources).filter(
+    (r) => r.name !== 'radio' && r.name !== 'share',
+  )
 
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
