@@ -299,6 +299,18 @@ func normalizePathForComparison(path string) string {
 	return strings.ToLower(norm.NFC.String(path))
 }
 
+func inPlaylistsPath(rel string) bool {
+	if conf.Server.PlaylistsPath == "" {
+		return false
+	}
+	for _, p := range strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator)) {
+		if match, _ := doublestar.Match(p, rel); match {
+			return true
+		}
+	}
+	return false
+}
+
 // TODO This won't work for multiple libraries
 func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, folder *model.Folder, lines []string) ([]string, error) {
 	libs, err := s.ds.Library(ctx).GetAll()
@@ -317,6 +329,9 @@ func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, fol
 				base := filepath.Clean(lib.Path)
 				if strings.HasPrefix(cleanLine, base+string(os.PathSeparator)) || cleanLine == base {
 					if rel, err := filepath.Rel(base, cleanLine); err == nil {
+						if inPlaylistsPath(rel) {
+							break
+						}
 						relPath = rel
 						found = true
 					}
@@ -325,12 +340,12 @@ func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, fol
 			}
 		} else {
 			for _, lib := range libs {
-				if folder != nil && filepath.Clean(lib.Path) == filepath.Clean(folder.LibraryPath) {
-					continue
-				}
 				candidate := filepath.Join(lib.Path, cleanLine)
 				if _, err := os.Stat(candidate); err == nil {
 					if rel, err := filepath.Rel(lib.Path, candidate); err == nil {
+						if inPlaylistsPath(rel) {
+							continue
+						}
 						relPath = rel
 						found = true
 						break
@@ -339,12 +354,18 @@ func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, fol
 					base := filepath.Base(cleanLine)
 					pattern := filepath.Join(lib.Path, "**", base)
 					matches, _ := doublestar.FilepathGlob(pattern)
-					if len(matches) > 0 {
-						if rel, err := filepath.Rel(lib.Path, matches[0]); err == nil {
+					for _, m := range matches {
+						if rel, err := filepath.Rel(lib.Path, m); err == nil {
+							if inPlaylistsPath(rel) {
+								continue
+							}
 							relPath = rel
 							found = true
 							break
 						}
+					}
+					if found {
+						break
 					}
 				}
 			}
