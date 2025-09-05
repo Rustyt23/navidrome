@@ -4,6 +4,7 @@ package persistence
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	. "github.com/Masterminds/squirrel"
@@ -42,9 +43,8 @@ func playlistFolderFilter(_ string, value interface{}) Sqlizer {
 	return substringFilter("playlist_folder.name", value)
 }
 
-
 func ownerIdFilter(_ string, value interface{}) Sqlizer {
-    return Eq{"playlist_folder.owner_id": value}
+	return Eq{"playlist_folder.owner_id": value}
 }
 
 func parentIdFilter(_ string, value interface{}) Sqlizer {
@@ -111,6 +111,29 @@ func (r *playlistFolderRepository) GetAllByParent(options ...model.QueryOptions)
 	return out, nil
 }
 
+func (r *playlistFolderRepository) ensureUniqueName(f *model.PlaylistFolder) error {
+	cond := And{
+		Eq{"playlist_folder.owner_id": f.OwnerID},
+		Eq{"playlist_folder.name": f.Name},
+	}
+	if f.ParentID == nil {
+		cond = append(cond, Eq{"playlist_folder.parent_id": nil})
+	} else {
+		cond = append(cond, Eq{"playlist_folder.parent_id": *f.ParentID})
+	}
+	if f.ID != "" {
+		cond = append(cond, NotEq{"playlist_folder.id": f.ID})
+	}
+	exists, err := r.exists(cond)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return fmt.Errorf("unique constraint failed: playlist_folder.name")
+	}
+	return nil
+}
+
 func (r *playlistFolderRepository) Put(f *model.PlaylistFolder) error {
 	usr := loggedUser(r.ctx)
 	if !usr.IsAdmin && f.OwnerID != usr.ID {
@@ -126,6 +149,9 @@ func (r *playlistFolderRepository) Put(f *model.PlaylistFolder) error {
 		if !ok {
 			return model.ErrNotAuthorized
 		}
+	}
+	if err := r.ensureUniqueName(f); err != nil {
+		return err
 	}
 	f.UpdatedAt = time.Now()
 
@@ -156,46 +182,58 @@ func (r *playlistFolderRepository) Delete(id string) error {
 
 // UpdateParent moves a folder under new parent (nil => root). Empty string is invalid.
 func (r *playlistFolderRepository) UpdateParent(id string, parentId *string) error {
-    if err := rejectEmptyOptionalID(parentId); err != nil { return err }
+	if err := rejectEmptyOptionalID(parentId); err != nil {
+		return err
+	}
 
-    usr := loggedUser(r.ctx)
+	usr := loggedUser(r.ctx)
 
-    var src struct{ OwnerID string }
-    if err := r.queryOne(Select("owner_id").From("playlist_folder").Where(Eq{"id": id}), &src); err != nil {
-        return err
-    }
-    if !usr.IsAdmin && src.OwnerID != usr.ID {
-        return rest.ErrPermissionDenied
-    }
+	var src struct {
+		OwnerID string
+		Name    string
+	}
+	if err := r.queryOne(Select("owner_id", "name").From("playlist_folder").Where(Eq{"id": id}), &src); err != nil {
+		return err
+	}
+	if !usr.IsAdmin && src.OwnerID != usr.ID {
+		return rest.ErrPermissionDenied
+	}
 
-    if parentId != nil {
-        if *parentId == id {
-            return ErrInvalidRequest // self-cycle
-        }
-        // prevent moving under descendant
-        isDesc, err := r.isDescendant(*parentId, id)
-        if err != nil { return err }
-        if isDesc {
-            return ErrInvalidRequest
-        }
-    }
+	if parentId != nil {
+		if *parentId == id {
+			return ErrInvalidRequest // self-cycle
+		}
+		// prevent moving under descendant
+		isDesc, err := r.isDescendant(*parentId, id)
+		if err != nil {
+			return err
+		}
+		if isDesc {
+			return ErrInvalidRequest
+		}
+	}
 
-    upd := Update("playlist_folder").
-        Set("parent_id", parentId). // nil => NULL
-        Set("updated_at", time.Now()).
-        Where(Eq{"id": id})
-    _, err := r.executeSQL(upd)
-    return err
+	f := &model.PlaylistFolder{ID: id, OwnerID: src.OwnerID, Name: src.Name, ParentID: parentId}
+	if err := r.ensureUniqueName(f); err != nil {
+		return err
+	}
+
+	upd := Update("playlist_folder").
+		Set("parent_id", parentId). // nil => NULL
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(upd)
+	return err
 }
 
 func (r *playlistFolderRepository) selectFolder(options ...model.QueryOptions) SelectBuilder {
 	return r.newSelect(options...).
-        Join("user on user.id = owner_id").
-        Columns(
-            r.tableName+".*",
-            "user.user_name as owner_name",
-            "'folder' as type",
-        )
+		Join("user on user.id = owner_id").
+		Columns(
+			r.tableName+".*",
+			"user.user_name as owner_name",
+			"'folder' as type",
+		)
 }
 
 func (r *playlistFolderRepository) findBy(where Sqlizer) (*model.PlaylistFolder, error) {
@@ -233,7 +271,9 @@ func (r *playlistFolderRepository) hasParentIDFilter(options ...model.QueryOptio
 // climb child->...->root and see if we hit ancestorID
 func (r *playlistFolderRepository) isDescendant(childID, ancestorID string) (bool, error) {
 	for {
-		var row struct{ ParentID *string `db:"parent_id"` }
+		var row struct {
+			ParentID *string `db:"parent_id"`
+		}
 		err := r.queryOne(
 			Select("parent_id").From("playlist_folder").Where(Eq{"id": childID}),
 			&row,
@@ -295,6 +335,9 @@ func (r *playlistFolderRepository) Update(id string, entity interface{}, cols ..
 		return rest.ErrPermissionDenied
 	}
 	f.ID = id
+	if err := r.ensureUniqueName(f); err != nil {
+		return err
+	}
 	f.UpdatedAt = time.Now()
 	f.Type = "folder"
 	_, err = r.put(id, dbPlaylistFolder{PlaylistFolder: *f}, append(cols, "updatedAt")...)

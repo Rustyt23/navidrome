@@ -112,7 +112,7 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 		r.Get("/", rest.GetAll(constructor))
 		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Content-type") == "application/json" {
-				rest.Post(constructor)(w, r)
+				createPlaylist(n.ds, n.playlists)(w, r)
 				return
 			}
 			createPlaylistFromM3U(n.playlists)(w, r)
@@ -126,16 +126,21 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 
 			r.Patch("/folder", func(w http.ResponseWriter, r *http.Request) {
 				id := chi.URLParam(r, "id")
-				type reqBody struct{ FolderID *string `json:"folderId"` }
+				type reqBody struct {
+					FolderID *string `json:"folderId"`
+				}
 				var body reqBody
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest); return
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
 				}
 				if body.FolderID != nil && *body.FolderID == "" {
-					http.Error(w, "folderId cannot be empty; use null for unassigned", http.StatusBadRequest); return
+					http.Error(w, "folderId cannot be empty; use null for unassigned", http.StatusBadRequest)
+					return
 				}
-				if err := n.ds.Playlist(r.Context()).UpdatePlaylistFolder(id, body.FolderID); err != nil {
-					http.Error(w, err.Error(), statusFor(err)); return
+				if err := n.playlists.SetFolder(r.Context(), id, body.FolderID); err != nil {
+					http.Error(w, err.Error(), statusFor(err))
+					return
 				}
 				w.WriteHeader(http.StatusNoContent)
 			})
@@ -162,7 +167,7 @@ func (n *Router) addPlaylistFolderRoute(r chi.Router) {
 			r.Patch("/parent", MoveFolder(n.ds))
 		})
 
-		r.Patch("/move", BulkMove(n.ds))
+		r.Patch("/move", BulkMove(n.ds, n.playlists))
 	})
 }
 
@@ -173,10 +178,10 @@ func (n *Router) addPlaylistTrackRoute(r chi.Router) {
 		})
 		r.With(server.URLParamsMiddleware).Route("/", func(r chi.Router) {
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-				deleteFromPlaylist(n.ds)(w, r)
+				deleteFromPlaylist(n.ds, n.playlists)(w, r)
 			})
 			r.Post("/", func(w http.ResponseWriter, r *http.Request) {
-				addToPlaylist(n.ds)(w, r)
+				addToPlaylist(n.ds, n.playlists)(w, r)
 			})
 		})
 		r.Route("/{id}", func(r chi.Router) {
@@ -185,10 +190,10 @@ func (n *Router) addPlaylistTrackRoute(r chi.Router) {
 				getPlaylistTrack(n.ds)(w, r)
 			})
 			r.Put("/", func(w http.ResponseWriter, r *http.Request) {
-				reorderItem(n.ds)(w, r)
+				reorderItem(n.ds, n.playlists)(w, r)
 			})
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-				deleteFromPlaylist(n.ds)(w, r)
+				deleteFromPlaylist(n.ds, n.playlists)(w, r)
 			})
 		})
 	})

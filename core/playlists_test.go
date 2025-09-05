@@ -75,6 +75,37 @@ var _ = Describe("Playlists", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pls.Tracks).To(HaveLen(2))
 			})
+
+			It("locates tracks from music library when playlist lives in playlists folder", func() {
+				DeferCleanup(configtest.SetupConfig())
+
+				root := GinkgoT().TempDir()
+				musicDir := filepath.Join(root, "music")
+				playlistsDir := filepath.Join(root, "playlists")
+				os.MkdirAll(filepath.Join(musicDir, "Discovery-Specialty/Specialty/Asian"), 0755)
+				os.MkdirAll(playlistsDir, 0755)
+
+				track := filepath.Join(musicDir, "Discovery-Specialty/Specialty/Asian/Jun Hyung Yong, 10cm - Sudden Shower.mp3")
+				Expect(os.WriteFile(track, []byte("test"), 0644)).To(Succeed())
+
+				playlistFile := filepath.Join(playlistsDir, "K-Pop.m3u")
+				content := "Discovery-Specialty/Specialty/Asian/Jun Hyung Yong, 10cm - Sudden Shower.mp3\n"
+				Expect(os.WriteFile(playlistFile, []byte(content), 0644)).To(Succeed())
+
+				conf.Server.PlaylistsPath = "playlists/**"
+				mockLibRepo.SetData([]model.Library{{ID: 1, Path: root}})
+				ds.MockedMediaFile = &mockedMediaFileRepo{}
+				ps = NewPlaylists(ds)
+
+				lib := model.Library{ID: 1, Path: root}
+				folder = model.NewFolder(lib, "playlists")
+				folder.LibraryPath = root
+
+				pls, err := ps.ImportFile(ctx, folder, "K-Pop.m3u")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pls.Tracks).To(HaveLen(1))
+				Expect(pls.Tracks[0].Path).To(Equal("Discovery-Specialty/Specialty/Asian/Jun Hyung Yong, 10cm - Sudden Shower.mp3"))
+			})
 		})
 
 		Describe("NSP", func() {

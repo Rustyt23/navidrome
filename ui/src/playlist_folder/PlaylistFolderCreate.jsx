@@ -31,8 +31,16 @@ const PlaylistFolderCreate = (props) => {
     refresh()
   }
 
+  const onFailure = (error) => {
+    if (error?.status === 409) {
+      notify('message.folderExists', 'warning')
+    } else {
+      notify('ra.page.error', 'warning')
+    }
+  }
+
   return (
-    <Create title={<Title subTitle={title} />} {...props} onSuccess={onSuccess}>
+    <Create title={<Title subTitle={title} />} {...props} onSuccess={onSuccess} onFailure={onFailure}>
       <SimpleForm redirect="list" variant="outlined">
         <TextInput source="name" validate={required()} />
         <BooleanInput source="public" initialValue />

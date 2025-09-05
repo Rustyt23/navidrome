@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -28,6 +27,7 @@ import (
 type Playlists interface {
 	ImportFile(ctx context.Context, folder *model.Folder, filename string) (*model.Playlist, error)
 	Update(ctx context.Context, playlistID string, name *string, comment *string, public *bool, idsToAdd []string, idxToRemove []int) error
+	SetFolder(ctx context.Context, playlistID string, folderID *string) error
 	ImportM3U(ctx context.Context, reader io.Reader) (*model.Playlist, error)
 }
 
@@ -299,62 +299,85 @@ func normalizePathForComparison(path string) string {
 	return strings.ToLower(norm.NFC.String(path))
 }
 
+func inPlaylistsPath(rel string) bool {
+	if conf.Server.PlaylistsPath == "" {
+		return false
+	}
+	for _, p := range strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator)) {
+		if match, _ := doublestar.Match(p, rel); match {
+			return true
+		}
+	}
+	return false
+}
+
 // TODO This won't work for multiple libraries
 func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, folder *model.Folder, lines []string) ([]string, error) {
-	libRegex, err := s.compileLibraryPaths(ctx)
+	libs, err := s.ds.Library(ctx).GetAll()
 	if err != nil {
 		return nil, err
 	}
 
 	res := make([]string, 0, len(lines))
 	for idx, line := range lines {
-		var libPath string
-		var filePath string
+		cleanLine := filepath.Clean(line)
+		var relPath string
+		found := false
 
-		if folder != nil && !filepath.IsAbs(line) {
-			libPath = folder.LibraryPath
-			filePath = filepath.Join(folder.AbsolutePath(), line)
+		if filepath.IsAbs(cleanLine) {
+			for _, lib := range libs {
+				base := filepath.Clean(lib.Path)
+				if strings.HasPrefix(cleanLine, base+string(os.PathSeparator)) || cleanLine == base {
+					if rel, err := filepath.Rel(base, cleanLine); err == nil {
+						if inPlaylistsPath(rel) {
+							break
+						}
+						relPath = rel
+						found = true
+					}
+					break
+				}
+			}
 		} else {
-			cleanLine := filepath.Clean(line)
-			if libPath = libRegex.FindString(cleanLine); libPath != "" {
-				filePath = cleanLine
+			for _, lib := range libs {
+				candidate := filepath.Join(lib.Path, cleanLine)
+				if _, err := os.Stat(candidate); err == nil {
+					if rel, err := filepath.Rel(lib.Path, candidate); err == nil {
+						if inPlaylistsPath(rel) {
+							continue
+						}
+						relPath = rel
+						found = true
+						break
+					}
+				} else {
+					base := filepath.Base(cleanLine)
+					pattern := filepath.Join(lib.Path, "**", base)
+					matches, _ := doublestar.FilepathGlob(pattern)
+					for _, m := range matches {
+						if rel, err := filepath.Rel(lib.Path, m); err == nil {
+							if inPlaylistsPath(rel) {
+								continue
+							}
+							relPath = rel
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
 			}
 		}
 
-		if libPath != "" {
-			if rel, err := filepath.Rel(libPath, filePath); err == nil {
-				res = append(res, rel)
-			} else {
-				log.Debug(ctx, "Error getting relative path", "playlist", pls.Name, "path", line, "libPath", libPath,
-					"filePath", filePath, err)
-			}
+		if found {
+			res = append(res, relPath)
 		} else {
 			log.Warn(ctx, "Path in playlist not found in any library", "path", line, "line", idx)
 		}
 	}
 	return slice.Map(res, filepath.ToSlash), nil
-}
-
-func (s *playlists) compileLibraryPaths(ctx context.Context) (*regexp.Regexp, error) {
-	libs, err := s.ds.Library(ctx).GetAll()
-	if err != nil {
-		return nil, err
-	}
-
-	// Create regex patterns for each library path
-	patterns := make([]string, len(libs))
-	for i, lib := range libs {
-		cleanPath := filepath.Clean(lib.Path)
-		escapedPath := regexp.QuoteMeta(cleanPath)
-		patterns[i] = fmt.Sprintf("^%s(?:/|$)", escapedPath)
-	}
-	// Combine all patterns into a single regex
-	combinedPattern := strings.Join(patterns, "|")
-	re, err := regexp.Compile(combinedPattern)
-	if err != nil {
-		return nil, fmt.Errorf("compiling library paths `%s`: %w", combinedPattern, err)
-	}
-	return re, nil
 }
 
 func (s *playlists) updatePlaylist(ctx context.Context, newPls *model.Playlist) error {
@@ -388,37 +411,24 @@ func (s *playlists) updatePlaylist(ctx context.Context, newPls *model.Playlist) 
 func (s *playlists) Update(ctx context.Context, playlistID string,
 	name *string, comment *string, public *bool,
 	idsToAdd []string, idxToRemove []int) error {
-	needsInfoUpdate := name != nil || comment != nil || public != nil
-	needsTrackRefresh := len(idxToRemove) > 0
+	changed := name != nil || comment != nil || public != nil || len(idsToAdd) > 0 || len(idxToRemove) > 0
+	if !changed {
+		return nil
+	}
 
 	return s.ds.WithTxImmediate(func(tx model.DataStore) error {
-		var pls *model.Playlist
-		var err error
 		repo := tx.Playlist(ctx)
-		tracks := repo.Tracks(playlistID, true)
-		if tracks == nil {
-			return fmt.Errorf("%w: playlist '%s'", model.ErrNotFound, playlistID)
-		}
-		if needsTrackRefresh {
-			pls, err = repo.GetWithTracks(playlistID, true, false)
-			pls.RemoveTracks(idxToRemove)
-			pls.AddMediaFilesByID(idsToAdd)
-		} else {
-			if len(idsToAdd) > 0 {
-				_, err = tracks.Add(idsToAdd)
-				if err != nil {
-					return err
-				}
-			}
-			if needsInfoUpdate {
-				pls, err = repo.Get(playlistID)
-			}
-		}
+		pls, err := repo.GetWithTracks(playlistID, true, false)
 		if err != nil {
 			return err
 		}
-		if !needsTrackRefresh && !needsInfoUpdate {
-			return nil
+		oldPath := pls.Path
+
+		if len(idxToRemove) > 0 {
+			pls.RemoveTracks(idxToRemove)
+		}
+		if len(idsToAdd) > 0 {
+			pls.AddMediaFilesByID(idsToAdd)
 		}
 
 		if name != nil {
@@ -430,14 +440,129 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 		if public != nil {
 			pls.Public = *public
 		}
-		// Special case: The playlist is now empty
+
+		if pls.Sync {
+			ext := filepath.Ext(oldPath)
+			if ext == "" {
+				ext = ".m3u"
+			}
+			newPath, err := s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
+			if err != nil {
+				return err
+			}
+			pls.Path = newPath
+		}
+
 		if len(idxToRemove) > 0 && len(pls.Tracks) == 0 {
-			if err = tracks.DeleteAll(); err != nil {
+			if err := repo.Tracks(playlistID, true).DeleteAll(); err != nil {
 				return err
 			}
 		}
-		return repo.Put(pls)
+
+		if err := repo.Put(pls); err != nil {
+			return err
+		}
+
+		if pls.Sync {
+			if err := os.MkdirAll(filepath.Dir(pls.Path), 0o755); err != nil {
+				return err
+			}
+			if oldPath != "" && oldPath != pls.Path {
+				if err := os.Rename(oldPath, pls.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
+			if err := s.writePlaylistFile(pls.Path, pls); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
+}
+
+func (s *playlists) SetFolder(ctx context.Context, playlistID string, folderID *string) error {
+	if folderID != nil && *folderID == "" {
+		return fmt.Errorf("folderID cannot be empty")
+	}
+	return s.ds.WithTxImmediate(func(tx model.DataStore) error {
+		repo := tx.Playlist(ctx)
+		pls, err := repo.Get(playlistID)
+		if err != nil {
+			return err
+		}
+		oldPath := pls.Path
+		if err := repo.UpdatePlaylistFolder(playlistID, folderID); err != nil {
+			return err
+		}
+		if !pls.Sync {
+			return nil
+		}
+		ext := filepath.Ext(oldPath)
+		if ext == "" {
+			ext = ".m3u"
+		}
+		newPath, err := s.buildPlaylistPath(ctx, tx, folderID, pls.Name, ext)
+		if err != nil {
+			return err
+		}
+		pls.Path = newPath
+		pls.FolderID = folderID
+		if err := repo.Put(pls); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(oldPath, newPath); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			if writeErr := s.writePlaylistFile(newPath, pls); writeErr != nil {
+				return writeErr
+			}
+		}
+		return nil
+	})
+}
+
+func (s *playlists) writePlaylistFile(path string, pls *model.Playlist) error {
+	data := []byte(pls.ToM3U8())
+	return os.WriteFile(path, data, 0o644)
+}
+
+func (s *playlists) buildPlaylistPath(ctx context.Context, ds model.DataStore, folderID *string, name, ext string) (string, error) {
+	if conf.Server.PlaylistsPath == "" {
+		return "", fmt.Errorf("playlists path not configured")
+	}
+	paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
+	root := strings.TrimSuffix(paths[0], "**")
+	root = strings.TrimSuffix(root, string(os.PathSeparator))
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	var rel string
+	if folderID != nil {
+		repo := ds.PlaylistFolder(ctx)
+		id := *folderID
+		parts := []string{}
+		for {
+			f, err := repo.Get(id)
+			if err != nil {
+				return "", err
+			}
+			parts = append([]string{sanitizeName(f.Name)}, parts...)
+			if f.ParentID == nil {
+				break
+			}
+			id = *f.ParentID
+		}
+		rel = filepath.Join(parts...)
+	}
+	filename := sanitizeName(name) + ext
+	if rel != "" {
+		return filepath.Join(root, rel, filename), nil
+	}
+	return filepath.Join(root, filename), nil
 }
 
 type nspFile struct {
