@@ -8,6 +8,7 @@ import {
   SearchInput,
   SelectInput,
   TextField,
+  Title as RaTitle,
   useUpdate,
   useNotify,
   useRecordContext,
@@ -21,6 +22,7 @@ import {
   isWritable,
   useSelectedFields,
   useResourceRefresh,
+  Title,
 } from '../common'
 import PlaylistListActions from './PlaylistListActions'
 import EmptyPlaylist from './EmptyPlaylist'
@@ -79,10 +81,10 @@ const TogglePublicInput = ({ source }) => {
             setChecked(!next)
             notify('ra.page.error', 'warning')
           },
-        }
+        },
       )
     },
-    [checked, notify, record, update]
+    [checked, notify, record, update],
   )
 
   return (
@@ -106,13 +108,18 @@ const FolderChildrenList = (props) => {
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   useResourceRefresh('folder')
 
+  const parentName = record?.path
+    ? record.path.split('/').filter(Boolean).pop()
+    : null
+  const title = parentName ? `${parentName} / ${record.name}` : record?.name
+
   const toggleableFields = useMemo(
     () => ({
       ownerName: isDesktop && <TextField source="ownerName" />,
       updatedAt: isDesktop && <DateField source="updatedAt" />,
       public: !isXsmall && <TogglePublicInput source="public" />,
     }),
-    [isDesktop, isXsmall]
+    [isDesktop, isXsmall],
   )
 
   const columns = useSelectedFields({
@@ -123,27 +130,30 @@ const FolderChildrenList = (props) => {
   const parentId = record?.id ?? ''
 
   return (
-    <List
-      {...props}
-      resource="folder"
-      exporter={false}
-      filters={<PlaylistFolderFilter />}
-      actions={<PlaylistListActions />}
-      bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
-      empty={<EmptyPlaylist />}
-      perPage={isXsmall ? 50 : 25}
-      filter={{ parent_id: parentId }}
-      filterDefaultValues={{ parent_id: parentId }}
-    >
-      <PlaylistFolderDataGrid rowClick={rowClick}>
-        <TypeIconField label={false} />
-        <TextField source="name" />
-        {columns}
-        <Writable>
-          <TypeAwareEditButton />
-        </Writable>
-      </PlaylistFolderDataGrid>
-    </List>
+    <>
+      {record && <RaTitle title={<Title subTitle={title} />} />}
+      <List
+        {...props}
+        resource="folder"
+        exporter={false}
+        filters={<PlaylistFolderFilter />}
+        actions={<PlaylistListActions />}
+        bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
+        empty={<EmptyPlaylist />}
+        perPage={isXsmall ? 50 : 25}
+        filter={{ parent_id: parentId }}
+        filterDefaultValues={{ parent_id: parentId }}
+      >
+        <PlaylistFolderDataGrid rowClick={rowClick}>
+          <TypeIconField label={false} />
+          <TextField source="name" />
+          {columns}
+          <Writable>
+            <TypeAwareEditButton />
+          </Writable>
+        </PlaylistFolderDataGrid>
+      </List>
+    </>
   )
 }
 
