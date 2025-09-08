@@ -12,6 +12,8 @@ import {
   useNotify,
   useRecordContext,
   usePermissions,
+  Title as RaTitle,
+  useDataProvider,
 } from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
 import Switch from '@material-ui/core/Switch'
@@ -21,6 +23,7 @@ import {
   isWritable,
   useSelectedFields,
   useResourceRefresh,
+  Title,
 } from '../common'
 import PlaylistListActions from './PlaylistListActions'
 import EmptyPlaylist from './EmptyPlaylist'
@@ -100,6 +103,40 @@ const TogglePublicInput = ({ source }) => {
 const rowClick = (id, record) =>
   record?.type === 'folder' ? `/folder/${id}/show` : `/playlist/${id}/show`
 
+const FolderTitle = () => {
+  const record = useRecordContext()
+  const dataProvider = useDataProvider()
+  const [path, setPath] = useState('')
+
+  useEffect(() => {
+    if (!record) return
+
+    const loadPath = async () => {
+      const names = [record.name]
+      let parentId = record.parentId
+
+      while (parentId) {
+        try {
+          const res = await dataProvider.getOne('folder', { id: parentId })
+          const parent = res?.data
+          if (!parent) break
+          names.unshift(parent.name)
+          parentId = parent.parentId
+        } catch {
+          break
+        }
+      }
+
+      setPath(names.join('/'))
+    }
+
+    loadPath()
+  }, [record, dataProvider])
+
+  if (!record) return null
+  return <RaTitle title={<Title subTitle={path} />} />
+}
+
 const FolderChildrenList = (props) => {
   const record = useRecordContext()
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
@@ -123,7 +160,9 @@ const FolderChildrenList = (props) => {
   const parentId = record?.id ?? ''
 
   return (
-    <List
+    <>
+      <FolderTitle />
+      <List
       {...props}
       resource="folder"
       exporter={false}
@@ -135,15 +174,16 @@ const FolderChildrenList = (props) => {
       filter={{ parent_id: parentId }}
       filterDefaultValues={{ parent_id: parentId }}
     >
-      <PlaylistFolderDataGrid rowClick={rowClick}>
-        <TypeIconField label={false} />
-        <TextField source="name" />
-        {columns}
-        <Writable>
-          <TypeAwareEditButton />
-        </Writable>
-      </PlaylistFolderDataGrid>
-    </List>
+        <PlaylistFolderDataGrid rowClick={rowClick}>
+          <TypeIconField label={false} />
+          <TextField source="name" />
+          {columns}
+          <Writable>
+            <TypeAwareEditButton />
+          </Writable>
+        </PlaylistFolderDataGrid>
+      </List>
+    </>
   )
 }
 
