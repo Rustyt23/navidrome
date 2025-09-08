@@ -55,11 +55,16 @@
 }
 
 [data-theme="music-matters"] header,
-[data-theme="music-matters"] .topbar,
 [data-theme="music-matters"] .sidebar,
 [data-theme="music-matters"] .playerbar{
   background: var(--surface-1);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+[data-theme="music-matters"] .topbar{
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--accent);
   box-shadow: var(--shadow);
 }
 
