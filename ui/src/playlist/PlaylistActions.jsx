@@ -117,7 +117,12 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
       httpClient(`${REST_URL}/playlist/${record.id}/publish`, {
         method: 'POST',
       })
-        .then(() => notify('ra.notification.updated', 'info'))
+        .then(() =>
+          notify('resources.playlist.notifications.published', 'info', {
+            smart_count: record.songCount,
+            name: record.name,
+          }),
+        )
         .catch(() => notify('ra.page.error', 'warning')),
     [record, notify],
   )
