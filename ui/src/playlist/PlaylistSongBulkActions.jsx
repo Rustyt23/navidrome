@@ -3,6 +3,7 @@ import {
   BulkDeleteButton,
   useUnselectAll,
   ResourceContextProvider,
+  useListContext,
 } from 'react-admin'
 import { MdOutlinePlaylistRemove } from 'react-icons/md'
 import PropTypes from 'prop-types'
@@ -16,18 +17,13 @@ const useStyles = makeStyles((theme) => ({
 }))
 
 // Replace original resource with "fake" one for removing tracks from playlist
-const PlaylistSongBulkActions = ({
-  playlistId,
-  resource,
-  selectedIds,
-  onUnselectItems,
-  ...rest
-}) => {
+const PlaylistSongBulkActions = ({ playlistId, onUnselectItems, ...rest }) => {
   const classes = useStyles()
+  const { resource, selectedIds } = useListContext()
   const unselectAll = useUnselectAll()
   useEffect(() => {
-    unselectAll('playlistTrack')
-  }, [unselectAll])
+    unselectAll(resource)
+  }, [unselectAll, resource])
 
   const mappedResource = `playlist/${playlistId}/tracks`
   return (
@@ -40,11 +36,10 @@ const PlaylistSongBulkActions = ({
           resource={mappedResource}
           onClick={onUnselectItems}
         />
-        {/* Add the AddToPlaylistButton */}
         <AddToPlaylistButton
-          resource={mappedResource} // Use the mapped resource for consistency
-          selectedIds={selectedIds} // Pass the selected IDs
-          className={classes.button} // Apply custom styles
+          resource={resource}
+          selectedIds={selectedIds}
+          className={classes.button}
         />
       </Fragment>
     </ResourceContextProvider>
@@ -53,8 +48,6 @@ const PlaylistSongBulkActions = ({
 
 PlaylistSongBulkActions.propTypes = {
   playlistId: PropTypes.string.isRequired,
-  resource: PropTypes.string.isRequired,
-  selectedIds: PropTypes.arrayOf(PropTypes.string).isRequired,
   onUnselectItems: PropTypes.func,
 }
 
