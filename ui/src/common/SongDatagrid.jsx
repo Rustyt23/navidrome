@@ -82,6 +82,7 @@ const DiscSubtitleRow = forwardRef(
         ref={ref}
         onClick={handlePlaySubset(record.discNumber)}
         className={classes.row}
+        draggable
       >
         <TableCell colSpan={colSpan}>
           <Typography variant="h6" className={classes.subtitle}>
@@ -182,6 +183,7 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
+        draggable
       >
         {fields}
       </PureDatagridRow>

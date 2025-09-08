@@ -90,4 +90,21 @@ describe('<SongDatagridRow />', () => {
     const spec = useDrag.mock.calls[1][0]()
     expect(spec.item.ids).toEqual(['m1'])
   })
+
+  it('remains draggable when a song is selected', () => {
+    const record1 = { id: '1', mediaFileId: 'm1', title: 'Song 1' }
+    const contextValue = {
+      data: { '1': record1 },
+      ids: ['1'],
+      selectedIds: ['1'],
+    }
+    const { container } = render(
+      <ListContextProvider value={contextValue}>
+        <SongDatagridRow record={record1} firstTracksOfDiscs={new Set()}>
+          <span />
+        </SongDatagridRow>
+      </ListContextProvider>,
+    )
+    expect(container.firstChild.getAttribute('draggable')).toBe('true')
+  })
 })
