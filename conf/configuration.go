@@ -52,6 +52,7 @@ type configOptions struct {
 	AutoImportPlaylists             bool
 	DefaultPlaylistPublicVisibility bool
 	PlaylistsPath                   string
+	SyncFolder                      string
 	SmartPlaylistRefreshDelay       time.Duration
 	AutoTranscodeDownload           bool
 	DefaultDownsamplingFormat       string

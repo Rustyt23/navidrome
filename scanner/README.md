@@ -443,6 +443,7 @@ The scanner's behavior can be customized through several configuration settings 
 | Setting                     | Description                                              | Default |
 |-----------------------------|----------------------------------------------------------|---------|
 | `PlaylistsPath`             | Path(s) to search for playlists (supports glob patterns) | ""      |
+| `SyncFolder`                | Directory to store published playlist files              | ""      |
 | `AutoImportPlaylists`       | Whether to import playlists during scanning              | true    |
 
 ### Performance Options

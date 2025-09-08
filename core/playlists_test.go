@@ -106,6 +106,20 @@ var _ = Describe("Playlists", func() {
 				Expect(pls.Tracks).To(HaveLen(1))
 				Expect(pls.Tracks[0].Path).To(Equal("Discovery-Specialty/Specialty/Asian/Jun Hyung Yong, 10cm - Sudden Shower.mp3"))
 			})
+
+			Describe("writePlaylistFile", func() {
+				It("writes file to sync folder when configured", func() {
+					DeferCleanup(configtest.SetupConfig())
+					playlistsDir := GinkgoT().TempDir()
+					syncDir := GinkgoT().TempDir()
+					conf.Server.PlaylistsPath = playlistsDir
+					conf.Server.SyncFolder = syncDir
+					ps := &playlists{}
+					pls := &model.Playlist{Name: "test", Path: filepath.Join(playlistsDir, "test.m3u")}
+					Expect(ps.writePlaylistFile(pls.Path, pls)).To(Succeed())
+					Expect(filepath.Join(syncDir, "test.m3u")).To(BeAnExistingFile())
+				})
+			})
 		})
 
 		Describe("NSP", func() {

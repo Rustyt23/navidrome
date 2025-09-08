@@ -527,7 +527,34 @@ func (s *playlists) SetFolder(ctx context.Context, playlistID string, folderID *
 
 func (s *playlists) writePlaylistFile(path string, pls *model.Playlist) error {
 	data := []byte(pls.ToM3U8())
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	if conf.Server.SyncFolder != "" {
+		rel := filepath.Base(path)
+		if conf.Server.PlaylistsPath != "" {
+			paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
+			for _, root := range paths {
+				root = strings.TrimSuffix(root, "**")
+				root = strings.TrimSuffix(root, string(os.PathSeparator))
+				if absRoot, err := filepath.Abs(root); err == nil {
+					root = absRoot
+				}
+				if r, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(r, "..") {
+					rel = r
+					break
+				}
+			}
+		}
+		syncPath := filepath.Join(conf.Server.SyncFolder, rel)
+		if err := os.MkdirAll(filepath.Dir(syncPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(syncPath, data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *playlists) buildPlaylistPath(ctx context.Context, ds model.DataStore, folderID *string, name, ext string) (string, error) {

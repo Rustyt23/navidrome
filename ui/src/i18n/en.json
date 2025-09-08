@@ -213,6 +213,7 @@
         "selectPlaylist": "Select a playlist:",
         "addNewPlaylist": "Create \"%{name}\"",
         "export": "Export",
+        "publish": "Publish",
         "saveQueue": "Save Queue to Playlist",
         "makePublic": "Make Public",
         "makePrivate": "Make Private",
