@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"html"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -72,6 +73,7 @@ func (n *Router) routes() http.Handler {
 			n.addInspectRoute(r)
 			n.addConfigRoute(r)
 			n.addUserLibraryRoute(r)
+			n.addSyncRoute(r)
 			n.RX(r, "/library", n.libs.NewRepository, true)
 		})
 	})
@@ -261,6 +263,21 @@ func (n *Router) addConfigRoute(r chi.Router) {
 	if conf.Server.DevUIShowConfig {
 		r.Get("/config/*", getConfig)
 	}
+}
+
+func (n *Router) addSyncRoute(r chi.Router) {
+	r.Get("/sync/*", func(w http.ResponseWriter, r *http.Request) {
+		resp, err := http.Get("http://localhost:3003")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 }
 
 func (n *Router) addKeepAliveRoute(r chi.Router) {
