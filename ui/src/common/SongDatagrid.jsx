@@ -122,6 +122,15 @@ export const SongDatagridRow = ({
   )
   const { selectedIds = [], data: listData = {} } = useListContext()
 
+  const dragSongIds = useMemo(() => {
+    const rawIds = selectedIds.includes(record?.id)
+      ? selectedIds.map(
+          (id) => listData[id]?.mediaFileId ?? listData[id]?.id,
+        )
+      : [record?.mediaFileId ?? record?.id]
+    return Array.from(new Set(rawIds.filter(Boolean)))
+  }, [record, selectedIds, listData])
+
   const [, dragDiscRef] = useDrag(
     () => ({
       type: DraggableTypes.DISC,
@@ -141,14 +150,10 @@ export const SongDatagridRow = ({
   const [, dragSongRef] = useDrag(
     () => ({
       type: DraggableTypes.SONG,
-      item: {
-        ids: selectedIds.includes(record?.id)
-          ? selectedIds.map((id) => listData[id]?.mediaFileId || listData[id]?.id)
-          : [record?.mediaFileId || record?.id],
-      },
+      item: { ids: dragSongIds },
       options: { dropEffect: 'copy' },
     }),
-    [record, selectedIds, listData],
+    [dragSongIds],
   )
 
   if (!record || !record.title) {
