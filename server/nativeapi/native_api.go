@@ -266,7 +266,7 @@ func (n *Router) addConfigRoute(r chi.Router) {
 }
 
 func (n *Router) addSyncRoute(r chi.Router) {
-	r.Get("/sync/*", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/sync", func(w http.ResponseWriter, r *http.Request) {
 		resp, err := http.Get("http://localhost:3003")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
