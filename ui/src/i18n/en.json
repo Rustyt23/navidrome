@@ -616,6 +616,7 @@
     "totalScanned": "Total Folders Scanned",
     "quickScan": "Quick Scan",
     "fullScan": "Full Scan",
+    "sync": "Sync",
     "serverUptime": "Server Uptime",
     "serverDown": "OFFLINE",
     "scanType": "Type",

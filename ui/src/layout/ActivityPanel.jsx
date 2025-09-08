@@ -15,10 +15,11 @@ import {
   Typography,
 } from '@material-ui/core'
 import { FiActivity } from 'react-icons/fi'
-import { BiError } from 'react-icons/bi'
+import { BiError, BiLink } from 'react-icons/bi'
 import { VscSync } from 'react-icons/vsc'
 import { GiMagnifyingGlass } from 'react-icons/gi'
 import subsonic from '../subsonic'
+import { httpClient } from '../dataProvider'
 import { useInitialScanStatus } from './useInitialScanStatus'
 import { useInterval } from '../common'
 import { useScanElapsedTime } from './useScanElapsedTime'
@@ -96,6 +97,14 @@ const ActivityPanel = () => {
 
   const handleMenuClose = () => setAnchorEl(null)
   const triggerScan = (full) => () => subsonic.startScan({ fullScan: full })
+  const triggerSync = () =>
+    httpClient('/api/sync')
+      .then(({ json }) => {
+        if (json?.message) {
+          notify(json.message, 'info')
+        }
+      })
+      .catch(() => notify('Sync failed', 'warning'))
 
   useEffect(() => {
     if (serverStart.version && serverStart.version !== config.version) {
@@ -208,6 +217,11 @@ const ActivityPanel = () => {
                 disabled={scanStatus.scanning}
               >
                 <VscSync />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={translate('activity.sync')}>
+              <IconButton onClick={triggerSync} disabled={scanStatus.scanning}>
+                <BiLink />
               </IconButton>
             </Tooltip>
             <Tooltip title={translate('activity.fullScan')}>
