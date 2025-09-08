@@ -134,7 +134,9 @@ const updateUser = async (params) => {
 const emitFoldersChanged = (detail) => {
   try {
     window.dispatchEvent(new CustomEvent('folder:changed', { detail }))
-  } catch {}
+  } catch (e) {
+    // ignore errors when event dispatching fails
+  }
 }
 
 const wrapperDataProvider = {
