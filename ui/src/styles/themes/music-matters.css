@@ -1,0 +1,121 @@
+:root[data-theme="music-matters"]{
+  /* Brand */
+  --accent: #FF2B8A;          /* vivid pink */
+  --accent-600: #E11D74;      /* hover/active */
+  --accent-700: #C21765;
+
+  /* Neutrals (cool greys) */
+  --bg: #111827;              /* page background (very dark grey) */
+  --surface-1: #1F2937;       /* header/sidebar/player surfaces */
+  --surface-2: #2A3444;       /* cards/menus/popovers */
+  --surface-3: #3A4557;       /* hovered rows/raised */
+  --border: #404B5F;          /* dividers & outlines */
+
+  /* Text */
+  --text: #FFFFFF;            /* primary text on dark */
+  --text-muted: #D1D5DB;      /* secondary */
+  --text-subtle: #A7B0BF;     /* tertiary */
+
+  /* Interactive states */
+  --focus-ring: #FF2B8A;
+  --hover: rgba(255,255,255,0.06);
+  --active: rgba(255,255,255,0.10);
+  --shadow: 0 6px 24px rgba(0,0,0,0.35);
+
+  /* Components */
+  --btn-bg: var(--accent);
+  --btn-bg-hover: var(--accent-600);
+  --btn-text: #FFFFFF;
+  --chip-bg: rgba(255,43,138,0.15);
+  --chip-text: #FFD2E7;
+
+  --link: #FFFFFF;
+  --link-hover: var(--accent);
+
+  /* Sliders / progress */
+  --slider-track: #3C465A;
+  --slider-fill: var(--accent);
+  --slider-thumb: #FFFFFF;
+
+  /* Table/rows */
+  --row-bg-hover: var(--hover);
+  --row-bg-selected: rgba(255,43,138,0.12);
+  --row-border: var(--border);
+
+  /* Scrollbar */
+  --scrollbar-track: #151B24;
+  --scrollbar-thumb: #2F3A4A;
+  --scrollbar-thumb-hover: #3B4760;
+}
+
+/* Minimal component hooks (match existing classnames/tokens in the app) */
+[data-theme="music-matters"] body{
+  background: var(--bg);
+  color: var(--text);
+}
+
+[data-theme="music-matters"] header,
+[data-theme="music-matters"] .topbar,
+[data-theme="music-matters"] .sidebar,
+[data-theme="music-matters"] .playerbar{
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+[data-theme="music-matters"] .card,
+[data-theme="music-matters"] .menu,
+[data-theme="music-matters"] .popover{
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+[data-theme="music-matters"] a{ color: var(--link); }
+[data-theme="music-matters"] a:hover{ color: var(--link-hover); }
+
+[data-theme="music-matters"] .btn-primary{
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  border: none;
+}
+[data-theme="music-matters"] .btn-primary:hover{
+  background: var(--btn-bg-hover);
+}
+[data-theme="music-matters"] .btn-primary:focus-visible{
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+[data-theme="music-matters"] .chip{
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  border: 1px solid transparent;
+}
+
+[data-theme="music-matters"] .nav-link.active,
+[data-theme="music-matters"] .tab.active{
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
+
+[data-theme="music-matters"] .table-row:hover{
+  background: var(--row-bg-hover);
+}
+[data-theme="music-matters"] .table-row.selected{
+  background: var(--row-bg-selected);
+}
+
+[data-theme="music-matters"] .progress,
+[data-theme="music-matters"] .slider .track{ background: var(--slider-track); }
+[data-theme="music-matters"] .progress .fill,
+[data-theme="music-matters"] .slider .fill{ background: var(--slider-fill); }
+[data-theme="music-matters"] .slider .thumb{
+  background: var(--slider-thumb);
+  border: 2px solid var(--accent);
+}
+
+/* Scrollbar (webkit) */
+[data-theme="music-matters"] ::-webkit-scrollbar{ height: 10px; width: 10px; }
+[data-theme="music-matters"] ::-webkit-scrollbar-track{ background: var(--scrollbar-track); }
+[data-theme="music-matters"] ::-webkit-scrollbar-thumb{ background: var(--scrollbar-thumb); border-radius: 6px; }
+[data-theme="music-matters"] ::-webkit-scrollbar-thumb:hover{ background: var(--scrollbar-thumb-hover); }
