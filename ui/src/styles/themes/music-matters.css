@@ -54,6 +54,14 @@
   color: var(--text);
 }
 
+[data-theme="music-matters"] body *{
+  transition: color 0.2s ease-in-out;
+}
+
+[data-theme="music-matters"] body *:hover{
+  color: var(--accent);
+}
+
 [data-theme="music-matters"] header,
 [data-theme="music-matters"] .sidebar,
 [data-theme="music-matters"] .playerbar{
@@ -78,6 +86,11 @@
 [data-theme="music-matters"] a{ color: var(--link); }
 [data-theme="music-matters"] a:hover{ color: var(--link-hover); }
 
+[data-theme="music-matters"] .btn-primary:hover,
+[data-theme="music-matters"] .chip:hover{
+  color: var(--btn-text);
+}
+
 [data-theme="music-matters"] .btn-primary{
   background: var(--btn-bg);
   color: var(--btn-text);
@@ -101,6 +114,10 @@
 [data-theme="music-matters"] .tab.active{
   color: var(--text);
   border-bottom: 2px solid var(--accent);
+}
+
+[data-theme="music-matters"] .brand-title{
+  color: var(--accent);
 }
 
 [data-theme="music-matters"] .table-row:hover{
