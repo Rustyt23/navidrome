@@ -1,51 +1,51 @@
-import stylesheet from './nuclear.css.js'
+import stylesheet from './musicMatters.css.js'
 
-const nukeCol = {
-  primary: '#1d2021',
-  secondary: '#282828',
-  accent: '#32302f',
-  text: '#ebdbb2',
-  textAlt: '#bdae93',
-  icon: '#FE0198',
-  link: '#c44129',
-  border: '#a89984',
+const mmCol = {
+  primary: '#ffffff',
+  secondary: '#cfcfcf',
+  accent: '#e91e63',
+  text: '#212121',
+  textAlt: '#616161',
+  icon: '#e91e63',
+  link: '#e91e63',
+  border: '#bdbdbd',
 }
 
 export default {
   themeName: 'MusicMatters',
   palette: {
     primary: {
-      main: nukeCol['primary'],
+      main: mmCol['secondary'],
     },
     secondary: {
-      main: nukeCol['secondary'],
+      main: mmCol['accent'],
     },
     background: {
-      default: nukeCol['primary'],
+      default: mmCol['primary'],
     },
     text: {
-      primary: nukeCol['text'],
-      secondary: nukeCol['text'],
+      primary: mmCol['text'],
+      secondary: mmCol['textAlt'],
     },
-    type: 'dark',
+    type: 'light',
   },
   overrides: {
     MuiTypography: {
       root: {
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
       colorPrimary: {
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
     },
     MuiPaper: {
       root: {
-        backgroundColor: nukeCol['secondary'],
+        backgroundColor: mmCol['primary'],
       },
     },
     MuiFormGroup: {
       root: {
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
     },
     NDAlbumGridView: {
@@ -53,31 +53,31 @@ export default {
         marginTop: '0.5rem',
         fontWeight: 700,
         textTransform: 'none',
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
       albumSubtitle: {
-        color: nukeCol['textAlt'],
+        color: mmCol['textAlt'],
       },
     },
     MuiAppBar: {
       colorSecondary: {
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
       positionFixed: {
-        backgroundColor: nukeCol['primary'],
+        backgroundColor: mmCol['secondary'],
         boxShadow:
-          'rgba(15, 17, 21, 0.25) 0px 4px 6px, rgba(15, 17, 21, 0.1) 0px 5px 7px',
+          'rgba(0, 0, 0, 0.1) 0px 4px 6px, rgba(0, 0, 0, 0.06) 0px 5px 7px',
       },
     },
     MuiButton: {
       root: {
         border: '1px solid transparent',
         '&:hover': {
-          backgroundColor: nukeCol['accent'],
+          backgroundColor: mmCol['accent'],
         },
       },
       label: {
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
       contained: {
         boxShadow: 'none',
@@ -88,104 +88,104 @@ export default {
     },
     MuiChip: {
       root: {
-        backgroundColor: nukeCol['accent'],
+        backgroundColor: mmCol['accent'],
       },
       label: {
-        color: nukeCol['icon'],
+        color: '#ffffff',
       },
     },
     RaLink: {
       link: {
-        color: nukeCol['link'],
+        color: mmCol['link'],
       },
     },
     MuiTableCell: {
       root: {
         borderBottom: 'none',
-        color: nukeCol['text'],
+        color: mmCol['text'],
         padding: '10px !important',
       },
       head: {
         fontSize: '0.75rem',
         textTransform: 'uppercase',
         letterSpacing: 1.2,
-        backgroundColor: nukeCol['accent'],
-        color: nukeCol['text'],
+        backgroundColor: mmCol['secondary'],
+        color: mmCol['text'],
       },
       body: {
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
     },
     MuiInput: {
       root: {
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
     },
     MuiFormLabel: {
       root: {
         '&$focused': {
-          color: nukeCol['text'],
+          color: mmCol['text'],
           fontWeight: 'bold',
         },
       },
     },
     MuiOutlinedInput: {
       notchedOutline: {
-        borderColor: nukeCol['border'],
+        borderColor: mmCol['border'],
       },
     },
     //Icons
     MuiIconButton: {
       label: {
-        color: nukeCol['icon'],
+        color: mmCol['icon'],
       },
     },
     MuiListItemIcon: {
       root: {
-        color: nukeCol['icon'],
+        color: mmCol['icon'],
       },
     },
     MuiSelect: {
       icon: {
-        color: nukeCol['icon'],
+        color: mmCol['icon'],
       },
     },
     MuiSvgIcon: {
       root: {
-        color: nukeCol['icon'],
+        color: mmCol['icon'],
       },
       colorDisabled: {
-        color: nukeCol['icon'],
+        color: mmCol['icon'],
       },
     },
     MuiSwitch: {
       colorPrimary: {
         '&$checked + $track': {
-          backgroundColor: '#f9f5d7',
+          backgroundColor: mmCol['accent'],
         },
       },
       track: {
-        backgroundColor: '#665c54',
+        backgroundColor: mmCol['border'],
       },
     },
     RaButton: {
       smallIcon: {
-        color: nukeCol['icon'],
+        color: mmCol['icon'],
       },
     },
     RaDatagrid: {
       headerCell: {
-        backgroundColor: nukeCol['accent'],
+        backgroundColor: mmCol['secondary'],
       },
     },
     //Login Screen
     NDLogin: {
       systemNameLink: {
-        color: nukeCol['text'],
+        color: mmCol['text'],
       },
       card: {
         minWidth: 300,
-        backgroundColor: nukeCol['secondary'],
+        backgroundColor: mmCol['primary'],
       },
       button: {
         boxShadow: '3px 3px 5px #000000a3',
@@ -194,12 +194,12 @@ export default {
     NDMobileArtistDetails: {
       bgContainer: {
         background:
-          'linear-gradient(to bottom, rgba(52 52 52 / 72%), rgb(48 48 48))!important',
+          'linear-gradient(to bottom, rgba(255 255 255 / 72%), rgb(240 240 240))!important',
       },
     },
   },
   player: {
-    theme: 'dark',
+    theme: 'light',
     stylesheet,
   },
 }
