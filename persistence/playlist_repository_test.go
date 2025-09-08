@@ -112,7 +112,7 @@ var _ = Describe("PlaylistRepository", func() {
 		})
 	})
 
-	Describe("GetPlaylists", func() {
+        Describe("GetPlaylists", func() {
 		It("returns playlists for a track", func() {
 			pls, err := repo.GetPlaylists(songRadioactivity.ID)
 			Expect(err).ToNot(HaveOccurred())
@@ -124,10 +124,24 @@ var _ = Describe("PlaylistRepository", func() {
 			pls, err := repo.GetPlaylists("9999")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pls).To(HaveLen(0))
-		})
-	})
+                })
+        })
 
-	Context("Smart Playlists", func() {
+       Describe("Add tracks", func() {
+               It("ignores tracks already in playlist", func() {
+                       tr := repo.Tracks(plsBest.ID, false)
+                       added, err := tr.Add([]string{songDayInALife.ID, songAntenna.ID})
+                       Expect(err).ToNot(HaveOccurred())
+                       Expect(added).To(Equal(1))
+
+                       saved, err := repo.GetWithTracks(plsBest.ID, true, false)
+                       Expect(err).ToNot(HaveOccurred())
+                       Expect(saved.Tracks).To(HaveLen(3))
+                       Expect(saved.Tracks[2].MediaFileID).To(Equal(songAntenna.ID))
+               })
+       })
+
+        Context("Smart Playlists", func() {
 		var rules *criteria.Criteria
 		BeforeEach(func() {
 			rules = &criteria.Criteria{

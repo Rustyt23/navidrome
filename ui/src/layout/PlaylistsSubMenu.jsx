@@ -132,7 +132,19 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     (item) =>
       dataProvider
         .addToPlaylist(pls.id, item)
-        .then((res) => notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added }))
+        .then((res) => {
+          const added = res?.data?.added || 0
+          notify('message.songsAddedToPlaylist', 'info', {
+            smart_count: added,
+          })
+          const attempted = item?.ids?.length || 0
+          const skipped = attempted - added
+          if (skipped > 0) {
+            notify('message.songsAlreadyInPlaylist', 'info', {
+              smart_count: skipped,
+            })
+          }
+        })
         .catch(() => notify('ra.page.error', 'warning'))
   )
 
