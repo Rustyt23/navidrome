@@ -24,12 +24,30 @@ const useStyles = makeStyles((theme) => ({
     paddingTop: 4,
     paddingBottom: 4,
     transition: 'all 0.2s ease-in-out',
-    '&:hover': { backgroundColor: theme.palette.action.hover, transform: 'translateX(2px)' },
+    '&:hover': {
+      backgroundColor: theme.palette.action.hover,
+      transform: 'translateX(2px)',
+    },
+    '&:hover $text': {
+      color: theme.palette.secondary.main,
+    },
+    '&:hover $listItemIcon': {
+      color: theme.palette.secondary.main,
+    },
   },
-  active: { backgroundColor: theme.palette.action.selected, fontWeight: theme.typography.fontWeightMedium },
-  text: { transition: 'color 0.2s ease' },
+  active: {
+    backgroundColor: theme.palette.action.selected,
+    fontWeight: theme.typography.fontWeightMedium,
+    '& $text': {
+      color: theme.palette.secondary.main,
+    },
+    '& $listItemIcon': {
+      color: theme.palette.secondary.main,
+    },
+  },
+  text: { transition: 'color 0.2s ease', color: theme.palette.text.primary },
   toggleButton: { padding: 4, marginRight: 4 },
-  listItemIcon: { minWidth: 28 },
+  listItemIcon: { minWidth: 28, color: theme.palette.text.primary },
   spacer: { width: 24 },
   nested: { paddingLeft: theme.spacing(2) },
   depth: (props) => ({ paddingLeft: theme.spacing(2) + props.depth * theme.spacing(2) }),
