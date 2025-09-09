@@ -9,7 +9,7 @@ export const Title = ({ subTitle, args }) => {
   const brand = <span className="brand-title">MusicMatters</span>
 
   if (isDesktop) {
-    return <span>{brand}{text ? ` - ${text}` : ''}</span>
+    return <span className="title-line">{brand}{text ? ` - ${text}` : ''}</span>
   }
-  return <span>{text ? text : brand}</span>
+  return <span className="title-line">{text ? text : brand}</span>
 }

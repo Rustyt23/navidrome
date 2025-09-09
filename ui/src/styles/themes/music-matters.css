@@ -120,6 +120,10 @@
   color: var(--accent);
 }
 
+[data-theme="music-matters"] .title-line{
+  color: var(--accent);
+}
+
 [data-theme="music-matters"] .table-row:hover{
   background: var(--row-bg-hover);
 }
