@@ -6,7 +6,7 @@ const mmCol = {
   accent: '#e91e63',
   text: '#212121',
   textAlt: '#616161',
-  icon: '#e91e63',
+  icon: '#212121',
   link: '#e91e63',
   border: '#bdbdbd',
 }
@@ -61,7 +61,7 @@ export default {
     },
     MuiAppBar: {
       colorSecondary: {
-        color: mmCol['text'],
+        color: mmCol['accent'],
       },
       positionFixed: {
         backgroundColor: mmCol['secondary'],
@@ -134,28 +134,28 @@ export default {
         borderColor: mmCol['border'],
       },
     },
-    //Icons
+    // Icons inherit the current color to allow contextual theming
     MuiIconButton: {
       label: {
-        color: mmCol['icon'],
+        color: 'inherit',
       },
     },
     MuiListItemIcon: {
       root: {
-        color: mmCol['icon'],
+        color: 'inherit',
       },
     },
     MuiSelect: {
       icon: {
-        color: mmCol['icon'],
+        color: 'inherit',
       },
     },
     MuiSvgIcon: {
       root: {
-        color: mmCol['icon'],
+        color: 'inherit',
       },
       colorDisabled: {
-        color: mmCol['icon'],
+        color: 'inherit',
       },
     },
     MuiSwitch: {
@@ -170,7 +170,7 @@ export default {
     },
     RaButton: {
       smallIcon: {
-        color: mmCol['icon'],
+        color: 'inherit',
       },
     },
     RaDatagrid: {
