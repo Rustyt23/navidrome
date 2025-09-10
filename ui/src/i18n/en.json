@@ -227,6 +227,7 @@
       "message": {
         "duplicate_song": "Song already exists",
         "song_exist": "This song already exists in this playlist. Do you want to add it again?",
+        "songs_exist": "Some songs already exist in this playlist. Do you want to add them again?",
         "playlist_exist": "Playlist already exists",
         "noPlaylistsFound": "No playlists found",
         "noPlaylists": "No playlists available"
