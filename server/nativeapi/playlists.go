@@ -81,6 +81,10 @@ func createPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFu
 		}
 		entity.Sync = true
 		id, err := rp.Save(entity)
+		if errors.Is(err, model.ErrValidation) {
+			rest.RespondWithError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err == rest.ErrPermissionDenied {
 			rest.RespondWithError(w, http.StatusForbidden, "Saving playlist: Permission denied")
 			return
