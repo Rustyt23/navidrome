@@ -5,6 +5,7 @@ import {
   PureDatagridBody,
   PureDatagridRow,
   useTranslate,
+  useListContext,
 } from 'react-admin'
 import {
   TableCell,
@@ -136,13 +137,25 @@ export const SongDatagridRow = ({
     [record],
   )
 
+  const { selectedIds = [] } = useListContext()
+  const songId = record?.mediaFileId || record?.id
+  const dragIds = selectedIds.includes(songId) ? selectedIds : [songId]
+
+  const handleDragStart = useCallback(
+    (event) => {
+      const payload = { type: 'songs', ids: dragIds }
+      event?.dataTransfer?.setData('application/json', JSON.stringify(payload))
+    },
+    [dragIds],
+  )
+
   const [, dragSongRef] = useDrag(
     () => ({
       type: DraggableTypes.SONG,
-      item: { ids: [record?.mediaFileId || record?.id] },
+      item: { type: 'songs', ids: dragIds },
       options: { dropEffect: 'copy' },
     }),
-    [record],
+    [dragIds],
   )
 
   if (!record || !record.title) {
@@ -174,6 +187,7 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
+        onDragStart={handleDragStart}
       >
         {fields}
       </PureDatagridRow>
