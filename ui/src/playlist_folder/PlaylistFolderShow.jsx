@@ -21,6 +21,7 @@ import {
   isWritable,
   useSelectedFields,
   useResourceRefresh,
+  Title,
 } from '../common'
 import PlaylistListActions from './PlaylistListActions'
 import EmptyPlaylist from './EmptyPlaylist'
@@ -127,6 +128,7 @@ const FolderChildrenList = (props) => {
       {...props}
       resource="folder"
       exporter={false}
+      title={<Title subTitle={record?.name} />}
       filters={<PlaylistFolderFilter />}
       actions={<PlaylistListActions />}
       bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
