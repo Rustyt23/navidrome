@@ -15,7 +15,7 @@ const url = (command, id, options) => {
   params.append('s', salt)
   params.append('f', 'json')
   params.append('v', '1.8.0')
-  params.append('c', 'NavidromeUI')
+  params.append('c', 'MusicMattersUI')
   id && params.append('id', id)
   if (options) {
     if (options.ts) {
