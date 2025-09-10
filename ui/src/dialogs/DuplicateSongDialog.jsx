@@ -9,13 +9,12 @@ import {
 
 import { useTranslate } from 'react-admin'
 
-const DuplicateSongDialog = ({ open, handleClickClose }) => {
+const DuplicateSongDialog = ({ open, handleSkip, handleDuplicate }) => {
   const translate = useTranslate()
 
   return (
     <Dialog
       open={open}
-      onClose={handleClickClose}
       aria-labelledby="form-dialog-duplicate-song"
     >
       <DialogTitle id="form-dialog-duplicate-song">
@@ -25,8 +24,11 @@ const DuplicateSongDialog = ({ open, handleClickClose }) => {
         {translate('resources.playlist.message.song_exist')}
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleClickClose} color="primary">
-          {translate('ra.action.close')}
+        <Button onClick={handleSkip} color="primary">
+          {translate('ra.action.skip')}
+        </Button>
+        <Button onClick={handleDuplicate} color="primary" autoFocus>
+          {translate('ra.action.duplicate')}
         </Button>
       </DialogActions>
     </Dialog>

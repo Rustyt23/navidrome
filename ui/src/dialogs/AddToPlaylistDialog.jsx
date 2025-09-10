@@ -39,7 +39,7 @@ const useStyles = makeStyles({
 
 export const AddToPlaylistDialog = () => {
   const classes = useStyles()
-  const { open, selectedIds, onSuccess, duplicateSong } =
+  const { open, selectedIds, onSuccess, duplicateSong, duplicateIds } =
     useSelector((state) => state.addToPlaylistDialog)
   const dispatch = useDispatch()
   const translate = useTranslate()
@@ -48,6 +48,7 @@ export const AddToPlaylistDialog = () => {
   const [value, setValue] = useState([])
   const [check, setCheck] = useState(false)
   const dataProvider = useDataProvider()
+
   const createAndAddToPlaylist = async (playlistObject) => {
     try {
       const res = await dataProvider.getList('playlist', {
@@ -104,14 +105,6 @@ export const AddToPlaylistDialog = () => {
           )
           if (dupSng.length) {
             const dupIds = dupSng.map((song) => song.mediaFileId)
-            const distinctSongs = selectedIds.filter(
-              (id) => dupIds.indexOf(id) < 0,
-            )
-            setValue((prev) =>
-              prev.map((p) =>
-                p.id === playlistObject.id ? { ...p, distinctIds: distinctSongs } : p,
-              ),
-            )
             dispatch(openDuplicateSongWarning(dupIds))
           }
         }
@@ -146,18 +139,23 @@ export const AddToPlaylistDialog = () => {
   const handleChange = (pls) => {
     if (!value.length || pls.length > value.length) {
       let newlyAdded = pls.slice(-1).pop()
-      setValue(pls)
       if (newlyAdded.id) {
         setCheck(false)
         checkDuplicateSong(newlyAdded)
       } else setCheck(true)
-    } else {
-      setValue(pls)
-      if (pls.length === 0) setCheck(false)
-    }
+    } else if (pls.length === 0) setCheck(false)
+    setValue(pls)
   }
 
-  const handleDuplicateClose = () => {
+  const handleDuplicate = () => {
+    dispatch(closeDuplicateSongDialog())
+  }
+
+  const handleSkip = () => {
+    const distinctSongs = selectedIds.filter(
+      (id) => duplicateIds.indexOf(id) < 0,
+    )
+    value.slice(-1).pop().distinctIds = distinctSongs
     dispatch(closeDuplicateSongDialog())
   }
 
@@ -195,7 +193,8 @@ export const AddToPlaylistDialog = () => {
       </Dialog>
       <DuplicateSongDialog
         open={duplicateSong}
-        handleClickClose={handleDuplicateClose}
+        handleDuplicate={handleDuplicate}
+        handleSkip={handleSkip}
       />
     </>
   )

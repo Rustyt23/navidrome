@@ -37,6 +37,7 @@ const createTestUtils = (mockDataProvider) =>
           addToPlaylistDialog: {
             open: true,
             duplicateSong: false,
+            duplicateIds: [],
             selectedIds: selectedIds,
           },
           admin: {
