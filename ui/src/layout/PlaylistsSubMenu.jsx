@@ -121,9 +121,8 @@ const useChildrenStore = () => {
   return { get, setItems, markDirty, moveItem, ensure }
 }
 
-const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
+const PlaylistMenuItemLink = memo(({ pls, depth = 0, onDuplicate }) => {
   const classes = useStyles({ depth })
-  const dataProvider = useDataProvider()
   const notify = useNotify()
   const history = useHistory()
 
@@ -135,7 +134,6 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     [],
   )
 
-  const [dropState, setDropState] = useState(null)
   const handleDrop = useCallback(async (e) => {
     e.preventDefault()
     const raw = e.dataTransfer.getData('application/x-tracks')
@@ -147,7 +145,7 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
       const existing = (res.json || []).map((t) => t.mediaFileId)
       const duplicates = ids.filter((id) => existing.includes(id))
       if (duplicates.length) {
-        setDropState({ ids, duplicates })
+        onDuplicate({ playlistId: pls.id, ids, duplicates })
         return
       }
       await addTracksToPlaylist(pls.id, ids, 'allow')
@@ -155,20 +153,7 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     } catch {
       notify('ra.page.error', 'warning')
     }
-  }, [pls.id, notify])
-
-  const handleDuplicateAction = useCallback(async (action) => {
-    if (!dropState) return
-    let ids = dropState.ids
-    if (action === 'skip') {
-      ids = dropState.ids.filter((id) => !dropState.duplicates.includes(id))
-    }
-    if (action !== 'cancel') {
-      await addTracksToPlaylist(pls.id, ids, action === 'skip' ? 'skip' : 'allow')
-      notify('message.songsAddedToPlaylist', 'info', { smart_count: ids.length })
-    }
-    setDropState(null)
-  }, [dropState, pls.id, notify])
+  }, [pls.id, notify, onDuplicate])
 
   return (
     <ListItem
@@ -184,16 +169,6 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
       <ListItemIcon className={classes.listItemIcon}><RiPlayListFill /></ListItemIcon>
       <ListItemText primary={<Typography variant="body2" noWrap className={classes.text}>{pls.name}</Typography>} />
     </ListItem>
-    {dropState && (
-      <DuplicateSongDialog
-        open={true}
-        duplicateCount={dropState.duplicates.length}
-        totalCount={dropState.ids.length}
-        handleClickClose={() => handleDuplicateAction('cancel')}
-        handleSubmit={() => handleDuplicateAction('allow')}
-        handleSkip={() => handleDuplicateAction('skip')}
-      />
-    )}
   )
 })
 PlaylistMenuItemLink.displayName = 'PlaylistMenuItemLink'
@@ -345,6 +320,7 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const refresh = useRefresh()
   const classes = useStyles()
   const [openMap, setOpenMap] = useState({})
+  const [dropState, setDropState] = useState(null)
   const childrenStore = useChildrenStore()
 
   const handleToggle = (menu) => setState((s) => ({ ...s, [menu]: !s[menu] }))
@@ -425,7 +401,21 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const folders = useMemo(() => (rootItems || []).filter((i) => i.type === 'folder'), [rootItems])
   const playlists = useMemo(() => (rootItems || []).filter((i) => i.type === 'playlist'), [rootItems])
 
+  const handleDuplicateAction = useCallback(async (action) => {
+    if (!dropState) return
+    let ids = dropState.ids
+    if (action === 'skip') {
+      ids = dropState.ids.filter((id) => !dropState.duplicates.includes(id))
+    }
+    if (action !== 'cancel') {
+      await addTracksToPlaylist(dropState.playlistId, ids, action === 'skip' ? 'skip' : 'allow')
+      notify('message.songsAddedToPlaylist', 'info', { smart_count: ids.length })
+    }
+    setDropState(null)
+  }, [dropState, notify])
+
   return (
+    <>
     <SubMenu
       handleToggle={() => handleToggle('menuPlaylists')}
       isOpen={state.menuPlaylists}
@@ -455,12 +445,23 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
               />
             ))}
             {playlists.map((p) => (
-              <PlaylistMenuItemLink key={p.id} pls={p} depth={0} />
+              <PlaylistMenuItemLink key={p.id} pls={p} depth={0} onDuplicate={setDropState} />
             ))}
           </>
         )}
       </List>
     </SubMenu>
+    {dropState && (
+      <DuplicateSongDialog
+        open={true}
+        duplicateCount={dropState.duplicates.length}
+        totalCount={dropState.ids.length}
+        handleClickClose={() => handleDuplicateAction('cancel')}
+        handleSubmit={() => handleDuplicateAction('allow')}
+        handleSkip={() => handleDuplicateAction('skip')}
+      />
+    )}
+  </>
   )
 }
 
