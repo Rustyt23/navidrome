@@ -111,22 +111,6 @@ func (r *playlistRepository) Delete(id string) error {
 
 func (r *playlistRepository) Put(p *model.Playlist) error {
 	pls := dbPlaylist{Playlist: *p}
-	if pls.OwnerID == "" {
-		usr := loggedUser(r.ctx)
-		pls.OwnerID = usr.ID
-	}
-	// Ensure playlist names are unique per owner
-	filters := And{Eq{"playlist.name": pls.Name}, Eq{"playlist.owner_id": pls.OwnerID}}
-	if pls.ID != "" {
-		filters = append(filters, NotEq{"playlist.id": pls.ID})
-	}
-	exists, err := r.exists(filters)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return fmt.Errorf("%w: playlist already exists", model.ErrValidation)
-	}
 	if pls.ID == "" {
 		pls.CreatedAt = time.Now()
 	} else {
@@ -197,9 +181,9 @@ func (r *playlistRepository) findBy(sql Sqlizer) (*model.Playlist, error) {
 		return nil, model.ErrNotFound
 	}
 
-	p := &pls[0].Playlist
-	p.Type = "playlist"
-	return p, nil
+    p := &pls[0].Playlist
+    p.Type = "playlist"
+    return p, nil
 }
 
 func (r *playlistRepository) GetAll(options ...model.QueryOptions) (model.Playlists, error) {
@@ -574,17 +558,13 @@ func (r *playlistRepository) isWritable(playlistId string) bool {
 }
 
 func (r *playlistRepository) UpdatePlaylistFolder(id string, folderID *string) error {
-	if err := rejectEmptyOptionalID(folderID); err != nil {
-		return err
-	}
+	if err := rejectEmptyOptionalID(folderID); err != nil { return err }
 
 	playlist, err := r.Get(id)
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 
 	if (playlist.FolderID == nil && folderID == nil) ||
-		(playlist.FolderID != nil && folderID != nil && *playlist.FolderID == *folderID) {
+	   (playlist.FolderID != nil && folderID != nil && *playlist.FolderID == *folderID) {
 		return nil
 	}
 

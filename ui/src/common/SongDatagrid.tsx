@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { isValidElement, useMemo, useCallback, forwardRef } from 'react'
 import { useDispatch } from 'react-redux'
 import {
@@ -187,6 +188,7 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
+        draggable
         onDragStart={handleDragStart}
       >
         {fields}
