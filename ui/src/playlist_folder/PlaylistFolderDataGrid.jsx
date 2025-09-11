@@ -14,6 +14,7 @@ import { makeStyles } from '@material-ui/core/styles'
 import { useHistory, useLocation } from 'react-router-dom'
 import useDragAndDrop from '../common/useDragAndDrop'
 import { matchPath } from 'react-router'
+import { addTracksToPlaylist } from '../common'
 
 const useStyles = makeStyles({
   row: {
@@ -61,8 +62,8 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
         const isTargetPlaylist = record.type === 'playlist'
 
         if (isTargetPlaylist && item.type !== 'playlist' && item.type !== 'folder') {
-          const res = await dataProvider.addToPlaylist(record.id, item)
-          notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
+          const res = await addTracksToPlaylist(record.id, item.ids || [], 'allow')
+          notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.added })
           refresh()
           return
         }

@@ -5,6 +5,7 @@ import {
   PureDatagridBody,
   PureDatagridRow,
   useTranslate,
+  useListContext,
 } from 'react-admin'
 import {
   TableCell,
@@ -120,6 +121,8 @@ export const SongDatagridRow = ({
     isValidElement(c),
   )
 
+  const { selectedIds } = useListContext()
+
   const [, dragDiscRef] = useDrag(
     () => ({
       type: DraggableTypes.DISC,
@@ -136,13 +139,29 @@ export const SongDatagridRow = ({
     [record],
   )
 
+  const getDraggedIds = useCallback(() => {
+    const id = record?.mediaFileId || record?.id
+    return selectedIds.includes(id) ? selectedIds : [id]
+  }, [record, selectedIds])
+
   const [, dragSongRef] = useDrag(
     () => ({
       type: DraggableTypes.SONG,
-      item: { ids: [record?.mediaFileId || record?.id] },
+      item: () => ({ ids: getDraggedIds() }),
       options: { dropEffect: 'copy' },
     }),
-    [record],
+    [getDraggedIds],
+  )
+
+  const handleDragStart = useCallback(
+    (e) => {
+      const ids = getDraggedIds()
+      console.log('selected IDs', ids)
+      e.dataTransfer.setData('application/x-tracks', JSON.stringify(ids))
+      e.dataTransfer.setData('text/plain', `${ids.length} tracks`)
+      console.log('drag payload length', ids.length)
+    },
+    [getDraggedIds],
   )
 
   if (!record || !record.title) {
@@ -174,6 +193,7 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
+        onDragStart={handleDragStart}
       >
         {fields}
       </PureDatagridRow>
