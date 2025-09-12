@@ -260,12 +260,13 @@ const SongDatagridBody = ({
 export const SongDatagrid = ({
   contextAlwaysVisible,
   showDiscSubtitles,
+  className,
   ...rest
 }) => {
   const classes = useStyles()
   return (
     <Datagrid
-      className={classes.headerStyle}
+      className={clsx(classes.headerStyle, className)}
       isRowSelectable={(r) => !r?.missing}
       {...rest}
       body={
@@ -282,4 +283,5 @@ SongDatagrid.propTypes = {
   contextAlwaysVisible: PropTypes.bool,
   showDiscSubtitles: PropTypes.bool,
   classes: PropTypes.object,
+  className: PropTypes.string,
 }

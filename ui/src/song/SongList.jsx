@@ -64,6 +64,13 @@ const useStyles = makeStyles({
     margin: 0,
     height: '24px',
   },
+  '@global': {
+    '.songsTable--tightGap': {
+      '--song-row-gap': '8px',
+      borderCollapse: 'separate',
+      borderSpacing: '0 var(--song-row-gap)',
+    },
+  },
 })
 
 const SongFilter = (props) => {
@@ -250,6 +257,7 @@ const SongList = (props) => {
           <SongSimpleList />
         ) : (
           <SongDatagrid
+            className="songsTable--tightGap"
             rowClick={handleRowClick}
             contextAlwaysVisible={!isDesktop}
             classes={{ row: classes.row }}
