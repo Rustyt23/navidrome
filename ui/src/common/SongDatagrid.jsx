@@ -265,9 +265,58 @@ const SongDatagridBody = ({
 export const SongDatagrid = ({
   contextAlwaysVisible,
   showDiscSubtitles,
+  children,
   ...rest
 }) => {
   const classes = useStyles()
+  const childrenArray = React.Children.toArray(children)
+  const columnMap = useMemo(() => {
+    const map = {}
+    childrenArray.forEach((child) => {
+      const id = child.props.source || child.props.id
+      if (id) map[id] = child
+    })
+    return map
+  }, [childrenArray])
+
+  const defaultOrder = useMemo(
+    () => childrenArray.map((c) => c.props.source || c.props.id).filter(Boolean),
+    [childrenArray],
+  )
+
+  const [columnOrder] = React.useState(() => {
+    const stored = localStorage.getItem('nd:songs:columnOrder')
+    return stored ? JSON.parse(stored) : defaultOrder
+  })
+
+  const [visibleColumns] = React.useState(() => {
+    const stored = localStorage.getItem('nd:songs:visibleColumns')
+    return stored ? new Set(JSON.parse(stored)) : new Set(defaultOrder)
+  })
+
+  React.useEffect(() => {
+    localStorage.setItem('nd:songs:columnOrder', JSON.stringify(columnOrder))
+  }, [columnOrder])
+
+  React.useEffect(() => {
+    localStorage.setItem(
+      'nd:songs:visibleColumns',
+      JSON.stringify(Array.from(visibleColumns)),
+    )
+  }, [visibleColumns])
+
+  const orderedChildren = useMemo(
+    () =>
+      columnOrder
+        .map((id) => columnMap[id])
+        .filter(Boolean)
+        .filter((c) => {
+          const id = c.props.source || c.props.id
+          return visibleColumns.has(id)
+        }),
+    [columnOrder, columnMap, visibleColumns],
+  )
+
   return (
     <Datagrid
       className={classes.headerStyle}
@@ -279,7 +328,9 @@ export const SongDatagrid = ({
           showDiscSubtitles={showDiscSubtitles}
         />
       }
-    />
+    >
+      {orderedChildren}
+    </Datagrid>
   )
 }
 

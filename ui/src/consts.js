@@ -12,6 +12,7 @@ export const DraggableTypes = {
   ALBUM: 'album',
   DISC: 'disc',
   ARTIST: 'artist',
+  COLUMN: 'column',
   ALL: [],
   PLAYLIST: 'playlist',
   FOLDER: 'folder',
@@ -22,6 +23,7 @@ DraggableTypes.ALL.push(
   DraggableTypes.ALBUM,
   DraggableTypes.DISC,
   DraggableTypes.ARTIST,
+  DraggableTypes.COLUMN,
 )
 
 export const DEFAULT_SHARE_BITRATE = 128
