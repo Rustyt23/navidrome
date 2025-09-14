@@ -36,6 +36,7 @@ const useStyles = makeStyles({
   },
   row: {
     cursor: 'pointer',
+    userSelect: 'none',
     '&:hover': {
       '& $contextMenu': {
         visibility: 'visible',
@@ -45,6 +46,7 @@ const useStyles = makeStyles({
   missingRow: {
     cursor: 'inherit',
     opacity: 0.3,
+    userSelect: 'none',
   },
   headerStyle: {
     '& thead': {
@@ -82,6 +84,7 @@ const DiscSubtitleRow = forwardRef(
         ref={ref}
         onClick={handlePlaySubset(record.discNumber)}
         className={classes.row}
+        draggable
       >
         <TableCell colSpan={colSpan}>
           <Typography variant="h6" className={classes.subtitle}>
@@ -183,6 +186,7 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
+        draggable
       >
         {fields}
       </PureDatagridRow>
