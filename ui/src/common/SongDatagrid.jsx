@@ -35,10 +35,10 @@ const useStyles = makeStyles({
   },
   row: {
     cursor: 'pointer',
-    // Reduce vertical padding on each table cell to shrink overall row height
+    // Further reduce vertical padding on each table cell to cut row height in half
     '& td': {
-      paddingTop: '10px',
-      paddingBottom: '10px',
+      paddingTop: '5px',
+      paddingBottom: '5px',
     },
     '&:hover': {
       '& $contextMenu': {
