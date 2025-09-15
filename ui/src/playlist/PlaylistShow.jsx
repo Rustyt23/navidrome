@@ -64,7 +64,6 @@ const PlaylistShowLayout = (props) => {
             target="playlist_id"
             sort={{ field: 'id', order: 'ASC' }}
             perPage={100}
-            filter={{ playlist_id: props.id, title: searchTerm }} // Pass searchTerm as a filter
           >
             <PlaylistSongs
               {...props}
