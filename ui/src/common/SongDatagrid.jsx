@@ -33,6 +33,7 @@ import DragIndicatorIcon from '@material-ui/icons/DragIndicator'
 import clsx from 'clsx'
 import { useDrag } from 'react-dnd'
 import { DndContext, useDraggable, useDroppable, DragOverlay } from '@dnd-kit/core'
+import { arrayMove } from '@dnd-kit/sortable'
 import { FieldTitle } from 'ra-core'
 import { playTracks, setColumnsOrder } from '../actions'
 import { AlbumContextMenu } from '../common'
@@ -133,9 +134,15 @@ export const SongDatagridRow = ({
   ...rest
 }) => {
   const classes = useStyles()
+  const resource = useResourceContext()
+  const columnsOrder =
+    useSelector((state) => state.settings.columnsOrder?.[resource]) || []
   const fields = React.Children.toArray(children).filter((c) =>
     isValidElement(c),
   )
+  const orderedFields = columnsOrder
+    .map((key) => fields.find((f) => f.props.source === key))
+    .filter(Boolean)
 
   const [, dragDiscRef] = useDrag(
     () => ({
@@ -173,7 +180,7 @@ export const SongDatagridRow = ({
     classes.row,
     record.missing && classes.missingRow,
   )
-  const childCount = fields.length
+  const childCount = orderedFields.length
   return (
     <>
       {firstTracksOfDiscs.has(record.id) && (
@@ -192,7 +199,7 @@ export const SongDatagridRow = ({
         rowClick={rowClick}
         className={computedClasses}
       >
-        {fields}
+        {orderedFields}
       </PureDatagridRow>
     </>
   )
@@ -407,9 +414,9 @@ const SongDatagridHeader = (props) => {
     : ids
 
   const childArray = Children.toArray(children).filter((c) => isValidElement(c))
-  const draggable = childArray.filter((f) =>
-    columnsOrder.includes(f.props.source),
-  )
+  const draggable = columnsOrder
+    .map((key) => childArray.find((f) => f.props.source === key))
+    .filter(Boolean)
 
   const staticBefore = []
   const staticAfter = []
@@ -424,23 +431,13 @@ const SongDatagridHeader = (props) => {
     }
   })
 
-  const visibleIds = draggable.map((f) => f.props.source)
-
   const handleDragEnd = ({ active, over }) => {
     if (over && active.id !== over.id) {
-      const visible = [...visibleIds]
-      const fromIndex = visible.indexOf(active.id)
-      const toIndex = visible.indexOf(over.id)
-      visible.splice(fromIndex, 1)
-      visible.splice(toIndex, 0, active.id)
-      const updated = [...columnsOrder]
-      let vi = 0
-      for (let i = 0; i < updated.length; i++) {
-        if (visibleIds.includes(updated[i])) {
-          updated[i] = visible[vi++]
-        }
-      }
-      dispatch(setColumnsOrder({ [resource]: updated }))
+      const fromIndex = columnsOrder.indexOf(active.id)
+      const toIndex = columnsOrder.indexOf(over.id)
+      dispatch(
+        setColumnsOrder({ [resource]: arrayMove(columnsOrder, fromIndex, toIndex) }),
+      )
     }
     setActiveId(null)
   }
