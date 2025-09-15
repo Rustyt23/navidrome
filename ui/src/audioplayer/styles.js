@@ -25,6 +25,19 @@ const useStyle = makeStyles(
       opacity: 0,
       transition: 'all 500ms ease-out',
     },
+    controlButton: {
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      background: 'transparent',
+      border: 'none',
+      padding: 0,
+      margin: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: 'inherit',
+      cursor: 'pointer',
+    },
     player: {
       display: (props) => (props.visible ? 'block' : 'none'),
       '@media screen and (max-width:810px)': {

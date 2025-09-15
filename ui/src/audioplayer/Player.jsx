@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useMediaQuery } from '@material-ui/core'
 import { ThemeProvider } from '@material-ui/core/styles'
@@ -19,6 +19,7 @@ import AudioTitle from './AudioTitle'
 import {
   clearQueue,
   currentPlaying,
+  queue,
   setPlayMode,
   setVolume,
   syncQueue,
@@ -30,6 +31,10 @@ import locale from './locale'
 import { keyMap } from '../hotkeys'
 import keyHandlers from './keyHandlers'
 import { calculateGain } from '../utils/calculateReplayGain'
+import {
+  NextAudioIcon,
+  PrevAudioIcon,
+} from 'navidrome-music-player/es/components/Icon'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -38,6 +43,8 @@ const Player = () => {
   const dataProvider = useDataProvider()
   const playerState = useSelector((state) => state.player)
   const dispatch = useDispatch()
+  const playerRef = useRef(null)
+  const originalTogglePlayRef = useRef(null)
   const [startTime, setStartTime] = useState(null)
   const [scrobbled, setScrobbled] = useState(false)
   const [preloaded, setPreload] = useState(false)
@@ -62,6 +69,9 @@ const Player = () => {
   const gainInfo = useSelector((state) => state.replayGain)
   const [context, setContext] = useState(null)
   const [gainNode, setGainNode] = useState(null)
+  const handleAudioInstance = useCallback((instance) => {
+    setAudioInstance(instance)
+  }, [])
 
   useEffect(() => {
     if (
@@ -139,13 +149,14 @@ const Player = () => {
       playIndex: playerState.playIndex,
       autoPlay: playerState.clear || playerState.playIndex === 0,
       clearPriorAudioLists: playerState.clear,
+      icon: controlIcons,
       extendsContent: (
         <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
       ),
       defaultVolume: isMobilePlayer ? 1 : playerState.volume,
       showMediaSession: !current.isRadio,
     }
-  }, [playerState, defaultOptions, isMobilePlayer])
+  }, [playerState, defaultOptions, isMobilePlayer, controlIcons])
 
   const onAudioListsChange = useCallback(
     (_, audioLists, audioInfo) => dispatch(syncQueue(audioInfo, audioLists)),
@@ -158,6 +169,85 @@ const Player = () => {
     )
     return idx !== null ? playerState.queue[idx + 1] : null
   }, [playerState])
+
+  const resumePlayback = useCallback(() => {
+    if (!audioInstance) {
+      return
+    }
+    const playPromise = audioInstance.play?.()
+    if (playPromise?.catch) {
+      playPromise.catch(() => {})
+    }
+  }, [audioInstance])
+
+  const handlePrev = useCallback(
+    (event) => {
+      if (!audioInstance) {
+        return
+      }
+      event?.preventDefault?.()
+      event?.stopPropagation?.()
+
+      const wasPlaying = !audioInstance.paused
+
+      audioInstance.playPrev?.()
+      if (wasPlaying) {
+        resumePlayback()
+      }
+    },
+    [audioInstance, resumePlayback],
+  )
+
+  const handleNext = useCallback(
+    (event) => {
+      if (!audioInstance) {
+        return
+      }
+      event?.preventDefault?.()
+      event?.stopPropagation?.()
+
+      const wasPlaying = !audioInstance.paused
+
+      dispatch(queue.next())
+      audioInstance.playNext?.()
+      if (wasPlaying) {
+        resumePlayback()
+      }
+    },
+    [audioInstance, dispatch, resumePlayback],
+  )
+
+  const controlIcons = useMemo(() => {
+    const prevLabel = translate('player.previousTrackText')
+    const nextLabel = translate('player.nextTrackText')
+
+    return {
+      prev: (
+        <button
+          type="button"
+          data-control="true"
+          className={classes.controlButton}
+          aria-label={prevLabel}
+          title={prevLabel}
+          onClick={handlePrev}
+        >
+          <PrevAudioIcon />
+        </button>
+      ),
+      next: (
+        <button
+          type="button"
+          data-control="true"
+          className={classes.controlButton}
+          aria-label={nextLabel}
+          title={nextLabel}
+          onClick={handleNext}
+        >
+          <NextAudioIcon />
+        </button>
+      ),
+    }
+  }, [classes.controlButton, handleNext, handlePrev, translate])
 
   const onAudioProgress = useCallback(
     (info) => {
@@ -287,6 +377,37 @@ const Player = () => {
   )
 
   useEffect(() => {
+    if (!audioInstance || !playerRef.current) {
+      return
+    }
+
+    if (!originalTogglePlayRef.current) {
+      const component = playerRef.current
+      const originalTogglePlay = component.onTogglePlay
+
+      component.onTogglePlay = (event, ...args) => {
+        if (event?.target?.closest?.('[data-control]')) {
+          return
+        }
+        return originalTogglePlay(event, ...args)
+      }
+
+      originalTogglePlayRef.current = {
+        component,
+        handler: originalTogglePlay,
+      }
+    }
+
+    return () => {
+      const stored = originalTogglePlayRef.current
+      if (stored?.component) {
+        stored.component.onTogglePlay = stored.handler
+      }
+      originalTogglePlayRef.current = null
+    }
+  }, [audioInstance, playerRef])
+
+  useEffect(() => {
     if (isMobilePlayer && audioInstance) {
       audioInstance.volume = 1
     }
@@ -295,6 +416,7 @@ const Player = () => {
   return (
     <ThemeProvider theme={createMuiTheme(theme)}>
       <ReactJkMusicPlayer
+        ref={playerRef}
         {...options}
         className={classes.player}
         onAudioListsChange={onAudioListsChange}
@@ -307,7 +429,7 @@ const Player = () => {
         onAudioEnded={onAudioEnded}
         onCoverClick={onCoverClick}
         onBeforeDestroy={onBeforeDestroy}
-        getAudioInstance={setAudioInstance}
+        getAudioInstance={handleAudioInstance}
       />
       <GlobalHotKeys handlers={handlers} keyMap={keyMap} allowChanges />
     </ThemeProvider>
