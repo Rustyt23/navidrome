@@ -134,6 +134,7 @@ const SongList = (props) => {
   const classes = useStyles()
   const dispatch = useDispatch()
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down('sm'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   useResourceRefresh('song')
 
@@ -235,6 +236,46 @@ const SongList = (props) => {
     ],
   })
 
+  const displayedColumns = useMemo(() => {
+    if (!isMobile) {
+      return columns
+    }
+
+    const filtered = []
+    let hasArtist = false
+
+    columns.forEach((column) => {
+      if (!column) {
+        return
+      }
+
+      const source = column.props?.source
+      if (source === 'artist') {
+        hasArtist = true
+      }
+      if (source === 'rating') {
+        return
+      }
+
+      filtered.push(column)
+    })
+
+    if (!hasArtist && toggleableFields.artist) {
+      const insertIndex = filtered.findIndex(
+        (column) => column?.props?.source === 'album',
+      )
+      const artistField = toggleableFields.artist
+
+      if (insertIndex >= 0) {
+        filtered.splice(insertIndex + 1, 0, artistField)
+      } else {
+        filtered.unshift(artistField)
+      }
+    }
+
+    return filtered
+  }, [columns, isMobile, toggleableFields.artist])
+
   return (
     <>
       <List
@@ -255,7 +296,7 @@ const SongList = (props) => {
             classes={{ row: classes.row }}
           >
             <SongTitleField source="title" showTrackNumbers={false} />
-            {columns}
+            {displayedColumns}
             <SongContextMenu
               source={'starred_at'}
               sortByOrder={'DESC'}

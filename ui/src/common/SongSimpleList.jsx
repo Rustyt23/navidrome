@@ -6,6 +6,7 @@ import ListItemIcon from '@material-ui/core/ListItemIcon'
 import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
 import { makeStyles } from '@material-ui/core/styles'
+import { useMediaQuery } from '@material-ui/core'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
 import { setTrack } from '../actions'
@@ -64,6 +65,7 @@ export const SongSimpleList = ({
   ...rest
 }) => {
   const dispatch = useDispatch()
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down('sm'))
   const classes = useStyles({ classes: classesOverride })
   return (
     (loading || total > 0) && (
@@ -90,7 +92,7 @@ export const SongSimpleList = ({
                             />
                           </span>
                         </span>
-                        {config.enableStarRating && (
+                        {config.enableStarRating && !isMobile && (
                           <RatingField
                             record={data[id]}
                             source={'rating'}

@@ -7,7 +7,7 @@ import {
   useTranslate,
   useDataProvider,
 } from 'react-admin'
-import { IconButton, Menu, MenuItem } from '@material-ui/core'
+import { IconButton, Menu, MenuItem, useMediaQuery } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import MoreVertIcon from '@material-ui/icons/MoreVert'
 import { MdQuestionMark } from 'react-icons/md'
@@ -69,6 +69,7 @@ export const SongContextMenu = ({
   const [playlistsLoaded, setPlaylistsLoaded] = useState(false)
   const { permissions } = usePermissions()
   const redirect = useRedirect()
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down('sm'))
 
   const options = {
     playNow: {
@@ -219,13 +220,18 @@ export const SongContextMenu = ({
 
   const present = !record.missing
 
+  const loveEnabled =
+    config.enableFavourites && showLove && present && !isMobile
+
   return (
     <span className={clsx(classes.noWrap, className)}>
-      <LoveButton
-        record={record}
-        resource={resource}
-        visible={config.enableFavourites && showLove && present}
-      />
+      {loveEnabled && (
+        <LoveButton
+          record={record}
+          resource={resource}
+          visible={loveEnabled}
+        />
+      )}
       <MoreButton record={record} onClick={handleClick} info={options.info} />
       <Menu
         id={'menu' + record.id}
