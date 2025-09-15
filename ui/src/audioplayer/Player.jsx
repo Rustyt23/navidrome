@@ -141,23 +141,6 @@ const Player = () => {
     [gainInfo, isDesktop, playerTheme, translate, playerState.mode],
   )
 
-  const options = useMemo(() => {
-    const current = playerState.current || {}
-    return {
-      ...defaultOptions,
-      audioLists: playerState.queue.map((item) => item),
-      playIndex: playerState.playIndex,
-      autoPlay: playerState.clear || playerState.playIndex === 0,
-      clearPriorAudioLists: playerState.clear,
-      icon: controlIcons,
-      extendsContent: (
-        <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
-      ),
-      defaultVolume: isMobilePlayer ? 1 : playerState.volume,
-      showMediaSession: !current.isRadio,
-    }
-  }, [playerState, defaultOptions, isMobilePlayer, controlIcons])
-
   const onAudioListsChange = useCallback(
     (_, audioLists, audioInfo) => dispatch(syncQueue(audioInfo, audioLists)),
     [dispatch],
@@ -248,6 +231,23 @@ const Player = () => {
       ),
     }
   }, [classes.controlButton, handleNext, handlePrev, translate])
+
+  const options = useMemo(() => {
+    const current = playerState.current || {}
+    return {
+      ...defaultOptions,
+      audioLists: playerState.queue.map((item) => item),
+      playIndex: playerState.playIndex,
+      autoPlay: playerState.clear || playerState.playIndex === 0,
+      clearPriorAudioLists: playerState.clear,
+      icon: controlIcons,
+      extendsContent: (
+        <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
+      ),
+      defaultVolume: isMobilePlayer ? 1 : playerState.volume,
+      showMediaSession: !current.isRadio,
+    }
+  }, [playerState, defaultOptions, isMobilePlayer, controlIcons])
 
   const onAudioProgress = useCallback(
     (info) => {
