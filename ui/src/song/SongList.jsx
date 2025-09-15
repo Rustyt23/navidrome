@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useRef } from 'react'
 import {
   AutocompleteArrayInput,
   Filter,
@@ -35,6 +35,12 @@ import { playTracks } from '../actions'
 import { SongListActions } from './SongListActions'
 import { AlbumLinkField } from './AlbumLinkField'
 import { SongBulkActions, QualityInfo, useSelectedFields } from '../common'
+import SongsPagination from './SongsPagination'
+import {
+  DEFAULT_SONGS_PER_PAGE,
+  SONGS_PER_PAGE_STORAGE_KEY,
+  SONGS_ROWS_PER_PAGE_OPTIONS,
+} from './songPaginationConfig'
 import config from '../config'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 
@@ -65,6 +71,20 @@ const useStyles = makeStyles({
     height: '24px',
   },
 })
+
+const getInitialSongsPerPage = () => {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return DEFAULT_SONGS_PER_PAGE
+  }
+  const storedValue = parseInt(
+    window.localStorage.getItem(SONGS_PER_PAGE_STORAGE_KEY),
+    10,
+  )
+  if (SONGS_ROWS_PER_PAGE_OPTIONS.includes(storedValue)) {
+    return storedValue
+  }
+  return DEFAULT_SONGS_PER_PAGE
+}
 
 const SongFilter = (props) => {
   const classes = useStyles()
@@ -138,6 +158,12 @@ const SongList = (props) => {
   useResourceRefresh('song')
 
   const songs = useSelector((state) => state.admin.resources.song)
+
+  const initialPerPageRef = useRef(null)
+  if (initialPerPageRef.current === null) {
+    initialPerPageRef.current = getInitialSongsPerPage()
+  }
+  const initialPerPage = initialPerPageRef.current
 
   const handleRowClick = useCallback((id, basePath, record) => {
       // Convert songs.data to an array if it's an object
@@ -244,7 +270,10 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 15}
+        perPage={initialPerPage}
+        pagination={
+          <SongsPagination rowsPerPageOptions={SONGS_ROWS_PER_PAGE_OPTIONS} />
+        }
       >
         {isXsmall ? (
           <SongSimpleList />
