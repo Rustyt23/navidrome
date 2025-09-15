@@ -25,6 +25,8 @@ const (
 	DefaultSessionTimeout  = 48 * time.Hour
 	CookieExpiry           = 365 * 24 * 3600 // One year
 
+	UserPreferenceThemeKey = "ui.theme"
+
 	OptimizeDBSchedule = "@every 24h"
 
 	// DefaultEncryptionKey This is the encryption key used if none is specified in the `PasswordEncryptionKey` option

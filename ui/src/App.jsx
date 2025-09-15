@@ -39,6 +39,7 @@ import { i18nProvider } from './i18n'
 import config, { shareInfo } from './config'
 import { keyMap } from './hotkeys'
 import useChangeThemeColor from './useChangeThemeColor'
+import useThemePreferenceSync from './themes/useThemePreferenceSync'
 import SharePlayer from './share/SharePlayer'
 import { HTML5Backend } from 'react-dnd-html5-backend'
 import { DndProvider } from 'react-dnd'
@@ -85,6 +86,7 @@ const App = () => (
 )
 
 const Admin = (props) => {
+  useThemePreferenceSync()
   useChangeThemeColor()
   /* eslint-disable react/jsx-key */
   return (
