@@ -2,12 +2,14 @@ import {
   SET_NOTIFICATIONS_STATE,
   SET_OMITTED_FIELDS,
   SET_TOGGLEABLE_FIELDS,
+  SET_FIELDS_ORDER,
 } from '../actions'
 
 const initialState = {
   notifications: false,
   toggleableFields: {},
   omittedFields: {},
+  fieldsOrder: {},
 }
 
 export const settingsReducer = (previousState = initialState, payload) => {
@@ -23,6 +25,14 @@ export const settingsReducer = (previousState = initialState, payload) => {
         ...previousState,
         toggleableFields: {
           ...previousState.toggleableFields,
+          ...data,
+        },
+      }
+    case SET_FIELDS_ORDER:
+      return {
+        ...previousState,
+        fieldsOrder: {
+          ...previousState.fieldsOrder,
           ...data,
         },
       }

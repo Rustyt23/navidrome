@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
 import { useDispatch, useSelector } from 'react-redux'
-import { setOmittedFields, setToggleableFields } from '../actions'
+import { setOmittedFields, setToggleableFields, setFieldsOrder } from '../actions'
 
 // TODO Refactor
 export const useSelectedFields = ({
@@ -17,20 +17,31 @@ export const useSelectedFields = ({
   const omittedFields = useSelector((state) => state.settings.omittedFields)?.[
     resource
   ]
+  const resourceOrder = useSelector((state) => state.settings.fieldsOrder)?.[
+    resource
+  ]
 
   const [filteredComponents, setFilteredComponents] = useState([])
 
   useEffect(() => {
+    const columnKeys = Object.keys(columns)
     if (
       !resourceFields ||
-      Object.keys(resourceFields).length !== Object.keys(columns).length ||
-      !Object.keys(columns).every((c) => c in resourceFields)
+      columnKeys.length !== Object.keys(resourceFields).length ||
+      !columnKeys.every((c) => c in resourceFields)
     ) {
       const obj = {}
-      for (const key of Object.keys(columns)) {
+      for (const key of columnKeys) {
         obj[key] = !defaultOff.includes(key)
       }
       dispatch(setToggleableFields({ [resource]: obj }))
+    }
+    if (
+      !resourceOrder ||
+      resourceOrder.length !== columnKeys.length ||
+      !columnKeys.every((c) => resourceOrder.includes(c))
+    ) {
+      dispatch(setFieldsOrder({ [resource]: columnKeys }))
     }
     if (!omittedFields) {
       dispatch(setOmittedFields({ [resource]: omittedColumns }))
@@ -43,13 +54,15 @@ export const useSelectedFields = ({
     omittedFields,
     resource,
     resourceFields,
+    resourceOrder,
   ])
 
   useEffect(() => {
-    if (resourceFields) {
+    if (resourceFields && resourceOrder) {
       const filtered = []
       const omitted = omittedColumns
-      for (const [key, val] of Object.entries(columns)) {
+      for (const key of resourceOrder) {
+        const val = columns[key]
         if (!val) omitted.push(key)
         else if (resourceFields[key]) filtered.push(val)
       }
@@ -60,6 +73,7 @@ export const useSelectedFields = ({
     }
   }, [
     resourceFields,
+    resourceOrder,
     columns,
     dispatch,
     omittedColumns,
