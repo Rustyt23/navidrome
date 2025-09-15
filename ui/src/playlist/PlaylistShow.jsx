@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   ReferenceManyField,
   ShowContextProvider,
@@ -8,7 +8,6 @@ import {
   Filter,
   Pagination,
   Title as RaTitle,
-  useStore,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import { useMediaQuery } from '@material-ui/core'
@@ -18,11 +17,12 @@ import PlaylistActions from './PlaylistActions'
 import { Title, canChangeTracks, useResourceRefresh } from '../common'
 import PlaylistMobilePagination from './PlaylistMobilePagination'
 import {
-  DEFAULT_PLAYLIST_MOBILE_PER_PAGE,
+  DEFAULT_PLAYLIST_PER_PAGE,
   PLAYLIST_DESKTOP_ROWS_PER_PAGE_OPTIONS,
-  PLAYLIST_MOBILE_PER_PAGE_STORAGE_KEY,
   PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS,
+  PLAYLIST_PER_PAGE_STORAGE_KEY,
 } from './playlistPaginationConfig'
+import { usePerPagePreference } from '../common/hooks/usePerPagePreference'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -41,19 +41,32 @@ const PlaylistShowLayout = (props) => {
   const classes = useStyles()
   useResourceRefresh('song')
   const isSmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
-  const [mobilePerPage] = useStore(
-    PLAYLIST_MOBILE_PER_PAGE_STORAGE_KEY,
-    DEFAULT_PLAYLIST_MOBILE_PER_PAGE,
+  const { perPage: storedPerPage, setPerPage: setStoredPerPage } =
+    usePerPagePreference(
+      PLAYLIST_PER_PAGE_STORAGE_KEY,
+      DEFAULT_PLAYLIST_PER_PAGE,
+    )
+
+  const perPageOptions = useMemo(
+    () =>
+      isSmall
+        ? PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS
+        : PLAYLIST_DESKTOP_ROWS_PER_PAGE_OPTIONS,
+    [isSmall],
   )
 
   const effectivePerPage = useMemo(() => {
-    if (!isSmall) {
-      return 100
+    if (perPageOptions.includes(storedPerPage)) {
+      return storedPerPage
     }
-    return PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS.includes(mobilePerPage)
-      ? mobilePerPage
-      : DEFAULT_PLAYLIST_MOBILE_PER_PAGE
-  }, [isSmall, mobilePerPage])
+    return DEFAULT_PLAYLIST_PER_PAGE
+  }, [perPageOptions, storedPerPage])
+
+  useEffect(() => {
+    if (effectivePerPage !== storedPerPage) {
+      setStoredPerPage(effectivePerPage)
+    }
+  }, [effectivePerPage, storedPerPage, setStoredPerPage])
 
   const paginationComponent = useMemo(() => {
     if (isSmall) {

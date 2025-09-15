@@ -28,11 +28,18 @@ import {
   ArtistLinkField,
   RatingField,
 } from '../common'
+import { usePerPagePreference } from '../common/hooks/usePerPagePreference'
 import { AlbumLinkField } from '../song/AlbumLinkField'
 import { playTracks } from '../actions'
 import PlaylistSongBulkActions from './PlaylistSongBulkActions'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 import config from '../config'
+import {
+  DEFAULT_PLAYLIST_PER_PAGE,
+  PLAYLIST_DESKTOP_ROWS_PER_PAGE_OPTIONS,
+  PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS,
+  PLAYLIST_PER_PAGE_STORAGE_KEY,
+} from './playlistPaginationConfig'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -95,15 +102,62 @@ const ReorderableList = ({ readOnly, children, ...rest }) => {
 
 const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
   const listContext = useListContext()
-  const { data, ids, selectedIds, onUnselectItems, refetch, setPage } =
-    listContext
+  const {
+    data,
+    ids,
+    selectedIds,
+    onUnselectItems,
+    refetch,
+    setPage,
+    perPage,
+    setPerPage,
+  } = listContext
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
+  const isSmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
   const dataProvider = useDataProvider()
   const notify = useNotify()
   const version = useVersion()
   useResourceRefresh('song', 'playlist')
+  const { perPage: storedPerPage, setPerPage: setStoredPerPage } =
+    usePerPagePreference(
+      PLAYLIST_PER_PAGE_STORAGE_KEY,
+      DEFAULT_PLAYLIST_PER_PAGE,
+    )
+  const rowsPerPageOptions = useMemo(
+    () =>
+      isSmall
+        ? PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS
+        : PLAYLIST_DESKTOP_ROWS_PER_PAGE_OPTIONS,
+    [isSmall],
+  )
+
+  useEffect(() => {
+    const fallback = rowsPerPageOptions.includes(DEFAULT_PLAYLIST_PER_PAGE)
+      ? DEFAULT_PLAYLIST_PER_PAGE
+      : rowsPerPageOptions[0]
+
+    if (!rowsPerPageOptions.includes(perPage)) {
+      if (perPage !== fallback) {
+        setPerPage(fallback)
+      }
+      if (storedPerPage !== fallback) {
+        setStoredPerPage(fallback)
+      }
+      return
+    }
+
+    if (storedPerPage !== perPage) {
+      setStoredPerPage(perPage)
+    }
+  }, [
+    perPage,
+    rowsPerPageOptions,
+    setPerPage,
+    setStoredPerPage,
+    storedPerPage,
+  ])
 
   useEffect(() => {
     setPage(1)

@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useRef } from 'react'
+import { useMemo, useCallback, useEffect } from 'react'
 import {
   AutocompleteArrayInput,
   Filter,
@@ -35,6 +35,7 @@ import { playTracks } from '../actions'
 import { SongListActions } from './SongListActions'
 import { AlbumLinkField } from './AlbumLinkField'
 import { SongBulkActions, QualityInfo, useSelectedFields } from '../common'
+import { usePerPagePreference } from '../common/hooks/usePerPagePreference'
 import SongsPagination from './SongsPagination'
 import {
   DEFAULT_SONGS_PER_PAGE,
@@ -71,20 +72,6 @@ const useStyles = makeStyles({
     height: '24px',
   },
 })
-
-const getInitialSongsPerPage = () => {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return DEFAULT_SONGS_PER_PAGE
-  }
-  const storedValue = parseInt(
-    window.localStorage.getItem(SONGS_PER_PAGE_STORAGE_KEY),
-    10,
-  )
-  if (SONGS_ROWS_PER_PAGE_OPTIONS.includes(storedValue)) {
-    return storedValue
-  }
-  return DEFAULT_SONGS_PER_PAGE
-}
 
 const SongFilter = (props) => {
   const classes = useStyles()
@@ -158,12 +145,26 @@ const SongList = (props) => {
   useResourceRefresh('song')
 
   const songs = useSelector((state) => state.admin.resources.song)
+  const {
+    perPage: storedSongsPerPage,
+    setPerPage: setStoredSongsPerPage,
+  } = usePerPagePreference(
+    SONGS_PER_PAGE_STORAGE_KEY,
+    DEFAULT_SONGS_PER_PAGE,
+  )
 
-  const initialPerPageRef = useRef(null)
-  if (initialPerPageRef.current === null) {
-    initialPerPageRef.current = getInitialSongsPerPage()
-  }
-  const initialPerPage = initialPerPageRef.current
+  const songsPerPage = useMemo(() => {
+    if (SONGS_ROWS_PER_PAGE_OPTIONS.includes(storedSongsPerPage)) {
+      return storedSongsPerPage
+    }
+    return DEFAULT_SONGS_PER_PAGE
+  }, [storedSongsPerPage])
+
+  useEffect(() => {
+    if (songsPerPage !== storedSongsPerPage) {
+      setStoredSongsPerPage(songsPerPage)
+    }
+  }, [songsPerPage, storedSongsPerPage, setStoredSongsPerPage])
 
   const handleRowClick = useCallback((id, basePath, record) => {
       // Convert songs.data to an array if it's an object
@@ -270,9 +271,12 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={initialPerPage}
+        perPage={songsPerPage}
         pagination={
-          <SongsPagination rowsPerPageOptions={SONGS_ROWS_PER_PAGE_OPTIONS} />
+          <SongsPagination
+            rowsPerPageOptions={SONGS_ROWS_PER_PAGE_OPTIONS}
+            onPerPageChange={setStoredSongsPerPage}
+          />
         }
       >
         {isXsmall ? (

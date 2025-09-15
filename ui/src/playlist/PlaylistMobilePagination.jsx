@@ -5,15 +5,15 @@ import {
   sanitizeListRestProps,
   useListPaginationContext,
   useTranslate,
-  useStore,
 } from 'react-admin'
 import DefaultPaginationActions from 'ra-ui-materialui/esm/list/pagination/PaginationActions'
 import DefaultPaginationLimit from 'ra-ui-materialui/esm/list/pagination/PaginationLimit'
 import {
-  DEFAULT_PLAYLIST_MOBILE_PER_PAGE,
-  PLAYLIST_MOBILE_PER_PAGE_STORAGE_KEY,
+  DEFAULT_PLAYLIST_PER_PAGE,
   PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS,
+  PLAYLIST_PER_PAGE_STORAGE_KEY,
 } from './playlistPaginationConfig'
+import { usePerPagePreference } from '../common/hooks/usePerPagePreference'
 
 const PlaylistMobilePagination = ({
   rowsPerPageOptions = PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS,
@@ -25,10 +25,11 @@ const PlaylistMobilePagination = ({
     useListPaginationContext(rest)
   const translate = useTranslate()
   const isSmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
-  const [storedPerPage, setStoredPerPage] = useStore(
-    PLAYLIST_MOBILE_PER_PAGE_STORAGE_KEY,
-    DEFAULT_PLAYLIST_MOBILE_PER_PAGE,
-  )
+  const { perPage: storedPerPage, setPerPage: setStoredPerPage } =
+    usePerPagePreference(
+      PLAYLIST_PER_PAGE_STORAGE_KEY,
+      DEFAULT_PLAYLIST_PER_PAGE,
+    )
   const totalPages = useMemo(
     () => Math.ceil(total / perPage) || 1,
     [perPage, total],
@@ -37,9 +38,12 @@ const PlaylistMobilePagination = ({
 
   useEffect(() => {
     if (!hasSyncedPerPage.current) {
+      const fallback = rowsPerPageOptions.includes(DEFAULT_PLAYLIST_PER_PAGE)
+        ? DEFAULT_PLAYLIST_PER_PAGE
+        : rowsPerPageOptions[0]
       if (!rowsPerPageOptions.includes(storedPerPage)) {
-        setStoredPerPage(DEFAULT_PLAYLIST_MOBILE_PER_PAGE)
-        setPerPage(DEFAULT_PLAYLIST_MOBILE_PER_PAGE)
+        setStoredPerPage(fallback)
+        setPerPage(fallback)
       } else if (perPage !== storedPerPage) {
         setPerPage(storedPerPage)
       }

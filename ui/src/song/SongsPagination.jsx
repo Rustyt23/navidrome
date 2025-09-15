@@ -11,7 +11,6 @@ import DefaultPaginationActions from 'ra-ui-materialui/esm/list/pagination/Pagin
 import DefaultPaginationLimit from 'ra-ui-materialui/esm/list/pagination/PaginationLimit'
 import {
   DEFAULT_SONGS_PER_PAGE,
-  SONGS_PER_PAGE_STORAGE_KEY,
   SONGS_ROWS_PER_PAGE_OPTIONS,
 } from './songPaginationConfig'
 
@@ -20,6 +19,7 @@ const SongsPagination = (props) => {
     rowsPerPageOptions = SONGS_ROWS_PER_PAGE_OPTIONS,
     actions = DefaultPaginationActions,
     limit = <DefaultPaginationLimit />,
+    onPerPageChange,
     ...rest
   } = props
 
@@ -28,44 +28,36 @@ const SongsPagination = (props) => {
   const translate = useTranslate()
   const isSmall = useMediaQuery((theme) => theme.breakpoints.down('sm'))
   const totalPages = useMemo(() => Math.ceil(total / perPage) || 1, [perPage, total])
-  const hasSyncedPerPage = useRef(false)
+  const lastStoredPerPage = useRef()
 
   useEffect(() => {
-    if (hasSyncedPerPage.current) {
-      return
-    }
-    if (typeof window === 'undefined' || !window.localStorage) {
-      hasSyncedPerPage.current = true
-      return
-    }
-    const storedValue = parseInt(
-      window.localStorage.getItem(SONGS_PER_PAGE_STORAGE_KEY),
-      10,
-    )
-    if (rowsPerPageOptions.includes(storedValue) && storedValue !== perPage) {
-      setPerPage(storedValue)
-    } else if (!rowsPerPageOptions.includes(perPage)) {
-      setPerPage(DEFAULT_SONGS_PER_PAGE)
-    } else {
-      window.localStorage.setItem(
-        SONGS_PER_PAGE_STORAGE_KEY,
-        perPage.toString(),
-      )
-    }
-    hasSyncedPerPage.current = true
-  }, [perPage, rowsPerPageOptions, setPerPage])
+    const fallback = rowsPerPageOptions.includes(DEFAULT_SONGS_PER_PAGE)
+      ? DEFAULT_SONGS_PER_PAGE
+      : rowsPerPageOptions[0]
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.localStorage) {
+    if (!rowsPerPageOptions.includes(perPage)) {
+      if (perPage !== fallback) {
+        setPerPage(fallback)
+      }
+      if (onPerPageChange) {
+        onPerPageChange(fallback)
+      }
+      lastStoredPerPage.current = fallback
       return
     }
-    if (rowsPerPageOptions.includes(perPage)) {
-      window.localStorage.setItem(
-        SONGS_PER_PAGE_STORAGE_KEY,
-        perPage.toString(),
-      )
+
+    if (lastStoredPerPage.current !== perPage) {
+      if (onPerPageChange) {
+        onPerPageChange(perPage)
+      }
+      lastStoredPerPage.current = perPage
     }
-  }, [perPage, rowsPerPageOptions])
+  }, [
+    onPerPageChange,
+    perPage,
+    rowsPerPageOptions,
+    setPerPage,
+  ])
 
   const handlePageChange = useCallback(
     (event, newPage) => {
@@ -89,9 +81,12 @@ const SongsPagination = (props) => {
       const value = parseInt(event.target.value, 10)
       if (!Number.isNaN(value)) {
         setPerPage(value)
+        if (onPerPageChange) {
+          onPerPageChange(value)
+        }
       }
     },
-    [setPerPage],
+    [onPerPageChange, setPerPage],
   )
 
   const labelDisplayedRows = useCallback(
@@ -132,6 +127,7 @@ SongsPagination.propTypes = {
   actions: ComponentPropType,
   limit: PropTypes.element,
   rowsPerPageOptions: PropTypes.arrayOf(PropTypes.number),
+  onPerPageChange: PropTypes.func,
 }
 
 export default SongsPagination
