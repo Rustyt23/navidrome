@@ -5,10 +5,12 @@ import Menu from '@material-ui/core/Menu'
 import MenuItem from '@material-ui/core/MenuItem'
 import { makeStyles, Typography } from '@material-ui/core'
 import MoreVertIcon from '@material-ui/icons/MoreVert'
+import DragIndicatorIcon from '@material-ui/icons/DragIndicator'
 import Checkbox from '@material-ui/core/Checkbox'
 import { useDispatch, useSelector } from 'react-redux'
 import { useTranslate } from 'react-admin'
-import { setToggleableFields } from '../actions'
+import ReactDragListView from 'react-drag-listview'
+import { setToggleableFields, setColumnsOrder } from '../actions'
 
 const useStyles = makeStyles({
   menuIcon: {
@@ -40,6 +42,9 @@ export const ToggleFieldsMenu = ({
   )
   const omittedColumns =
     useSelector((state) => state.settings.omittedFields[resource]) || []
+  const columnsOrder = useSelector(
+    (state) => state.settings.columnsOrder[resource],
+  ) || Object.keys(toggleableColumns || {})
 
   const classes = useStyles()
   const open = Boolean(anchorEl)
@@ -60,6 +65,13 @@ export const ToggleFieldsMenu = ({
         },
       }),
     )
+  }
+
+  const handleDragEnd = (fromIndex, toIndex) => {
+    const updated = [...columnsOrder]
+    const [moved] = updated.splice(fromIndex, 1)
+    updated.splice(toIndex, 0, moved)
+    dispatch(setColumnsOrder({ [resource]: updated }))
   }
 
   return (
@@ -89,14 +101,21 @@ export const ToggleFieldsMenu = ({
               {translate('ra.toggleFieldsMenu.columnsToDisplay')}
             </Typography>
             <div className={classes.columns}>
-              {Object.entries(toggleableColumns).map(([key, val]) =>
-                !omittedColumns.includes(key) ? (
-                  <MenuItem key={key} onClick={() => handleClick(key)}>
-                    <Checkbox checked={val} />
-                    {translate(`resources.${resource}.fields.${key}`)}
-                  </MenuItem>
-                ) : null,
-              )}
+              <ReactDragListView
+                nodeSelector={'li'}
+                handleSelector={'.dragHandle'}
+                onDragEnd={handleDragEnd}
+              >
+                {columnsOrder.map((key) =>
+                  !omittedColumns.includes(key) ? (
+                    <MenuItem key={key} onClick={() => handleClick(key)}>
+                      <DragIndicatorIcon className="dragHandle" />
+                      <Checkbox checked={toggleableColumns[key]} />
+                      {translate(`resources.${resource}.fields.${key}`)}
+                    </MenuItem>
+                  ) : null,
+                )}
+              </ReactDragListView>
             </div>
           </div>
         ) : null}
