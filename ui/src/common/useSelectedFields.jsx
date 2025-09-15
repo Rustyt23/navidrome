@@ -63,15 +63,30 @@ export const useSelectedFields = ({
   useEffect(() => {
     if (resourceFields && columnsOrder) {
       const filtered = []
-      const omitted = omittedColumns
+      const omitted = [...omittedColumns]
       for (const key of columnsOrder) {
         const val = columns[key]
         if (!val) omitted.push(key)
         else if (resourceFields[key]) filtered.push(val)
       }
-      if (filteredComponents.length !== filtered.length)
-        setFilteredComponents(filtered)
-      if (omittedFields.length !== omitted.length)
+
+      setFilteredComponents((previous) => {
+        const hasSameLength = previous.length === filtered.length
+        const hasSameOrder =
+          hasSameLength &&
+          filtered.every((component, index) => component === previous[index])
+
+        return hasSameOrder ? previous : filtered
+      })
+
+      const currentOmittedFields = omittedFields || []
+      const shouldUpdateOmitted =
+        currentOmittedFields.length !== omitted.length ||
+        omitted.some(
+          (field, index) => field !== currentOmittedFields[index],
+        )
+
+      if (shouldUpdateOmitted)
         dispatch(setOmittedFields({ [resource]: omitted }))
     }
   }, [
@@ -81,7 +96,6 @@ export const useSelectedFields = ({
     omittedColumns,
     omittedFields,
     resource,
-    filteredComponents.length,
     columnsOrder,
   ])
 
