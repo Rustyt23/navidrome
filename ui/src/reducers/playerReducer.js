@@ -19,6 +19,7 @@ const initialState = {
   clear: false,
   volume: config.defaultUIVolume / 100,
   savedPlayIndex: 0,
+  queueMeta: null,
 }
 
 const pad = (value) => {
@@ -90,7 +91,7 @@ const mapToAudioLists = (item) => {
 
 const reduceClearQueue = () => ({ ...initialState, clear: true })
 
-const reducePlayTracks = (state, { data, id }) => {
+const reducePlayTracks = (state, { data, id, meta }) => {
   let playIndex = 0
   const queue = Object.keys(data).map((key, idx) => {
     if (key === id) {
@@ -98,11 +99,13 @@ const reducePlayTracks = (state, { data, id }) => {
     }
     return mapToAudioLists(data[key])
   })
+  const queueMeta = meta ? { ...meta, sessionId: uuidv4() } : null
   return {
     ...state,
     queue,
     playIndex,
     clear: true,
+    queueMeta,
   }
 }
 
@@ -112,18 +115,22 @@ const reduceSetTrack = (state, { data }) => {
     queue: [mapToAudioLists(data)],
     playIndex: 0,
     clear: true,
+    queueMeta: null,
   }
 }
 
-const reduceAddTracks = (state, { data }) => {
+const reduceAddTracks = (state, { data, meta }) => {
   const queue = state.queue
   Object.keys(data).forEach((id) => {
     queue.push(mapToAudioLists(data[id]))
   })
-  return { ...state, queue, clear: false }
+  const queueMeta = meta
+    ? { ...meta, sessionId: meta.sessionId || state.queueMeta?.sessionId }
+    : state.queueMeta
+  return { ...state, queue, clear: false, queueMeta }
 }
 
-const reducePlayNext = (state, { data }) => {
+const reducePlayNext = (state, { data, meta }) => {
   const newQueue = []
   const current = state.current || {}
   let foundPos = false
@@ -146,6 +153,9 @@ const reducePlayNext = (state, { data }) => {
     ...state,
     queue: newQueue,
     clear: true,
+    queueMeta: meta
+      ? { ...meta, sessionId: meta.sessionId || state.queueMeta?.sessionId }
+      : state.queueMeta,
   }
 }
 
@@ -162,6 +172,7 @@ const reduceSyncQueue = (state, { data: { audioInfo, audioLists } }) => {
     queue: audioLists,
     clear: false,
     playIndex: undefined,
+    queueMeta: state.queueMeta,
   }
 }
 

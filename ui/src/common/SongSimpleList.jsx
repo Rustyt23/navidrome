@@ -6,9 +6,9 @@ import ListItemIcon from '@material-ui/core/ListItemIcon'
 import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
 import { makeStyles } from '@material-ui/core/styles'
-import { sanitizeListRestProps } from 'react-admin'
+import { sanitizeListRestProps, useListContext } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
-import { setTrack } from '../actions'
+import { playTracks } from '../actions'
 import { useDispatch } from 'react-redux'
 import config from '../config'
 
@@ -65,13 +65,86 @@ export const SongSimpleList = ({
 }) => {
   const dispatch = useDispatch()
   const classes = useStyles({ classes: classesOverride })
+  const {
+    ids: contextIds,
+    data: contextData,
+    currentSort,
+    filterValues,
+    page: currentPage,
+    perPage: currentPerPage,
+    total: contextTotal,
+    resource: listResource,
+  } = useListContext() || {}
+
+  const handlePlayFromList = (id) => {
+    const effectiveIds = contextIds || ids
+    const effectiveData = contextData || data
+
+    if (!effectiveIds || !effectiveIds.length || !effectiveData) {
+      return
+    }
+
+    if (!effectiveIds.includes(id) || !effectiveData[id]) {
+      return
+    }
+
+    const orderedIds = effectiveIds.filter(
+      (songId) => effectiveData[songId] && !effectiveData[songId].missing,
+    )
+
+    if (!orderedIds.length) {
+      return
+    }
+
+    const queueData = orderedIds.reduce((acc, songId) => {
+      const record = effectiveData[songId]
+      if (record) {
+        acc[songId] = { ...record }
+      }
+      return acc
+    }, {})
+
+    let normalizedFilter
+    if (filterValues) {
+      try {
+        normalizedFilter = JSON.parse(JSON.stringify(filterValues))
+      } catch (error) {
+        normalizedFilter = { ...filterValues }
+      }
+    }
+
+    const page = currentPage || 1
+    const perPage = currentPerPage || orderedIds.length
+    const resolvedTotal =
+      typeof contextTotal === 'number' ? contextTotal : total
+
+    const queueMeta = {
+      context: 'songsList',
+      resource: listResource || 'song',
+      sort: currentSort ? { ...currentSort } : undefined,
+      filter: normalizedFilter,
+      pagination: {
+        page,
+        perPage,
+        loadedPages: [page],
+        total: typeof resolvedTotal === 'number' ? resolvedTotal : null,
+      },
+      endReached:
+        typeof resolvedTotal === 'number'
+          ? page * perPage >= resolvedTotal
+          : false,
+    }
+
+    dispatch(playTracks(queueData, orderedIds, id, queueMeta))
+  }
+
   return (
     (loading || total > 0) && (
       <List className={className} {...sanitizeListRestProps(rest)}>
         {ids.map(
           (id) =>
             data[id] && (
-              <span key={id} onClick={() => dispatch(setTrack(data[id]))}>
+              <span key={id} onClick={() => handlePlayFromList(id)}>
                 <ListItem className={classes.listItem} button={true}>
                   <ListItemText
                     primary={
