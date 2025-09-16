@@ -531,25 +531,10 @@ func (s *playlists) writePlaylistFile(path string, pls *model.Playlist) error {
 		return err
 	}
 	if conf.Server.SyncFolder != "" {
-		rel := filepath.Base(path)
-		if conf.Server.PlaylistsPath != "" {
-			paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
-			for _, root := range paths {
-				root = strings.TrimSuffix(root, "**")
-				root = strings.TrimSuffix(root, string(os.PathSeparator))
-				if absRoot, err := filepath.Abs(root); err == nil {
-					root = absRoot
-				}
-				if r, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(r, "..") {
-					rel = r
-					break
-				}
-			}
-		}
-		syncPath := filepath.Join(conf.Server.SyncFolder, rel)
-		if err := os.MkdirAll(filepath.Dir(syncPath), 0o755); err != nil {
+		if err := os.MkdirAll(conf.Server.SyncFolder, 0o755); err != nil {
 			return err
 		}
+		syncPath := filepath.Join(conf.Server.SyncFolder, filepath.Base(path))
 		if err := os.WriteFile(syncPath, data, 0o644); err != nil {
 			return err
 		}

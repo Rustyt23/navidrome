@@ -119,6 +119,52 @@ var _ = Describe("Playlists", func() {
 					Expect(ps.writePlaylistFile(pls.Path, pls)).To(Succeed())
 					Expect(filepath.Join(syncDir, "test.m3u")).To(BeAnExistingFile())
 				})
+
+				It("places playlist files directly in the sync folder", func() {
+					DeferCleanup(configtest.SetupConfig())
+					playlistsDir := GinkgoT().TempDir()
+					syncDir := GinkgoT().TempDir()
+					nestedDir := filepath.Join(playlistsDir, "mautic")
+					Expect(os.MkdirAll(nestedDir, 0o755)).To(Succeed())
+
+					conf.Server.PlaylistsPath = filepath.Join(playlistsDir, "**")
+					conf.Server.SyncFolder = syncDir
+
+					ps := &playlists{}
+					pls := &model.Playlist{Name: "email", Path: filepath.Join(nestedDir, "email.m3u")}
+
+					Expect(ps.writePlaylistFile(pls.Path, pls)).To(Succeed())
+					Expect(filepath.Join(syncDir, "email.m3u")).To(BeAnExistingFile())
+					Expect(filepath.Join(syncDir, "mautic")).NotTo(BeADirectory())
+				})
+
+				It("overwrites existing playlist exports in the sync folder", func() {
+					DeferCleanup(configtest.SetupConfig())
+					playlistsDir := GinkgoT().TempDir()
+					syncDir := GinkgoT().TempDir()
+					subDir := filepath.Join(playlistsDir, "sonarr")
+					Expect(os.MkdirAll(subDir, 0o755)).To(Succeed())
+
+					conf.Server.PlaylistsPath = filepath.Join(playlistsDir, "**")
+					conf.Server.SyncFolder = syncDir
+
+					ps := &playlists{}
+					pls := &model.Playlist{
+						Name: "email",
+						Path: filepath.Join(subDir, "email.m3u"),
+						Tracks: model.PlaylistTracks{{
+							MediaFile: model.MediaFile{Artist: "Artist", Title: "Song"},
+						}},
+					}
+
+					syncFile := filepath.Join(syncDir, "email.m3u")
+					Expect(os.WriteFile(syncFile, []byte("old"), 0o644)).To(Succeed())
+
+					Expect(ps.writePlaylistFile(pls.Path, pls)).To(Succeed())
+					data, err := os.ReadFile(syncFile)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(data)).To(Equal(pls.ToM3U8()))
+				})
 			})
 		})
 
