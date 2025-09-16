@@ -56,7 +56,8 @@ const useStyles = makeStyles((theme) => ({
   publishCancelButton: {
     color: theme.palette.common.white,
     '&:hover, &:focus, &:focus-visible': {
-      color: theme.palette.common.white,
+      backgroundColor: 'rgba(128, 128, 128, 0.3)',
+      color: '#FF2B8A',
     },
   },
 }))
