@@ -7,10 +7,9 @@ import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
 import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
-import { DurationField, SongContextMenu, RatingField } from './index'
+import { SongContextMenu } from './index'
 import { setTrack } from '../actions'
 import { useDispatch } from 'react-redux'
-import config from '../config'
 
 const useStyles = makeStyles(
   {
@@ -19,32 +18,40 @@ const useStyles = makeStyles(
       color: 'inherit',
     },
     listItem: {
-      padding: '10px',
+      padding: '12px 16px',
+    },
+    primary: {
+      display: 'flex',
+      alignItems: 'center',
+      width: '100%',
+      minWidth: 0,
+      gap: '6px',
     },
     title: {
-      paddingRight: '10px',
-      width: '80%',
+      flex: '1 1 auto',
+      minWidth: 0,
+      fontWeight: 500,
+      color: '#fff',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
     },
-    secondary: {
-      marginTop: '-3px',
-      width: '96%',
-      display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
+    separator: {
+      flex: '0 0 auto',
+      color: 'rgba(255, 255, 255, 0.6)',
     },
     artist: {
-      paddingRight: '30px',
-    },
-    timeStamp: {
-      float: 'right',
-      color: '#fff',
-      fontWeight: '200',
-      opacity: 0.6,
-      fontSize: '12px',
-      padding: '2px',
+      flex: '1 1 auto',
+      minWidth: 0,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      color: 'rgba(255, 255, 255, 0.65)',
+      fontWeight: 400,
     },
     rightIcon: {
-      top: '26px',
+      top: '50%',
+      transform: 'translateY(-50%)',
     },
   },
   { name: 'RaSongSimpleList' },
@@ -74,31 +81,23 @@ export const SongSimpleList = ({
               <span key={id} onClick={() => dispatch(setTrack(data[id]))}>
                 <ListItem className={classes.listItem} button={true}>
                   <ListItemText
+                    disableTypography
                     primary={
-                      <div className={classes.title}>{data[id].title}</div>
-                    }
-                    secondary={
-                      <>
-                        <span className={classes.secondary}>
-                          <span className={classes.artist}>
-                            {data[id].artist}
-                          </span>
-                          <span className={classes.timeStamp}>
-                            <DurationField
-                              record={data[id]}
-                              source={'duration'}
-                            />
-                          </span>
+                      <div className={classes.primary}>
+                        <span
+                          className={classes.title}
+                          title={data[id].title}
+                        >
+                          {data[id].title}
                         </span>
-                        {config.enableStarRating && (
-                          <RatingField
-                            record={data[id]}
-                            source={'rating'}
-                            resource={'song'}
-                            size={'small'}
-                          />
-                        )}
-                      </>
+                        <span className={classes.separator}>—</span>
+                        <span
+                          className={classes.artist}
+                          title={data[id].artist}
+                        >
+                          {data[id].artist}
+                        </span>
+                      </div>
                     }
                   />
                   <ListItemSecondaryAction className={classes.rightIcon}>
