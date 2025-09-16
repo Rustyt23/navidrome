@@ -112,20 +112,33 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
     [record],
   )
 
-  const handlePublish = React.useCallback(
-    () =>
-      httpClient(`${REST_URL}/playlist/${record.id}/publish`, {
-        method: 'POST',
+  const handlePublish = React.useCallback(() => {
+    const fallback = () => {
+      const name = record?.name || ''
+      const parts = name.split(/[/\\]/).filter(Boolean)
+      const base = parts.length > 0 ? parts[parts.length - 1] : name
+      const sanitized = base.replace(/[\\/:*?"<>|]/g, '_').trim() || 'playlist'
+      return `${sanitized}.m3u`
+    }
+
+    return httpClient(`${REST_URL}/playlist/${record.id}/publish`, {
+      method: 'POST',
+    })
+      .then(({ json }) => {
+        const filename = json?.filename || fallback()
+        notify('resources.playlist.notifications.published', 'info', {
+          filename,
+        })
       })
-        .then(() =>
-          notify('resources.playlist.notifications.published', 'info', {
-            smart_count: record.songCount,
-            name: record.name,
-          }),
+      .catch((error) => {
+        const defaultMessage = translate(
+          'resources.playlist.notifications.publish_error',
         )
-        .catch(() => notify('ra.page.error', 'warning')),
-    [record, notify],
-  )
+        const message =
+          error?.body?.message || error?.message || defaultMessage
+        notify(message, 'warning')
+      })
+  }, [record, notify, translate])
 
   return (
     <TopToolbar className={className} {...sanitizeListRestProps(rest)}>

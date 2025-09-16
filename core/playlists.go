@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ type Playlists interface {
 	Update(ctx context.Context, playlistID string, name *string, comment *string, public *bool, idsToAdd []string, idxToRemove []int) error
 	SetFolder(ctx context.Context, playlistID string, folderID *string) error
 	ImportM3U(ctx context.Context, reader io.Reader) (*model.Playlist, error)
+	Publish(ctx context.Context, playlistID string) (string, error)
 }
 
 type playlists struct {
@@ -530,31 +532,84 @@ func (s *playlists) writePlaylistFile(path string, pls *model.Playlist) error {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return err
 	}
-	if conf.Server.SyncFolder != "" {
-		rel := filepath.Base(path)
-		if conf.Server.PlaylistsPath != "" {
-			paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
-			for _, root := range paths {
-				root = strings.TrimSuffix(root, "**")
-				root = strings.TrimSuffix(root, string(os.PathSeparator))
-				if absRoot, err := filepath.Abs(root); err == nil {
-					root = absRoot
-				}
-				if r, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(r, "..") {
-					rel = r
-					break
+	return nil
+}
+
+func (s *playlists) Publish(ctx context.Context, playlistID string) (string, error) {
+	if conf.Server.SyncFolder == "" {
+		return "", fmt.Errorf("sync folder not configured")
+	}
+
+	pls, err := s.ds.Playlist(ctx).GetWithTracks(playlistID, true, false)
+	if err != nil {
+		return "", err
+	}
+
+	filename := publishFilename(pls.Name, playlistID)
+	targetDir := conf.Server.SyncFolder
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return "", err
+	}
+
+	targetPath := filepath.Join(targetDir, filename)
+	tmpPath := targetPath + ".tmp"
+	data := []byte(pls.ToM3U8())
+
+	log.Debug(ctx, "Publishing playlist", "playlistId", playlistID, "name", pls.Name)
+	log.Debug(ctx, "Publishing playlist target", "playlistId", playlistID, "targetPath", targetPath)
+
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return "", err
+	}
+
+	if err := os.Rename(tmpPath, targetPath); err != nil {
+		var linkErr *os.LinkError
+		if errors.As(err, &linkErr) && errors.Is(linkErr.Err, os.ErrExist) {
+			if removeErr := os.Remove(targetPath); removeErr == nil {
+				if retryErr := os.Rename(tmpPath, targetPath); retryErr == nil {
+					log.Debug(ctx, "Playlist publish replaced existing file", "playlistId", playlistID, "targetPath", targetPath)
+					log.Debug(ctx, "Playlist published", "playlistId", playlistID, "targetPath", targetPath, "tracks", len(pls.Tracks))
+					return filename, nil
 				}
 			}
 		}
-		syncPath := filepath.Join(conf.Server.SyncFolder, rel)
-		if err := os.MkdirAll(filepath.Dir(syncPath), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(syncPath, data, 0o644); err != nil {
-			return err
-		}
+		_ = os.Remove(tmpPath)
+		return "", err
 	}
-	return nil
+
+	log.Debug(ctx, "Playlist published", "playlistId", playlistID, "targetPath", targetPath, "tracks", len(pls.Tracks))
+	return filename, nil
+}
+
+func publishFilename(name string, fallback string) string {
+	sanitize := strings.NewReplacer(
+		"/", "_",
+		"\\", "_",
+		":", "_",
+		"*", "_",
+		"?", "_",
+		"\"", "_",
+		"<", "_",
+		">", "_",
+		"|", "_",
+	)
+
+	base := strings.TrimSpace(name)
+	if base == "" {
+		base = fallback
+	}
+	base = strings.ReplaceAll(base, "\\", "/")
+	base = path.Base(base)
+	base = strings.TrimSpace(sanitize.Replace(base))
+
+	if base == "" {
+		base = strings.TrimSpace(sanitize.Replace(fallback))
+	}
+	if base == "" {
+		base = "playlist"
+	}
+
+	return base + ".m3u"
 }
 
 func (s *playlists) buildPlaylistPath(ctx context.Context, ds model.DataStore, folderID *string, name, ext string) (string, error) {

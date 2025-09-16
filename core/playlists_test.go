@@ -108,16 +108,22 @@ var _ = Describe("Playlists", func() {
 			})
 
 			Describe("writePlaylistFile", func() {
-				It("writes file to sync folder when configured", func() {
+				It("writes playlist data only to the playlist path", func() {
 					DeferCleanup(configtest.SetupConfig())
 					playlistsDir := GinkgoT().TempDir()
 					syncDir := GinkgoT().TempDir()
 					conf.Server.PlaylistsPath = playlistsDir
 					conf.Server.SyncFolder = syncDir
 					ps := &playlists{}
-					pls := &model.Playlist{Name: "test", Path: filepath.Join(playlistsDir, "test.m3u")}
-					Expect(ps.writePlaylistFile(pls.Path, pls)).To(Succeed())
-					Expect(filepath.Join(syncDir, "test.m3u")).To(BeAnExistingFile())
+					target := filepath.Join(playlistsDir, "test.m3u")
+					pls := &model.Playlist{Name: "test", Path: target}
+
+					Expect(ps.writePlaylistFile(target, pls)).To(Succeed())
+					Expect(target).To(BeAnExistingFile())
+
+					entries, err := os.ReadDir(syncDir)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(entries).To(BeEmpty())
 				})
 			})
 		})
@@ -280,6 +286,79 @@ var _ = Describe("Playlists", func() {
 		})
 	})
 
+	Describe("Publish", func() {
+		var repo *publishPlaylistRepo
+
+		makePlaylist := func(name string, track string) *model.Playlist {
+			sanitizedTrack := strings.ReplaceAll(track, " ", "_")
+			return &model.Playlist{
+				ID:   "1",
+				Name: name,
+				Tracks: model.PlaylistTracks{
+					{MediaFile: model.MediaFile{
+						Artist:      "Artist",
+						Title:       track,
+						Duration:    180,
+						LibraryPath: "/music",
+						Path:        filepath.Join("Artist", sanitizedTrack+".mp3"),
+					}},
+				},
+			}
+		}
+
+		BeforeEach(func() {
+			DeferCleanup(configtest.SetupConfig())
+			repo = &publishPlaylistRepo{}
+			ds.MockedPlaylist = repo
+			ps = NewPlaylists(ds)
+		})
+
+		It("writes sanitized playlist files to the sync folder root", func() {
+			repo.playlist = makePlaylist("mautic/sonarr/email", "First Track")
+			syncRoot := filepath.Join(GinkgoT().TempDir(), "Sync")
+			conf.Server.SyncFolder = syncRoot
+
+			filename, err := ps.Publish(ctx, "1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(filename).To(Equal("email.m3u"))
+
+			target := filepath.Join(syncRoot, "email.m3u")
+			Expect(target).To(BeAnExistingFile())
+			contents, err := os.ReadFile(target)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(contents)).To(Equal(repo.playlist.ToM3U8()))
+
+			_, err = os.Stat(filepath.Join(syncRoot, "mautic"))
+			Expect(os.IsNotExist(err)).To(BeTrue())
+			Expect(filepath.Join(syncRoot, "email.m3u.tmp")).ToNot(BeAnExistingFile())
+		})
+
+		It("overwrites existing playlist files atomically", func() {
+			repo.playlist = makePlaylist("mix", "First Track")
+			syncRoot := filepath.Join(GinkgoT().TempDir(), "Sync")
+			conf.Server.SyncFolder = syncRoot
+
+			filename, err := ps.Publish(ctx, "1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(filename).To(Equal("mix.m3u"))
+
+			target := filepath.Join(syncRoot, filename)
+			initial, err := os.ReadFile(target)
+			Expect(err).ToNot(HaveOccurred())
+
+			repo.playlist = makePlaylist("mix", "Second Track")
+			filename2, err := ps.Publish(ctx, "1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(filename2).To(Equal(filename))
+
+			Expect(filepath.Join(syncRoot, filename+".tmp")).ToNot(BeAnExistingFile())
+			updated, err := os.ReadFile(target)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(updated)).To(Equal(repo.playlist.ToM3U8()))
+			Expect(string(updated)).ToNot(Equal(string(initial)))
+		})
+	})
+
 	Describe("normalizePathForComparison", func() {
 		It("normalizes Unicode characters to NFC form and converts to lowercase", func() {
 			// Test with NFD (decomposed) input - as would come from macOS filesystem
@@ -397,4 +476,16 @@ func (r *mockedPlaylistRepo) FindByPath(string) (*model.Playlist, error) {
 func (r *mockedPlaylistRepo) Put(pls *model.Playlist) error {
 	r.last = pls
 	return nil
+}
+
+type publishPlaylistRepo struct {
+	model.PlaylistRepository
+	playlist *model.Playlist
+}
+
+func (r *publishPlaylistRepo) GetWithTracks(string, bool, bool) (*model.Playlist, error) {
+	if r.playlist == nil {
+		return nil, model.ErrNotFound
+	}
+	return r.playlist, nil
 }
