@@ -3,8 +3,9 @@ import PropTypes from 'prop-types'
 import List from '@material-ui/core/List'
 import ListItem from '@material-ui/core/ListItem'
 import ListItemText from '@material-ui/core/ListItemText'
+import ListSubheader from '@material-ui/core/ListSubheader'
 import { makeStyles } from '@material-ui/core/styles'
-import { sanitizeListRestProps } from 'react-admin'
+import { sanitizeListRestProps, useTranslate } from 'react-admin'
 import { setTrack } from '../actions'
 import { useDispatch } from 'react-redux'
 
@@ -14,41 +15,50 @@ const useStyles = makeStyles(
       textDecoration: 'none',
       color: 'inherit',
     },
+    subheader: {
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      columnGap: '12px',
+      padding: '6px 12px',
+      color: '#D1D5DB',
+      fontWeight: 600,
+      backgroundColor: 'transparent',
+    },
+    subheaderText: {
+      minWidth: 0,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      textAlign: 'left',
+    },
     listItem: {
       padding: '6px 12px',
     },
     primary: {
-      display: 'flex',
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      columnGap: '12px',
       alignItems: 'center',
       width: '100%',
       minWidth: 0,
-      gap: '12px',
     },
     title: {
-      flex: '1 1 50%',
       minWidth: 0,
       fontWeight: 500,
       color: '#FFFFFF',
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
+      textAlign: 'left',
     },
     artist: {
-      flex: '1 1 50%',
       minWidth: 0,
-      display: 'flex',
-      justifyContent: 'flex-end',
-      overflow: 'hidden',
-    },
-    artistText: {
-      maxWidth: '100%',
       color: '#FFFFFF',
       fontWeight: 400,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
-      textAlign: 'right',
-      direction: 'ltr',
+      textAlign: 'left',
     },
   },
   { name: 'RaSongSimpleList' },
@@ -69,9 +79,23 @@ export const SongSimpleList = ({
 }) => {
   const dispatch = useDispatch()
   const classes = useStyles({ classes: classesOverride })
+  const translate = useTranslate()
   return (
     (loading || total > 0) && (
-      <List className={className} {...sanitizeListRestProps(rest)}>
+      <List
+        className={className}
+        {...sanitizeListRestProps(rest)}
+        subheader={
+          <ListSubheader component="div" disableSticky className={classes.subheader}>
+            <span className={classes.subheaderText}>
+              {translate('resources.song.fields.title', { _: 'Title' })}
+            </span>
+            <span className={classes.subheaderText}>
+              {translate('resources.song.fields.artist', { _: 'Artist' })}
+            </span>
+          </ListSubheader>
+        }
+      >
         {ids.map(
           (id) =>
             data[id] && (
@@ -87,13 +111,11 @@ export const SongSimpleList = ({
                         >
                           {data[id].title}
                         </span>
-                        <span className={classes.artist}>
-                          <span
-                            className={classes.artistText}
-                            title={data[id].artist}
-                          >
-                            {data[id].artist}
-                          </span>
+                        <span
+                          className={classes.artist}
+                          title={data[id].artist}
+                        >
+                          {data[id].artist}
                         </span>
                       </div>
                     }
