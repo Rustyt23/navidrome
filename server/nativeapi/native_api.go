@@ -126,7 +126,7 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 			r.Put("/", rest.Put(constructor))
 			r.Delete("/", rest.Delete(constructor))
 
-			r.Post("/publish", publishPlaylist(n.ds, n.playlists))
+			r.Post("/publish", publishPlaylist(n.playlists))
 
 			r.Patch("/folder", func(w http.ResponseWriter, r *http.Request) {
 				id := chi.URLParam(r, "id")

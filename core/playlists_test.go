@@ -326,6 +326,47 @@ var _ = Describe("Playlists", func() {
 		})
 	})
 
+	Describe("Publish", func() {
+		It("updates playlist exports only when invoked", func() {
+			DeferCleanup(configtest.SetupConfig())
+
+			playlistsDir := GinkgoT().TempDir()
+			syncDir := GinkgoT().TempDir()
+			nestedDir := filepath.Join(playlistsDir, "mautic")
+			Expect(os.MkdirAll(nestedDir, 0o755)).To(Succeed())
+
+			conf.Server.PlaylistsPath = filepath.Join(playlistsDir, "**")
+			conf.Server.SyncFolder = syncDir
+
+			oldPath := filepath.Join(nestedDir, "email.m3u")
+			Expect(os.WriteFile(oldPath, []byte("previous"), 0o644)).To(Succeed())
+
+			playlist := &model.Playlist{
+				ID:   "pls-1",
+				Name: "mautic/email",
+				Path: oldPath,
+				Sync: true,
+				Tracks: model.PlaylistTracks{{
+					MediaFile: model.MediaFile{Artist: "Artist", Title: "Song"},
+				}},
+			}
+
+			repo := &publishPlaylistRepo{playlist: playlist}
+			ds.MockedPlaylist = repo
+			ps = NewPlaylists(ds)
+
+			Expect(ps.Publish(ctx, playlist.ID)).To(Succeed())
+
+			newPath := filepath.Join(playlistsDir, "mautic_email.m3u")
+			Expect(newPath).To(BeAnExistingFile())
+			Expect(filepath.Join(syncDir, "mautic_email.m3u")).To(BeAnExistingFile())
+			Expect(filepath.Join(syncDir, "mautic")).NotTo(BeADirectory())
+			Expect(oldPath).NotTo(BeAnExistingFile())
+			Expect(repo.updatedPaths).To(ContainElement(newPath))
+			Expect(repo.playlist.Path).To(Equal(newPath))
+		})
+	})
+
 	Describe("normalizePathForComparison", func() {
 		It("normalizes Unicode characters to NFC form and converts to lowercase", func() {
 			// Test with NFD (decomposed) input - as would come from macOS filesystem
@@ -442,5 +483,29 @@ func (r *mockedPlaylistRepo) FindByPath(string) (*model.Playlist, error) {
 
 func (r *mockedPlaylistRepo) Put(pls *model.Playlist) error {
 	r.last = pls
+	return nil
+}
+
+type publishPlaylistRepo struct {
+	model.PlaylistRepository
+	playlist     *model.Playlist
+	updatedPaths []string
+}
+
+func (r *publishPlaylistRepo) GetWithTracks(id string, refreshSmartPlaylist, includeMissing bool) (*model.Playlist, error) {
+	if r.playlist != nil && r.playlist.ID == id {
+		return r.playlist, nil
+	}
+	return nil, model.ErrNotFound
+}
+
+func (r *publishPlaylistRepo) Update(id string, entity interface{}, cols ...string) error {
+	pls, _ := entity.(*model.Playlist)
+	if pls != nil {
+		r.updatedPaths = append(r.updatedPaths, pls.Path)
+	}
+	if r.playlist != nil && r.playlist.ID == id && pls != nil {
+		r.playlist.Path = pls.Path
+	}
 	return nil
 }

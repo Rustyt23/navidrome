@@ -29,6 +29,7 @@ type Playlists interface {
 	Update(ctx context.Context, playlistID string, name *string, comment *string, public *bool, idsToAdd []string, idxToRemove []int) error
 	SetFolder(ctx context.Context, playlistID string, folderID *string) error
 	ImportM3U(ctx context.Context, reader io.Reader) (*model.Playlist, error)
+	Publish(ctx context.Context, playlistID string) error
 }
 
 type playlists struct {
@@ -422,7 +423,6 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 		if err != nil {
 			return err
 		}
-		oldPath := pls.Path
 
 		if len(idxToRemove) > 0 {
 			pls.RemoveTracks(idxToRemove)
@@ -441,18 +441,6 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 			pls.Public = *public
 		}
 
-		if pls.Sync {
-			ext := filepath.Ext(oldPath)
-			if ext == "" {
-				ext = ".m3u"
-			}
-			newPath, err := s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
-			if err != nil {
-				return err
-			}
-			pls.Path = newPath
-		}
-
 		if len(idxToRemove) > 0 && len(pls.Tracks) == 0 {
 			if err := repo.Tracks(playlistID, true).DeleteAll(); err != nil {
 				return err
@@ -461,20 +449,6 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 
 		if err := repo.Put(pls); err != nil {
 			return err
-		}
-
-		if pls.Sync {
-			if err := os.MkdirAll(filepath.Dir(pls.Path), 0o755); err != nil {
-				return err
-			}
-			if oldPath != "" && oldPath != pls.Path {
-				if err := os.Rename(oldPath, pls.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
-			}
-			if err := s.writePlaylistFile(pls.Path, pls); err != nil {
-				return err
-			}
 		}
 		return nil
 	})
@@ -486,40 +460,52 @@ func (s *playlists) SetFolder(ctx context.Context, playlistID string, folderID *
 	}
 	return s.ds.WithTxImmediate(func(tx model.DataStore) error {
 		repo := tx.Playlist(ctx)
-		pls, err := repo.Get(playlistID)
-		if err != nil {
+		if err := repo.UpdatePlaylistFolder(playlistID, folderID); err != nil {
 			return err
 		}
-		oldPath := pls.Path
-		if err := repo.UpdatePlaylistFolder(playlistID, folderID); err != nil {
+		return nil
+	})
+}
+
+func (s *playlists) Publish(ctx context.Context, playlistID string) error {
+	return s.ds.WithTxImmediate(func(tx model.DataStore) error {
+		repo := tx.Playlist(ctx)
+		pls, err := repo.GetWithTracks(playlistID, true, false)
+		if err != nil {
 			return err
 		}
 		if !pls.Sync {
 			return nil
 		}
+
+		oldPath := pls.Path
 		ext := filepath.Ext(oldPath)
 		if ext == "" {
 			ext = ".m3u"
 		}
-		newPath, err := s.buildPlaylistPath(ctx, tx, folderID, pls.Name, ext)
+
+		newPath, err := s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
 		if err != nil {
 			return err
 		}
-		pls.Path = newPath
-		pls.FolderID = folderID
-		if err := repo.Put(pls); err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
-			return err
-		}
-		if err := os.Rename(oldPath, newPath); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
+
+		if newPath != oldPath {
+			if err := repo.Update(pls.ID, &model.Playlist{Path: newPath}, "path"); err != nil {
 				return err
 			}
-			if writeErr := s.writePlaylistFile(newPath, pls); writeErr != nil {
-				return writeErr
+			pls.Path = newPath
+		}
+
+		if err := os.MkdirAll(filepath.Dir(pls.Path), 0o755); err != nil {
+			return err
+		}
+		if oldPath != "" && oldPath != pls.Path {
+			if err := os.Rename(oldPath, pls.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
 			}
+		}
+		if err := s.writePlaylistFile(pls.Path, pls); err != nil {
+			return err
 		}
 		return nil
 	})
