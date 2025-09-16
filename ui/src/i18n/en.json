@@ -222,14 +222,15 @@
         "removeFromSelection": "Remove from selection"
       },
       "notifications": {
-        "published": "Published to SyncFolder: %{filename}",
-        "publish_error": "Failed to publish playlist"
+        "published": "Published successfully: %{smart_count} song |||| Published successfully: %{smart_count} songs",
+        "publish_error": "Failed to publish playlist. Please try again."
       },
       "message": {
         "duplicate_song": "Add duplicated songs",
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
-        "noPlaylists": "No playlists available"
+        "noPlaylists": "No playlists available",
+        "publishConfirm": "Are you sure you want to publish this playlist?"
       }
     },
     "folder": {

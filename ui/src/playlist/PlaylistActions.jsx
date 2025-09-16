@@ -7,6 +7,7 @@ import {
   useTranslate,
   useDataProvider,
   useNotify,
+  Confirm,
 } from 'react-admin'
 import { useMediaQuery, makeStyles } from '@material-ui/core'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
@@ -44,6 +45,8 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
   const notify = useNotify()
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
+  const [isPublishDialogOpen, setPublishDialogOpen] = React.useState(false)
+  const [isPublishing, setPublishing] = React.useState(false)
 
   const getAllSongsAndDispatch = React.useCallback(
     (action) => {
@@ -112,31 +115,46 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
     [record],
   )
 
-  const handlePublish = React.useCallback(() => {
-    const fallback = () => {
-      const name = record?.name || ''
-      const parts = name.split(/[/\\]/).filter(Boolean)
-      const base = parts.length > 0 ? parts[parts.length - 1] : name
-      const sanitized = base.replace(/[\\/:*?"<>|]/g, '_').trim() || 'playlist'
-      return `${sanitized}.m3u`
+  const handlePublishClick = React.useCallback(() => {
+    setPublishDialogOpen(true)
+  }, [])
+
+  const handlePublishClose = React.useCallback(() => {
+    setPublishDialogOpen(false)
+  }, [])
+
+  const handlePublishConfirm = React.useCallback(() => {
+    setPublishDialogOpen(false)
+
+    if (!record?.id) {
+      return
     }
 
-    return httpClient(`${REST_URL}/playlist/${record.id}/publish`, {
+    const parsedCount = Number(record?.songCount ?? 0)
+    const trackCount = Number.isFinite(parsedCount) ? parsedCount : 0
+
+    setPublishing(true)
+
+    httpClient(`${REST_URL}/playlist/${record.id}/publish`, {
       method: 'POST',
     })
-      .then(({ json }) => {
-        const filename = json?.filename || fallback()
-        notify('resources.playlist.notifications.published', 'info', {
-          filename,
-        })
-      })
-      .catch((error) => {
-        const defaultMessage = translate(
-          'resources.playlist.notifications.publish_error',
+      .then(() => {
+        const message = translate(
+          'resources.playlist.notifications.published',
+          {
+            smart_count: trackCount,
+          },
         )
-        const message =
-          error?.body?.message || error?.message || defaultMessage
-        notify(message, 'warning')
+        notify(message, 'info')
+      })
+      .catch(() => {
+        notify(
+          translate('resources.playlist.notifications.publish_error'),
+          'warning',
+        )
+      })
+      .finally(() => {
+        setPublishing(false)
       })
   }, [record, notify, translate])
 
@@ -191,14 +209,25 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
             <QueueMusicIcon />
           </Button>
           <Button
-            onClick={handlePublish}
+            onClick={handlePublishClick}
             label={translate('resources.playlist.actions.publish')}
+            disabled={isPublishing}
           >
             <PublishIcon />
           </Button>
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="playlistTrack" />}</div>
       </div>
+      <Confirm
+        isOpen={isPublishDialogOpen}
+        loading={isPublishing}
+        title={translate('resources.playlist.actions.publish')}
+        content={translate('resources.playlist.message.publishConfirm')}
+        confirm={translate('ra.message.yes')}
+        cancel={translate('ra.message.no')}
+        onConfirm={handlePublishConfirm}
+        onClose={handlePublishClose}
+      />
     </TopToolbar>
   )
 }
