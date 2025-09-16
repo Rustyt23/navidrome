@@ -222,7 +222,7 @@
         "removeFromSelection": "Remove from selection"
       },
       "notifications": {
-        "published": "Published successfully: %{smart_count} song |||| Published successfully: %{smart_count} songs",
+        "published_to_sync": "1 song from \"%{playlist}\" published to Sync folder |||| %{smart_count} songs from \"%{playlist}\" published to Sync folder",
         "publish_error": "Failed to publish playlist. Please try again."
       },
       "message": {
