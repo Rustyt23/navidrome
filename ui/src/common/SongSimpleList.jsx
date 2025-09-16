@@ -2,12 +2,9 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import List from '@material-ui/core/List'
 import ListItem from '@material-ui/core/ListItem'
-import ListItemIcon from '@material-ui/core/ListItemIcon'
-import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
 import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
-import { SongContextMenu } from './index'
 import { setTrack } from '../actions'
 import { useDispatch } from 'react-redux'
 
@@ -18,40 +15,40 @@ const useStyles = makeStyles(
       color: 'inherit',
     },
     listItem: {
-      padding: '12px 16px',
+      padding: '6px 12px',
     },
     primary: {
       display: 'flex',
       alignItems: 'center',
       width: '100%',
       minWidth: 0,
-      gap: '6px',
+      gap: '12px',
     },
     title: {
-      flex: '1 1 auto',
+      flex: '1 1 50%',
       minWidth: 0,
       fontWeight: 500,
-      color: '#fff',
+      color: '#FFFFFF',
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
-    },
-    separator: {
-      flex: '0 0 auto',
-      color: 'rgba(255, 255, 255, 0.6)',
     },
     artist: {
-      flex: '1 1 auto',
+      flex: '1 1 50%',
       minWidth: 0,
+      display: 'flex',
+      justifyContent: 'flex-end',
+      overflow: 'hidden',
+    },
+    artistText: {
+      maxWidth: '100%',
+      color: '#FFFFFF',
+      fontWeight: 400,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
-      color: 'rgba(255, 255, 255, 0.65)',
-      fontWeight: 400,
-    },
-    rightIcon: {
-      top: '50%',
-      transform: 'translateY(-50%)',
+      textAlign: 'right',
+      direction: 'ltr',
     },
   },
   { name: 'RaSongSimpleList' },
@@ -90,21 +87,17 @@ export const SongSimpleList = ({
                         >
                           {data[id].title}
                         </span>
-                        <span className={classes.separator}>—</span>
-                        <span
-                          className={classes.artist}
-                          title={data[id].artist}
-                        >
-                          {data[id].artist}
+                        <span className={classes.artist}>
+                          <span
+                            className={classes.artistText}
+                            title={data[id].artist}
+                          >
+                            {data[id].artist}
+                          </span>
                         </span>
                       </div>
                     }
                   />
-                  <ListItemSecondaryAction className={classes.rightIcon}>
-                    <ListItemIcon>
-                      <SongContextMenu record={data[id]} visible={true} />
-                    </ListItemIcon>
-                  </ListItemSecondaryAction>
                 </ListItem>
               </span>
             ),
