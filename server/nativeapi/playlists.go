@@ -89,10 +89,6 @@ func createPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFu
 			rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if err := syncPlaylist(playlists, ds, r.Context(), id); err != nil {
-			rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
 		rest.RespondWithJSON(w, http.StatusOK, &map[string]string{"id": id})
 	}
 }
@@ -147,10 +143,10 @@ func handleExportPlaylist(ds model.DataStore) http.HandlerFunc {
 	}
 }
 
-func publishPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
+func publishPlaylist(playlists core.Playlists) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		if err := syncPlaylist(playlists, ds, r.Context(), id); err != nil {
+		if err := playlists.Publish(r.Context(), id); err != nil {
 			http.Error(w, err.Error(), statusFor(err))
 			return
 		}
@@ -174,10 +170,6 @@ func deleteFromPlaylist(ds model.DataStore, playlists core.Playlists) http.Handl
 		}
 		if err != nil {
 			log.Error(r.Context(), "Error deleting tracks from playlist", "playlistId", playlistId, "ids", ids, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -225,11 +217,6 @@ func addToPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFun
 		}
 		count += c
 
-		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 		// Must return an object with an ID, to satisfy ReactAdmin `create` call
 		_, err = fmt.Fprintf(w, `{"added":%d}`, count)
 		if err != nil {
@@ -273,11 +260,6 @@ func reorderItem(ds model.DataStore, playlists core.Playlists) http.HandlerFunc 
 			return
 		}
 
-		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 		_, err = w.Write([]byte(fmt.Sprintf(`{"id":"%d"}`, id)))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -301,12 +283,4 @@ func getSongPlaylists(ds model.DataStore) http.HandlerFunc {
 		}
 		_, _ = w.Write(data)
 	}
-}
-
-func syncPlaylist(playlists core.Playlists, ds model.DataStore, ctx context.Context, playlistId string) error {
-	pls, err := ds.Playlist(ctx).Get(playlistId)
-	if err != nil {
-		return err
-	}
-	return playlists.Update(ctx, playlistId, &pls.Name, &pls.Comment, &pls.Public, nil, nil)
 }
