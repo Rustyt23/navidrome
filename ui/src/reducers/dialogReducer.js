@@ -7,8 +7,6 @@ import {
   DOWNLOAD_MENU_OPEN,
   DOWNLOAD_MENU_PLAY,
   DOWNLOAD_MENU_SONG,
-  DUPLICATE_SONG_WARNING_OPEN,
-  DUPLICATE_SONG_WARNING_CLOSE,
   EXTENDED_INFO_OPEN,
   EXTENDED_INFO_CLOSE,
   LISTENBRAINZ_TOKEN_OPEN,
@@ -52,7 +50,6 @@ export const shareDialogReducer = (
 export const addToPlaylistDialogReducer = (
   previousState = {
     open: false,
-    duplicateSong: false,
   },
   payload,
 ) => {
@@ -67,14 +64,6 @@ export const addToPlaylistDialogReducer = (
       }
     case ADD_TO_PLAYLIST_CLOSE:
       return { ...previousState, open: false, onSuccess: undefined }
-    case DUPLICATE_SONG_WARNING_OPEN:
-      return {
-        ...previousState,
-        duplicateSong: true,
-        duplicateIds: payload.duplicateIds,
-      }
-    case DUPLICATE_SONG_WARNING_CLOSE:
-      return { ...previousState, duplicateSong: false }
     default:
       return previousState
   }
