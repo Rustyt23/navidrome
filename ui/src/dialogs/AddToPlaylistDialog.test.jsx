@@ -36,7 +36,6 @@ const createTestUtils = (mockDataProvider) =>
         initialState={{
           addToPlaylistDialog: {
             open: true,
-            duplicateSong: false,
             selectedIds: selectedIds,
           },
           admin: {
@@ -70,11 +69,29 @@ vi.mock('../dataProvider', () => ({
 
 describe('AddToPlaylistDialog', () => {
   beforeAll(() => localStorage.setItem('userId', 'admin'))
-  afterEach(cleanup)
+  afterEach(() => {
+    vi.restoreAllMocks()
+    cleanup()
+  })
 
-  it('adds distinct songs to already existing playlists', async () => {
+  it('skips duplicate songs when adding to existing playlists', async () => {
     const dataProvider = await import('../dataProvider')
-    vi.spyOn(dataProvider, 'httpClient').mockResolvedValue({ data: mockData })
+    const httpClientMock = vi
+      .spyOn(dataProvider, 'httpClient')
+      .mockImplementation((url) => {
+        if (url.endsWith('sample-id1/tracks')) {
+          return Promise.resolve({
+            json: [
+              { mediaFileId: 'song-2', title: 'Song 2' },
+              { mediaFileId: 'song-3', title: 'Song 3' },
+            ],
+          })
+        }
+        if (url.endsWith('sample-id2/tracks')) {
+          return Promise.resolve({ json: [] })
+        }
+        return Promise.resolve({ json: [] })
+      })
 
     const mockDataProvider = {
       getList: vi
@@ -109,7 +126,7 @@ describe('AddToPlaylistDialog', () => {
         1,
         'playlistTrack',
         {
-          data: { ids: selectedIds },
+          data: { ids: ['song-1'] },
           filter: { playlist_id: 'sample-id1' },
         },
       )
@@ -124,6 +141,7 @@ describe('AddToPlaylistDialog', () => {
         },
       )
     })
+    expect(httpClientMock).toHaveBeenCalledTimes(2)
   })
 
   it('adds distinct songs to a new playlist', async () => {

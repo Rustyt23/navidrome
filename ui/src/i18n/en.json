@@ -225,8 +225,11 @@
         "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
       },
       "message": {
-        "duplicate_song": "Add duplicated songs",
-        "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
+        "added": "Added %{addedCount} song(s) to \"%{playlistName}\".",
+        "addedWithSkips": "Added %{addedCount} song(s) to \"%{playlistName}\" (skipped %{skippedCount} duplicate(s))",
+        "allDuplicates": "Nothing added. All selected songs are already in \"%{playlistName}\".",
+        "duplicateLine": "\"%{title}\" already exists — skipping",
+        "duplicateLineMore": "…and %{remaining} more.",
         "noPlaylistsFound": "No playlists found",
         "noPlaylists": "No playlists available"
       }
