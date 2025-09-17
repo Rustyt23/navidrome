@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   ReferenceManyField,
   ShowContextProvider,
@@ -10,10 +10,19 @@ import {
   Title as RaTitle,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
+import { useMediaQuery } from '@material-ui/core'
 import PlaylistDetails from './PlaylistDetails'
 import PlaylistSongs from './PlaylistSongs'
 import PlaylistActions from './PlaylistActions'
 import { Title, canChangeTracks, useResourceRefresh } from '../common'
+import PlaylistMobilePagination from './PlaylistMobilePagination'
+import {
+  DEFAULT_PLAYLIST_PER_PAGE,
+  PLAYLIST_DESKTOP_ROWS_PER_PAGE_OPTIONS,
+  PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS,
+  PLAYLIST_PER_PAGE_STORAGE_KEY,
+} from './playlistPaginationConfig'
+import { usePerPagePreference } from '../common/hooks/usePerPagePreference'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -31,6 +40,46 @@ const PlaylistShowLayout = (props) => {
   const { record } = context
   const classes = useStyles()
   useResourceRefresh('song')
+  const isSmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
+  const { perPage: storedPerPage, setPerPage: setStoredPerPage } =
+    usePerPagePreference(
+      PLAYLIST_PER_PAGE_STORAGE_KEY,
+      DEFAULT_PLAYLIST_PER_PAGE,
+    )
+
+  const perPageOptions = useMemo(
+    () =>
+      isSmall
+        ? PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS
+        : PLAYLIST_DESKTOP_ROWS_PER_PAGE_OPTIONS,
+    [isSmall],
+  )
+
+  const effectivePerPage = useMemo(() => {
+    if (perPageOptions.includes(storedPerPage)) {
+      return storedPerPage
+    }
+    return DEFAULT_PLAYLIST_PER_PAGE
+  }, [perPageOptions, storedPerPage])
+
+  useEffect(() => {
+    if (effectivePerPage !== storedPerPage) {
+      setStoredPerPage(effectivePerPage)
+    }
+  }, [effectivePerPage, storedPerPage, setStoredPerPage])
+
+  const paginationComponent = useMemo(() => {
+    if (isSmall) {
+      return (
+        <PlaylistMobilePagination
+          rowsPerPageOptions={PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS}
+        />
+      )
+    }
+    return (
+      <Pagination rowsPerPageOptions={PLAYLIST_DESKTOP_ROWS_PER_PAGE_OPTIONS} />
+    )
+  }, [isSmall])
 
   // Store search query in state to prevent losing focus
   const [searchTerm, setSearchTerm] = useState('')
@@ -63,7 +112,7 @@ const PlaylistShowLayout = (props) => {
             reference="playlistTrack"
             target="playlist_id"
             sort={{ field: 'id', order: 'ASC' }}
-            perPage={100}
+            perPage={effectivePerPage}
             filter={{ playlist_id: props.id, title: searchTerm }} // Pass searchTerm as a filter
           >
             <PlaylistSongs
@@ -78,7 +127,7 @@ const PlaylistShowLayout = (props) => {
               }
               resource={'playlistTrack'}
               exporter={false}
-              pagination={<Pagination rowsPerPageOptions={[100, 250, 500]} />}
+              pagination={paginationComponent}
               searchTerm={searchTerm} // Pass search term to child
             />
           </ReferenceManyField>

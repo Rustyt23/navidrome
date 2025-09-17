@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import PropTypes from 'prop-types'
 import { TablePagination, Toolbar, useMediaQuery } from '@material-ui/core'
 import {
-  ComponentPropType,
   sanitizeListRestProps,
   useListPaginationContext,
   useTranslate,
@@ -10,53 +9,57 @@ import {
 import DefaultPaginationActions from 'ra-ui-materialui/esm/list/pagination/PaginationActions'
 import DefaultPaginationLimit from 'ra-ui-materialui/esm/list/pagination/PaginationLimit'
 import {
-  DEFAULT_SONGS_PER_PAGE,
-  SONGS_ROWS_PER_PAGE_OPTIONS,
-} from './songPaginationConfig'
+  DEFAULT_PLAYLIST_PER_PAGE,
+  PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS,
+  PLAYLIST_PER_PAGE_STORAGE_KEY,
+} from './playlistPaginationConfig'
+import { usePerPagePreference } from '../common/hooks/usePerPagePreference'
 
-const SongsPagination = (props) => {
-  const {
-    rowsPerPageOptions = SONGS_ROWS_PER_PAGE_OPTIONS,
-    actions = DefaultPaginationActions,
-    limit = <DefaultPaginationLimit />,
-    onPerPageChange,
-    ...rest
-  } = props
-
+const PlaylistMobilePagination = ({
+  rowsPerPageOptions = PLAYLIST_MOBILE_ROWS_PER_PAGE_OPTIONS,
+  actions = DefaultPaginationActions,
+  limit = <DefaultPaginationLimit />,
+  ...rest
+}) => {
   const { loading, page, perPage, total, setPage, setPerPage } =
-    useListPaginationContext(props)
+    useListPaginationContext(rest)
   const translate = useTranslate()
-  const isSmall = useMediaQuery((theme) => theme.breakpoints.down('sm'))
-  const totalPages = useMemo(() => Math.ceil(total / perPage) || 1, [perPage, total])
-  const lastStoredPerPage = useRef()
+  const isSmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
+  const { perPage: storedPerPage, setPerPage: setStoredPerPage } =
+    usePerPagePreference(
+      PLAYLIST_PER_PAGE_STORAGE_KEY,
+      DEFAULT_PLAYLIST_PER_PAGE,
+    )
+  const totalPages = useMemo(
+    () => Math.ceil(total / perPage) || 1,
+    [perPage, total],
+  )
+  const hasSyncedPerPage = useRef(false)
 
   useEffect(() => {
-    const fallback = rowsPerPageOptions.includes(DEFAULT_SONGS_PER_PAGE)
-      ? DEFAULT_SONGS_PER_PAGE
-      : rowsPerPageOptions[0]
-
-    if (!rowsPerPageOptions.includes(perPage)) {
-      if (perPage !== fallback) {
+    if (!hasSyncedPerPage.current) {
+      const fallback = rowsPerPageOptions.includes(DEFAULT_PLAYLIST_PER_PAGE)
+        ? DEFAULT_PLAYLIST_PER_PAGE
+        : rowsPerPageOptions[0]
+      if (!rowsPerPageOptions.includes(storedPerPage)) {
+        setStoredPerPage(fallback)
         setPerPage(fallback)
+      } else if (perPage !== storedPerPage) {
+        setPerPage(storedPerPage)
       }
-      if (onPerPageChange) {
-        onPerPageChange(fallback)
-      }
-      lastStoredPerPage.current = fallback
+      hasSyncedPerPage.current = true
       return
     }
 
-    if (lastStoredPerPage.current !== perPage) {
-      if (onPerPageChange) {
-        onPerPageChange(perPage)
-      }
-      lastStoredPerPage.current = perPage
+    if (rowsPerPageOptions.includes(perPage) && storedPerPage !== perPage) {
+      setStoredPerPage(perPage)
     }
   }, [
-    onPerPageChange,
     perPage,
     rowsPerPageOptions,
     setPerPage,
+    setStoredPerPage,
+    storedPerPage,
   ])
 
   const handlePageChange = useCallback(
@@ -81,12 +84,10 @@ const SongsPagination = (props) => {
       const value = parseInt(event.target.value, 10)
       if (!Number.isNaN(value)) {
         setPerPage(value)
-        if (onPerPageChange) {
-          onPerPageChange(value)
-        }
+        setStoredPerPage(value)
       }
     },
-    [onPerPageChange, setPerPage],
+    [setPerPage, setStoredPerPage],
   )
 
   const labelDisplayedRows = useCallback(
@@ -123,11 +124,10 @@ const SongsPagination = (props) => {
   return <TablePagination {...tablePaginationProps} />
 }
 
-SongsPagination.propTypes = {
-  actions: ComponentPropType,
+PlaylistMobilePagination.propTypes = {
+  actions: PropTypes.elementType,
   limit: PropTypes.element,
   rowsPerPageOptions: PropTypes.arrayOf(PropTypes.number),
-  onPerPageChange: PropTypes.func,
 }
 
-export default SongsPagination
+export default PlaylistMobilePagination
