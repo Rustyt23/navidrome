@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	. "github.com/Masterminds/squirrel"
@@ -122,7 +125,13 @@ func (r *playlistRepository) Put(p *model.Playlist) error {
 			return model.ErrNotAuthorized
 		}
 	}
-	pls.UpdatedAt = time.Now()
+	if p.Sync && !p.UpdatedAt.IsZero() {
+		pls.UpdatedAt = p.UpdatedAt
+	} else {
+		now := time.Now()
+		pls.UpdatedAt = now
+		p.UpdatedAt = now
+	}
 
 	id, err := r.put(pls.ID, pls)
 	if err != nil {
@@ -130,6 +139,9 @@ func (r *playlistRepository) Put(p *model.Playlist) error {
 	}
 	p.ID = id
 	p.Type = "playlist"
+	if p.Sync && !p.UpdatedAt.IsZero() {
+		p.UpdatedAt = pls.UpdatedAt
+	}
 
 	if p.IsSmartPlaylist() {
 		// Do not update tracks at this point, as it may take a long time and lock the DB, breaking the scan process
@@ -170,6 +182,38 @@ func (r *playlistRepository) FindByPath(path string) (*model.Playlist, error) {
 	return r.findBy(Eq{"path": path})
 }
 
+func (r *playlistRepository) GetSyncedByDirectory(dir string) (model.Playlists, error) {
+	cleanedDir := filepath.Clean(dir)
+	pattern := cleanedDir
+	if cleanedDir == "." || cleanedDir == "" {
+		pattern = "%"
+	} else {
+		if !strings.HasSuffix(pattern, string(os.PathSeparator)) {
+			pattern += string(os.PathSeparator)
+		}
+		pattern += "%"
+	}
+
+	where := And{Eq{"sync": true}, r.userFilter()}
+	if pattern != "%" {
+		where = append(where, Like{"path": pattern})
+	}
+
+	sel := r.selectPlaylist().Where(where)
+	var res []dbPlaylist
+	if err := r.queryAll(sel, &res); err != nil {
+		return nil, err
+	}
+
+	playlists := make(model.Playlists, 0, len(res))
+	for _, p := range res {
+		if filepath.Clean(filepath.Dir(p.Path)) == cleanedDir {
+			playlists = append(playlists, p.Playlist)
+		}
+	}
+	return playlists, nil
+}
+
 func (r *playlistRepository) findBy(sql Sqlizer) (*model.Playlist, error) {
 	sel := r.selectPlaylist().Where(sql)
 	var pls []dbPlaylist
@@ -181,9 +225,9 @@ func (r *playlistRepository) findBy(sql Sqlizer) (*model.Playlist, error) {
 		return nil, model.ErrNotFound
 	}
 
-    p := &pls[0].Playlist
-    p.Type = "playlist"
-    return p, nil
+	p := &pls[0].Playlist
+	p.Type = "playlist"
+	return p, nil
 }
 
 func (r *playlistRepository) GetAll(options ...model.QueryOptions) (model.Playlists, error) {
@@ -558,13 +602,17 @@ func (r *playlistRepository) isWritable(playlistId string) bool {
 }
 
 func (r *playlistRepository) UpdatePlaylistFolder(id string, folderID *string) error {
-	if err := rejectEmptyOptionalID(folderID); err != nil { return err }
+	if err := rejectEmptyOptionalID(folderID); err != nil {
+		return err
+	}
 
 	playlist, err := r.Get(id)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	if (playlist.FolderID == nil && folderID == nil) ||
-	   (playlist.FolderID != nil && folderID != nil && *playlist.FolderID == *folderID) {
+		(playlist.FolderID != nil && folderID != nil && *playlist.FolderID == *folderID) {
 		return nil
 	}
 
