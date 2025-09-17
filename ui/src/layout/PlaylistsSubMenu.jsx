@@ -16,6 +16,10 @@ import { canChangeTracks } from '../common'
 import { DraggableTypes } from '../consts'
 import config from '../config'
 import useDragAndDrop from '../common/useDragAndDrop'
+import {
+  addTracksToPlaylist,
+  formatPlaylistToast,
+} from '../playlist/addTracksToPlaylist'
 
 const useStyles = makeStyles((theme) => ({
   listItem: {
@@ -129,11 +133,22 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     DraggableTypes.PLAYLIST,
     { id: pls.id, type: 'playlist', parentId: parentIdForDnD },
     canChangeTracks(pls) ? DraggableTypes.ALL : [],
-    (item) =>
-      dataProvider
-        .addToPlaylist(pls.id, item)
-        .then((res) => notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added }))
-        .catch(() => notify('ra.page.error', 'warning'))
+    async (item) => {
+      try {
+        const result = await addTracksToPlaylist(
+          dataProvider,
+          pls.id,
+          item,
+          { skipDuplicates: true },
+        )
+        notify(formatPlaylistToast(result), {
+          type: 'info',
+          autoHideDuration: 3000,
+        })
+      } catch {
+        notify('ra.page.error', 'warning')
+      }
+    }
   )
 
   return (

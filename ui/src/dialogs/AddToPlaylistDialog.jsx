@@ -16,8 +16,10 @@ import {
 } from '@material-ui/core'
 import { closeAddToPlaylist } from '../actions'
 import { SelectPlaylistInput } from './SelectPlaylistInput'
-import { httpClient } from '../dataProvider'
-import { REST_URL } from '../consts'
+import {
+  addTracksToPlaylist,
+  formatPlaylistToast,
+} from '../playlist/addTracksToPlaylist'
 
 const useStyles = makeStyles({
   dialogPaper: {
@@ -49,118 +51,6 @@ export const AddToPlaylistDialog = () => {
     [selectedIds],
   )
 
-  const getTrackTitle = (track) =>
-    track?.title ||
-    track?.MediaFile?.title ||
-    track?.mediaFile?.title ||
-    track?.MediaFile?.name ||
-    track?.mediaFile?.name ||
-    translate('resources.song.fields.title')
-
-  const notifyPlaylistResult = ({
-    playlistName,
-    addedCount,
-    skippedCount,
-    skippedSampleTitles,
-  }) => {
-    const lines = []
-
-    if (addedCount > 0 && skippedCount > 0) {
-      lines.push(
-        translate('resources.playlist.message.addedWithSkips', {
-          addedCount,
-          skippedCount,
-          playlistName,
-        }),
-      )
-    } else if (addedCount > 0) {
-      lines.push(
-        translate('resources.playlist.message.added', {
-          addedCount,
-          playlistName,
-        }),
-      )
-    } else {
-      lines.push(
-        translate('resources.playlist.message.allDuplicates', {
-          playlistName,
-        }),
-      )
-    }
-
-    if (skippedCount > 0) {
-      const sampleTitles = skippedSampleTitles.slice(0, 3)
-      sampleTitles.forEach((title) =>
-        lines.push(
-          translate('resources.playlist.message.duplicateLine', {
-            title,
-          }),
-        ),
-      )
-      const remaining = skippedCount - sampleTitles.length
-      if (remaining > 0) {
-        lines.push(
-          translate('resources.playlist.message.duplicateLineMore', {
-            remaining,
-          }),
-        )
-      }
-    }
-
-    notify(lines.join('\n'), {
-      type: 'info',
-      autoHideDuration: 3000,
-      multiLine: true,
-    })
-  }
-
-  const addTracksToPlaylist = async (
-    playlistId,
-    playlistName,
-    existingTracks = [],
-  ) => {
-    const existingIds = new Set(
-      existingTracks.map((track) => track?.mediaFileId).filter(Boolean),
-    )
-    const newTrackIds = uniqueSelectedIds.filter(
-      (id) => !existingIds.has(id),
-    )
-    const skippedIds = uniqueSelectedIds.filter((id) => existingIds.has(id))
-    const skippedCount = skippedIds.length
-    const skippedIdSet = new Set(skippedIds)
-    const skippedSampleTitles = []
-
-    if (skippedCount > 0) {
-      existingTracks.forEach((track) => {
-        if (
-          skippedIdSet.has(track?.mediaFileId) &&
-          skippedSampleTitles.length < 3
-        ) {
-          const title = getTrackTitle(track)
-          if (!skippedSampleTitles.includes(title)) {
-            skippedSampleTitles.push(title)
-          }
-        }
-      })
-    }
-
-    if (newTrackIds.length > 0) {
-      await dataProvider.create('playlistTrack', {
-        data: { ids: newTrackIds },
-        filter: { playlist_id: playlistId },
-      })
-    }
-
-    notifyPlaylistResult({
-      playlistName,
-      addedCount: newTrackIds.length,
-      skippedCount,
-      skippedSampleTitles,
-    })
-
-    return { addedCount: newTrackIds.length, skippedCount }
-  }
-
   const createAndAddToPlaylist = async (playlistObject) => {
     try {
       const response = await dataProvider.create('playlist', {
@@ -171,7 +61,17 @@ export const AddToPlaylistDialog = () => {
       if (!playlistId) {
         throw new Error('Missing playlist id')
       }
-      return await addTracksToPlaylist(playlistId, playlistName, [])
+      const result = await addTracksToPlaylist(
+        dataProvider,
+        playlistId,
+        { ids: uniqueSelectedIds },
+        { skipDuplicates: true, existingTrackIds: new Set() },
+      )
+      notify(formatPlaylistToast(result), {
+        type: 'info',
+        autoHideDuration: 3000,
+      })
+      return result
     } catch (error) {
       notify(`Error: ${error.message}`, { type: 'warning' })
       return null
@@ -180,15 +80,17 @@ export const AddToPlaylistDialog = () => {
 
   const addToExistingPlaylist = async (playlistObject) => {
     try {
-      const res = await httpClient(
-        `${REST_URL}/playlist/${playlistObject.id}/tracks`,
-      )
-      const tracks = res?.json || []
-      return await addTracksToPlaylist(
+      const result = await addTracksToPlaylist(
+        dataProvider,
         playlistObject.id,
-        playlistObject.name,
-        tracks,
+        { ids: uniqueSelectedIds },
+        { skipDuplicates: true },
       )
+      notify(formatPlaylistToast(result), {
+        type: 'info',
+        autoHideDuration: 3000,
+      })
+      return result
     } catch (error) {
       notify('ra.page.error', { type: 'warning' })
       return null

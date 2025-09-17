@@ -170,50 +170,85 @@ func (r *playlistTrackRepository) isTracksEditable() bool {
 	return r.playlistRepo.isWritable(r.playlistId) && !r.playlist.IsSmartPlaylist()
 }
 
-func (r *playlistTrackRepository) Add(mediaFileIds []string) (int, error) {
+func (r *playlistTrackRepository) Add(mediaFileIds []string) (model.PlaylistAddResult, error) {
+	result := model.PlaylistAddResult{}
 	if !r.isTracksEditable() {
-		return 0, rest.ErrPermissionDenied
+		return result, rest.ErrPermissionDenied
 	}
 
-	if len(mediaFileIds) > 0 {
-		log.Debug(r.ctx, "Adding songs to playlist", "playlistId", r.playlistId, "mediaFileIds", mediaFileIds)
-	} else {
-		return 0, nil
+	if len(mediaFileIds) == 0 {
+		return result, nil
+	}
+
+	log.Debug(r.ctx, "Adding songs to playlist", "playlistId", r.playlistId, "mediaFileIds", mediaFileIds)
+
+	existing, err := r.getTracks()
+	if err != nil {
+		return result, err
+	}
+
+	seen := make(map[string]struct{}, len(existing))
+	for _, id := range existing {
+		seen[id] = struct{}{}
+	}
+
+	filtered := make([]string, 0, len(mediaFileIds))
+	for _, id := range mediaFileIds {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			result.Skipped++
+			continue
+		}
+		seen[id] = struct{}{}
+		filtered = append(filtered, id)
+	}
+
+	if len(filtered) == 0 {
+		return result, nil
 	}
 
 	// Get next pos (ID) in playlist
 	sq := r.newSelect().Columns("max(id) as max").Where(Eq{"playlist_id": r.playlistId})
 	var res struct{ Max sql.NullInt32 }
-	err := r.queryOne(sq, &res)
-	if err != nil {
-		return 0, err
+	if err := r.queryOne(sq, &res); err != nil {
+		return result, err
 	}
 
-	return len(mediaFileIds), r.playlistRepo.addTracks(r.playlistId, int(res.Max.Int32+1), mediaFileIds)
+	inserted, err := r.playlistRepo.addTracks(r.playlistId, int(res.Max.Int32+1), filtered)
+	if err != nil {
+		return result, err
+	}
+	result.Added += int(inserted)
+	if skipped := len(filtered) - int(inserted); skipped > 0 {
+		result.Skipped += skipped
+	}
+	return result, nil
 }
 
-func (r *playlistTrackRepository) addMediaFileIds(cond Sqlizer) (int, error) {
+func (r *playlistTrackRepository) addMediaFileIds(cond Sqlizer) (model.PlaylistAddResult, error) {
 	sq := Select("id").From("media_file").Where(cond).OrderBy("album_artist, album, release_date, disc_number, track_number")
 	var ids []string
 	err := r.queryAllSlice(sq, &ids)
 	if err != nil {
 		log.Error(r.ctx, "Error getting tracks to add to playlist", err)
-		return 0, err
+		return model.PlaylistAddResult{}, err
 	}
 	return r.Add(ids)
 }
 
-func (r *playlistTrackRepository) AddAlbums(albumIds []string) (int, error) {
+func (r *playlistTrackRepository) AddAlbums(albumIds []string) (model.PlaylistAddResult, error) {
 	return r.addMediaFileIds(Eq{"album_id": albumIds})
 }
 
-func (r *playlistTrackRepository) AddArtists(artistIds []string) (int, error) {
+func (r *playlistTrackRepository) AddArtists(artistIds []string) (model.PlaylistAddResult, error) {
 	return r.addMediaFileIds(Eq{"album_artist_id": artistIds})
 }
 
-func (r *playlistTrackRepository) AddDiscs(discs []model.DiscID) (int, error) {
+func (r *playlistTrackRepository) AddDiscs(discs []model.DiscID) (model.PlaylistAddResult, error) {
 	if len(discs) == 0 {
-		return 0, nil
+		return model.PlaylistAddResult{}, nil
 	}
 	var clauses Or
 	for _, d := range discs {

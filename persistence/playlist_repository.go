@@ -181,9 +181,9 @@ func (r *playlistRepository) findBy(sql Sqlizer) (*model.Playlist, error) {
 		return nil, model.ErrNotFound
 	}
 
-    p := &pls[0].Playlist
-    p.Type = "playlist"
-    return p, nil
+	p := &pls[0].Playlist
+	p.Type = "playlist"
+	return p, nil
 }
 
 func (r *playlistRepository) GetAll(options ...model.QueryOptions) (model.Playlists, error) {
@@ -363,26 +363,34 @@ func (r *playlistRepository) updatePlaylist(playlistId string, mediaFileIds []st
 		return err
 	}
 
-	return r.addTracks(playlistId, 1, mediaFileIds)
+	_, err = r.addTracks(playlistId, 1, mediaFileIds)
+	return err
 }
 
-func (r *playlistRepository) addTracks(playlistId string, startingPos int, mediaFileIds []string) error {
+func (r *playlistRepository) addTracks(playlistId string, startingPos int, mediaFileIds []string) (int64, error) {
 	// Break the track list in chunks to avoid hitting SQLITE_MAX_VARIABLE_NUMBER limit
 	// Add new tracks, chunk by chunk
 	pos := startingPos
+	var insertedTotal int64
 	for chunk := range slices.Chunk(mediaFileIds, 200) {
-		ins := Insert("playlist_tracks").Columns("playlist_id", "media_file_id", "id")
+		ins := Insert("playlist_tracks").
+			Columns("playlist_id", "media_file_id", "id").
+			Suffix("ON CONFLICT(playlist_id, media_file_id) DO NOTHING")
 		for _, t := range chunk {
 			ins = ins.Values(playlistId, t, pos)
 			pos++
 		}
-		_, err := r.executeSQL(ins)
+		inserted, err := r.executeSQL(ins)
 		if err != nil {
-			return err
+			return insertedTotal, err
 		}
+		insertedTotal += inserted
 	}
 
-	return r.refreshCounters(&model.Playlist{ID: playlistId})
+	if err := r.refreshCounters(&model.Playlist{ID: playlistId}); err != nil {
+		return insertedTotal, err
+	}
+	return insertedTotal, nil
 }
 
 // refreshCounters updates total playlist duration, size and count
@@ -558,13 +566,17 @@ func (r *playlistRepository) isWritable(playlistId string) bool {
 }
 
 func (r *playlistRepository) UpdatePlaylistFolder(id string, folderID *string) error {
-	if err := rejectEmptyOptionalID(folderID); err != nil { return err }
+	if err := rejectEmptyOptionalID(folderID); err != nil {
+		return err
+	}
 
 	playlist, err := r.Get(id)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	if (playlist.FolderID == nil && folderID == nil) ||
-	   (playlist.FolderID != nil && folderID != nil && *playlist.FolderID == *folderID) {
+		(playlist.FolderID != nil && folderID != nil && *playlist.FolderID == *folderID) {
 		return nil
 	}
 

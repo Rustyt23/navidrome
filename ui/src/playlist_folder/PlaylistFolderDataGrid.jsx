@@ -13,6 +13,10 @@ import { DraggableTypes } from '../consts'
 import { makeStyles } from '@material-ui/core/styles'
 import { useHistory, useLocation } from 'react-router-dom'
 import useDragAndDrop from '../common/useDragAndDrop'
+import {
+  addTracksToPlaylist,
+  formatPlaylistToast,
+} from '../playlist/addTracksToPlaylist'
 import { matchPath } from 'react-router'
 
 const useStyles = makeStyles({
@@ -61,8 +65,16 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
         const isTargetPlaylist = record.type === 'playlist'
 
         if (isTargetPlaylist && item.type !== 'playlist' && item.type !== 'folder') {
-          const res = await dataProvider.addToPlaylist(record.id, item)
-          notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
+          const result = await addTracksToPlaylist(
+            dataProvider,
+            record.id,
+            item,
+            { skipDuplicates: true },
+          )
+          notify(formatPlaylistToast(result), {
+            type: 'info',
+            autoHideDuration: 3000,
+          })
           refresh()
           return
         }

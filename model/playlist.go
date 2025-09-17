@@ -9,23 +9,23 @@ import (
 )
 
 type Playlist struct {
-	ID                 string     `structs:"id" json:"id"`
-	Name               string     `structs:"name" json:"name"`
-	Comment            string     `structs:"comment" json:"comment"`
-	Duration           float32    `structs:"duration" json:"duration"`
-	Size               int64      `structs:"size" json:"size"`
-	SongCount          int        `structs:"song_count" json:"songCount"`
-	OwnerName          string     `structs:"-" json:"ownerName"`
-	OwnerID            string     `structs:"owner_id" json:"ownerId"`
-	FolderID           *string    `structs:"folder_id" json:"folderId,omitempty"`
-	Public             bool       `structs:"public" json:"public"`
-	Tracks             PlaylistTracks `structs:"-" json:"tracks,omitempty"`
-	Path               string     `structs:"path" json:"path"`
-	Sync               bool       `structs:"sync" json:"sync"`
-	CreatedAt          time.Time  `structs:"created_at" json:"createdAt"`
-	UpdatedAt          time.Time  `structs:"updated_at" json:"updatedAt"`
+	ID        string         `structs:"id" json:"id"`
+	Name      string         `structs:"name" json:"name"`
+	Comment   string         `structs:"comment" json:"comment"`
+	Duration  float32        `structs:"duration" json:"duration"`
+	Size      int64          `structs:"size" json:"size"`
+	SongCount int            `structs:"song_count" json:"songCount"`
+	OwnerName string         `structs:"-" json:"ownerName"`
+	OwnerID   string         `structs:"owner_id" json:"ownerId"`
+	FolderID  *string        `structs:"folder_id" json:"folderId,omitempty"`
+	Public    bool           `structs:"public" json:"public"`
+	Tracks    PlaylistTracks `structs:"-" json:"tracks,omitempty"`
+	Path      string         `structs:"path" json:"path"`
+	Sync      bool           `structs:"sync" json:"sync"`
+	CreatedAt time.Time      `structs:"created_at" json:"createdAt"`
+	UpdatedAt time.Time      `structs:"updated_at" json:"updatedAt"`
 
-	Type               string     `structs:"-" json:"type,omitempty"`
+	Type string `structs:"-" json:"type,omitempty"`
 
 	// SmartPlaylist attributes
 	Rules       *criteria.Criteria `structs:"rules" json:"rules"`
@@ -112,23 +112,22 @@ func (pls Playlist) CoverArtID() ArtworkID {
 type Playlists []Playlist
 
 type PlaylistRepository interface {
-    ResourceRepository
-    CountAll(options ...QueryOptions) (int64, error)
-    Exists(id string) (bool, error)
-    Put(pls *Playlist) error
-    Get(id string) (*Playlist, error)
-    GetWithTracks(id string, refreshSmartPlaylist, includeMissing bool) (*Playlist, error)
-    GetAll(options ...QueryOptions) (Playlists, error)
-    FindByPath(path string) (*Playlist, error)
-    Delete(id string) error
-    Tracks(playlistId string, refreshSmartPlaylist bool) PlaylistTrackRepository
-    GetPlaylists(mediaFileId string) (Playlists, error)
+	ResourceRepository
+	CountAll(options ...QueryOptions) (int64, error)
+	Exists(id string) (bool, error)
+	Put(pls *Playlist) error
+	Get(id string) (*Playlist, error)
+	GetWithTracks(id string, refreshSmartPlaylist, includeMissing bool) (*Playlist, error)
+	GetAll(options ...QueryOptions) (Playlists, error)
+	FindByPath(path string) (*Playlist, error)
+	Delete(id string) error
+	Tracks(playlistId string, refreshSmartPlaylist bool) PlaylistTrackRepository
+	GetPlaylists(mediaFileId string) (Playlists, error)
 
-    UpdatePlaylistFolder(id string, playlistFolderId *string) error
+	UpdatePlaylistFolder(id string, playlistFolderId *string) error
 
-    GetAllByPlaylistFolder(options ...QueryOptions) (Playlists, error)
+	GetAllByPlaylistFolder(options ...QueryOptions) (Playlists, error)
 }
-
 
 type PlaylistTrack struct {
 	ID          string `json:"id"`
@@ -147,14 +146,24 @@ func (plt PlaylistTracks) MediaFiles() MediaFiles {
 	return mfs
 }
 
+type PlaylistAddResult struct {
+	Added   int `json:"added"`
+	Skipped int `json:"skipped"`
+}
+
+func (r *PlaylistAddResult) Merge(other PlaylistAddResult) {
+	r.Added += other.Added
+	r.Skipped += other.Skipped
+}
+
 type PlaylistTrackRepository interface {
 	ResourceRepository
 	GetAll(options ...QueryOptions) (PlaylistTracks, error)
 	GetAlbumIDs(options ...QueryOptions) ([]string, error)
-	Add(mediaFileIds []string) (int, error)
-	AddAlbums(albumIds []string) (int, error)
-	AddArtists(artistIds []string) (int, error)
-	AddDiscs(discs []DiscID) (int, error)
+	Add(mediaFileIds []string) (PlaylistAddResult, error)
+	AddAlbums(albumIds []string) (PlaylistAddResult, error)
+	AddArtists(artistIds []string) (PlaylistAddResult, error)
+	AddDiscs(discs []DiscID) (PlaylistAddResult, error)
 	Delete(id ...string) error
 	DeleteAll() error
 	Reorder(pos int, newPos int) error
