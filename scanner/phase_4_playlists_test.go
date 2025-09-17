@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
@@ -37,7 +38,8 @@ var _ = Describe("phasePlaylists", func() {
 		ctx = request.WithUser(ctx, model.User{ID: "123", IsAdmin: true})
 		folderRepo = &mockFolderRepository{}
 		ds = &tests.MockDataStore{
-			MockedFolder: folderRepo,
+			MockedFolder:   folderRepo,
+			MockedPlaylist: &playlistRepoMock{},
 		}
 		pls = &mockPlaylists{}
 		cw = artwork.NoopCacheWarmer()
@@ -87,7 +89,7 @@ var _ = Describe("phasePlaylists", func() {
 	})
 
 	Describe("processPlaylistsInFolder", func() {
-		It("processes playlists in a folder", func() {
+		It("imports new or updated playlists", func() {
 			libPath := GinkgoT().TempDir()
 			folder := &model.Folder{LibraryPath: libPath, Path: "path/to", Name: "folder"}
 			_ = os.MkdirAll(folder.AbsolutePath(), 0755)
@@ -96,6 +98,20 @@ var _ = Describe("phasePlaylists", func() {
 			file2 := filepath.Join(folder.AbsolutePath(), "playlist2.m3u")
 			_ = os.WriteFile(file1, []byte{}, 0600)
 			_ = os.WriteFile(file2, []byte{}, 0600)
+
+			repo := ds.MockedPlaylist.(*playlistRepoMock)
+			repo.playlists = map[string]model.Playlist{
+				filepath.Clean(file1): {
+					ID:        "1",
+					Path:      file1,
+					Name:      "playlist1",
+					Sync:      true,
+					UpdatedAt: time.Now().Add(-time.Hour),
+				},
+			}
+			// Ensure file1 mod time is newer than stored UpdatedAt
+			future := time.Now()
+			Expect(os.Chtimes(file1, future, future)).To(Succeed())
 
 			pls.On("ImportFile", mock.Anything, folder, "playlist1.m3u").
 				Return(&model.Playlist{}, nil)
@@ -108,6 +124,55 @@ var _ = Describe("phasePlaylists", func() {
 			Expect(pls.Calls[0].Arguments[2]).To(Equal("playlist1.m3u"))
 			Expect(pls.Calls[1].Arguments[2]).To(Equal("playlist2.m3u"))
 			Expect(phase.refreshed.Load()).To(Equal(uint32(2)))
+		})
+
+		It("skips unchanged playlists", func() {
+			libPath := GinkgoT().TempDir()
+			folder := &model.Folder{LibraryPath: libPath, Path: "path/to", Name: "folder"}
+			_ = os.MkdirAll(folder.AbsolutePath(), 0755)
+
+			file1 := filepath.Join(folder.AbsolutePath(), "playlist1.m3u")
+			_ = os.WriteFile(file1, []byte{}, 0600)
+			info, err := os.Stat(file1)
+			Expect(err).ToNot(HaveOccurred())
+
+			repo := ds.MockedPlaylist.(*playlistRepoMock)
+			repo.playlists = map[string]model.Playlist{
+				filepath.Clean(file1): {
+					ID:        "1",
+					Path:      file1,
+					Name:      "playlist1",
+					Sync:      true,
+					UpdatedAt: info.ModTime(),
+				},
+			}
+
+			_, err = phase.processPlaylistsInFolder(folder)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pls.Calls).To(BeEmpty())
+			Expect(repo.deleted).To(BeEmpty())
+		})
+
+		It("removes playlists missing from the folder", func() {
+			libPath := GinkgoT().TempDir()
+			folder := &model.Folder{LibraryPath: libPath, Path: "path/to", Name: "folder"}
+			_ = os.MkdirAll(folder.AbsolutePath(), 0755)
+
+			repo := ds.MockedPlaylist.(*playlistRepoMock)
+			repo.playlists = map[string]model.Playlist{
+				filepath.Clean(filepath.Join(folder.AbsolutePath(), "playlist1.m3u")): {
+					ID:        "1",
+					Path:      filepath.Join(folder.AbsolutePath(), "playlist1.m3u"),
+					Name:      "playlist1",
+					Sync:      true,
+					UpdatedAt: time.Now(),
+				},
+			}
+
+			_, err := phase.processPlaylistsInFolder(folder)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repo.deleted).To(ContainElement("1"))
+			Expect(phase.scanState.changesDetected.Load()).To(BeTrue())
 		})
 
 		It("reports an error if there is an error reading files", func() {
@@ -136,6 +201,34 @@ type mockPlaylists struct {
 func (p *mockPlaylists) ImportFile(ctx context.Context, folder *model.Folder, filename string) (*model.Playlist, error) {
 	args := p.Called(ctx, folder, filename)
 	return args.Get(0).(*model.Playlist), args.Error(1)
+}
+
+type playlistRepoMock struct {
+	model.PlaylistRepository
+	playlists map[string]model.Playlist
+	deleted   []string
+}
+
+func (m *playlistRepoMock) GetSyncedByDirectory(dir string) (model.Playlists, error) {
+	cleanedDir := filepath.Clean(dir)
+	var res model.Playlists
+	for _, pls := range m.playlists {
+		if filepath.Clean(filepath.Dir(pls.Path)) == cleanedDir {
+			res = append(res, pls)
+		}
+	}
+	return res, nil
+}
+
+func (m *playlistRepoMock) Delete(id string) error {
+	m.deleted = append(m.deleted, id)
+	for path, pls := range m.playlists {
+		if pls.ID == id {
+			delete(m.playlists, path)
+			break
+		}
+	}
+	return nil
 }
 
 type mockFolderRepository struct {

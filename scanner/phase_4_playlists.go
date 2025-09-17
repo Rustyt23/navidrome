@@ -128,6 +128,20 @@ func (p *phasePlaylists) processPlaylistsInFolder(folder *model.Folder) (*model.
 		p.scanState.sendWarning(err.Error())
 		return folder, nil
 	}
+	playlistRepo := p.ds.Playlist(p.ctx)
+	existing, err := playlistRepo.GetSyncedByDirectory(folder.AbsolutePath())
+	if err != nil {
+		log.Error(p.ctx, "Scanner: Error loading playlists from DB", "folder", folder, err)
+		p.scanState.sendWarning(err.Error())
+		return folder, nil
+	}
+
+	existingByPath := make(map[string]model.Playlist, len(existing))
+	for _, pls := range existing {
+		existingByPath[filepath.Clean(pls.Path)] = pls
+	}
+
+	seen := make(map[string]struct{}, len(files))
 	for _, f := range files {
 		started := time.Now()
 		if strings.HasPrefix(f.Name(), ".") {
@@ -136,7 +150,19 @@ func (p *phasePlaylists) processPlaylistsInFolder(folder *model.Folder) (*model.
 		if !model.IsValidPlaylist(f.Name()) {
 			continue
 		}
-		// BFR: Check if playlist needs to be refreshed (timestamp, sync flag, etc)
+		absPath := filepath.Join(folder.AbsolutePath(), f.Name())
+		info, err := f.Info()
+		if err != nil {
+			log.Warn(p.ctx, "Scanner: Error getting playlist info", "folder", folder, "file", f.Name(), err)
+			continue
+		}
+		seen[filepath.Clean(absPath)] = struct{}{}
+		if existingPls, ok := existingByPath[filepath.Clean(absPath)]; ok {
+			if !info.ModTime().After(existingPls.UpdatedAt) {
+				log.Trace(p.ctx, "Scanner: Playlist unchanged, skipping", "name", existingPls.Name, "path", existingPls.Path)
+				continue
+			}
+		}
 		pls, err := p.pls.ImportFile(p.ctx, folder, f.Name())
 		if err != nil {
 			continue
@@ -148,6 +174,19 @@ func (p *phasePlaylists) processPlaylistsInFolder(folder *model.Folder) (*model.
 		}
 		p.cw.PreCache(pls.CoverArtID())
 		p.refreshed.Add(1)
+	}
+
+	for _, pls := range existingByPath {
+		if _, ok := seen[filepath.Clean(pls.Path)]; ok {
+			continue
+		}
+		if err := playlistRepo.Delete(pls.ID); err != nil {
+			log.Error(p.ctx, "Scanner: Error removing missing playlist", "playlist", pls.Name, "path", pls.Path, err)
+			p.scanState.sendWarning(err.Error())
+			continue
+		}
+		p.scanState.changesDetected.Store(true)
+		log.Info(p.ctx, "Scanner: Removed missing playlist", "playlist", pls.Name, "path", pls.Path)
 	}
 	return folder, nil
 }
