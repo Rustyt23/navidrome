@@ -64,6 +64,12 @@ const useStyles = makeStyles(
       justifyContent: 'flex-start',
     },
     row: {
+      cursor: 'pointer',
+      // ↓ shrink row height by reducing vertical padding on all table cells
+      '& td, & th, & .MuiTableCell-root': {
+        paddingTop: 1,
+        paddingBottom: 1,
+      },
       '&:hover': {
         '& $contextMenu': {
           visibility: 'visible',

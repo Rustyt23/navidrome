@@ -1,3 +1,4 @@
+// ui/src/playlist_folder/PlaylistFolderList.jsx
 import { useMemo, useState, useCallback, useEffect } from 'react'
 import {
   DateField,
@@ -14,6 +15,9 @@ import {
 import { useMediaQuery } from '@material-ui/core'
 import Switch from '@material-ui/core/Switch'
 
+// [ADDED] local styles to shrink the MUI Switch
+import { makeStyles } from '@material-ui/core/styles'
+
 import {
   List,
   Writable,
@@ -27,6 +31,21 @@ import TypeIconField from './TypeIconField'
 import TypeAwareEditButton from './TypeAwareEditButton'
 import PlaylistFolderBulkActions from './PlaylistFolderBulkActions'
 import { PlaylistFolderDataGrid } from './PlaylistFolderDataGrid'
+
+// [ADDED] compact switch styles (local to this file only)
+const useSmallSwitchStyles = makeStyles({
+  swRoot: {
+    transform: 'scale(0.78)',
+    transformOrigin: 'left center',
+    margin: 0,
+    padding: 0,
+  },
+  swBase: {
+    padding: 6, // tighter than default to avoid inflating row height
+  },
+  swThumb: {},
+  swTrack: {},
+})
 
 const PlaylistFolderFilter = (props) => {
   const { permissions } = usePermissions()
@@ -50,12 +69,13 @@ const PlaylistFolderFilter = (props) => {
 }
 
 const TogglePublicInput = ({ source }) => {
+  const s = useSmallSwitchStyles() // [ADDED] use compact styles
+
   const record = useRecordContext()
   const notify = useNotify()
   const [update, { isLoading }] = useUpdate()
 
   const serverValue = Boolean(record?.[source])
-
   const [checked, setChecked] = useState(serverValue)
 
   useEffect(() => {
@@ -87,6 +107,7 @@ const TogglePublicInput = ({ source }) => {
 
   return (
     <Switch
+      classes={{ root: s.swRoot, switchBase: s.swBase, thumb: s.swThumb, track: s.swTrack }} // [ADDED]
       checked={checked}
       onChange={handleChange}
       onClick={(e) => e.stopPropagation()}
@@ -142,3 +163,4 @@ const PlaylistFolderList = (props) => {
 }
 
 export default PlaylistFolderList
+

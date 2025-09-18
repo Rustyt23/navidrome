@@ -1,3 +1,4 @@
+// ui/src/playlist_folder/PlaylistFolderShow.jsx
 import { useMemo, useState, useCallback, useEffect } from 'react'
 import {
   ShowBase,
@@ -15,6 +16,7 @@ import {
 } from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
 import Switch from '@material-ui/core/Switch'
+import { makeStyles } from '@material-ui/core/styles'
 
 import {
   Writable,
@@ -29,6 +31,43 @@ import TypeIconField from './TypeIconField'
 import TypeAwareEditButton from './TypeAwareEditButton'
 import PlaylistFolderBulkActions from './PlaylistFolderBulkActions'
 import { PlaylistFolderDataGrid } from './PlaylistFolderDataGrid'
+
+/* ========= Compact, smooth Switch (keeps native look/colors) ========= */
+const useCompactSwitchStyles = makeStyles((theme) => ({
+  // Track area
+  swRoot: {
+    width: 32,         // default ~34
+    height: 18,        // default ~20
+    padding: 0,
+    margin: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  // The draggable base (controls thumb transform)
+  swBase: {
+    padding: 2,        // ensures 14px thumb fits: 2 + 14 + 2 = 18
+    transition: theme.transitions.create(['transform'], { duration: 120 }),
+    '&$swChecked': {
+      // travel = track(32) - thumb(14) - 2*padding(2+2) = 14
+      transform: 'translateX(14px)',
+    },
+  },
+  // Thumb (circle)
+  swThumb: {
+    width: 14,
+    height: 14,
+    boxShadow: 'none',
+  },
+  // Track (pill) — let theme handle colors, just smooth transition
+  swTrack: {
+    borderRadius: 9,
+    opacity: 1,
+    transition: theme.transitions.create(['background-color', 'border'], { duration: 120 }),
+  },
+  swChecked: {},       // required so &$swChecked selectors work
+  swFocusVisible: {},  // optional hook if you want focus styles later
+}))
+/* ==================================================================== */
 
 const PlaylistFolderFilter = (props) => {
   const { permissions } = usePermissions()
@@ -52,12 +91,12 @@ const PlaylistFolderFilter = (props) => {
 }
 
 const TogglePublicInput = ({ source }) => {
+  const s = useCompactSwitchStyles()
   const record = useRecordContext()
   const notify = useNotify()
   const [update, { isLoading }] = useUpdate()
 
   const serverValue = Boolean(record?.[source])
-
   const [checked, setChecked] = useState(serverValue)
 
   useEffect(() => {
@@ -88,11 +127,19 @@ const TogglePublicInput = ({ source }) => {
 
   return (
     <Switch
+      disableRipple
+      classes={{
+        root: s.swRoot,
+        switchBase: s.swBase,
+        thumb: s.swThumb,
+        track: s.swTrack,
+        checked: s.swChecked,
+      }}
       checked={checked}
       onChange={handleChange}
       onClick={(e) => e.stopPropagation()}
       disabled={isLoading || !isWritable(record?.ownerId)}
-      color="primary"
+      color="primary" // keep native theme palette
       inputProps={{ 'aria-label': 'toggle-public' }}
     />
   )
@@ -156,3 +203,4 @@ const PlaylistFolderShow = (props) => (
 )
 
 export default PlaylistFolderShow
+
