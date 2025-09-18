@@ -29,6 +29,7 @@ type Playlists interface {
 	Update(ctx context.Context, playlistID string, name *string, comment *string, public *bool, idsToAdd []string, idxToRemove []int) error
 	SetFolder(ctx context.Context, playlistID string, folderID *string) error
 	ImportM3U(ctx context.Context, reader io.Reader) (*model.Playlist, error)
+	Publish(ctx context.Context, playlistID string) error
 }
 
 type playlists struct {
@@ -472,7 +473,7 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 					return err
 				}
 			}
-			if err := s.writePlaylistFile(pls.Path, pls); err != nil {
+			if err := s.writePlaylistFile(pls.Path, pls, false); err != nil {
 				return err
 			}
 		}
@@ -517,7 +518,7 @@ func (s *playlists) SetFolder(ctx context.Context, playlistID string, folderID *
 			if !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			if writeErr := s.writePlaylistFile(newPath, pls); writeErr != nil {
+			if writeErr := s.writePlaylistFile(newPath, pls, false); writeErr != nil {
 				return writeErr
 			}
 		}
@@ -525,9 +526,58 @@ func (s *playlists) SetFolder(ctx context.Context, playlistID string, folderID *
 	})
 }
 
-func (s *playlists) writePlaylistFile(path string, pls *model.Playlist) error {
+func (s *playlists) writePlaylistFile(path string, pls *model.Playlist, mirrorToSync bool) error {
 	data := []byte(pls.ToM3U8())
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	if !mirrorToSync || conf.Server.SyncFolder == "" {
+		return nil
+	}
+
+	rel := filepath.Base(path)
+	if conf.Server.PlaylistsPath != "" {
+		paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
+		for _, root := range paths {
+			root = strings.TrimSuffix(root, "**")
+			root = strings.TrimSuffix(root, string(os.PathSeparator))
+			if absRoot, err := filepath.Abs(root); err == nil {
+				root = absRoot
+			}
+			if r, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(r, "..") {
+				rel = r
+				break
+			}
+		}
+	}
+	syncPath := filepath.Join(conf.Server.SyncFolder, rel)
+	if err := os.MkdirAll(filepath.Dir(syncPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(syncPath, data, 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *playlists) Publish(ctx context.Context, playlistID string) error {
+	return s.ds.WithTxImmediate(func(tx model.DataStore) error {
+		repo := tx.Playlist(ctx)
+		pls, err := repo.GetWithTracks(playlistID, true, false)
+		if err != nil {
+			return err
+		}
+		if !pls.Sync {
+			return fmt.Errorf("playlist is not synced")
+		}
+		if pls.Path == "" {
+			return fmt.Errorf("playlist path is empty")
+		}
+		if err := os.MkdirAll(filepath.Dir(pls.Path), 0o755); err != nil {
+			return err
+		}
+		return s.writePlaylistFile(pls.Path, pls, true)
+	})
 }
 
 func (s *playlists) buildPlaylistPath(ctx context.Context, ds model.DataStore, folderID *string, name, ext string) (string, error) {

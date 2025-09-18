@@ -15,6 +15,7 @@ import CloudDownloadOutlinedIcon from '@material-ui/icons/CloudDownloadOutlined'
 import { RiPlayListAddFill, RiPlayList2Fill } from 'react-icons/ri'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import ShareIcon from '@material-ui/icons/Share'
+import PublishIcon from '@material-ui/icons/Publish'
 import { httpClient } from '../dataProvider'
 import {
   playNext,
@@ -111,6 +112,21 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
     [record],
   )
 
+  const handlePublish = React.useCallback(
+    () =>
+      httpClient(`${REST_URL}/playlist/${record.id}/publish`, {
+        method: 'POST',
+      })
+        .then(() =>
+          notify('resources.playlist.notifications.published', 'info', {
+            smart_count: record.songCount,
+            name: record.name,
+          }),
+        )
+        .catch(() => notify('ra.page.error', 'warning')),
+    [record, notify],
+  )
+
   return (
     <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
       <div className={classes.toolbar}>
@@ -160,6 +176,12 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
             label={translate('resources.playlist.actions.export')}
           >
             <QueueMusicIcon />
+          </Button>
+          <Button
+            onClick={handlePublish}
+            label={translate('resources.playlist.actions.publish')}
+          >
+            <PublishIcon />
           </Button>
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="playlistTrack" />}</div>

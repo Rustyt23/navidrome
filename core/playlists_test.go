@@ -106,6 +106,51 @@ var _ = Describe("Playlists", func() {
 				Expect(pls.Tracks).To(HaveLen(1))
 				Expect(pls.Tracks[0].Path).To(Equal("Discovery-Specialty/Specialty/Asian/Jun Hyung Yong, 10cm - Sudden Shower.mp3"))
 			})
+
+			Describe("writePlaylistFile", func() {
+				It("writes file to sync folder when configured", func() {
+					DeferCleanup(configtest.SetupConfig())
+					playlistsDir := GinkgoT().TempDir()
+					syncDir := GinkgoT().TempDir()
+					conf.Server.PlaylistsPath = playlistsDir
+					conf.Server.SyncFolder = syncDir
+					ps := &playlists{}
+					pls := &model.Playlist{Name: "test", Path: filepath.Join(playlistsDir, "test.m3u")}
+					Expect(ps.writePlaylistFile(pls.Path, pls, true)).To(Succeed())
+					Expect(filepath.Join(syncDir, "test.m3u")).To(BeAnExistingFile())
+				})
+			})
+
+			Describe("Publish", func() {
+				It("copies playlist to sync folder only when publishing", func() {
+					DeferCleanup(configtest.SetupConfig())
+
+					playlistsDir := GinkgoT().TempDir()
+					syncDir := GinkgoT().TempDir()
+					conf.Server.PlaylistsPath = playlistsDir
+					conf.Server.SyncFolder = syncDir
+					ps = NewPlaylists(ds)
+
+					pls := &model.Playlist{
+						ID:      "1",
+						Name:    "test",
+						Path:    filepath.Join(playlistsDir, "test.m3u"),
+						OwnerID: "123",
+						Sync:    true,
+						Tracks: model.PlaylistTracks{{
+							MediaFile: model.MediaFile{Path: "song.mp3"},
+						}},
+					}
+					mockPlsRepo.stored = map[string]*model.Playlist{"1": pls}
+
+					comment := "updated"
+					Expect(ps.Update(ctx, "1", nil, &comment, nil, nil, nil)).To(Succeed())
+					Expect(filepath.Join(syncDir, "test.m3u")).ToNot(BeAnExistingFile())
+
+					Expect(ps.Publish(ctx, "1")).To(Succeed())
+					Expect(filepath.Join(syncDir, "test.m3u")).To(BeAnExistingFile())
+				})
+			})
 		})
 
 		Describe("NSP", func() {
@@ -372,15 +417,38 @@ func (r *mockedMediaFileFromListRepo) FindByPaths([]string) (model.MediaFiles, e
 }
 
 type mockedPlaylistRepo struct {
-	last *model.Playlist
+	last   *model.Playlist
+	stored map[string]*model.Playlist
 	model.PlaylistRepository
+}
+
+func (r *mockedPlaylistRepo) ensureStore() {
+	if r.stored == nil {
+		r.stored = map[string]*model.Playlist{}
+	}
 }
 
 func (r *mockedPlaylistRepo) FindByPath(string) (*model.Playlist, error) {
 	return nil, model.ErrNotFound
 }
 
+func (r *mockedPlaylistRepo) Get(id string) (*model.Playlist, error) {
+	r.ensureStore()
+	if pls, ok := r.stored[id]; ok {
+		return pls, nil
+	}
+	return nil, model.ErrNotFound
+}
+
+func (r *mockedPlaylistRepo) GetWithTracks(id string, _, _ bool) (*model.Playlist, error) {
+	return r.Get(id)
+}
+
 func (r *mockedPlaylistRepo) Put(pls *model.Playlist) error {
+	r.ensureStore()
+	if pls.ID != "" {
+		r.stored[pls.ID] = pls
+	}
 	r.last = pls
 	return nil
 }

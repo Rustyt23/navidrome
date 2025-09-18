@@ -138,6 +138,11 @@ func (p *mockPlaylists) ImportFile(ctx context.Context, folder *model.Folder, fi
 	return args.Get(0).(*model.Playlist), args.Error(1)
 }
 
+func (p *mockPlaylists) Publish(ctx context.Context, playlistID string) error {
+	args := p.Called(ctx, playlistID)
+	return args.Error(0)
+}
+
 type mockFolderRepository struct {
 	model.FolderRepository
 	data map[*model.Folder]error

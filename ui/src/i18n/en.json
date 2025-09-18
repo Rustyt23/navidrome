@@ -213,12 +213,16 @@
         "selectPlaylist": "Select a playlist:",
         "addNewPlaylist": "Create \"%{name}\"",
         "export": "Export",
+        "publish": "Publish",
         "saveQueue": "Save Queue to Playlist",
         "makePublic": "Make Public",
         "makePrivate": "Make Private",
         "searchOrCreate": "Search playlists or type to create new...",
         "pressEnterToCreate": "Press Enter to create new playlist",
         "removeFromSelection": "Remove from selection"
+      },
+      "notifications": {
+        "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
       },
       "message": {
         "duplicate_song": "Add duplicated songs",
