@@ -70,6 +70,11 @@ func ListFoldersAndPlaylists(ds model.DataStore) http.HandlerFunc {
 	}
 }
 
+const (
+	defaultFoldersPageSize = 100
+	maxFoldersPageSize     = 2000
+)
+
 func MoveFolder(ds model.DataStore) http.HandlerFunc {
 	type reqBody struct {
 		ParentID *string `json:"parentId"`
@@ -153,7 +158,7 @@ func parseQueryOptions(r *http.Request) DualQueryOptions {
 	q := r.URL.Query()
 
 	base := model.QueryOptions{Order: "ASC", Filters: And{}}
-	out := DualQueryOptions{Offset: 0, Max: 100}
+	out := DualQueryOptions{Offset: 0, Max: defaultFoldersPageSize}
 
 	if sortField := q.Get("_sort"); sortField != "" {
 		base.Sort = sortField
@@ -162,10 +167,27 @@ func parseQueryOptions(r *http.Request) DualQueryOptions {
 		base.Order = strings.ToUpper(order)
 	}
 	if start, err := strconv.Atoi(q.Get("_start")); err == nil {
+		if start < 0 {
+			start = 0
+		}
 		out.Offset = start
 	}
 	if end, err := strconv.Atoi(q.Get("_end")); err == nil && end > out.Offset {
-		out.Max = end - out.Offset
+		requested := end - out.Offset
+		if requested < 1 {
+			requested = 1
+		}
+		if requested > maxFoldersPageSize {
+			requested = maxFoldersPageSize
+		}
+		out.Max = requested
+	}
+
+	if out.Max < 1 {
+		out.Max = 1
+	}
+	if out.Max > maxFoldersPageSize {
+		out.Max = maxFoldersPageSize
 	}
 
 	folderOpts, playlistOpts := base, base

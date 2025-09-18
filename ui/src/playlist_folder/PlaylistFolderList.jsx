@@ -16,6 +16,7 @@ import Switch from '@material-ui/core/Switch'
 
 import {
   List,
+  Pagination,
   Writable,
   isWritable,
   useSelectedFields,
@@ -127,7 +128,8 @@ const PlaylistFolderList = (props) => {
       actions={<PlaylistListActions />}
       bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
       empty={<EmptyPlaylist />}
-      perPage={isXsmall ? 50 : 25}
+      pagination={<Pagination rowsPerPageOptions={[25, 50, 100, 200]} />}
+      perPage={50}
     >
       <PlaylistFolderDataGrid rowClick={rowClick}>
         <TypeIconField label={false} />
