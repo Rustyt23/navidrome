@@ -4,7 +4,7 @@ import {
   Datagrid,
   PureDatagridBody,
   PureDatagridRow,
-  useTranslate,
+  useListContext,
 } from 'react-admin'
 import {
   TableCell,
@@ -15,6 +15,7 @@ import {
 import PropTypes from 'prop-types'
 import { makeStyles } from '@material-ui/core/styles'
 import AlbumIcon from '@material-ui/icons/Album'
+import DragIndicatorIcon from '@material-ui/icons/DragIndicator'
 import clsx from 'clsx'
 import { useDrag } from 'react-dnd'
 import { playTracks } from '../actions'
@@ -120,6 +121,8 @@ export const SongDatagridRow = ({
     isValidElement(c),
   )
 
+  const { selectedIds } = useListContext()
+
   const [, dragDiscRef] = useDrag(
     () => ({
       type: DraggableTypes.DISC,
@@ -136,13 +139,29 @@ export const SongDatagridRow = ({
     [record],
   )
 
+  const getDraggedIds = useCallback(() => {
+    const id = record?.mediaFileId || record?.id
+    return selectedIds.includes(id) ? selectedIds : [id]
+  }, [record, selectedIds])
+
   const [, dragSongRef] = useDrag(
     () => ({
       type: DraggableTypes.SONG,
-      item: { ids: [record?.mediaFileId || record?.id] },
+      item: () => ({ ids: getDraggedIds() }),
       options: { dropEffect: 'copy' },
     }),
-    [record],
+    [getDraggedIds],
+  )
+
+  const handleDragStart = useCallback(
+    (e) => {
+      const ids = getDraggedIds()
+      console.log('selected IDs', ids)
+      e.dataTransfer.setData('text/plain', 'drag')
+      e.dataTransfer.setData('application/x-tracks', JSON.stringify(ids))
+      console.log('drag payload length', ids.length)
+    },
+    [getDraggedIds],
   )
 
   if (!record || !record.title) {
@@ -156,7 +175,19 @@ export const SongDatagridRow = ({
     classes.row,
     record.missing && classes.missingRow,
   )
-  const childCount = fields.length
+  const dragHandle = (
+    <TableCell key="drag-handle" onMouseDown={(e) => e.stopPropagation()}>
+      <DragIndicatorIcon
+        ref={dragSongRef}
+        draggable={true}
+        onDragStart={handleDragStart}
+      />
+    </TableCell>
+  )
+
+  const cells = [dragHandle, ...fields]
+
+  const childCount = cells.length
   return (
     <>
       {firstTracksOfDiscs.has(record.id) && (
@@ -169,13 +200,12 @@ export const SongDatagridRow = ({
         />
       )}
       <PureDatagridRow
-        ref={dragSongRef}
         record={record}
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
       >
-        {fields}
+        {cells}
       </PureDatagridRow>
     </>
   )

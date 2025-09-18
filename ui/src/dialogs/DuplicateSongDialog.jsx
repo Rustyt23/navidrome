@@ -14,6 +14,8 @@ const DuplicateSongDialog = ({
   handleClickClose,
   handleSubmit,
   handleSkip,
+  duplicateCount = 0,
+  totalCount = 0,
 }) => {
   const translate = useTranslate()
 
@@ -28,6 +30,7 @@ const DuplicateSongDialog = ({
       </DialogTitle>
       <DialogContent>
         {translate('resources.playlist.message.song_exist')}
+        <div>{`${duplicateCount} / ${totalCount}`}</div>
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClickClose} color="primary">

@@ -23,6 +23,7 @@ import { SelectPlaylistInput } from './SelectPlaylistInput'
 import DuplicateSongDialog from './DuplicateSongDialog'
 import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
+import { addTracksToPlaylist } from '../common'
 
 const useStyles = makeStyles({
   dialogPaper: {
@@ -62,13 +63,9 @@ export const AddToPlaylistDialog = () => {
   const addToPlaylist = (playlistId, distinctIds) => {
     const trackIds = Array.isArray(distinctIds) ? distinctIds : selectedIds
     if (trackIds.length) {
-      dataProvider
-        .create('playlistTrack', {
-          data: { ids: trackIds },
-          filter: { playlist_id: playlistId },
-        })
-        .then(() => {
-          const len = trackIds.length
+      addTracksToPlaylist(playlistId, trackIds, 'allow')
+        .then((res) => {
+          const len = res?.added ?? trackIds.length
           notify('message.songsAddedToPlaylist', {
             messageArgs: { smart_count: len },
           })
