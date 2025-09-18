@@ -93,6 +93,7 @@ const TogglePublicInput = ({ source }) => {
       onClick={(e) => e.stopPropagation()}
       disabled={isLoading || !isWritable(record?.ownerId)}
       color="primary"
+      size="small"
       inputProps={{ 'aria-label': 'toggle-public' }}
     />
   )
