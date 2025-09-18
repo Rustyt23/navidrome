@@ -17,6 +17,7 @@ import {
   DateField,
   DurationField,
   List,
+  Pagination,
   SongContextMenu,
   SongDatagrid,
   SongInfo,
@@ -244,7 +245,8 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 15}
+        perPage={50}
+        pagination={<Pagination rowsPerPageOptions={[15, 25, 50, 100, 200]} />}
       >
         {isXsmall ? (
           <SongSimpleList />
