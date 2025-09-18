@@ -44,6 +44,11 @@ const useCurrentTheme = () => {
     }
   }, [theme])
 
+  useEffect(() => {
+    const id = theme.themeId || theme.themeName?.toLowerCase()
+    document.documentElement.setAttribute('data-theme', id)
+  }, [theme])
+
   return theme
 }
 

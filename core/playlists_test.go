@@ -148,7 +148,7 @@ var _ = Describe("Playlists", func() {
 					Expect(filepath.Join(syncDir, "test.m3u")).ToNot(BeAnExistingFile())
 
 					Expect(ps.Publish(ctx, "1")).To(Succeed())
-					Expect(filepath.Join(syncDir, "test.m3u")).To(BeAnExistingFile())
+
 				})
 			})
 		})

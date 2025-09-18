@@ -31,3 +31,7 @@ func (m *MockPlaylistRepo) Count(_ ...rest.QueryOptions) (int64, error) {
 	}
 	return 1, nil
 }
+
+func (m *MockPlaylistRepo) GetSyncedByDirectory(string) (model.Playlists, error) {
+	return nil, nil
+}

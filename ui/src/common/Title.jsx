@@ -6,9 +6,10 @@ export const Title = ({ subTitle, args }) => {
   const translate = useTranslate()
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const text = translate(subTitle, { ...args, _: subTitle })
+  const brand = <span className="brand-title">MusicMatters</span>
 
   if (isDesktop) {
-    return <span>MusicMatters {text ? ` - ${text}` : ''}</span>
+    return <span className="title-line">{brand}{text ? ` - ${text}` : ''}</span>
   }
-  return <span>{text ? text : 'MusicMatters'}</span>
+  return <span className="title-line">{text ? text : brand}</span>
 }

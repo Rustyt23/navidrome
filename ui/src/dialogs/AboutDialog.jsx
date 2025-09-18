@@ -69,13 +69,13 @@ const useStyles = makeStyles((theme) => ({
 }))
 
 const links = {
-  homepage: 'navidrome.org',
-  reddit: 'reddit.com/r/Navidrome',
-  twitter: 'twitter.com/navidrome',
+  homepage: 'musicmatters.org',
+  reddit: 'reddit.com/r/MusicMatters',
+  twitter: 'twitter.com/MusicMatters',
   discord: 'discord.gg/xh7j7yF',
-  source: 'github.com/navidrome/navidrome',
-  bugReports: 'github.com/navidrome/navidrome/issues/new/choose',
-  featureRequests: 'github.com/navidrome/navidrome/discussions/new',
+  source: 'github.com/MusicMatters/MusicMatters',
+  bugReports: 'github.com/MusicMatters/MusicMatters/issues/new/choose',
+  featureRequests: 'github.com/MusicMatters/MusicMatters/discussions/new',
 }
 
 const LinkToVersion = ({ version }) => {
@@ -87,10 +87,10 @@ const LinkToVersion = ({ version }) => {
   const commitID = parts[1].replace(/[()]/g, '')
   const isSnapshot = version.includes('SNAPSHOT')
   const url = isSnapshot
-    ? `https://github.com/navidrome/navidrome/compare/v${
+    ? `https://github.com/MusicMatters/MusicMatters/compare/v${
         parts[0].split('-')[0]
       }...${commitID}`
-    : `https://github.com/navidrome/navidrome/releases/tag/v${parts[0]}`
+    : `https://github.com/MusicMatters/MusicMatters/releases/tag/v${parts[0]}`
   return (
     <>
       <Link href={url} target="_blank" rel="noopener noreferrer">
@@ -444,7 +444,7 @@ const AboutDialog = ({ open, onClose }) => {
       className={classes.expandableDialog}
     >
       <DialogTitle id="about-dialog-title" onClose={onClose}>
-        Navidrome Music Server
+        MusicMatters Music Server
       </DialogTitle>
       <DialogContent dividers>
         <TabContent

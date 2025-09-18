@@ -5,12 +5,13 @@ import GreenTheme from './green'
 import SpotifyTheme from './spotify'
 import LigeraTheme from './ligera'
 import MonokaiTheme from './monokai'
-import MusicMattersTheme from './jared'
+import MusicMattersTheme from './musicMatters'
 import ElectricPurpleTheme from './electricPurple'
 import NordTheme from './nord'
 import GruvboxDarkTheme from './gruvboxDark'
 import CatppuccinMacchiatoTheme from './catppuccinMacchiato'
 import NuclearTheme from './nuclear'
+import ItachiTheme from './itachi'
 
 export default {
   // Classic default themes
@@ -23,10 +24,11 @@ export default {
   ExtraDarkTheme,
   GreenTheme,
   GruvboxDarkTheme,
+  ItachiTheme,
   LigeraTheme,
   MonokaiTheme,
+  MusicMattersTheme,
   NordTheme,
   NuclearTheme,
   SpotifyTheme,
-  MusicMattersTheme,
 }
