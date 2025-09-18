@@ -1,3 +1,4 @@
+// ui/src/playlist_folder/PlaylistFolderDataGrid.jsx
 import React, { isValidElement, useCallback, useEffect, useRef } from 'react'
 import {
   Datagrid,
@@ -16,15 +17,17 @@ import useDragAndDrop from '../common/useDragAndDrop'
 import { matchPath } from 'react-router'
 
 const useStyles = makeStyles({
+  // [CHANGED] Increase specificity (double & ‘&&’) and use px (with !important as last resort)
   row: {
     cursor: 'pointer',
-    // ↓ shrink row height by reducing vertical padding on all table cells
-    '& td, & th, & .MuiTableCell-root': {
-      paddingTop: 1,
-      paddingBottom: 1,
+    // shrink vertical padding on all cells within the data rows
+    '&& td, && th, && .MuiTableCell-root': {
+      paddingTop: '1px !important',     // ← enforce 1px
+      paddingBottom: '1px !important',  // ← enforce 1px
     },
     '&:hover': { backgroundColor: '#f5f5f5' },
   },
+  // [UNCHANGED] cell class if any column explicitly uses rowCell
   rowCell: {
     paddingTop: 1,
     paddingBottom: 1,
@@ -35,6 +38,7 @@ const useStyles = makeStyles({
   },
   headerStyle: {
     '& thead': { boxShadow: '0px 3px 3px rgba(0,0,0,.15)' },
+    // NOTE: Header padding is kept bigger on purpose; remove or shrink if you want tighter headers too
     '& th': { fontWeight: 'bold', padding: '15px' },
   },
 })
@@ -109,9 +113,10 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
     handleDrop
   )
 
+  // [CHANGED] Ensure our compact row class actually lands on the <tr>
   const computedClasses = clsx(
     className,
-    classes.row,
+    classes.row,                    // ← attach compact row class
     record.missing && classes.missingRow
   )
 
@@ -128,7 +133,7 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
       ref={dragDropRef}
       record={record}
       {...rest}
-      className={computedClasses}
+      className={computedClasses}     // ← our row class applied to the actual <tr>
       onClick={handleRowClick}
       style={{ opacity: isDragging ? 0.5 : 1 }}
     >
@@ -150,17 +155,21 @@ const PlaylistFolderBody = (props) => (
 
 export const PlaylistFolderDataGrid = ({ classes: classesProp, ...props }) => {
   const classes = useStyles()
+
+  // [CHANGED] Also pass row class via Datagrid.classes in case RA falls back to default row
   const datagridClasses = {
     ...classesProp,
+    row: clsx(classes.row, classesProp?.row),         // ← ensure row class reaches RA’s default row as well
     rowCell: clsx(classes.rowCell, classesProp?.rowCell),
   }
+
   return (
     <Datagrid
       className={classes.headerStyle}
       isRowSelectable={(r) => !r?.missing}
-      classes={datagridClasses}
+      classes={datagridClasses}       // ← row + rowCell styles applied here
+      body={<PlaylistFolderBody />}   // custom body/row still carry the className from above component
       {...props}
-      body={<PlaylistFolderBody />}
     />
   )
 }
@@ -169,3 +178,4 @@ PlaylistFolderDataGrid.propTypes = {
   children: PropTypes.node,
   classes: PropTypes.object,
 }
+
