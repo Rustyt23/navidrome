@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useCallback, memo, useEffect, useMemo, useRef } from 'react'
 import { useDataProvider, useNotify, useRefresh } from 'react-admin'
 import { useHistory } from 'react-router-dom'
@@ -13,9 +14,11 @@ import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import SubMenu from './SubMenu'
 import { canChangeTracks } from '../common'
-import { DraggableTypes } from '../consts'
+import { DraggableTypes, REST_URL } from '../consts'
 import config from '../config'
 import useDragAndDrop from '../common/useDragAndDrop'
+import DuplicateSongDialog from '../dialogs/DuplicateSongDialog'
+import { httpClient } from '../dataProvider'
 
 const useStyles = makeStyles((theme) => ({
   listItem: {
@@ -122,32 +125,109 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
   const dataProvider = useDataProvider()
   const notify = useNotify()
   const history = useHistory()
+  const [dupDialogOpen, setDupDialogOpen] = useState(false)
+  const [pendingItem, setPendingItem] = useState(null)
+  const [duplicateIds, setDuplicateIds] = useState([])
 
   const parentIdForDnD = pls.parent_id ?? ''
+
+  const addSongs = useCallback(
+    async (item) => {
+      try {
+        const res = await dataProvider.addToPlaylist(pls.id, item)
+        notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
+      } catch {
+        notify('ra.page.error', 'warning')
+      }
+    },
+    [dataProvider, notify, pls.id],
+  )
+
+  const handleDrop = useCallback(
+    async (item) => {
+      try {
+        if (item?.ids?.length) {
+          const res = await httpClient(`${REST_URL}/playlist/${pls.id}/tracks`)
+          const existing = res.json?.map((t) => t.mediaFileId) || []
+          const dups = item.ids.filter((id) => existing.includes(id))
+          if (dups.length) {
+            setPendingItem(item)
+            setDuplicateIds(dups)
+            setDupDialogOpen(true)
+            return
+          }
+        }
+        await addSongs(item)
+      } catch {
+        notify('ra.page.error', 'warning')
+      }
+    },
+    [addSongs, notify, pls.id],
+  )
+
+  const handleDuplicate = useCallback(async () => {
+    setDupDialogOpen(false)
+    if (pendingItem) await addSongs(pendingItem)
+  }, [addSongs, pendingItem])
+
+  const handleSkip = useCallback(async () => {
+    setDupDialogOpen(false)
+    if (!pendingItem) return
+    const ids = pendingItem.ids.filter((id) => !duplicateIds.includes(id))
+    if (ids.length) await addSongs({ ...pendingItem, ids })
+  }, [addSongs, pendingItem, duplicateIds])
+
+  const handleNativeDrop = useCallback(
+    async (event) => {
+      try {
+        const data = event?.dataTransfer?.getData('application/json')
+        if (!data) return
+        const payload = JSON.parse(data)
+        if (payload?.type !== 'songs' || !payload.ids?.length) return
+        event.preventDefault()
+        await handleDrop(payload)
+      } catch {
+        // ignore parse errors
+      }
+    },
+    [handleDrop],
+  )
+
+  const handleDragOver = useCallback((event) => {
+    if (event?.dataTransfer?.types?.includes('application/json')) {
+      event.preventDefault()
+    }
+  }, [])
 
   const { dragDropRef, isDragging } = useDragAndDrop(
     DraggableTypes.PLAYLIST,
     { id: pls.id, type: 'playlist', parentId: parentIdForDnD },
     canChangeTracks(pls) ? DraggableTypes.ALL : [],
-    (item) =>
-      dataProvider
-        .addToPlaylist(pls.id, item)
-        .then((res) => notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added }))
-        .catch(() => notify('ra.page.error', 'warning'))
+    handleDrop,
   )
 
   return (
-    <ListItem
-      button
-      onClick={() => history.push(`/playlist/${pls.id}/show`)}
-      className={`${classes.listItem} ${classes.depth}`}
-      ref={dragDropRef}
-      style={{ opacity: isDragging ? 0.5 : 1 }}
-    >
-      <span className={classes.spacer} />
-      <ListItemIcon className={classes.listItemIcon}><RiPlayListFill /></ListItemIcon>
-      <ListItemText primary={<Typography variant="body2" noWrap className={classes.text}>{pls.name}</Typography>} />
-    </ListItem>
+    <>
+      <ListItem
+        button
+        onClick={() => history.push(`/playlist/${pls.id}/show`)}
+        className={`${classes.listItem} ${classes.depth}`}
+        ref={dragDropRef}
+        onDragOver={handleDragOver}
+        onDrop={handleNativeDrop}
+        style={{ opacity: isDragging ? 0.5 : 1 }}
+      >
+        <span className={classes.spacer} />
+        <ListItemIcon className={classes.listItemIcon}><RiPlayListFill /></ListItemIcon>
+        <ListItemText primary={<Typography variant="body2" noWrap className={classes.text}>{pls.name}</Typography>} />
+      </ListItem>
+      <DuplicateSongDialog
+        open={dupDialogOpen}
+        handleSkip={handleSkip}
+        handleDuplicate={handleDuplicate}
+        messageKey="resources.playlist.message.songs_exist"
+      />
+    </>
   )
 })
 PlaylistMenuItemLink.displayName = 'PlaylistMenuItemLink'

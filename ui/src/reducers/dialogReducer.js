@@ -53,6 +53,7 @@ export const addToPlaylistDialogReducer = (
   previousState = {
     open: false,
     duplicateSong: false,
+    duplicateIds: [],
   },
   payload,
 ) => {

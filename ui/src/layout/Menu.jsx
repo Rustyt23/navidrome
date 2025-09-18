@@ -127,7 +127,10 @@ const Menu = ({ dense = false }) => {
           renderAlbumMenuItemLink(type, albumLists[type]),
         )}
       </SubMenu>
-      {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
+      {resources
+        .filter(subItems(undefined))
+        .filter((resource) => !['radio', 'share'].includes(resource.name))
+        .map(renderResourceMenuItemLink)}
       {config.devSidebarPlaylists && open ? (
         <>
           <Divider />

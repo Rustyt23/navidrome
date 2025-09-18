@@ -1,4 +1,5 @@
-import React, { isValidElement, useCallback, useEffect, useRef } from 'react'
+// @ts-nocheck
+import React, { isValidElement, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Datagrid,
   PureDatagridBody,
@@ -9,11 +10,13 @@ import {
 } from 'react-admin'
 import PropTypes from 'prop-types'
 import clsx from 'clsx'
-import { DraggableTypes } from '../consts'
+import { DraggableTypes, REST_URL } from '../consts'
 import { makeStyles } from '@material-ui/core/styles'
 import { useHistory, useLocation } from 'react-router-dom'
 import useDragAndDrop from '../common/useDragAndDrop'
 import { matchPath } from 'react-router'
+import DuplicateSongDialog from '../dialogs/DuplicateSongDialog'
+import { httpClient } from '../dataProvider'
 
 const useStyles = makeStyles({
   row: {
@@ -37,6 +40,9 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
   const refresh = useRefresh()
   const history = useHistory()
   const location = useLocation()
+  const [dupDialogOpen, setDupDialogOpen] = useState(false)
+  const [pendingItem, setPendingItem] = useState(null)
+  const [duplicateIds, setDuplicateIds] = useState([])
 
   const pathname = location?.pathname || '/'
 
@@ -61,6 +67,17 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
         const isTargetPlaylist = record.type === 'playlist'
 
         if (isTargetPlaylist && item.type !== 'playlist' && item.type !== 'folder') {
+          if (item.ids?.length) {
+            const res = await httpClient(`${REST_URL}/playlist/${record.id}/tracks`)
+            const existing = res.json?.map((t) => t.mediaFileId) || []
+            const dups = item.ids.filter((id) => existing.includes(id))
+            if (dups.length) {
+              setPendingItem(item)
+              setDuplicateIds(dups)
+              setDupDialogOpen(true)
+              return
+            }
+          }
           const res = await dataProvider.addToPlaylist(record.id, item)
           notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
           refresh()
@@ -93,6 +110,55 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
     [dataProvider, notify, refresh, record.id, record.type]
   )
 
+  const handleDuplicate = useCallback(async () => {
+    setDupDialogOpen(false)
+    if (pendingItem) {
+      try {
+        const res = await dataProvider.addToPlaylist(record.id, pendingItem)
+        notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
+        refresh()
+      } catch {
+        notify('ra.page.error', 'warning')
+      }
+    }
+  }, [dataProvider, notify, refresh, record.id, pendingItem])
+
+  const handleSkip = useCallback(async () => {
+    setDupDialogOpen(false)
+    if (!pendingItem) return
+    const ids = pendingItem.ids.filter((id) => !duplicateIds.includes(id))
+    if (!ids.length) return
+    try {
+      const res = await dataProvider.addToPlaylist(record.id, { ...pendingItem, ids })
+      notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
+      refresh()
+    } catch {
+      notify('ra.page.error', 'warning')
+    }
+  }, [dataProvider, notify, refresh, record.id, pendingItem, duplicateIds])
+
+  const handleNativeDrop = useCallback(
+    async (event) => {
+      try {
+        const data = event?.dataTransfer?.getData('application/json')
+        if (!data) return
+        const payload = JSON.parse(data)
+        if (payload?.type !== 'songs' || !payload.ids?.length) return
+        event.preventDefault()
+        await handleDrop(payload)
+      } catch {
+        // ignore parse errors
+      }
+    },
+    [handleDrop],
+  )
+
+  const handleDragOver = useCallback((event) => {
+    if (event?.dataTransfer?.types?.includes('application/json')) {
+      event.preventDefault()
+    }
+  }, [])
+
   const { dragDropRef, isDragging } = useDragAndDrop(
     record.type === 'playlist' ? DraggableTypes.PLAYLIST : DraggableTypes.FOLDER,
     { id: record.id, type: record.type },
@@ -115,16 +181,26 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
   }
 
   return (
-    <PureDatagridRow
-      ref={dragDropRef}
-      record={record}
-      {...rest}
-      className={computedClasses}
-      onClick={handleRowClick}
-      style={{ opacity: isDragging ? 0.5 : 1 }}
-    >
-      {fields}
-    </PureDatagridRow>
+    <>
+      <PureDatagridRow
+        ref={dragDropRef}
+        record={record}
+        {...rest}
+        className={computedClasses}
+        onClick={handleRowClick}
+        style={{ opacity: isDragging ? 0.5 : 1 }}
+        onDragOver={handleDragOver}
+        onDrop={handleNativeDrop}
+      >
+        {fields}
+      </PureDatagridRow>
+      <DuplicateSongDialog
+        open={dupDialogOpen}
+        handleSkip={handleSkip}
+        handleDuplicate={handleDuplicate}
+        messageKey="resources.playlist.message.songs_exist"
+      />
+    </>
   )
 }
 

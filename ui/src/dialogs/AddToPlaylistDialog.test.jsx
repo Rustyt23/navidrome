@@ -37,6 +37,7 @@ const createTestUtils = (mockDataProvider) =>
           addToPlaylistDialog: {
             open: true,
             duplicateSong: false,
+            duplicateIds: [],
             selectedIds: selectedIds,
           },
           admin: {
@@ -77,9 +78,12 @@ describe('AddToPlaylistDialog', () => {
     vi.spyOn(dataProvider, 'httpClient').mockResolvedValue({ data: mockData })
 
     const mockDataProvider = {
-      getList: vi
-        .fn()
-        .mockResolvedValue({ data: mockData, total: mockData.length }),
+      getList: vi.fn().mockImplementation((resource, params) => {
+        if (resource === 'playlist' && params.filter?.name) {
+          return Promise.resolve({ data: [], total: 0 })
+        }
+        return Promise.resolve({ data: mockData, total: mockData.length })
+      }),
       getOne: vi.fn().mockResolvedValue({ data: { id: 'song-3' }, total: 1 }),
       create: vi.fn().mockResolvedValue({
         data: { id: 'created-id', name: 'created-name' },
@@ -128,9 +132,12 @@ describe('AddToPlaylistDialog', () => {
 
   it('adds distinct songs to a new playlist', async () => {
     const mockDataProvider = {
-      getList: vi
-        .fn()
-        .mockResolvedValue({ data: mockData, total: mockData.length }),
+      getList: vi.fn().mockImplementation((resource, params) => {
+        if (resource === 'playlist' && params.filter?.name) {
+          return Promise.resolve({ data: [], total: 0 })
+        }
+        return Promise.resolve({ data: mockData, total: mockData.length })
+      }),
       getOne: vi.fn().mockResolvedValue({ data: { id: 'song-3' }, total: 1 }),
       create: vi.fn().mockResolvedValue({
         data: { id: 'created-id1', name: 'created-name' },
@@ -165,9 +172,12 @@ describe('AddToPlaylistDialog', () => {
 
   it('adds distinct songs to multiple new playlists', async () => {
     const mockDataProvider = {
-      getList: vi
-        .fn()
-        .mockResolvedValue({ data: mockData, total: mockData.length }),
+      getList: vi.fn().mockImplementation((resource, params) => {
+        if (resource === 'playlist' && params.filter?.name) {
+          return Promise.resolve({ data: [], total: 0 })
+        }
+        return Promise.resolve({ data: mockData, total: mockData.length })
+      }),
       getOne: vi.fn().mockResolvedValue({ data: { id: 'song-3' }, total: 1 }),
       create: vi.fn().mockResolvedValue({
         data: { id: 'created-id1', name: 'created-name' },

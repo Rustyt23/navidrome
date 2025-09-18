@@ -225,8 +225,10 @@
         "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
       },
       "message": {
-        "duplicate_song": "Add duplicated songs",
-        "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
+        "duplicate_song": "Song already exists",
+        "song_exist": "This song already exists in this playlist. Do you want to add it again?",
+        "songs_exist": "Some songs already exist in this playlist. Do you want to add them again?",
+        "playlist_exist": "Playlist already exists",
         "noPlaylistsFound": "No playlists found",
         "noPlaylists": "No playlists available"
       }
@@ -402,6 +404,7 @@
       "close_menu": "Close menu",
       "unselect": "Unselect",
       "skip": "Skip",
+      "duplicate": "Duplicate",
       "share": "Share",
       "download": "Download"
     },

@@ -45,18 +45,28 @@ export const AddToPlaylistDialog = () => {
   const translate = useTranslate()
   const notify = useNotify()
   const refresh = useRefresh()
-  const [value, setValue] = useState({})
+  const [value, setValue] = useState([])
   const [check, setCheck] = useState(false)
   const dataProvider = useDataProvider()
-  const createAndAddToPlaylist = (playlistObject) => {
-    dataProvider
-      .create('playlist', {
+
+  const createAndAddToPlaylist = async (playlistObject) => {
+    try {
+      const res = await dataProvider.getList('playlist', {
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: 'name', order: 'ASC' },
+        filter: { name: playlistObject.name },
+      })
+      if (res.data.length) {
+        notify('resources.playlist.message.playlist_exist', 'warning')
+        return
+      }
+      const createRes = await dataProvider.create('playlist', {
         data: { name: playlistObject.name },
       })
-      .then((res) => {
-        addToPlaylist(res.data.id)
-      })
-      .catch((error) => notify(`Error: ${error.message}`, 'warning'))
+      addToPlaylist(createRes.data.id)
+    } catch (error) {
+      notify(`Error: ${error.message}`, 'warning')
+    }
   }
 
   const addToPlaylist = (playlistId, distinctIds) => {
@@ -93,7 +103,6 @@ export const AddToPlaylistDialog = () => {
           const dupSng = tracks.filter((song) =>
             selectedIds.some((id) => id === song.mediaFileId),
           )
-
           if (dupSng.length) {
             const dupIds = dupSng.map((song) => song.mediaFileId)
             dispatch(openDuplicateSongWarning(dupIds))
@@ -115,14 +124,14 @@ export const AddToPlaylistDialog = () => {
       }
     })
     setCheck(false)
-    setValue({})
+    setValue([])
     dispatch(closeAddToPlaylist())
     e.stopPropagation()
   }
 
   const handleClickClose = (e) => {
     setCheck(false)
-    setValue({})
+    setValue([])
     dispatch(closeAddToPlaylist())
     e.stopPropagation()
   }
@@ -138,12 +147,10 @@ export const AddToPlaylistDialog = () => {
     setValue(pls)
   }
 
-  const handleDuplicateClose = () => {
+  const handleDuplicate = () => {
     dispatch(closeDuplicateSongDialog())
   }
-  const handleDuplicateSubmit = () => {
-    dispatch(closeDuplicateSongDialog())
-  }
+
   const handleSkip = () => {
     const distinctSongs = selectedIds.filter(
       (id) => duplicateIds.indexOf(id) < 0,
@@ -186,8 +193,7 @@ export const AddToPlaylistDialog = () => {
       </Dialog>
       <DuplicateSongDialog
         open={duplicateSong}
-        handleClickClose={handleDuplicateClose}
-        handleSubmit={handleDuplicateSubmit}
+        handleDuplicate={handleDuplicate}
         handleSkip={handleSkip}
       />
     </>
