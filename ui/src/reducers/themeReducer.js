@@ -6,7 +6,7 @@ const defaultTheme = () => {
   return (
     Object.keys(themes).find(
       (t) => themes[t].themeName === config.defaultTheme,
-    ) || 'DarkTheme'
+    ) || 'MusicMattersTheme'
   )
 }
 
