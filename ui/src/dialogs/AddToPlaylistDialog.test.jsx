@@ -11,6 +11,26 @@ import {
 import { AddToPlaylistDialog } from './AddToPlaylistDialog'
 import { describe, beforeAll, afterEach, it, expect, vi } from 'vitest'
 
+const hoistedMocks = vi.hoisted(() => ({
+  addTracksToPlaylistMock: vi.fn().mockResolvedValue({
+    addedCount: 2,
+    skippedCount: 0,
+  }),
+}))
+
+vi.mock('../playlist/addTracksToPlaylist', () => ({
+  addTracksToPlaylist: hoistedMocks.addTracksToPlaylistMock,
+  formatPlaylistToast: vi
+    .fn()
+    .mockImplementation(({ addedCount, skippedCount }) =>
+      skippedCount > 0
+        ? `Added ${addedCount} • Skipped ${skippedCount} duplicates`
+        : `Added ${addedCount} songs`,
+    ),
+}))
+
+const { addTracksToPlaylistMock } = hoistedMocks
+
 const mockData = [
   { id: 'sample-id1', name: 'sample playlist 1', ownerId: 'admin' },
   { id: 'sample-id2', name: 'sample playlist 2', ownerId: 'admin' },
@@ -36,7 +56,6 @@ const createTestUtils = (mockDataProvider) =>
         initialState={{
           addToPlaylistDialog: {
             open: true,
-            duplicateSong: false,
             selectedIds: selectedIds,
           },
           admin: {
@@ -63,27 +82,21 @@ const createTestUtils = (mockDataProvider) =>
     </DataProviderContext.Provider>,
   )
 
-vi.mock('../dataProvider', () => ({
-  ...vi.importActual('../dataProvider'),
-  httpClient: vi.fn(),
-}))
-
 describe('AddToPlaylistDialog', () => {
   beforeAll(() => localStorage.setItem('userId', 'admin'))
-  afterEach(cleanup)
+  afterEach(() => {
+    addTracksToPlaylistMock.mockClear()
+    vi.clearAllMocks()
+    cleanup()
+  })
 
-  it('adds distinct songs to already existing playlists', async () => {
-    const dataProvider = await import('../dataProvider')
-    vi.spyOn(dataProvider, 'httpClient').mockResolvedValue({ data: mockData })
-
+  it('skips duplicate songs when adding to existing playlists', async () => {
     const mockDataProvider = {
       getList: vi
         .fn()
         .mockResolvedValue({ data: mockData, total: mockData.length }),
       getOne: vi.fn().mockResolvedValue({ data: { id: 'song-3' }, total: 1 }),
-      create: vi.fn().mockResolvedValue({
-        data: { id: 'created-id', name: 'created-name' },
-      }),
+      addToPlaylist: vi.fn().mockResolvedValue({ data: { added: 2, skipped: 1 } }),
     }
 
     createTestUtils(mockDataProvider)
@@ -105,28 +118,24 @@ describe('AddToPlaylistDialog', () => {
     })
     fireEvent.click(screen.getByTestId('playlist-add'))
     await waitFor(() => {
-      expect(mockDataProvider.create).toHaveBeenNthCalledWith(
-        1,
-        'playlistTrack',
-        {
-          data: { ids: selectedIds },
-          filter: { playlist_id: 'sample-id1' },
-        },
-      )
+      expect(addTracksToPlaylistMock).toHaveBeenCalledTimes(2)
     })
-    await waitFor(() => {
-      expect(mockDataProvider.create).toHaveBeenNthCalledWith(
-        2,
-        'playlistTrack',
-        {
-          data: { ids: selectedIds },
-          filter: { playlist_id: 'sample-id2' },
-        },
-      )
-    })
+    const firstCall = addTracksToPlaylistMock.mock.calls[0]
+    expect(firstCall[1]).toBe('sample-id1')
+    expect(firstCall[2]).toEqual({ ids: selectedIds })
+    expect(firstCall[3]).toEqual({ skipDuplicates: true })
+
+    const secondCall = addTracksToPlaylistMock.mock.calls[1]
+    expect(secondCall[1]).toBe('sample-id2')
+    expect(secondCall[2]).toEqual({ ids: selectedIds })
+    expect(secondCall[3]).toEqual({ skipDuplicates: true })
   })
 
   it('adds distinct songs to a new playlist', async () => {
+    addTracksToPlaylistMock.mockResolvedValueOnce({
+      addedCount: 2,
+      skippedCount: 0,
+    })
     const mockDataProvider = {
       getList: vi
         .fn()
@@ -135,6 +144,7 @@ describe('AddToPlaylistDialog', () => {
       create: vi.fn().mockResolvedValue({
         data: { id: 'created-id1', name: 'created-name' },
       }),
+      addToPlaylist: vi.fn().mockResolvedValue({ data: { added: 2, skipped: 0 } }),
     }
 
     createTestUtils(mockDataProvider)
@@ -153,17 +163,17 @@ describe('AddToPlaylistDialog', () => {
         data: { name: 'sample' },
       })
     })
-    expect(mockDataProvider.create).toHaveBeenNthCalledWith(
-      2,
-      'playlistTrack',
-      {
-        data: { ids: selectedIds },
-        filter: { playlist_id: 'created-id1' },
-      },
-    )
+    await waitFor(() => {
+      expect(addTracksToPlaylistMock).toHaveBeenCalled()
+    })
+    const call = addTracksToPlaylistMock.mock.calls.at(-1)
+    expect(call[1]).toBe('created-id1')
+    expect(call[2]).toEqual({ ids: selectedIds })
+    expect(call[3]).toEqual({ skipDuplicates: true, existingTrackIds: new Set() })
   })
 
   it('adds distinct songs to multiple new playlists', async () => {
+    addTracksToPlaylistMock.mockResolvedValue({ addedCount: 2, skippedCount: 0 })
     const mockDataProvider = {
       getList: vi
         .fn()
@@ -172,6 +182,7 @@ describe('AddToPlaylistDialog', () => {
       create: vi.fn().mockResolvedValue({
         data: { id: 'created-id1', name: 'created-name' },
       }),
+      addToPlaylist: vi.fn().mockResolvedValue({ data: { added: 2, skipped: 0 } }),
     }
 
     createTestUtils(mockDataProvider)
@@ -190,7 +201,8 @@ describe('AddToPlaylistDialog', () => {
     })
     fireEvent.click(screen.getByTestId('playlist-add'))
     await waitFor(() => {
-      expect(mockDataProvider.create).toHaveBeenCalledTimes(4)
+      expect(mockDataProvider.create).toHaveBeenCalledTimes(2)
     })
+    expect(addTracksToPlaylistMock).toHaveBeenCalledTimes(2)
   })
 })

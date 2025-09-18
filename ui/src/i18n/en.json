@@ -226,8 +226,6 @@
         "publish_error": "Failed to publish playlist. Please try again."
       },
       "message": {
-        "duplicate_song": "Add duplicated songs",
-        "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
         "noPlaylists": "No playlists available",
         "publishConfirm": "Are you sure you want to publish this playlist?"

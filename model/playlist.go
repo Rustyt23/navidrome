@@ -147,14 +147,24 @@ func (plt PlaylistTracks) MediaFiles() MediaFiles {
 	return mfs
 }
 
+type PlaylistAddResult struct {
+	Added   int `json:"added"`
+	Skipped int `json:"skipped"`
+}
+
+func (r *PlaylistAddResult) Merge(other PlaylistAddResult) {
+	r.Added += other.Added
+	r.Skipped += other.Skipped
+}
+
 type PlaylistTrackRepository interface {
 	ResourceRepository
 	GetAll(options ...QueryOptions) (PlaylistTracks, error)
 	GetAlbumIDs(options ...QueryOptions) ([]string, error)
-	Add(mediaFileIds []string) (int, error)
-	AddAlbums(albumIds []string) (int, error)
-	AddArtists(artistIds []string) (int, error)
-	AddDiscs(discs []DiscID) (int, error)
+	Add(mediaFileIds []string) (PlaylistAddResult, error)
+	AddAlbums(albumIds []string) (PlaylistAddResult, error)
+	AddArtists(artistIds []string) (PlaylistAddResult, error)
+	AddDiscs(discs []DiscID) (PlaylistAddResult, error)
 	Delete(id ...string) error
 	DeleteAll() error
 	Reorder(pos int, newPos int) error

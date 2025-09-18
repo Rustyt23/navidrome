@@ -2,8 +2,6 @@ export const ADD_TO_PLAYLIST_OPEN = 'ADD_TO_PLAYLIST_OPEN'
 export const ADD_TO_PLAYLIST_CLOSE = 'ADD_TO_PLAYLIST_CLOSE'
 export const DOWNLOAD_MENU_OPEN = 'DOWNLOAD_MENU_OPEN'
 export const DOWNLOAD_MENU_CLOSE = 'DOWNLOAD_MENU_CLOSE'
-export const DUPLICATE_SONG_WARNING_OPEN = 'DUPLICATE_SONG_WARNING_OPEN'
-export const DUPLICATE_SONG_WARNING_CLOSE = 'DUPLICATE_SONG_WARNING_CLOSE'
 export const EXTENDED_INFO_OPEN = 'EXTENDED_INFO_OPEN'
 export const EXTENDED_INFO_CLOSE = 'EXTENDED_INFO_CLOSE'
 export const LISTENBRAINZ_TOKEN_OPEN = 'LISTENBRAINZ_TOKEN_OPEN'
@@ -49,15 +47,6 @@ export const openDownloadMenu = (record, recordType) => {
 
 export const closeDownloadMenu = () => ({
   type: DOWNLOAD_MENU_CLOSE,
-})
-
-export const openDuplicateSongWarning = (duplicateIds) => ({
-  type: DUPLICATE_SONG_WARNING_OPEN,
-  duplicateIds,
-})
-
-export const closeDuplicateSongDialog = () => ({
-  type: DUPLICATE_SONG_WARNING_CLOSE,
 })
 
 export const openExtendedInfoDialog = (record) => {
