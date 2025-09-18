@@ -14,7 +14,7 @@ export const List = (props) => {
         />
       }
       perPage={15}
-      pagination={<Pagination />}
+      pagination={<Pagination rowsPerPageOptions={[15, 25, 50]} />}
       {...props}
     />
   )
