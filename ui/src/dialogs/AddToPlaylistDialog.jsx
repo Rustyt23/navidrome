@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import {
   useDataProvider,
@@ -14,15 +14,12 @@ import {
   DialogTitle,
   makeStyles,
 } from '@material-ui/core'
-import {
-  closeAddToPlaylist,
-  closeDuplicateSongDialog,
-  openDuplicateSongWarning,
-} from '../actions'
+import { closeAddToPlaylist } from '../actions'
 import { SelectPlaylistInput } from './SelectPlaylistInput'
-import DuplicateSongDialog from './DuplicateSongDialog'
-import { httpClient } from '../dataProvider'
-import { REST_URL } from '../consts'
+import {
+  addTracksToPlaylist,
+  formatPlaylistToast,
+} from '../playlist/addTracksToPlaylist'
 
 const useStyles = makeStyles({
   dialogPaper: {
@@ -39,117 +36,107 @@ const useStyles = makeStyles({
 
 export const AddToPlaylistDialog = () => {
   const classes = useStyles()
-  const { open, selectedIds, onSuccess, duplicateSong, duplicateIds } =
-    useSelector((state) => state.addToPlaylistDialog)
+  const { open, selectedIds = [], onSuccess } = useSelector(
+    (state) => state.addToPlaylistDialog,
+  )
   const dispatch = useDispatch()
   const translate = useTranslate()
   const notify = useNotify()
   const refresh = useRefresh()
-  const [value, setValue] = useState({})
-  const [check, setCheck] = useState(false)
+  const [value, setValue] = useState([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const dataProvider = useDataProvider()
-  const createAndAddToPlaylist = (playlistObject) => {
-    dataProvider
-      .create('playlist', {
+  const uniqueSelectedIds = useMemo(
+    () => Array.from(new Set(selectedIds)),
+    [selectedIds],
+  )
+
+  const createAndAddToPlaylist = async (playlistObject) => {
+    try {
+      const response = await dataProvider.create('playlist', {
         data: { name: playlistObject.name },
       })
-      .then((res) => {
-        addToPlaylist(res.data.id)
+      const playlistId = response?.data?.id
+      const playlistName = response?.data?.name || playlistObject.name
+      if (!playlistId) {
+        throw new Error('Missing playlist id')
+      }
+      const result = await addTracksToPlaylist(
+        dataProvider,
+        playlistId,
+        { ids: uniqueSelectedIds },
+        { skipDuplicates: true, existingTrackIds: new Set() },
+      )
+      notify(formatPlaylistToast(result), {
+        type: 'info',
+        autoHideDuration: 3000,
       })
-      .catch((error) => notify(`Error: ${error.message}`, 'warning'))
-  }
-
-  const addToPlaylist = (playlistId, distinctIds) => {
-    const trackIds = Array.isArray(distinctIds) ? distinctIds : selectedIds
-    if (trackIds.length) {
-      dataProvider
-        .create('playlistTrack', {
-          data: { ids: trackIds },
-          filter: { playlist_id: playlistId },
-        })
-        .then(() => {
-          const len = trackIds.length
-          notify('message.songsAddedToPlaylist', {
-            messageArgs: { smart_count: len },
-          })
-          onSuccess && onSuccess(value, len)
-          refresh()
-        })
-        .catch(() => {
-          notify('ra.page.error', { type: 'warning' })
-        })
-    } else {
-      notify('message.songsAddedToPlaylist', {
-        messageArgs: { smart_count: 0 },
-      })
+      return result
+    } catch (error) {
+      notify(`Error: ${error.message}`, { type: 'warning' })
+      return null
     }
   }
 
-  const checkDuplicateSong = (playlistObject) => {
-    httpClient(`${REST_URL}/playlist/${playlistObject.id}/tracks`)
-      .then((res) => {
-        const tracks = res.json
-        if (tracks) {
-          const dupSng = tracks.filter((song) =>
-            selectedIds.some((id) => id === song.mediaFileId),
-          )
-
-          if (dupSng.length) {
-            const dupIds = dupSng.map((song) => song.mediaFileId)
-            dispatch(openDuplicateSongWarning(dupIds))
-          }
-        }
-        setCheck(true)
+  const addToExistingPlaylist = async (playlistObject) => {
+    try {
+      const result = await addTracksToPlaylist(
+        dataProvider,
+        playlistObject.id,
+        { ids: uniqueSelectedIds },
+        { skipDuplicates: true },
+      )
+      notify(formatPlaylistToast(result), {
+        type: 'info',
+        autoHideDuration: 3000,
       })
-      .catch(() => {
-        notify('ra.page.error', 'warning')
-      })
+      return result
+    } catch (error) {
+      notify('ra.page.error', { type: 'warning' })
+      return null
+    }
   }
 
-  const handleSubmit = (e) => {
-    value.forEach((playlistObject) => {
-      if (playlistObject.id) {
-        addToPlaylist(playlistObject.id, playlistObject.distinctIds)
-      } else {
-        createAndAddToPlaylist(playlistObject)
-      }
-    })
-    setCheck(false)
-    setValue({})
-    dispatch(closeAddToPlaylist())
+  const handleSubmit = async (e) => {
     e.stopPropagation()
+    if (!value.length || isSubmitting) {
+      return
+    }
+
+    setIsSubmitting(true)
+    let addedAcrossPlaylists = 0
+
+    try {
+      for (const playlistObject of value) {
+        let result = null
+        if (playlistObject.id) {
+          result = await addToExistingPlaylist(playlistObject)
+        } else {
+          result = await createAndAddToPlaylist(playlistObject)
+        }
+        if (result?.addedCount) {
+          addedAcrossPlaylists += result.addedCount
+        }
+      }
+      if (addedAcrossPlaylists > 0) {
+        refresh()
+      }
+      onSuccess && onSuccess(value, addedAcrossPlaylists)
+    } finally {
+      setIsSubmitting(false)
+      setValue([])
+      dispatch(closeAddToPlaylist())
+    }
   }
 
   const handleClickClose = (e) => {
-    setCheck(false)
-    setValue({})
+    setValue([])
     dispatch(closeAddToPlaylist())
     e.stopPropagation()
   }
 
   const handleChange = (pls) => {
-    if (!value.length || pls.length > value.length) {
-      let newlyAdded = pls.slice(-1).pop()
-      if (newlyAdded.id) {
-        setCheck(false)
-        checkDuplicateSong(newlyAdded)
-      } else setCheck(true)
-    } else if (pls.length === 0) setCheck(false)
     setValue(pls)
-  }
-
-  const handleDuplicateClose = () => {
-    dispatch(closeDuplicateSongDialog())
-  }
-  const handleDuplicateSubmit = () => {
-    dispatch(closeDuplicateSongDialog())
-  }
-  const handleSkip = () => {
-    const distinctSongs = selectedIds.filter(
-      (id) => duplicateIds.indexOf(id) < 0,
-    )
-    value.slice(-1).pop().distinctIds = distinctSongs
-    dispatch(closeDuplicateSongDialog())
   }
 
   return (
@@ -177,19 +164,13 @@ export const AddToPlaylistDialog = () => {
           <Button
             onClick={handleSubmit}
             color="primary"
-            disabled={!check}
+            disabled={isSubmitting || value.length === 0}
             data-testid="playlist-add"
           >
             {translate('ra.action.add')}
           </Button>
         </DialogActions>
       </Dialog>
-      <DuplicateSongDialog
-        open={duplicateSong}
-        handleClickClose={handleDuplicateClose}
-        handleSubmit={handleDuplicateSubmit}
-        handleSkip={handleSkip}
-      />
     </>
   )
 }

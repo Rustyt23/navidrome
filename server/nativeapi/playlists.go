@@ -20,25 +20,25 @@ import (
 type restHandler = func(rest.RepositoryConstructor, ...rest.Logger) http.HandlerFunc
 
 func getPlaylist(ds model.DataStore) http.HandlerFunc {
-        // Add a middleware to capture the playlistId
-        wrapper := func(handler restHandler) http.HandlerFunc {
-                return func(w http.ResponseWriter, r *http.Request) {
-                        plsId := chi.URLParam(r, "playlistId")
-                        if plsId == "" {
-                                http.Error(w, "playlistId required", http.StatusBadRequest)
-                                return
-                        }
+	// Add a middleware to capture the playlistId
+	wrapper := func(handler restHandler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			plsId := chi.URLParam(r, "playlistId")
+			if plsId == "" {
+				http.Error(w, "playlistId required", http.StatusBadRequest)
+				return
+			}
 
-                        constructor := func(ctx context.Context) rest.Repository {
-                                plsRepo := ds.Playlist(ctx)
-                                p := req.Params(r)
-                                start := p.Int64Or("_start", 0)
-                                return plsRepo.Tracks(plsId, start == 0)
-                        }
+			constructor := func(ctx context.Context) rest.Repository {
+				plsRepo := ds.Playlist(ctx)
+				p := req.Params(r)
+				start := p.Int64Or("_start", 0)
+				return plsRepo.Tracks(plsId, start == 0)
+			}
 
-                        handler(constructor).ServeHTTP(w, r)
-                }
-        }
+			handler(constructor).ServeHTTP(w, r)
+		}
+	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		accept := r.Header.Get("accept")
@@ -213,27 +213,28 @@ func addToPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFun
 			return
 		}
 		tracksRepo := ds.Playlist(r.Context()).Tracks(playlistId, true)
-		count, c := 0, 0
-		if c, err = tracksRepo.Add(payload.Ids); err != nil {
+		result := model.PlaylistAddResult{}
+		var res model.PlaylistAddResult
+		if res, err = tracksRepo.Add(payload.Ids); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		count += c
-		if c, err = tracksRepo.AddAlbums(payload.AlbumIds); err != nil {
+		result.Merge(res)
+		if res, err = tracksRepo.AddAlbums(payload.AlbumIds); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		count += c
-		if c, err = tracksRepo.AddArtists(payload.ArtistIds); err != nil {
+		result.Merge(res)
+		if res, err = tracksRepo.AddArtists(payload.ArtistIds); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		count += c
-		if c, err = tracksRepo.AddDiscs(payload.Discs); err != nil {
+		result.Merge(res)
+		if res, err = tracksRepo.AddDiscs(payload.Discs); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		count += c
+		result.Merge(res)
 
 		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -241,7 +242,7 @@ func addToPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFun
 		}
 
 		// Must return an object with an ID, to satisfy ReactAdmin `create` call
-		_, err = fmt.Fprintf(w, `{"added":%d}`, count)
+		_, err = fmt.Fprintf(w, `{"added":%d,"skipped":%d}`, result.Added, result.Skipped)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
