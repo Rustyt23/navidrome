@@ -37,6 +37,7 @@ import { AlbumLinkField } from './AlbumLinkField'
 import { SongBulkActions, QualityInfo, useSelectedFields } from '../common'
 import config from '../config'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
+import { DEFAULT_PAGE_SIZE } from '../consts'
 
 const useStyles = makeStyles({
   contextHeader: {
@@ -244,7 +245,7 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 15}
+        perPage={DEFAULT_PAGE_SIZE}
       >
         {isXsmall ? (
           <SongSimpleList />

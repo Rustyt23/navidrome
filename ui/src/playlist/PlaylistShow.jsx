@@ -6,14 +6,14 @@ import {
   useShowController,
   SearchInput,
   Filter,
-  Pagination,
   Title as RaTitle,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import PlaylistDetails from './PlaylistDetails'
 import PlaylistSongs from './PlaylistSongs'
 import PlaylistActions from './PlaylistActions'
-import { Title, canChangeTracks, useResourceRefresh } from '../common'
+import { Pagination, Title, canChangeTracks, useResourceRefresh } from '../common'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../consts'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -63,7 +63,7 @@ const PlaylistShowLayout = (props) => {
             reference="playlistTrack"
             target="playlist_id"
             sort={{ field: 'id', order: 'ASC' }}
-            perPage={100}
+            perPage={DEFAULT_PAGE_SIZE}
             filter={{ playlist_id: props.id, title: searchTerm }} // Pass searchTerm as a filter
           >
             <PlaylistSongs
@@ -78,7 +78,7 @@ const PlaylistShowLayout = (props) => {
               }
               resource={'playlistTrack'}
               exporter={false}
-              pagination={<Pagination rowsPerPageOptions={[100, 250, 500]} />}
+              pagination={<Pagination rowsPerPageOptions={PAGE_SIZES} />}
               searchTerm={searchTerm} // Pass search term to child
             />
           </ReferenceManyField>

@@ -1,6 +1,7 @@
 import React from 'react'
 import { List as RAList } from 'react-admin'
 import { Pagination } from './Pagination'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../consts'
 import { Title } from './index'
 
 export const List = (props) => {
@@ -13,8 +14,8 @@ export const List = (props) => {
           args={{ smart_count: 2 }}
         />
       }
-      perPage={15}
-      pagination={<Pagination />}
+      perPage={DEFAULT_PAGE_SIZE}
+      pagination={<Pagination rowsPerPageOptions={PAGE_SIZES} />}
       {...props}
     />
   )
