@@ -35,8 +35,8 @@ const useStyles = makeStyles({
   },
   row: {
     cursor: 'pointer',
-    // ↓ shrink row height by reducing vertical padding
-    '& td': {
+    // ↓ shrink row height by reducing vertical padding on all table cells
+    '& td, & th, & .MuiTableCell-root': {
       paddingTop: 1,
       paddingBottom: 1,
     },
