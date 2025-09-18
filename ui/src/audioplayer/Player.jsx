@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useMediaQuery } from '@material-ui/core'
 import { ThemeProvider } from '@material-ui/core/styles'
@@ -12,6 +12,7 @@ import ReactGA from 'react-ga'
 import { GlobalHotKeys } from 'react-hotkeys'
 import ReactJkMusicPlayer from 'navidrome-music-player'
 import 'navidrome-music-player/assets/index.css'
+import { MdSkipNext, MdSkipPrevious } from 'react-icons/md'
 import useCurrentTheme from '../themes/useCurrentTheme'
 import config from '../config'
 import useStyle from './styles'
@@ -24,12 +25,15 @@ import {
   syncQueue,
 } from '../actions'
 import PlayerToolbar from './PlayerToolbar'
+import TransportControlButton from './TransportControlButton'
 import { sendNotification } from '../utils'
 import subsonic from '../subsonic'
 import locale from './locale'
 import { keyMap } from '../hotkeys'
 import keyHandlers from './keyHandlers'
 import { calculateGain } from '../utils/calculateReplayGain'
+
+const HOTKEY_SUPPRESS_DURATION = 400
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -62,6 +66,28 @@ const Player = () => {
   const gainInfo = useSelector((state) => state.replayGain)
   const [context, setContext] = useState(null)
   const [gainNode, setGainNode] = useState(null)
+  const hotkeyTimeoutRef = useRef()
+  const [suppressHotkeys, setSuppressHotkeys] = useState(false)
+
+  const suppressHotkeysTemporarily = useCallback(() => {
+    setSuppressHotkeys(true)
+    if (hotkeyTimeoutRef.current) {
+      clearTimeout(hotkeyTimeoutRef.current)
+    }
+    const timeoutId = setTimeout(() => {
+      setSuppressHotkeys(false)
+      hotkeyTimeoutRef.current = undefined
+    }, HOTKEY_SUPPRESS_DURATION)
+    hotkeyTimeoutRef.current = timeoutId
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (hotkeyTimeoutRef.current) {
+        clearTimeout(hotkeyTimeoutRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (
@@ -131,6 +157,32 @@ const Player = () => {
     [gainInfo, isDesktop, playerTheme, translate, playerState.mode],
   )
 
+  const transportIcons = useMemo(() => {
+    const nextLabel = translate('player.nextTrackText')
+    const prevLabel = translate('player.previousTrackText')
+
+    return {
+      next: (
+        <TransportControlButton
+          audioInstance={audioInstance}
+          direction="next"
+          icon={<MdSkipNext size={28} />}
+          label={nextLabel}
+          onPointerInteraction={suppressHotkeysTemporarily}
+        />
+      ),
+      prev: (
+        <TransportControlButton
+          audioInstance={audioInstance}
+          direction="prev"
+          icon={<MdSkipPrevious size={28} />}
+          label={prevLabel}
+          onPointerInteraction={suppressHotkeysTemporarily}
+        />
+      ),
+    }
+  }, [audioInstance, suppressHotkeysTemporarily, translate])
+
   const options = useMemo(() => {
     const current = playerState.current || {}
     return {
@@ -144,8 +196,9 @@ const Player = () => {
       ),
       defaultVolume: isMobilePlayer ? 1 : playerState.volume,
       showMediaSession: !current.isRadio,
+      icon: transportIcons,
     }
-  }, [playerState, defaultOptions, isMobilePlayer])
+  }, [playerState, defaultOptions, isMobilePlayer, transportIcons])
 
   const onAudioListsChange = useCallback(
     (_, audioLists, audioInfo) => dispatch(syncQueue(audioInfo, audioLists)),
@@ -281,9 +334,14 @@ const Player = () => {
     document.title = 'MusicMatters'
   }
 
-  const handlers = useMemo(
+  const baseHandlers = useMemo(
     () => keyHandlers(audioInstance, playerState),
     [audioInstance, playerState],
+  )
+
+  const handlers = useMemo(
+    () => (suppressHotkeys ? {} : baseHandlers),
+    [baseHandlers, suppressHotkeys],
   )
 
   useEffect(() => {
