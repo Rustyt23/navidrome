@@ -35,6 +35,11 @@ const useStyles = makeStyles({
   },
   row: {
     cursor: 'pointer',
+    // ↓ shrink row height by reducing vertical padding
+    '& td': {
+      paddingTop: 1,
+      paddingBottom: 1,
+    },
     '&:hover': {
       '& $contextMenu': {
         visibility: 'visible',
