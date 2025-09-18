@@ -22,6 +22,8 @@ import {
   useSelectedFields,
   useResourceRefresh,
   Title,
+  Pagination,
+  getStoredPageSize,
 } from '../common'
 import PlaylistListActions from './PlaylistListActions'
 import EmptyPlaylist from './EmptyPlaylist'
@@ -123,6 +125,11 @@ const FolderChildrenList = (props) => {
 
   const parentId = record?.id ?? ''
 
+  const initialPerPage = useMemo(
+    () => getStoredPageSize('folderChildren'),
+    [],
+  )
+
   return (
     <List
       {...props}
@@ -133,9 +140,10 @@ const FolderChildrenList = (props) => {
       actions={<PlaylistListActions />}
       bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
       empty={<EmptyPlaylist />}
-      perPage={isXsmall ? 50 : 25}
+      perPage={initialPerPage}
       filter={{ parent_id: parentId }}
       filterDefaultValues={{ parent_id: parentId }}
+      pagination={<Pagination scope="folderChildren" />}
     >
       <PlaylistFolderDataGrid rowClick={rowClick}>
         <TypeIconField label={false} />
