@@ -25,6 +25,10 @@ const useStyles = makeStyles({
     },
     '&:hover': { backgroundColor: '#f5f5f5' },
   },
+  rowCell: {
+    paddingTop: 1,
+    paddingBottom: 1,
+  },
   missingRow: {
     cursor: 'inherit',
     opacity: 0.3,
@@ -144,12 +148,17 @@ const PlaylistFolderBody = (props) => (
   <PureDatagridBody {...props} row={<PlaylistFolderRow />} />
 )
 
-export const PlaylistFolderDataGrid = (props) => {
+export const PlaylistFolderDataGrid = ({ classes: classesProp, ...props }) => {
   const classes = useStyles()
+  const datagridClasses = {
+    ...classesProp,
+    rowCell: clsx(classes.rowCell, classesProp?.rowCell),
+  }
   return (
     <Datagrid
       className={classes.headerStyle}
       isRowSelectable={(r) => !r?.missing}
+      classes={datagridClasses}
       {...props}
       body={<PlaylistFolderBody />}
     />
@@ -158,4 +167,5 @@ export const PlaylistFolderDataGrid = (props) => {
 
 PlaylistFolderDataGrid.propTypes = {
   children: PropTypes.node,
+  classes: PropTypes.object,
 }
