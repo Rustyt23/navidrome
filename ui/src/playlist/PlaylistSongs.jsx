@@ -93,10 +93,48 @@ const ReorderableList = ({ readOnly, children, ...rest }) => {
   return <ReactDragListView {...rest}>{children}</ReactDragListView>
 }
 
-const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
+const PlaylistSongs = ({
+  playlistId,
+  readOnly,
+  actions,
+  searchTerm = '',
+  ...props
+}) => {
   const listContext = useListContext()
   const { data, ids, selectedIds, onUnselectItems, refetch, setPage } =
     listContext
+  const normalizedSearchTerm = useMemo(
+    () => searchTerm.toLowerCase(),
+    [searchTerm],
+  )
+  const filteredIds = useMemo(() => {
+    if (!normalizedSearchTerm) return ids
+    return ids.filter((id) => {
+      const song = data[id] || {}
+      return (
+        song.title?.toLowerCase().includes(normalizedSearchTerm) ||
+        song.artist?.toLowerCase().includes(normalizedSearchTerm) ||
+        song.album?.toLowerCase().includes(normalizedSearchTerm) ||
+        song.albumArtist?.toLowerCase().includes(normalizedSearchTerm)
+      )
+    })
+  }, [ids, data, normalizedSearchTerm])
+  const filteredData = useMemo(() => {
+    if (!normalizedSearchTerm) return data
+    return filteredIds.reduce((acc, id) => {
+      acc[id] = data[id]
+      return acc
+    }, {})
+  }, [filteredIds, data, normalizedSearchTerm])
+  const listContextWithFilter = useMemo(
+    () => ({
+      ...listContext,
+      data: filteredData,
+      ids: filteredIds,
+      total: filteredIds.length,
+    }),
+    [listContext, filteredData, filteredIds],
+  )
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
@@ -139,11 +177,11 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
 
   const handleDragEnd = useCallback(
     (from, to) => {
-      const toId = ids[to]
-      const fromId = ids[from]
+      const toId = filteredIds[to]
+      const fromId = filteredIds[from]
       reorder(playlistId, fromId, toId)
     },
-    [playlistId, reorder, ids],
+    [playlistId, reorder, filteredIds],
   )
 
   const toggleableFields = useMemo(() => {
@@ -227,8 +265,10 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
             handleSelector={'.draggable'}
           >
             <SongDatagrid
-              rowClick={(id) => dispatch(playTracks(data, ids, id))}
-              {...listContext}
+              rowClick={(id) =>
+                dispatch(playTracks(filteredData, filteredIds, id))
+              }
+              {...listContextWithFilter}
               hasBulkActions={!readOnly}
               contextAlwaysVisible={!isDesktop}
               classes={{ row: classes.row }}
@@ -244,7 +284,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
         </Card>
       </div>
       <ExpandInfoDialog content={<SongInfo />} />
-      {React.cloneElement(props.pagination, listContext)}
+      {React.cloneElement(props.pagination, listContextWithFilter)}
     </>
   )
 }

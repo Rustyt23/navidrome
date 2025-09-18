@@ -42,9 +42,13 @@ const mapResource = (resource, params) => {
     // /api/playlistTrack?playlist_id=123  => /api/playlist/123/tracks
     case 'playlistTrack': {
       params.filter = params.filter || {}
+      // playlistId can come from either the filter or the params.id when using
+      // getManyReference. Fallback to params.id if not present in the filter
+      let plsId = params.filter.playlist_id || params.id
 
-      let plsId = '0'
-      plsId = params.filter.playlist_id
+      // Ensure downstream data providers receive the correct id
+      params.id = plsId
+
       if (!isAdmin()) {
         params.filter.missing = false
       }
@@ -142,6 +146,12 @@ const emitFoldersChanged = (detail) => {
 const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
+    if (resource === 'playlistTrack') {
+      const playlistId = params.filter?.playlist_id || params.id
+      if (!playlistId) {
+        return Promise.resolve({ data: [], total: 0 })
+      }
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getList(r, p)
   },
@@ -166,6 +176,13 @@ const wrapperDataProvider = {
     return dataProvider.getMany(r, p)
   },
   getManyReference: (resource, params) => {
+    if (resource === 'playlistTrack') {
+      const playlistId = params.filter?.playlist_id || params.id
+      if (!playlistId) {
+        // Avoid calling the API if no playlist id is provided
+        return Promise.resolve({ data: [], total: 0 })
+      }
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getManyReference(r, p)
   },

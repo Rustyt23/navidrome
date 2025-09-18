@@ -10,6 +10,7 @@ import {
   Title as RaTitle,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
+import { Card } from '@material-ui/core'
 import PlaylistDetails from './PlaylistDetails'
 import PlaylistSongs from './PlaylistSongs'
 import PlaylistActions from './PlaylistActions'
@@ -20,6 +21,7 @@ const useStyles = makeStyles(
     playlistActions: {
       width: '100%',
     },
+    notFound: { padding: 20 },
   }),
   {
     name: 'NDPlaylistShow',
@@ -40,50 +42,53 @@ const PlaylistShowLayout = (props) => {
     setSearchTerm(event.target.value)
   }, [])
 
+  if (loading) return null
+
+  if (!record?.id) {
+    return <Card className={classes.notFound}>Playlist not found.</Card>
+  }
+
   return (
     <>
-      {record && <RaTitle title={<Title subTitle={record.name} />} />}
-      {record && <PlaylistDetails {...context} />}
-      {record && (
-        <>
-          {/* Pass search state and handler to Filter */}
-          <Filter variant="outlined">
-            <SearchInput
-              id="search"
-              source="title"
-              alwaysOn
-              value={searchTerm}
-              onChange={handleSearchChange} // Update parent state on change
-            />
-          </Filter>
+      <RaTitle title={<Title subTitle={record.name} />} />
+      <PlaylistDetails {...context} />
+      <>
+        {/* Pass search state and handler to Filter */}
+        <Filter variant="outlined">
+          <SearchInput
+            id="search"
+            source="title"
+            alwaysOn
+            value={searchTerm}
+            onChange={handleSearchChange} // Update parent state on change
+          />
+        </Filter>
 
-          <ReferenceManyField
-            {...context}
-            addLabel={false}
-            reference="playlistTrack"
-            target="playlist_id"
-            sort={{ field: 'id', order: 'ASC' }}
-            perPage={100}
-            filter={{ playlist_id: props.id, title: searchTerm }} // Pass searchTerm as a filter
-          >
-            <PlaylistSongs
-              {...props}
-              readOnly={!canChangeTracks(record)}
-              title={<Title subTitle={record.name} />}
-              actions={
-                <PlaylistActions
-                  className={classes.playlistActions}
-                  record={record}
-                />
-              }
-              resource={'playlistTrack'}
-              exporter={false}
-              pagination={<Pagination rowsPerPageOptions={[100, 250, 500]} />}
-              searchTerm={searchTerm} // Pass search term to child
-            />
-          </ReferenceManyField>
-        </>
-      )}
+        <ReferenceManyField
+          {...context}
+          addLabel={false}
+          reference="playlistTrack"
+          target="playlist_id"
+          sort={{ field: 'id', order: 'ASC' }}
+          perPage={100}
+        >
+          <PlaylistSongs
+            {...props}
+            readOnly={!canChangeTracks(record)}
+            title={<Title subTitle={record.name} />}
+            actions={
+              <PlaylistActions
+                className={classes.playlistActions}
+                record={record}
+              />
+            }
+            resource={'playlistTrack'}
+            exporter={false}
+            pagination={<Pagination rowsPerPageOptions={[100, 250, 500]} />}
+            searchTerm={searchTerm} // Pass search term to child
+          />
+        </ReferenceManyField>
+      </>
     </>
   )
 }
