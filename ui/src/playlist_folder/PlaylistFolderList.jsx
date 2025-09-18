@@ -20,7 +20,9 @@ import { makeStyles } from '@material-ui/core/styles'
 
 import {
   List,
+  Pagination,
   Writable,
+  getStoredPageSize,
   isWritable,
   useSelectedFields,
   useResourceRefresh,
@@ -140,6 +142,8 @@ const PlaylistFolderList = (props) => {
     columns: toggleableFields,
   })
 
+  const initialPerPage = useMemo(() => getStoredPageSize('folders'), [])
+
   return (
     <List
       {...props}
@@ -148,7 +152,8 @@ const PlaylistFolderList = (props) => {
       actions={<PlaylistListActions />}
       bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
       empty={<EmptyPlaylist />}
-      perPage={isXsmall ? 50 : 25}
+      perPage={initialPerPage}
+      pagination={<Pagination scope="folders" />}
     >
       <PlaylistFolderDataGrid rowClick={rowClick}>
         <TypeIconField label={false} />

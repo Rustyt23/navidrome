@@ -1,5 +1,8 @@
 export const REST_URL = '/api'
 
+export const PAGE_SIZES = [25, 50, 100, 200]
+export const DEFAULT_PAGE_SIZE = 50
+
 export const INSIGHTS_DOC_URL =
   'https://navidrome.org/docs/getting-started/insights'
 
