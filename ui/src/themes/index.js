@@ -13,7 +13,7 @@ import CatppuccinMacchiatoTheme from './catppuccinMacchiato'
 import NuclearTheme from './nuclear'
 import ItachiTheme from './itachi'
 
-export default {
+const themes = {
   // Classic default themes
   LightTheme,
   DarkTheme,
@@ -32,3 +32,35 @@ export default {
   NuclearTheme,
   SpotifyTheme,
 }
+
+const commonMuiTableRoot = {
+  borderCollapse: 'separate',
+  borderSpacing: '0 1px',
+}
+
+const applyCommonOverrides = (theme) => {
+  const overrides = theme.overrides ?? {}
+  const muiTable = overrides.MuiTable ?? {}
+  const muiTableRoot = muiTable.root ?? {}
+
+  return {
+    ...theme,
+    overrides: {
+      ...overrides,
+      MuiTable: {
+        ...muiTable,
+        root: {
+          ...muiTableRoot,
+          ...commonMuiTableRoot,
+        },
+      },
+    },
+  }
+}
+
+export default Object.fromEntries(
+  Object.entries(themes).map(([name, theme]) => [
+    name,
+    applyCommonOverrides(theme),
+  ]),
+)
