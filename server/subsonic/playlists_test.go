@@ -86,3 +86,7 @@ func (f *fakePlaylists) Update(ctx context.Context, playlistID string, name *str
 	f.lastRemove = idxToRemove
 	return nil
 }
+
+func (f *fakePlaylists) Publish(context.Context, string) error {
+	return nil
+}

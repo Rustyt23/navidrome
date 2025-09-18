@@ -203,32 +203,9 @@ func (p *mockPlaylists) ImportFile(ctx context.Context, folder *model.Folder, fi
 	return args.Get(0).(*model.Playlist), args.Error(1)
 }
 
-type playlistRepoMock struct {
-	model.PlaylistRepository
-	playlists map[string]model.Playlist
-	deleted   []string
-}
-
-func (m *playlistRepoMock) GetSyncedByDirectory(dir string) (model.Playlists, error) {
-	cleanedDir := filepath.Clean(dir)
-	var res model.Playlists
-	for _, pls := range m.playlists {
-		if filepath.Clean(filepath.Dir(pls.Path)) == cleanedDir {
-			res = append(res, pls)
-		}
-	}
-	return res, nil
-}
-
-func (m *playlistRepoMock) Delete(id string) error {
-	m.deleted = append(m.deleted, id)
-	for path, pls := range m.playlists {
-		if pls.ID == id {
-			delete(m.playlists, path)
-			break
-		}
-	}
-	return nil
+func (p *mockPlaylists) Publish(ctx context.Context, playlistID string) error {
+	args := p.Called(ctx, playlistID)
+	return args.Error(0)
 }
 
 type mockFolderRepository struct {

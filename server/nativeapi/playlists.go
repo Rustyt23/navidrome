@@ -150,7 +150,12 @@ func handleExportPlaylist(ds model.DataStore) http.HandlerFunc {
 func publishPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		if err := syncPlaylist(playlists, ds, r.Context(), id); err != nil {
+		ctx := r.Context()
+		if err := syncPlaylist(playlists, ds, ctx, id); err != nil {
+			http.Error(w, err.Error(), statusFor(err))
+			return
+		}
+		if err := playlists.Publish(ctx, id); err != nil {
 			http.Error(w, err.Error(), statusFor(err))
 			return
 		}
