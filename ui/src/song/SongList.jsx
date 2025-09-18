@@ -37,6 +37,8 @@ import { AlbumLinkField } from './AlbumLinkField'
 import { SongBulkActions, QualityInfo, useSelectedFields } from '../common'
 import config from '../config'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
+import { SongsPagination } from './SongsPagination'
+import { getStoredSongsPerPage } from './songsPaginationConfig'
 
 const useStyles = makeStyles({
   contextHeader: {
@@ -138,6 +140,7 @@ const SongList = (props) => {
   useResourceRefresh('song')
 
   const songs = useSelector((state) => state.admin.resources.song)
+  const perPage = useMemo(() => getStoredSongsPerPage(), [])
 
   const handleRowClick = useCallback((id, basePath, record) => {
       // Convert songs.data to an array if it's an object
@@ -244,7 +247,8 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isMobile ? 50 : 15}
+        perPage={perPage}
+        pagination={<SongsPagination />}
       >
         {isMobile ? (
           <SongSimpleList />
