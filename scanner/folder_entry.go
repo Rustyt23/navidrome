@@ -68,6 +68,12 @@ func (f *folderEntry) isOutdated() bool {
 	if f.job.lib.FullScanInProgress && f.updTime.Before(f.job.lib.LastScanStartedAt) {
 		return true
 	}
+	if f.isNew() || f.prevHash == "" {
+		return true
+	}
+	if !f.job.lib.FullScanInProgress && !f.modTime.After(f.updTime) {
+		return false
+	}
 	return f.prevHash != f.hash()
 }
 

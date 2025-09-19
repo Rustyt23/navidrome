@@ -388,8 +388,13 @@ var _ = Describe("folder_entry", func() {
 		})
 
 		Describe("isOutdated", func() {
+			var now time.Time
+
 			BeforeEach(func() {
+				now = time.Now()
+				entry.modTime = now
 				entry.prevHash = entry.hash()
+				entry.updTime = now
 			})
 
 			Context("when full scan is in progress", func() {
@@ -419,7 +424,12 @@ var _ = Describe("folder_entry", func() {
 					entry.job.lib.FullScanInProgress = false
 				})
 
-				It("returns false when hash hasn't changed", func() {
+				It("returns false when mod time has not advanced", func() {
+					Expect(entry.isOutdated()).To(BeFalse())
+				})
+
+				It("returns false when mod time is before last update", func() {
+					entry.modTime = now.Add(-1 * time.Minute)
 					Expect(entry.isOutdated()).To(BeFalse())
 				})
 
@@ -451,6 +461,25 @@ var _ = Describe("folder_entry", func() {
 					entry.numPlaylists = 10 // Change hash
 					Expect(entry.isOutdated()).To(BeTrue())
 				})
+			})
+
+			It("returns true for new folders", func() {
+				entry = newFolderEntry(job, path)
+				Expect(entry.isOutdated()).To(BeTrue())
+			})
+
+			It("returns true when mod time advanced even if hash unchanged", func() {
+				entry.modTime = now.Add(2 * time.Minute)
+				entry.prevHash = entry.hash()
+				Expect(entry.isOutdated()).To(BeFalse())
+
+				// Simulate persisted state with updated prevHash and timestamps
+				entry.updTime = entry.modTime
+				entry.prevHash = entry.hash()
+
+				// Advance mod time without changing hash-dependent data
+				entry.modTime = entry.modTime.Add(1 * time.Minute)
+				Expect(entry.isOutdated()).To(BeTrue())
 			})
 		})
 	})

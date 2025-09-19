@@ -120,6 +120,7 @@ func loadDir(ctx context.Context, job *scanJob, dirPath string, ignorePatterns [
 	ignoreMatcher := ignore.CompileIgnoreLines(ignorePatterns...)
 	entries := fullReadDir(ctx, dirFile)
 	children = make([]string, 0, len(entries))
+	needsDetails := job.lib.FullScanInProgress || folder.isNew() || folder.prevHash == "" || folder.modTime.After(folder.updTime)
 	for _, entry := range entries {
 		entryPath := path.Join(dirPath, entry.Name())
 		if len(ignorePatterns) > 0 && isScanIgnored(ctx, ignoreMatcher, entryPath) {
@@ -142,6 +143,9 @@ func loadDir(ctx context.Context, job *scanJob, dirPath string, ignorePatterns [
 			children = append(children, entryPath)
 			folder.numSubFolders++
 		} else {
+			if !needsDetails {
+				continue
+			}
 			fileInfo, err := entry.Info()
 			if err != nil {
 				log.Warn(ctx, "Scanner: Error getting fileInfo", "name", entry.Name(), err)
