@@ -1,4 +1,14 @@
-import React, { isValidElement, useMemo, useCallback, forwardRef } from 'react'
+import React, {
+  isValidElement,
+  useMemo,
+  useCallback,
+  forwardRef,
+  useState,
+  useEffect,
+  useRef,
+  useContext,
+  createContext,
+} from 'react'
 import { useDispatch } from 'react-redux'
 import {
   Datagrid,
@@ -16,11 +26,18 @@ import PropTypes from 'prop-types'
 import { makeStyles } from '@material-ui/core/styles'
 import AlbumIcon from '@material-ui/icons/Album'
 import clsx from 'clsx'
-import { useDrag } from 'react-dnd'
+import { useDrag, useDrop } from 'react-dnd'
 import { playTracks } from '../actions'
 import { AlbumContextMenu } from '../common'
+import DragIndicatorIcon from '@material-ui/icons/DragIndicator'
 import { DraggableTypes } from '../consts'
 import { formatFullDate } from '../utils'
+
+const ORDER_KEY = 'nd:songs:columnOrder'
+const VISIBLE_KEY = 'nd:songs:visibleColumns'
+
+const SongColumnsContext = createContext()
+export const useSongColumns = () => useContext(SongColumnsContext)
 
 const useStyles = makeStyles({
   subtitle: {
@@ -58,6 +75,39 @@ const useStyles = makeStyles({
     visibility: (props) => (props.isDesktop ? 'hidden' : 'visible'),
   },
 })
+
+const ColumnHeader = ({ id, index, moveColumn, label }) => {
+  const ref = useRef(null)
+  const [, drop] = useDrop({
+    accept: DraggableTypes.COLUMN,
+    drop: (item) => {
+      if (item.id !== id) moveColumn(item.id, index)
+    },
+  })
+  drop(ref)
+
+  const [, drag] = useDrag({
+    type: DraggableTypes.COLUMN,
+    item: { id },
+  })
+
+  return (
+    <span
+      ref={ref}
+      style={{ display: 'inline-flex', alignItems: 'center' }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span
+        ref={drag}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ cursor: 'grab', display: 'inline-flex', marginRight: 4 }}
+      >
+        <DragIndicatorIcon fontSize="small" />
+      </span>
+      {label}
+    </span>
+  )
+}
 
 const DiscSubtitleRow = forwardRef(
   ({ record, onClick, colSpan, contextAlwaysVisible }, ref) => {
@@ -260,21 +310,145 @@ const SongDatagridBody = ({
 export const SongDatagrid = ({
   contextAlwaysVisible,
   showDiscSubtitles,
+  children,
   ...rest
 }) => {
   const classes = useStyles()
+  const translate = useTranslate()
+
+  const childArray = React.Children.toArray(children).filter((c) =>
+    isValidElement(c),
+  )
+
+  const columns = childArray.map((child, index) => {
+    const id = child.props.source || child.props.id || `col${index}`
+    const label =
+      child.props.label ||
+      (child.props.source
+        ? translate(`resources.song.fields.${child.props.source}`)
+        : id)
+    const pinned = child.props.pinned || index === childArray.length - 1
+    return { id, label, renderCell: child, visible: true, pinned }
+  })
+
+  const defaultOrder = columns.filter((c) => !c.pinned).map((c) => c.id)
+
+  const [columnOrder, setColumnOrder] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(ORDER_KEY))
+      if (stored && Array.isArray(stored)) return stored
+    } catch (e) {}
+    return defaultOrder
+  })
+
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(VISIBLE_KEY))
+      if (stored && Array.isArray(stored)) return new Set(stored)
+    } catch (e) {}
+    return new Set(columns.map((c) => c.id))
+  })
+
+  useEffect(() => {
+    localStorage.setItem(ORDER_KEY, JSON.stringify(columnOrder))
+  }, [columnOrder])
+
+  useEffect(() => {
+    localStorage.setItem(
+      VISIBLE_KEY,
+      JSON.stringify(Array.from(visibleColumns)),
+    )
+  }, [visibleColumns])
+
+  const moveColumn = useCallback((id, toIndex) => {
+    setColumnOrder((prev) => {
+      const order = prev.filter((c) => c !== id)
+      order.splice(toIndex, 0, id)
+      return [...order]
+    })
+  }, [])
+
+  const toggleColumn = useCallback((id) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }, [])
+
+  const resetColumns = useCallback(() => {
+    setColumnOrder(defaultOrder)
+    setVisibleColumns(new Set(columns.map((c) => c.id)))
+  }, [columns, defaultOrder])
+
+  const firstMovable = columns.findIndex((c) => !c.pinned)
+  const pinnedStart = []
+  const pinnedEnd = []
+  const movable = []
+  columns.forEach((c, idx) => {
+    if (c.pinned) {
+      if (idx < firstMovable) pinnedStart.push(c)
+      else pinnedEnd.push(c)
+    } else movable.push(c)
+  })
+  const orderedMovable = columnOrder
+    .map((id) => movable.find((c) => c.id === id))
+    .filter(Boolean)
+  const orderedColumns = [...pinnedStart, ...orderedMovable, ...pinnedEnd]
+
+  const elements = []
+  orderedColumns.forEach((c) => {
+    if (!visibleColumns.has(c.id)) return
+    if (c.pinned) {
+      elements.push(
+        React.cloneElement(c.renderCell, {
+          key: c.id,
+          label: c.label,
+        }),
+      )
+    } else {
+      const index = orderedMovable.findIndex((m) => m.id === c.id)
+      elements.push(
+        React.cloneElement(c.renderCell, {
+          key: c.id,
+          label: (
+            <ColumnHeader
+              id={c.id}
+              index={index}
+              moveColumn={moveColumn}
+              label={c.label}
+            />
+          ),
+        }),
+      )
+    }
+  })
+
+  const providerValue = {
+    columnOrder,
+    visibleColumns,
+    moveColumn,
+    toggleColumn,
+    resetColumns,
+    columns,
+  }
+
   return (
-    <Datagrid
-      className={classes.headerStyle}
-      isRowSelectable={(r) => !r?.missing}
-      {...rest}
-      body={
-        <SongDatagridBody
-          contextAlwaysVisible={contextAlwaysVisible}
-          showDiscSubtitles={showDiscSubtitles}
-        />
-      }
-    />
+    <SongColumnsContext.Provider value={providerValue}>
+      <Datagrid
+        className={classes.headerStyle}
+        isRowSelectable={(r) => !r?.missing}
+        {...rest}
+        body={
+          <SongDatagridBody
+            contextAlwaysVisible={contextAlwaysVisible}
+            showDiscSubtitles={showDiscSubtitles}
+          />
+        }
+      >
+        {elements}
+      </Datagrid>
+    </SongColumnsContext.Provider>
   )
 }
 
@@ -282,4 +456,5 @@ SongDatagrid.propTypes = {
   contextAlwaysVisible: PropTypes.bool,
   showDiscSubtitles: PropTypes.bool,
   classes: PropTypes.object,
+  children: PropTypes.node,
 }

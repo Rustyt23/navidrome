@@ -12,6 +12,7 @@ export const DraggableTypes = {
   ALBUM: 'album',
   DISC: 'disc',
   ARTIST: 'artist',
+  COLUMN: 'column',
   ALL: [],
   PLAYLIST: 'playlist',
   FOLDER: 'folder',
