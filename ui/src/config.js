@@ -1,6 +1,8 @@
 // These defaults are only used in development mode. When bundled in the app,
 // the __APP_CONFIG__ object is dynamically filled by the ServeIndex function,
 // in the /server/app/serve_index.go
+export const MAX_SIDEBAR_ITEMS = 200
+
 const defaultConfig = {
   version: 'dev',
   firstTime: false,
@@ -8,8 +10,8 @@ const defaultConfig = {
   variousArtistsId: '63sqASlAfjbGMuLP4JhnZU', // See consts.VariousArtistsID in consts.go
   // Login backgrounds from https://unsplash.com/collections/1065384/music-wallpapers
   loginBackgroundURL: 'https://source.unsplash.com/collection/1065384/1600x900',
-  maxSidebarPlaylists: 100,
-  maxSidebarPlaylistFolders: 50,
+  maxSidebarPlaylists: MAX_SIDEBAR_ITEMS,
+  maxSidebarPlaylistFolders: MAX_SIDEBAR_ITEMS,
   enableTranscodingConfig: true,
   enableDownloads: true,
   enableFavourites: true,
