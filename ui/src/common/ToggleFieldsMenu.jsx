@@ -3,7 +3,7 @@ import PropTypes from 'prop-types'
 import IconButton from '@material-ui/core/IconButton'
 import Menu from '@material-ui/core/Menu'
 import MenuItem from '@material-ui/core/MenuItem'
-import { makeStyles, Typography } from '@material-ui/core'
+import { makeStyles, Typography, useMediaQuery } from '@material-ui/core'
 import MoreVertIcon from '@material-ui/icons/MoreVert'
 import Checkbox from '@material-ui/core/Checkbox'
 import { useDispatch, useSelector } from 'react-redux'
@@ -43,6 +43,19 @@ export const ToggleFieldsMenu = ({
 
   const classes = useStyles()
   const open = Boolean(anchorEl)
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down('sm'))
+
+  const shouldHideColumn = (key) => {
+    if (!isMobile) {
+      return false
+    }
+
+    if (resource !== 'song') {
+      return false
+    }
+
+    return ['like', 'rating', 'starred', 'starred_at'].includes(key)
+  }
 
   const handleOpen = (event) => {
     setAnchorEl(event.currentTarget)
@@ -90,7 +103,7 @@ export const ToggleFieldsMenu = ({
             </Typography>
             <div className={classes.columns}>
               {Object.entries(toggleableColumns).map(([key, val]) =>
-                !omittedColumns.includes(key) ? (
+                !omittedColumns.includes(key) && !shouldHideColumn(key) ? (
                   <MenuItem key={key} onClick={() => handleClick(key)}>
                     <Checkbox checked={val} />
                     {translate(`resources.${resource}.fields.${key}`)}

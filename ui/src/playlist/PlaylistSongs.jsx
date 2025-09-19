@@ -97,6 +97,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
   const listContext = useListContext()
   const { data, ids, selectedIds, onUnselectItems, refetch, setPage } =
     listContext
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down('sm'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
@@ -149,9 +150,15 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
   const toggleableFields = useMemo(() => {
     return {
       trackNumber: isDesktop && <TextField source="id" label={'#'} />,
-      title: <SongTitleField source="title" showTrackNumbers={false} />,
+      title: (
+        <SongTitleField
+          source="title"
+          showTrackNumbers={false}
+          cellClassName={isMobile ? classes.draggable : undefined}
+        />
+      ),
       album: isDesktop && <AlbumLinkField source="album" />,
-      artist: isDesktop && <ArtistLinkField source="artist" />,
+      artist: <ArtistLinkField source="artist" />,
       albumArtist: isDesktop && <ArtistLinkField source="albumArtist" />,
       duration: (
         <DurationField source="duration" className={classes.draggable} />
@@ -182,7 +189,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
         />
       ),
     }
-  }, [isDesktop, classes.draggable, classes.ratingField])
+  }, [isDesktop, isMobile, classes.draggable, classes.ratingField])
 
   const columns = useSelectedFields({
     resource: 'playlistTrack',
@@ -198,6 +205,20 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
       'rating',
     ],
   })
+
+  const displayedColumns = useMemo(() => {
+    if (!isMobile) {
+      return columns
+    }
+
+    const findColumn = (source) =>
+      columns.find((column) => column?.props?.source === source)
+
+    const titleColumn = findColumn('title') || toggleableFields.title
+    const artistColumn = findColumn('artist') || toggleableFields.artist
+
+    return [titleColumn, artistColumn].filter(Boolean)
+  }, [columns, isMobile, toggleableFields.artist, toggleableFields.title])
 
   return (
     <>
@@ -233,7 +254,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
               contextAlwaysVisible={!isDesktop}
               classes={{ row: classes.row }}
             >
-              {columns}
+              {displayedColumns}
               <SongContextMenu
                 onAddToPlaylist={onAddToPlaylist}
                 showLove={true}
