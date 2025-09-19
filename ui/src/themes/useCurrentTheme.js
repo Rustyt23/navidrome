@@ -16,7 +16,7 @@ const useCurrentTheme = () => {
       Object.keys(themes).find(
         (t) => themes[t].themeName === config.defaultTheme,
       ) ||
-      'DarkTheme'
+      'MusicMattersTheme'
     return themes[themeName]
   })
 
