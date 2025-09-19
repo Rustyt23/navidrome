@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import PropTypes from 'prop-types'
 import IconButton from '@material-ui/core/IconButton'
 import Menu from '@material-ui/core/Menu'
@@ -8,7 +8,9 @@ import MoreVertIcon from '@material-ui/icons/MoreVert'
 import Checkbox from '@material-ui/core/Checkbox'
 import { useDispatch, useSelector } from 'react-redux'
 import { useTranslate } from 'react-admin'
-import { setToggleableFields } from '../actions'
+import { setToggleableFields, setFieldsOrder } from '../actions'
+import ReactDragListView from 'react-drag-listview'
+import DragIndicatorIcon from '@material-ui/icons/DragIndicator'
 
 const useStyles = makeStyles({
   menuIcon: {
@@ -25,6 +27,10 @@ const useStyles = makeStyles({
   title: {
     margin: '1rem',
   },
+  dragHandle: {
+    cursor: 'move',
+    marginRight: '0.5rem',
+  },
 })
 
 export const ToggleFieldsMenu = ({
@@ -40,6 +46,9 @@ export const ToggleFieldsMenu = ({
   )
   const omittedColumns =
     useSelector((state) => state.settings.omittedFields[resource]) || []
+  const fieldsOrder = useSelector(
+    (state) => state.settings.fieldsOrder[resource] || [],
+  )
 
   const classes = useStyles()
   const open = Boolean(anchorEl)
@@ -61,6 +70,19 @@ export const ToggleFieldsMenu = ({
       }),
     )
   }
+
+  const handleDragEnd = useCallback(
+    (from, to) => {
+      const newOrder = fieldsOrder.slice()
+      const item = newOrder.splice(from, 1)[0]
+      newOrder.splice(to, 0, item)
+      dispatch(setFieldsOrder({ [resource]: newOrder }))
+    },
+    [dispatch, fieldsOrder, resource],
+  )
+
+  const orderedColumns = fieldsOrder.filter((k) => k in toggleableColumns)
+    .concat(Object.keys(toggleableColumns).filter((k) => !fieldsOrder.includes(k)))
 
   return (
     <div className={classes.menuIcon}>
@@ -89,14 +111,21 @@ export const ToggleFieldsMenu = ({
               {translate('ra.toggleFieldsMenu.columnsToDisplay')}
             </Typography>
             <div className={classes.columns}>
-              {Object.entries(toggleableColumns).map(([key, val]) =>
-                !omittedColumns.includes(key) ? (
-                  <MenuItem key={key} onClick={() => handleClick(key)}>
-                    <Checkbox checked={val} />
-                    {translate(`resources.${resource}.fields.${key}`)}
-                  </MenuItem>
-                ) : null,
-              )}
+              <ReactDragListView
+                nodeSelector="li"
+                handleSelector=".drag-handle"
+                onDragEnd={handleDragEnd}
+              >
+                {orderedColumns.map((key) =>
+                  !omittedColumns.includes(key) ? (
+                    <MenuItem key={key} onClick={() => handleClick(key)}>
+                      <DragIndicatorIcon className={`drag-handle ${classes.dragHandle}`} />
+                      <Checkbox checked={toggleableColumns[key]} />
+                      {translate(`resources.${resource}.fields.${key}`)}
+                    </MenuItem>
+                  ) : null,
+                )}
+              </ReactDragListView>
             </div>
           </div>
         ) : null}
