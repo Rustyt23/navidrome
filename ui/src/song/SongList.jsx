@@ -17,6 +17,7 @@ import {
   DateField,
   DurationField,
   List,
+  Pagination,
   SongContextMenu,
   SongDatagrid,
   SongInfo,
@@ -24,6 +25,7 @@ import {
   SongTitleField,
   SongSimpleList,
   RatingField,
+  getStoredPageSize,
   useResourceRefresh,
   ArtistLinkField,
   PathField,
@@ -235,6 +237,8 @@ const SongList = (props) => {
     ],
   })
 
+  const initialPerPage = useMemo(() => getStoredPageSize('songs'), [])
+
   return (
     <>
       <List
@@ -244,7 +248,8 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 15}
+        perPage={initialPerPage}
+        pagination={<Pagination scope="songs" />}
       >
         {isXsmall ? (
           <SongSimpleList />

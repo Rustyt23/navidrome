@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useMemo, useState, useCallback } from 'react'
 import {
   ReferenceManyField,
   ShowContextProvider,
@@ -6,14 +6,19 @@ import {
   useShowController,
   SearchInput,
   Filter,
-  Pagination,
   Title as RaTitle,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import PlaylistDetails from './PlaylistDetails'
 import PlaylistSongs from './PlaylistSongs'
 import PlaylistActions from './PlaylistActions'
-import { Title, canChangeTracks, useResourceRefresh } from '../common'
+import {
+  Pagination,
+  Title,
+  canChangeTracks,
+  getStoredPageSize,
+  useResourceRefresh,
+} from '../common'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -31,6 +36,8 @@ const PlaylistShowLayout = (props) => {
   const { record } = context
   const classes = useStyles()
   useResourceRefresh('song')
+
+  const perPage = useMemo(() => getStoredPageSize('playlistTracks'), [])
 
   // Store search query in state to prevent losing focus
   const [searchTerm, setSearchTerm] = useState('')
@@ -63,7 +70,7 @@ const PlaylistShowLayout = (props) => {
             reference="playlistTrack"
             target="playlist_id"
             sort={{ field: 'id', order: 'ASC' }}
-            perPage={100}
+            perPage={perPage}
             filter={{ playlist_id: props.id, title: searchTerm }} // Pass searchTerm as a filter
           >
             <PlaylistSongs
@@ -78,7 +85,7 @@ const PlaylistShowLayout = (props) => {
               }
               resource={'playlistTrack'}
               exporter={false}
-              pagination={<Pagination rowsPerPageOptions={[100, 250, 500]} />}
+              pagination={<Pagination scope="playlistTracks" />}
               searchTerm={searchTerm} // Pass search term to child
             />
           </ReferenceManyField>
