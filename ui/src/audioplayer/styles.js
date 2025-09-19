@@ -85,6 +85,22 @@ const useStyle = makeStyles(
       '& .react-jinke-music-player-mobile-progress': {
         display: (props) => (props.isRadio ? 'none' : 'flex'),
       },
+      '& [data-transport-control]': {
+        background: 'transparent',
+        border: 'none',
+        color: 'inherit',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        margin: 0,
+        font: 'inherit',
+        cursor: 'pointer',
+        touchAction: 'manipulation',
+      },
+      '& [data-transport-control] svg': {
+        pointerEvents: 'none',
+      },
     },
   }),
   { name: 'NDAudioPlayer' },

@@ -27,19 +27,21 @@ export const filterSongs = (data, ids) => {
       }, {})
 }
 
-export const addTracks = (data, ids) => {
+export const addTracks = (data, ids, meta) => {
   const songs = filterSongs(data, ids)
   return {
     type: PLAYER_ADD_TRACKS,
     data: songs,
+    meta,
   }
 }
 
-export const playNext = (data, ids) => {
+export const playNext = (data, ids, meta) => {
   const songs = filterSongs(data, ids)
   return {
     type: PLAYER_PLAY_NEXT,
     data: songs,
+    meta,
   }
 }
 
@@ -67,12 +69,13 @@ export const shuffleTracks = (data, ids) => {
   }
 }
 
-export const playTracks = (data, ids, selectedId) => {
+export const playTracks = (data, ids, selectedId, meta) => {
   const songs = filterSongs(data, ids)
   return {
     type: PLAYER_PLAY_TRACKS,
     id: selectedId || Object.keys(songs)[0],
     data: songs,
+    meta,
   }
 }
 
