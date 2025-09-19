@@ -3,7 +3,7 @@ import { useDataProvider, useNotify, useRefresh } from 'react-admin'
 import { useHistory } from 'react-router-dom'
 import {
   Typography, List, ListItem, ListItemIcon, ListItemText,
-  IconButton, makeStyles, Collapse, CircularProgress,
+  IconButton, makeStyles, Collapse, CircularProgress, Button,
 } from '@material-ui/core'
 import { BiCog } from 'react-icons/bi'
 import { useDrop } from 'react-dnd'
@@ -14,7 +14,6 @@ import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import SubMenu from './SubMenu'
 import { canChangeTracks } from '../common'
 import { DraggableTypes } from '../consts'
-import config from '../config'
 import useDragAndDrop from '../common/useDragAndDrop'
 
 const useStyles = makeStyles((theme) => ({
@@ -34,23 +33,86 @@ const useStyles = makeStyles((theme) => ({
   nested: { paddingLeft: theme.spacing(2) },
   depth: (props) => ({ paddingLeft: theme.spacing(2) + props.depth * theme.spacing(2) }),
   spinner: { marginLeft: 6 },
+  showMoreButton: {
+    textTransform: 'none',
+    paddingLeft: 0,
+    paddingRight: 0,
+    justifyContent: 'flex-start',
+    width: '100%',
+    minWidth: 0,
+  },
+  showMoreSpinner: {
+    marginLeft: 0,
+  },
 }))
+
+// Sidebar lists render results in fixed batches so "Show more" can append in-place.
+const MAX_SIDEBAR_ITEMS = 200
 
 const parentKey = (id) => (id == null || id === '' ? '' : String(id))
 const parentFilterValue = parentKey
+
+const mergeUniqueItems = (prev = [], next = []) => {
+  if (!prev.length) return [...next]
+
+  const indexByKey = new Map()
+  prev.forEach((item, index) => {
+    indexByKey.set(`${item.type}:${item.id}`, index)
+  })
+
+  const merged = [...prev]
+  next.forEach((item) => {
+    const key = `${item.type}:${item.id}`
+    if (indexByKey.has(key)) {
+      const idx = indexByKey.get(key)
+      merged[idx] = { ...merged[idx], ...item }
+    } else {
+      indexByKey.set(key, merged.length)
+      merged.push(item)
+    }
+  })
+
+  return merged
+}
 
 const useChildrenStore = () => {
   const [store, setStore] = useState({})
   const inFlightRef = useRef(new Map())
 
-  const setItems = useCallback((parentId, items) => {
+  const setItems = useCallback((parentId, items, { append = false, total, batchSize } = {}) => {
     const key = parentKey(parentId)
     const enriched = (items || []).map((it) => ({
       ...it,
       parent_id:
         it.parent_id ?? it.parentId ?? it.folder_id ?? it.folderId ?? key,
     }))
-    setStore((s) => ({ ...s, [key]: { items: enriched, dirty: false, cached: true } }))
+    setStore((s) => {
+      const prev = s[key] || { items: [], total: undefined, hasMore: false }
+      const merged = append ? mergeUniqueItems(prev.items, enriched) : enriched
+      const pageSize = batchSize || 0
+      let totalCount = prev.total
+
+      if (typeof total === 'number') {
+        totalCount = total
+      } else if (!pageSize || (items || []).length < pageSize) {
+        totalCount = append ? merged.length : (items || []).length
+      }
+
+      const hasMore =
+        typeof totalCount === 'number'
+          ? merged.length < totalCount
+          : !!pageSize && (items || []).length === pageSize
+      return {
+        ...s,
+        [key]: {
+          items: merged,
+          dirty: false,
+          cached: true,
+          total: totalCount,
+          hasMore,
+        },
+      }
+    })
   }, [])
 
   const markDirty = useCallback((parentIds) => {
@@ -58,38 +120,56 @@ const useChildrenStore = () => {
       const next = { ...s }
       parentIds.forEach((pid) => {
         const key = parentKey(pid)
-        const prev = next[key] || { items: [], cached: false }
-        next[key] = { items: prev.items, dirty: true, cached: !!prev.cached }
+        const prev =
+          next[key] || { items: [], cached: false, total: undefined, hasMore: false }
+        next[key] = { ...prev, dirty: true, cached: !!prev.cached }
       })
       return next
     })
   }, [])
 
   const get = useCallback(
-    (pid) => store[parentKey(pid)] || { items: [], dirty: true, cached: false },
+    (pid) =>
+      store[parentKey(pid)] || {
+        items: [],
+        dirty: true,
+        cached: false,
+        total: undefined,
+        hasMore: false,
+      },
     [store]
   )
 
-  const ensure = useCallback(async (parentId, fetcher) => {
-    const key = parentKey(parentId)
-    const entry = store[key]
-    if (entry && entry.cached && !entry.dirty) return entry.items
+  const ensure = useCallback(
+    async (parentId, fetcher, { append = false, force = false, batchSize } = {}) => {
+      const key = parentKey(parentId)
+      const entry = store[key]
+      if (!force && entry && entry.cached && !entry.dirty) return entry.items
 
-    const inFlight = inFlightRef.current.get(key)
-    if (inFlight) return inFlight
+      const inFlight = inFlightRef.current.get(key)
+      if (inFlight) return inFlight
 
-    const p = (async () => {
-      const data = await fetcher()
-      setItems(parentId, data || [])
-      inFlightRef.current.delete(key)
-      return data
-    })().catch((e) => {
-      inFlightRef.current.delete(key)
-      throw e
-    })
-    inFlightRef.current.set(key, p)
-    return p
-  }, [setItems, store])
+      const p = (async () => {
+        const result = await fetcher()
+        const payload = Array.isArray(result)
+          ? { items: result, total: undefined }
+          : result || { items: [], total: undefined }
+        setItems(parentId, payload.items || [], {
+          append,
+          total: payload.total,
+          batchSize,
+        })
+        inFlightRef.current.delete(key)
+        return payload.items
+      })().catch((e) => {
+        inFlightRef.current.delete(key)
+        throw e
+      })
+      inFlightRef.current.set(key, p)
+      return p
+    },
+    [setItems, store]
+  )
 
   const moveItem = useCallback((item, fromPid, toPid) => {
     setStore((s) => {
@@ -167,23 +247,28 @@ const FolderRow = memo(function FolderRow({
   const history = useHistory()
   const refresh = useRefresh()
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const { get, markDirty, moveItem, ensure } = childrenStore
-  const { items, dirty, cached } = get(node.id)
+  const { items, dirty, cached, hasMore, total } = get(node.id)
 
   const fetchChildrenOnce = useCallback(async () => {
     if (!open) return
     if (!dirty && cached) return
     setLoading(true)
     try {
-      await ensure(node.id, async () => {
-        const res = await dataProvider.getList('folder', {
-          pagination: { page: 1, perPage: config.maxSidebarPlaylistFolders },
-          sort: { field: 'name', order: 'ASC' },
-          filter: { parent_id: parentFilterValue(node.id) },
-        })
-        return res?.data || []
-      })
+      await ensure(
+        node.id,
+        async () => {
+          const res = await dataProvider.getList('folder', {
+            pagination: { page: 1, perPage: MAX_SIDEBAR_ITEMS },
+            sort: { field: 'name', order: 'ASC' },
+            filter: { parent_id: parentFilterValue(node.id) },
+          })
+          return { items: res?.data || [], total: res?.total }
+        },
+        { batchSize: MAX_SIDEBAR_ITEMS }
+      )
     } catch {
       notify('ra.page.error', 'warning')
     } finally {
@@ -245,6 +330,38 @@ const FolderRow = memo(function FolderRow({
     playlists: (items || []).filter((i) => i.type === 'playlist'),
   }), [items])
 
+  const remainingCount = useMemo(() => {
+    if (typeof total !== 'number') return undefined
+    const diff = total - (items?.length || 0)
+    return diff > 0 ? diff : 0
+  }, [total, items])
+
+  const loadMoreChildren = useCallback(async () => {
+    if (!hasMore || loadingMore) return
+    setLoadingMore(true)
+    try {
+      // Keep the already loaded chunk and request the next page based on the batch size.
+      const currentCount = items?.length || 0
+      const nextPage = Math.ceil(currentCount / MAX_SIDEBAR_ITEMS) + 1
+      await ensure(
+        node.id,
+        async () => {
+          const res = await dataProvider.getList('folder', {
+            pagination: { page: nextPage, perPage: MAX_SIDEBAR_ITEMS },
+            sort: { field: 'name', order: 'ASC' },
+            filter: { parent_id: parentFilterValue(node.id) },
+          })
+          return { items: res?.data || [], total: res?.total }
+        },
+        { append: true, force: true, batchSize: MAX_SIDEBAR_ITEMS }
+      )
+    } catch {
+      notify('ra.page.error', 'warning')
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [hasMore, loadingMore, items, ensure, node.id, dataProvider, notify])
+
   return (
     <>
       <ListItem
@@ -279,6 +396,29 @@ const FolderRow = memo(function FolderRow({
           {childrenTyped.playlists.map((p) => (
             <PlaylistMenuItemLink key={p.id} pls={p} depth={depth + 1} />
           ))}
+          {hasMore && (
+            <ListItem className={`${classes.listItem} ${classes.depth}`}>
+              <span className={classes.spacer} />
+              <Button
+                size="small"
+                color="primary"
+                onClick={loadMoreChildren}
+                disabled={loadingMore}
+                className={classes.showMoreButton}
+                startIcon={
+                  loadingMore ? (
+                    <CircularProgress size={14} color="inherit" className={classes.showMoreSpinner} />
+                  ) : null
+                }
+              >
+                {`Show more${
+                  typeof remainingCount === 'number' && remainingCount > 0
+                    ? ` (${remainingCount})`
+                    : ''
+                }`}
+              </Button>
+            </ListItem>
+          )}
         </List>
       </Collapse>
     </>
@@ -300,6 +440,7 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const classes = useStyles()
   const [openMap, setOpenMap] = useState({})
   const childrenStore = useChildrenStore()
+  const [loadingMoreRoot, setLoadingMoreRoot] = useState(false)
 
   const handleToggle = (menu) => setState((s) => ({ ...s, [menu]: !s[menu] }))
 
@@ -308,19 +449,29 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   }, [history])
 
   const { get, markDirty, ensure, moveItem } = childrenStore
-  const { items: rootItems, dirty: rootDirty, cached: rootCached } = get('')
+  const {
+    items: rootItems,
+    dirty: rootDirty,
+    cached: rootCached,
+    hasMore: rootHasMore,
+    total: rootTotal,
+  } = get('')
 
   const fetchRootOnce = useCallback(async () => {
     if (!rootDirty && rootCached) return
     try {
-      await ensure('', async () => {
-        const res = await dataProvider.getList('folder', {
-          pagination: { page: 1, perPage: config.maxSidebarPlaylistFolders },
-          sort: { field: 'name', order: 'ASC' },
-          filter: { parent_id: parentFilterValue('') },
-        })
-        return res?.data || []
-      })
+      await ensure(
+        '',
+        async () => {
+          const res = await dataProvider.getList('folder', {
+            pagination: { page: 1, perPage: MAX_SIDEBAR_ITEMS },
+            sort: { field: 'name', order: 'ASC' },
+            filter: { parent_id: parentFilterValue('') },
+          })
+          return { items: res?.data || [], total: res?.total }
+        },
+        { batchSize: MAX_SIDEBAR_ITEMS }
+      )
     } catch {
       notify('ra.page.error', 'warning')
     }
@@ -379,6 +530,38 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const folders = useMemo(() => (rootItems || []).filter((i) => i.type === 'folder'), [rootItems])
   const playlists = useMemo(() => (rootItems || []).filter((i) => i.type === 'playlist'), [rootItems])
 
+  const remainingRoot = useMemo(() => {
+    if (typeof rootTotal !== 'number') return undefined
+    const diff = rootTotal - (rootItems?.length || 0)
+    return diff > 0 ? diff : 0
+  }, [rootTotal, rootItems])
+
+  const loadMoreRoot = useCallback(async () => {
+    if (!rootHasMore || loadingMoreRoot) return
+    setLoadingMoreRoot(true)
+    try {
+      // Sidebar root uses the same batching strategy as nested folders.
+      const currentCount = rootItems?.length || 0
+      const nextPage = Math.ceil(currentCount / MAX_SIDEBAR_ITEMS) + 1
+      await ensure(
+        '',
+        async () => {
+          const res = await dataProvider.getList('folder', {
+            pagination: { page: nextPage, perPage: MAX_SIDEBAR_ITEMS },
+            sort: { field: 'name', order: 'ASC' },
+            filter: { parent_id: parentFilterValue('') },
+          })
+          return { items: res?.data || [], total: res?.total }
+        },
+        { append: true, force: true, batchSize: MAX_SIDEBAR_ITEMS }
+      )
+    } catch {
+      notify('ra.page.error', 'warning')
+    } finally {
+      setLoadingMoreRoot(false)
+    }
+  }, [rootHasMore, loadingMoreRoot, rootItems, ensure, dataProvider, notify])
+
   return (
     <SubMenu
       handleToggle={() => handleToggle('menuPlaylists')}
@@ -411,6 +594,29 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
             {playlists.map((p) => (
               <PlaylistMenuItemLink key={p.id} pls={p} depth={0} />
             ))}
+            {rootHasMore && (
+              <ListItem className={classes.listItem}>
+                <span className={classes.spacer} />
+                <Button
+                  size="small"
+                  color="primary"
+                  onClick={loadMoreRoot}
+                  disabled={loadingMoreRoot}
+                  className={classes.showMoreButton}
+                  startIcon={
+                    loadingMoreRoot ? (
+                      <CircularProgress size={14} color="inherit" className={classes.showMoreSpinner} />
+                    ) : null
+                  }
+                >
+                  {`Show more${
+                    typeof remainingRoot === 'number' && remainingRoot > 0
+                      ? ` (${remainingRoot})`
+                      : ''
+                  }`}
+                </Button>
+              </ListItem>
+            )}
           </>
         )}
       </List>
