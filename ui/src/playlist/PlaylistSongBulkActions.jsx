@@ -1,6 +1,7 @@
 import React, { Fragment, useEffect } from 'react'
 import {
   BulkDeleteButton,
+  useListContext,
   useUnselectAll,
   ResourceContextProvider,
 } from 'react-admin'
@@ -25,11 +26,16 @@ const PlaylistSongBulkActions = ({
 }) => {
   const classes = useStyles()
   const unselectAll = useUnselectAll()
+  const listContext = useListContext()
+  const data = listContext?.data
   useEffect(() => {
     unselectAll('playlistTrack')
   }, [unselectAll])
 
   const mappedResource = `playlist/${playlistId}/tracks`
+  const selectedMediaIds = selectedIds.map(
+    (id) => data?.[id]?.mediaFileId ?? id,
+  )
   return (
     <ResourceContextProvider value={mappedResource}>
       <Fragment>
@@ -43,7 +49,7 @@ const PlaylistSongBulkActions = ({
         {/* Add the AddToPlaylistButton */}
         <AddToPlaylistButton
           resource={mappedResource} // Use the mapped resource for consistency
-          selectedIds={selectedIds} // Pass the selected IDs
+          selectedIds={selectedMediaIds} // Pass the mapped media IDs
           className={classes.button} // Apply custom styles
         />
       </Fragment>
@@ -54,7 +60,9 @@ const PlaylistSongBulkActions = ({
 PlaylistSongBulkActions.propTypes = {
   playlistId: PropTypes.string.isRequired,
   resource: PropTypes.string.isRequired,
-  selectedIds: PropTypes.arrayOf(PropTypes.string).isRequired,
+  selectedIds: PropTypes.arrayOf(
+    PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  ).isRequired,
   onUnselectItems: PropTypes.func,
 }
 
