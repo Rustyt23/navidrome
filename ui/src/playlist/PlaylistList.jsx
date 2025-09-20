@@ -20,6 +20,7 @@ import { useMediaQuery } from '@material-ui/core'
 import {
   DurationField,
   List,
+  Pagination,
   Writable,
   isWritable,
   useSelectedFields,
@@ -155,6 +156,8 @@ const PlaylistList = (props) => {
       filters={<PlaylistFilter />}
       actions={<PlaylistListActions />}
       bulkActionButtons={!isXsmall && <PlaylistListBulkActions />}
+      perPage={50}
+      pagination={<Pagination rowsPerPageOptions={[15, 25, 50, 100, 200]} />}
     >
       <Datagrid rowClick="show" isRowSelectable={(r) => isWritable(r?.ownerId)}>
         <TextField source="name" />
