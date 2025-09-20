@@ -60,14 +60,15 @@ func (n *Router) routes() http.Handler {
 			n.RX(r, "/share", n.share.NewRepository, true)
 		}
 
-		n.addPlaylistRoute(r)
-		n.addPlaylistFolderRoute(r)
-		n.addPlaylistTrackRoute(r)
-		n.addSongPlaylistsRoute(r)
-		n.addQueueRoute(r)
-		n.addMissingFilesRoute(r)
-		n.addKeepAliveRoute(r)
-		n.addInsightsRoute(r)
+                n.addPlaylistRoute(r)
+                n.addPlaylistFolderRoute(r)
+                n.addPlaylistTrackRoute(r)
+                n.addSongPlaylistsRoute(r)
+                n.addQueueRoute(r)
+                n.addPreferencesRoute(r)
+                n.addMissingFilesRoute(r)
+                n.addKeepAliveRoute(r)
+                n.addInsightsRoute(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
 			n.addInspectRoute(r)
