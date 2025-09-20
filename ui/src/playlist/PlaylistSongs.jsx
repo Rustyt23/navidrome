@@ -199,6 +199,29 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
     ],
   })
 
+  const handleRowClick = useCallback(
+    (id) => {
+      if (!ids || ids.length === 0) {
+        dispatch(playTracks(data, ids, id))
+        return
+      }
+
+      const startIndex = ids.indexOf(id)
+      if (startIndex === -1) {
+        dispatch(playTracks(data, ids, id))
+        return
+      }
+
+      const orderedIds = [
+        ...ids.slice(startIndex),
+        ...ids.slice(0, startIndex),
+      ]
+
+      dispatch(playTracks(data, orderedIds, id))
+    },
+    [dispatch, data, ids],
+  )
+
   return (
     <>
       <ListToolbar
@@ -227,7 +250,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
             handleSelector={'.draggable'}
           >
             <SongDatagrid
-              rowClick={(id) => dispatch(playTracks(data, ids, id))}
+              rowClick={handleRowClick}
               {...listContext}
               hasBulkActions={!readOnly}
               contextAlwaysVisible={!isDesktop}
