@@ -12,6 +12,7 @@ import Lightbox from 'react-image-lightbox'
 import 'react-image-lightbox/style.css'
 import { CollapsibleComment, DurationField, SizeField } from '../common'
 import subsonic from '../subsonic'
+import { intersperse } from '../utils'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -119,6 +120,39 @@ const PlaylistDetails = (props) => {
 
   const handleCloseLightbox = useCallback(() => setLightboxOpen(false), [])
 
+  const stats = []
+
+  if (record.songCount) {
+    stats.push(
+      <span key={'songs'}>
+        {record.songCount}{' '}
+        {translate('resources.song.name', {
+          smart_count: record.songCount,
+        })}
+      </span>,
+    )
+  }
+
+  if (record.duration) {
+    stats.push(
+      <span key={'duration'}>
+        {translate('resources.playlist.fields.duration')}
+        {': '}
+        <DurationField record={record} source={'duration'} />
+      </span>,
+    )
+  }
+
+  if (record.size) {
+    stats.push(
+      <span key={'size'}>
+        {translate('resources.song.fields.size')}
+        {': '}
+        <SizeField record={record} source={'size'} />
+      </span>,
+    )
+  }
+
   return (
     <Card className={classes.root}>
       <div className={classes.cardContents}>
@@ -148,20 +182,7 @@ const PlaylistDetails = (props) => {
               {record.name || translate('ra.page.loading')}
             </Typography>
             <Typography component="p" className={classes.stats}>
-              {record.songCount ? (
-                <span>
-                  {record.songCount}{' '}
-                  {translate('resources.song.name', {
-                    smart_count: record.songCount,
-                  })}
-                  {' · '}
-                  <DurationField record={record} source={'duration'} />
-                  {' · '}
-                  <SizeField record={record} source={'size'} />
-                </span>
-              ) : (
-                <span>&nbsp;</span>
-              )}
+              {stats.length ? intersperse(stats, ' ') : <span>&nbsp;</span>}
             </Typography>
             <CollapsibleComment record={record} />
           </CardContent>
