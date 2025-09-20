@@ -2,15 +2,12 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import List from '@material-ui/core/List'
 import ListItem from '@material-ui/core/ListItem'
-import ListItemIcon from '@material-ui/core/ListItemIcon'
-import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
+import ListSubheader from '@material-ui/core/ListSubheader'
 import { makeStyles } from '@material-ui/core/styles'
-import { sanitizeListRestProps } from 'react-admin'
-import { DurationField, SongContextMenu, RatingField } from './index'
+import { sanitizeListRestProps, useTranslate } from 'react-admin'
 import { setTrack } from '../actions'
 import { useDispatch } from 'react-redux'
-import config from '../config'
 
 const useStyles = makeStyles(
   {
@@ -18,33 +15,50 @@ const useStyles = makeStyles(
       textDecoration: 'none',
       color: 'inherit',
     },
+    subheader: {
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      columnGap: '12px',
+      padding: '6px 12px',
+      color: '#D1D5DB',
+      fontWeight: 600,
+      backgroundColor: 'transparent',
+    },
+    subheaderText: {
+      minWidth: 0,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      textAlign: 'left',
+    },
     listItem: {
-      padding: '10px',
+      padding: '6px 12px',
+    },
+    primary: {
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      columnGap: '12px',
+      alignItems: 'center',
+      width: '100%',
+      minWidth: 0,
     },
     title: {
-      paddingRight: '10px',
-      width: '80%',
-    },
-    secondary: {
-      marginTop: '-3px',
-      width: '96%',
-      display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
+      minWidth: 0,
+      fontWeight: 500,
+      color: '#FFFFFF',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      textAlign: 'left',
     },
     artist: {
-      paddingRight: '30px',
-    },
-    timeStamp: {
-      float: 'right',
-      color: '#fff',
-      fontWeight: '200',
-      opacity: 0.6,
-      fontSize: '12px',
-      padding: '2px',
-    },
-    rightIcon: {
-      top: '26px',
+      minWidth: 0,
+      color: '#FFFFFF',
+      fontWeight: 400,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      textAlign: 'left',
     },
   },
   { name: 'RaSongSimpleList' },
@@ -65,47 +79,47 @@ export const SongSimpleList = ({
 }) => {
   const dispatch = useDispatch()
   const classes = useStyles({ classes: classesOverride })
+  const translate = useTranslate()
   return (
     (loading || total > 0) && (
-      <List className={className} {...sanitizeListRestProps(rest)}>
+      <List
+        className={className}
+        {...sanitizeListRestProps(rest)}
+        subheader={
+          <ListSubheader component="div" disableSticky className={classes.subheader}>
+            <span className={classes.subheaderText}>
+              {translate('resources.song.fields.title', { _: 'Title' })}
+            </span>
+            <span className={classes.subheaderText}>
+              {translate('resources.song.fields.artist', { _: 'Artist' })}
+            </span>
+          </ListSubheader>
+        }
+      >
         {ids.map(
           (id) =>
             data[id] && (
               <span key={id} onClick={() => dispatch(setTrack(data[id]))}>
                 <ListItem className={classes.listItem} button={true}>
                   <ListItemText
+                    disableTypography
                     primary={
-                      <div className={classes.title}>{data[id].title}</div>
-                    }
-                    secondary={
-                      <>
-                        <span className={classes.secondary}>
-                          <span className={classes.artist}>
-                            {data[id].artist}
-                          </span>
-                          <span className={classes.timeStamp}>
-                            <DurationField
-                              record={data[id]}
-                              source={'duration'}
-                            />
-                          </span>
+                      <div className={classes.primary}>
+                        <span
+                          className={classes.title}
+                          title={data[id].title}
+                        >
+                          {data[id].title}
                         </span>
-                        {config.enableStarRating && (
-                          <RatingField
-                            record={data[id]}
-                            source={'rating'}
-                            resource={'song'}
-                            size={'small'}
-                          />
-                        )}
-                      </>
+                        <span
+                          className={classes.artist}
+                          title={data[id].artist}
+                        >
+                          {data[id].artist}
+                        </span>
+                      </div>
                     }
                   />
-                  <ListItemSecondaryAction className={classes.rightIcon}>
-                    <ListItemIcon>
-                      <SongContextMenu record={data[id]} visible={true} />
-                    </ListItemIcon>
-                  </ListItemSecondaryAction>
                 </ListItem>
               </span>
             ),

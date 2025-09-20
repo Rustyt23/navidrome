@@ -133,7 +133,7 @@ const SongFilter = (props) => {
 const SongList = (props) => {
   const classes = useStyles()
   const dispatch = useDispatch()
-  const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
+  const isMobile = useMediaQuery('(max-width:768px)')
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   useResourceRefresh('song')
 
@@ -244,9 +244,9 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 15}
+        perPage={isMobile ? 50 : 15}
       >
-        {isXsmall ? (
+        {isMobile ? (
           <SongSimpleList />
         ) : (
           <SongDatagrid
