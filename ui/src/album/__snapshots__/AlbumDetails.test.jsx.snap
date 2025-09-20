@@ -159,11 +159,11 @@ exports[`Details component > Desktop view > renders correctly with releaseDate 1
 exports[`Details component > Mobile view > renders correctly with all date fields 1`] = `
 <div>
   <span>
-    ♫  Mar 15, 2018
+    resources.album.fields.originalDate  Mar 15, 2018
   </span>
    · 
   <span>
-    ○  Jun 15, 2020
+    resources.album.fields.releaseDate  Jun 15, 2020
   </span>
    · 
   <span>
@@ -175,7 +175,7 @@ exports[`Details component > Mobile view > renders correctly with all date field
 exports[`Details component > Mobile view > renders correctly with date 1`] = `
 <div>
   <span>
-    ♫  May 1, 2020
+    May 1, 2020
   </span>
    · 
   <span>
@@ -187,7 +187,7 @@ exports[`Details component > Mobile view > renders correctly with date 1`] = `
 exports[`Details component > Mobile view > renders correctly with date and originalDate 1`] = `
 <div>
   <span>
-    ♫  Mar 15, 2018
+    resources.album.fields.originalDate  Mar 15, 2018
   </span>
    · 
   <span>
@@ -215,7 +215,7 @@ exports[`Details component > Mobile view > renders correctly with no date fields
 exports[`Details component > Mobile view > renders correctly with originalDate 1`] = `
 <div>
   <span>
-    ♫  Mar 15, 2018
+    resources.album.fields.originalDate  Mar 15, 2018
   </span>
    · 
   <span>
@@ -235,7 +235,7 @@ exports[`Details component > Mobile view > renders correctly with originalYear r
 exports[`Details component > Mobile view > renders correctly with releaseDate 1`] = `
 <div>
   <span>
-    Jun 15, 2020
+    resources.album.fields.releaseDate  Jun 15, 2020
   </span>
    · 
   <span>

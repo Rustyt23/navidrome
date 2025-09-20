@@ -176,15 +176,17 @@ export const Details = (props) => {
 
   // Get label for the main date display
   const getDateLabel = () => {
-    if (isXsmall) return '♫'
-    if (isOriginalDate) return translate('resources.album.fields.originalDate')
+    if (isOriginalDate) {
+      return translate('resources.album.fields.originalDate')
+    }
     return null
   }
 
   // Get label for release date display
   const getReleaseDateLabel = () => {
-    if (!isXsmall) return translate('resources.album.fields.releaseDate')
-    if (showDate) return '○'
+    if (releaseDate) {
+      return translate('resources.album.fields.releaseDate')
+    }
     return null
   }
 
