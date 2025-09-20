@@ -113,7 +113,7 @@ const RadioList = ({ permissions, ...props }) => {
       hasCreate={isAdmin}
       actions={<RadioListActions isAdmin={isAdmin} />}
       filters={<RadioFilter />}
-      perPage={isXsmall ? 25 : 10}
+      perPage={isXsmall ? 50 : 50}
     >
       {isXsmall ? (
         <SimpleList
