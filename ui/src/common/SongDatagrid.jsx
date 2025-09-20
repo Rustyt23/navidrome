@@ -1,5 +1,5 @@
 import React, { isValidElement, useMemo, useCallback, forwardRef } from 'react'
-import { useDispatch } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import {
   Datagrid,
   PureDatagridBody,
@@ -22,7 +22,7 @@ import { AlbumContextMenu } from '../common'
 import { DraggableTypes } from '../consts'
 import { formatFullDate } from '../utils'
 
-const useStyles = makeStyles({
+const useStyles = makeStyles((theme) => ({
   subtitle: {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
@@ -46,6 +46,22 @@ const useStyles = makeStyles({
       },
     },
   },
+  currentRow: {
+    backgroundColor: theme.palette.action.hover,
+    '& td, & th, & .MuiTableCell-root': {
+      color: '#ff66c4',
+    },
+    '& a': {
+      color: '#ff66c4',
+    },
+    '& svg': {
+      fill: '#ff66c4',
+      color: '#ff66c4',
+    },
+    '& $contextMenu': {
+      visibility: 'visible',
+    },
+  },
   missingRow: {
     cursor: 'inherit',
     opacity: 0.3,
@@ -59,10 +75,10 @@ const useStyles = makeStyles({
       padding: '15px',
     },
   },
-  contextMenu: {
-    visibility: (props) => (props.isDesktop ? 'hidden' : 'visible'),
-  },
-})
+  contextMenu: (props) => ({
+    visibility: props?.isDesktop ? 'hidden' : 'visible',
+  }),
+}))
 
 const DiscSubtitleRow = forwardRef(
   ({ record, onClick, colSpan, contextAlwaysVisible }, ref) => {
@@ -121,6 +137,8 @@ export const SongDatagridRow = ({
   ...rest
 }) => {
   const classes = useStyles()
+  const currentTrack = useSelector((state) => state?.player?.current || {})
+  const currentId = currentTrack.trackId
   const fields = React.Children.toArray(children).filter((c) =>
     isValidElement(c),
   )
@@ -156,10 +174,14 @@ export const SongDatagridRow = ({
 
   const rowClick = record.missing ? undefined : rest.rowClick
 
+  const isCurrent =
+    currentId && (currentId === record.id || currentId === record.mediaFileId)
+
   const computedClasses = clsx(
     className,
     classes.row,
     record.missing && classes.missingRow,
+    isCurrent && classes.currentRow,
   )
   const childCount = fields.length
   return (

@@ -1,6 +1,7 @@
 import { makeStyles } from '@material-ui/core/styles'
 import React from 'react'
 import PropTypes from 'prop-types'
+import clsx from 'clsx'
 import { useSelector } from 'react-redux'
 import { FunctionField } from 'react-admin'
 import { useTheme } from '@material-ui/core/styles'
@@ -17,6 +18,10 @@ const useStyles = makeStyles({
     marginLeft: '-8px',
     marginTop: '-7px',
     paddingRight: '3px',
+  },
+  playingIcon: {
+    filter:
+      'invert(72%) sepia(34%) saturate(6113%) hue-rotate(305deg) brightness(103%) contrast(102%)',
   },
   text: {
     verticalAlign: 'text-top',
@@ -64,7 +69,7 @@ export const SongTitleField = ({ showTrackNumbers, ...props }) => {
     return (
       <img
         src={icon}
-        className={classes.icon}
+        className={clsx(classes.icon, !paused && classes.playingIcon)}
         alt={paused ? 'paused' : 'playing'}
       />
     )
