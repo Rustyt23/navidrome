@@ -14,13 +14,8 @@ import {
   DialogTitle,
   makeStyles,
 } from '@material-ui/core'
-import {
-  closeAddToPlaylist,
-  closeDuplicateSongDialog,
-  openDuplicateSongWarning,
-} from '../actions'
+import { closeAddToPlaylist } from '../actions'
 import { SelectPlaylistInput } from './SelectPlaylistInput'
-import DuplicateSongDialog from './DuplicateSongDialog'
 import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
 
@@ -39,7 +34,7 @@ const useStyles = makeStyles({
 
 export const AddToPlaylistDialog = () => {
   const classes = useStyles()
-  const { open, selectedIds, onSuccess, duplicateSong, duplicateIds } =
+  const { open, selectedIds, onSuccess } =
     useSelector((state) => state.addToPlaylistDialog)
   const dispatch = useDispatch()
   const translate = useTranslate()
@@ -96,7 +91,9 @@ export const AddToPlaylistDialog = () => {
 
           if (dupSng.length) {
             const dupIds = dupSng.map((song) => song.mediaFileId)
-            dispatch(openDuplicateSongWarning(dupIds))
+            playlistObject.distinctIds = selectedIds.filter(
+              (id) => dupIds.indexOf(id) < 0,
+            )
           }
         }
         setCheck(true)
@@ -138,20 +135,6 @@ export const AddToPlaylistDialog = () => {
     setValue(pls)
   }
 
-  const handleDuplicateClose = () => {
-    dispatch(closeDuplicateSongDialog())
-  }
-  const handleDuplicateSubmit = () => {
-    dispatch(closeDuplicateSongDialog())
-  }
-  const handleSkip = () => {
-    const distinctSongs = selectedIds.filter(
-      (id) => duplicateIds.indexOf(id) < 0,
-    )
-    value.slice(-1).pop().distinctIds = distinctSongs
-    dispatch(closeDuplicateSongDialog())
-  }
-
   return (
     <>
       <Dialog
@@ -184,12 +167,6 @@ export const AddToPlaylistDialog = () => {
           </Button>
         </DialogActions>
       </Dialog>
-      <DuplicateSongDialog
-        open={duplicateSong}
-        handleClickClose={handleDuplicateClose}
-        handleSubmit={handleDuplicateSubmit}
-        handleSkip={handleSkip}
-      />
     </>
   )
 }
