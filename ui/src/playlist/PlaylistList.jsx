@@ -127,17 +127,19 @@ const PlaylistList = (props) => {
 
   const toggleableFields = useMemo(
     () => ({
-      ownerName: isDesktop && <TextField source="ownerName" />,
+      ownerName: <TextField source="ownerName" />,
       songCount: !isXsmall && <NumberField source="songCount" />,
-      duration: <DurationField source="duration" />,
+      duration: !isXsmall && <DurationField source="duration" />,
       updatedAt: isDesktop && (
         <DateField source="updatedAt" sortByOrder={'DESC'} />
       ),
       public: !isXsmall && (
         <TogglePublicInput source="public" sortByOrder={'DESC'} />
       ),
-      comment: <TextField source="comment" />,
-      sync: <ToggleAutoImport source="sync" sortByOrder={'DESC'} />,
+      comment: !isXsmall && <TextField source="comment" />,
+      sync: !isXsmall && (
+        <ToggleAutoImport source="sync" sortByOrder={'DESC'} />
+      ),
     }),
     [isDesktop, isXsmall],
   )

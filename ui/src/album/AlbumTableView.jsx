@@ -138,29 +138,7 @@ const AlbumTableView = ({
   return isXsmall ? (
     <SimpleList
       primaryText={(r) => r.name}
-      secondaryText={(r) => (
-        <>
-          {r.albumArtist}
-          {config.enableStarRating && (
-            <>
-              <br />
-              <RatingField
-                record={r}
-                sortByOrder={'DESC'}
-                source={'rating'}
-                resource={'album'}
-                size={'small'}
-              />
-            </>
-          )}
-        </>
-      )}
-      tertiaryText={(r) => (
-        <>
-          <RangeField record={r} source={'year'} sortBy={'max_year'} />
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-        </>
-      )}
+      secondaryText={(r) => r.albumArtist}
       linkType={'show'}
       rightIcon={(r) => <AlbumContextMenu record={r} />}
       {...rest}
