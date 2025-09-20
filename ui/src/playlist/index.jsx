@@ -20,3 +20,5 @@ export default {
     />
   ),
 }
+
+export { default as PublishPlaylistButton } from './PublishPlaylistButton'
