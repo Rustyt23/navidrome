@@ -15,3 +15,8 @@ code {
 .rc-slider {
   z-index: 78;
 }
+
+table[class*='RaDatagrid-table'] {
+  border-collapse: separate;
+  border-spacing: 0 1px;
+}
