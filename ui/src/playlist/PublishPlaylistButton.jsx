@@ -1,14 +1,55 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import PublishIcon from '@material-ui/icons/Publish'
-import { Button, Confirm, useTranslate, useNotify } from 'react-admin'
+import {
+  Button as RaButton,
+  useTranslate,
+  useNotify,
+} from 'react-admin'
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+} from '@material-ui/core'
+import { makeStyles } from '@material-ui/core/styles'
 
 import { REST_URL } from '../consts'
 import { httpClient } from '../dataProvider'
 
+const useStyles = makeStyles((theme) => ({
+  dialogPaper: {
+    backgroundColor: theme.palette.background.default,
+    padding: theme.spacing(3, 4, 2, 4),
+  },
+  dialogTitle: {
+    color: theme.palette.text.primary,
+    fontSize: '1.25rem',
+    fontWeight: theme.typography.fontWeightMedium,
+    paddingBottom: theme.spacing(1),
+  },
+  dialogContentText: {
+    color: theme.palette.text.secondary,
+    fontSize: theme.typography.body1.fontSize,
+  },
+  cancelButton: {
+    color: theme.palette.text.secondary,
+  },
+  confirmButton: {
+    backgroundColor: theme.palette.secondary.main,
+    color: theme.palette.getContrastText(theme.palette.secondary.main),
+    '&:hover': {
+      backgroundColor: theme.palette.secondary.dark,
+    },
+  },
+}))
+
 const PublishPlaylistButton = ({ record }) => {
   const translate = useTranslate()
   const notify = useNotify()
+  const classes = useStyles()
   const [open, setOpen] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
 
@@ -49,21 +90,46 @@ const PublishPlaylistButton = ({ record }) => {
 
   return (
     <>
-      <Button
+      <RaButton
         onClick={handleDialogOpen}
         disabled={loading}
         label={translate('resources.playlist.actions.publish')}
       >
         <PublishIcon />
-      </Button>
-      <Confirm
-        isOpen={open}
-        loading={loading}
-        title={translate('resources.playlist.actions.publish')}
-        content={translate('ra.message.are_you_sure')}
-        onConfirm={handlePublish}
+      </RaButton>
+      <Dialog
+        open={open}
         onClose={handleDialogClose}
-      />
+        aria-labelledby="publish-playlist-dialog"
+        PaperProps={{ className: classes.dialogPaper }}
+      >
+        <DialogTitle id="publish-playlist-dialog" className={classes.dialogTitle}>
+          {translate('resources.playlist.actions.publish')}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText className={classes.dialogContentText}>
+            {translate('resources.playlist.dialog.publish_confirmation', {
+              _: 'Are you sure you want to publish this playlist?',
+            })}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handleDialogClose}
+            disabled={loading}
+            className={classes.cancelButton}
+          >
+            {translate('ra.action.no', { _: 'No' }).toUpperCase()}
+          </Button>
+          <Button
+            onClick={handlePublish}
+            disabled={loading}
+            className={classes.confirmButton}
+          >
+            {translate('ra.action.yes', { _: 'Yes' }).toUpperCase()}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   )
 }
