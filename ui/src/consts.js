@@ -29,3 +29,7 @@ export const DEFAULT_SHARE_BITRATE = 128
 export const BITRATE_CHOICES = [
   32, 48, 64, 80, 96, 112, 128, 160, 192, 256, 320,
 ].map((b) => ({ id: b, name: b.toString() }))
+
+export const PAGE_SIZES = [15, 25, 50, 100, 200]
+
+export const DEFAULT_PAGE_SIZE = 50
