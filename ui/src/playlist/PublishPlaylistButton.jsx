@@ -36,12 +36,15 @@ const useStyles = makeStyles((theme) => ({
   },
   cancelButton: {
     color: theme.palette.text.secondary,
+    '&:hover': {
+      backgroundColor: theme.palette.grey[700],
+    },
   },
   confirmButton: {
     backgroundColor: theme.palette.secondary.main,
     color: theme.palette.getContrastText(theme.palette.secondary.main),
     '&:hover': {
-      backgroundColor: theme.palette.secondary.dark,
+      backgroundColor: theme.palette.grey[700],
     },
   },
 }))
