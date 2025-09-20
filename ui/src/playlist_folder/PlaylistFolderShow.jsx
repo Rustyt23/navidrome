@@ -8,6 +8,7 @@ import {
   SearchInput,
   SelectInput,
   TextField,
+  useListContext,
   useUpdate,
   useNotify,
   useRecordContext,
@@ -101,6 +102,27 @@ const TogglePublicInput = ({ source }) => {
 const rowClick = (id, record) =>
   record?.type === 'folder' ? `/folder/${id}/show` : `/playlist/${id}/show`
 
+const ResetFiltersOnParentChange = ({ parentId }) => {
+  const { filterValues, setFilters } = useListContext()
+
+  useEffect(() => {
+    if (!setFilters) {
+      return
+    }
+
+    if (filterValues?.parent_id === parentId && !filterValues?.q) {
+      return
+    }
+
+    const nextFilters = { ...filterValues, parent_id: parentId }
+    delete nextFilters.q
+
+    setFilters(nextFilters, {})
+  }, [filterValues, parentId, setFilters])
+
+  return null
+}
+
 const FolderChildrenList = (props) => {
   const record = useRecordContext()
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
@@ -128,6 +150,7 @@ const FolderChildrenList = (props) => {
       {...props}
       resource="folder"
       exporter={false}
+      storeKey={`folder-children-${parentId || 'root'}`}
       title={<Title subTitle={record?.name} />}
       filters={<PlaylistFolderFilter />}
       actions={<PlaylistListActions />}
@@ -137,6 +160,7 @@ const FolderChildrenList = (props) => {
       filter={{ parent_id: parentId }}
       filterDefaultValues={{ parent_id: parentId }}
     >
+      <ResetFiltersOnParentChange parentId={parentId} />
       <PlaylistFolderDataGrid rowClick={rowClick}>
         <TypeIconField label={false} />
         <TextField source="name" />

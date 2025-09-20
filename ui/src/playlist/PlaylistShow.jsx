@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import {
   ReferenceManyField,
   ShowContextProvider,
@@ -34,6 +34,10 @@ const PlaylistShowLayout = (props) => {
 
   // Store search query in state to prevent losing focus
   const [searchTerm, setSearchTerm] = useState('')
+
+  useEffect(() => {
+    setSearchTerm('')
+  }, [record?.id])
 
   // Handle search change
   const handleSearchChange = useCallback((event) => {
