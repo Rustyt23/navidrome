@@ -114,7 +114,7 @@ const ResetFiltersOnParentChange = ({ parentId }) => {
       return
     }
 
-    const nextFilters = { ...filterValues, parent_id: parentId }
+    const nextFilters = { ...(filterValues ?? {}), parent_id: parentId }
     delete nextFilters.q
 
     setFilters(nextFilters, {})
