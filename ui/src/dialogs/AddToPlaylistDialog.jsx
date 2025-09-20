@@ -74,9 +74,7 @@ export const AddToPlaylistDialog = () => {
           notify('ra.page.error', { type: 'warning' })
         })
     } else {
-      notify('message.songsAddedToPlaylist', {
-        messageArgs: { smart_count: 0 },
-      })
+      notify('Skipped duplicate song.', { type: 'info' })
     }
   }
 
