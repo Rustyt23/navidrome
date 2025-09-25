@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import {
   BulkActionsToolbar,
   FunctionField,
@@ -163,6 +163,29 @@ const AlbumSongs = (props) => {
     ? 'ra.action.bulk_actions'
     : 'ra.action.bulk_actions_mobile'
 
+  const handleRowClick = useCallback(
+    (id) => {
+      if (!ids || ids.length === 0) {
+        dispatch(playTracks(data, ids, id))
+        return
+      }
+
+      const startIndex = ids.indexOf(id)
+      if (startIndex === -1) {
+        dispatch(playTracks(data, ids, id))
+        return
+      }
+
+      const orderedIds = [
+        ...ids.slice(startIndex),
+        ...ids.slice(0, startIndex),
+      ]
+
+      dispatch(playTracks(data, orderedIds, id))
+    },
+    [dispatch, data, ids],
+  )
+
   return (
     <>
       <ListToolbar
@@ -181,7 +204,7 @@ const AlbumSongs = (props) => {
             <SongBulkActions />
           </BulkActionsToolbar>
           <SongDatagrid
-            rowClick={(id) => dispatch(playTracks(data, ids, id))}
+            rowClick={handleRowClick}
             {...props}
             hasBulkActions={true}
             showDiscSubtitles={true}

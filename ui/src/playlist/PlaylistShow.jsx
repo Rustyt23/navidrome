@@ -8,7 +8,8 @@ import {
   Filter,
   Pagination,
   Title as RaTitle,
-} from 'react-admin'
+} 
+from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import PlaylistDetails from './PlaylistDetails'
 import PlaylistSongs from './PlaylistSongs'
@@ -50,7 +51,7 @@ const PlaylistShowLayout = (props) => {
           <Filter variant="outlined">
             <SearchInput
               id="search"
-              source="title"
+              source="q"
               alwaysOn
               value={searchTerm}
               onChange={handleSearchChange} // Update parent state on change
@@ -64,7 +65,7 @@ const PlaylistShowLayout = (props) => {
             target="playlist_id"
             sort={{ field: 'id', order: 'ASC' }}
             perPage={50}
-            filter={{ playlist_id: props.id, title: searchTerm }} // Pass searchTerm as a filter
+            filter={{ playlist_id: props.id, q: searchTerm }} // Pass searchTerm as a filter
           >
             <PlaylistSongs
               {...props}
