@@ -9,6 +9,8 @@ import Checkbox from '@material-ui/core/Checkbox'
 import { useDispatch, useSelector } from 'react-redux'
 import { useTranslate } from 'react-admin'
 import { setToggleableFields } from '../actions'
+import DragIndicatorIcon from '@material-ui/icons/DragIndicator'
+import ReactDragListView from 'react-drag-listview'
 
 const useStyles = makeStyles({
   menuIcon: {
@@ -24,6 +26,17 @@ const useStyles = makeStyles({
   },
   title: {
     margin: '1rem',
+  },
+  menuItem: {
+    display: 'flex',
+    alignItems: 'center',
+  },
+  dragHandle: {
+    marginRight: '0.5rem',
+    display: 'flex',
+    alignItems: 'center',
+    color: 'inherit',
+    cursor: 'grab',
   },
 })
 
@@ -62,6 +75,37 @@ export const ToggleFieldsMenu = ({
     )
   }
 
+  const visibleColumns = Object.entries(toggleableColumns || {}).filter(
+    ([key]) => !omittedColumns.includes(key),
+  )
+
+  const handleReorder = (fromIndex, toIndex) => {
+    if (
+      fromIndex === toIndex ||
+      !toggleableColumns ||
+      !visibleColumns.length
+    )
+      return
+
+    const allEntries = Object.entries(toggleableColumns)
+    const reorderedVisible = [...visibleColumns]
+    const [moved] = reorderedVisible.splice(fromIndex, 1)
+    reorderedVisible.splice(toIndex, 0, moved)
+
+    const merged = []
+    const queue = [...reorderedVisible]
+
+    for (const entry of allEntries) {
+      if (omittedColumns.includes(entry[0])) {
+        merged.push(entry)
+      } else {
+        merged.push(queue.shift())
+      }
+    }
+
+    dispatch(setToggleableFields({ [resource]: Object.fromEntries(merged) }))
+  }
+
   return (
     <div className={classes.menuIcon}>
       <IconButton
@@ -89,14 +133,27 @@ export const ToggleFieldsMenu = ({
               {translate('ra.toggleFieldsMenu.columnsToDisplay')}
             </Typography>
             <div className={classes.columns}>
-              {Object.entries(toggleableColumns).map(([key, val]) =>
-                !omittedColumns.includes(key) ? (
-                  <MenuItem key={key} onClick={() => handleClick(key)}>
-                    <Checkbox checked={val} />
-                    {translate(`resources.${resource}.fields.${key}`)}
-                  </MenuItem>
-                ) : null,
-              )}
+              <ReactDragListView
+                onDragEnd={handleReorder}
+                nodeSelector=".MuiMenuItem-root"
+                handleSelector=".drag-handle"
+              >
+                <div>
+                  {visibleColumns.map(([key, val]) => (
+                    <MenuItem
+                      key={key}
+                      onClick={() => handleClick(key)}
+                      className={classes.menuItem}
+                    >
+                      <span className={`drag-handle ${classes.dragHandle}`}>
+                        <DragIndicatorIcon fontSize="small" />
+                      </span>
+                      <Checkbox checked={val} />
+                      {translate(`resources.${resource}.fields.${key}`)}
+                    </MenuItem>
+                  ))}
+                </div>
+              </ReactDragListView>
             </div>
           </div>
         ) : null}

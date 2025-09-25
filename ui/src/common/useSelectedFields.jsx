@@ -48,15 +48,24 @@ export const useSelectedFields = ({
   useEffect(() => {
     if (resourceFields) {
       const filtered = []
-      const omitted = omittedColumns
-      for (const [key, val] of Object.entries(columns)) {
-        if (!val) omitted.push(key)
-        else if (resourceFields[key]) filtered.push(val)
+      const omitted = [...omittedColumns]
+      for (const [key, isVisible] of Object.entries(resourceFields)) {
+        const column = columns[key]
+        if (!column) {
+          if (!omitted.includes(key)) omitted.push(key)
+          continue
+        }
+        if (isVisible) filtered.push(column)
       }
-      if (filteredComponents.length !== filtered.length)
-        setFilteredComponents(filtered)
-      if (omittedFields.length !== omitted.length)
-        dispatch(setOmittedFields({ [resource]: omitted }))
+
+      setFilteredComponents(filtered)
+
+      const currentOmitted = omittedFields || []
+      const omittedChanged =
+        omitted.length !== currentOmitted.length ||
+        omitted.some((name, index) => currentOmitted[index] !== name)
+
+      if (omittedChanged) dispatch(setOmittedFields({ [resource]: omitted }))
     }
   }, [
     resourceFields,
@@ -65,7 +74,6 @@ export const useSelectedFields = ({
     omittedColumns,
     omittedFields,
     resource,
-    filteredComponents.length,
   ])
 
   return React.Children.toArray(filteredComponents)
