@@ -310,8 +310,9 @@ const ReorderableSongList = (props) => {
       const isVisible = toggleableColumnsState
         ? toggleableColumnsState[key]
         : !DEFAULT_OFF_COLUMNS.includes(key)
-      if (isVisible) visible.push(column)
-      else omitted.push(key)
+      if (isVisible) {
+        visible.push(column)
+      }
     }
     return { visibleColumns: Children.toArray(visible), computedOmitted: omitted }
   }, [columnOrder, toggleableFields, toggleableColumnsState])
