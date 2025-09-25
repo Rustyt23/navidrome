@@ -133,6 +133,7 @@ const PlaylistList = (props) => {
       updatedAt: isDesktop && (
         <DateField source="updatedAt" sortByOrder={'DESC'} />
       ),
+      createdAt: isDesktop && <DateField source="createdAt" showTime />, 
       public: !isXsmall && (
         <TogglePublicInput source="public" sortByOrder={'DESC'} />
       ),
