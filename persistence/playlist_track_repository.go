@@ -175,21 +175,44 @@ func (r *playlistTrackRepository) Add(mediaFileIds []string) (int, error) {
 		return 0, rest.ErrPermissionDenied
 	}
 
-	if len(mediaFileIds) > 0 {
-		log.Debug(r.ctx, "Adding songs to playlist", "playlistId", r.playlistId, "mediaFileIds", mediaFileIds)
-	} else {
+	if len(mediaFileIds) == 0 {
 		return 0, nil
 	}
 
-	// Get next pos (ID) in playlist
-	sq := r.newSelect().Columns("max(id) as max").Where(Eq{"playlist_id": r.playlistId})
-	var res struct{ Max sql.NullInt32 }
-	err := r.queryOne(sq, &res)
+	existing, err := r.getTracks()
 	if err != nil {
 		return 0, err
 	}
 
-	return len(mediaFileIds), r.playlistRepo.addTracks(r.playlistId, int(res.Max.Int32+1), mediaFileIds)
+	seen := make(map[string]struct{}, len(existing))
+	for _, id := range existing {
+		seen[id] = struct{}{}
+	}
+
+	unique := make([]string, 0, len(mediaFileIds))
+	for _, id := range mediaFileIds {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+
+	if len(unique) == 0 {
+		return 0, nil
+	}
+
+	log.Debug(r.ctx, "Adding songs to playlist", "playlistId", r.playlistId, "mediaFileIds", unique)
+
+	// Get next pos (ID) in playlist
+	sq := r.newSelect().Columns("max(id) as max").Where(Eq{"playlist_id": r.playlistId})
+	var res struct{ Max sql.NullInt32 }
+	err = r.queryOne(sq, &res)
+	if err != nil {
+		return 0, err
+	}
+
+	return len(unique), r.playlistRepo.addTracks(r.playlistId, int(res.Max.Int32+1), unique)
 }
 
 func (r *playlistTrackRepository) addMediaFileIds(cond Sqlizer) (int, error) {
