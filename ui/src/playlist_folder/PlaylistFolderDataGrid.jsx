@@ -19,6 +19,7 @@ const useStyles = makeStyles({
   row: {
     cursor: 'pointer',
     '&:hover': { backgroundColor: '#f5f5f5' },
+    '& td': { paddingTop: 1, paddingBottom: 1 },
   },
   missingRow: {
     cursor: 'inherit',

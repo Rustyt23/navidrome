@@ -10,8 +10,8 @@ const defaultConfig = {
   variousArtistsId: '63sqASlAfjbGMuLP4JhnZU', // See consts.VariousArtistsID in consts.go
   // Login backgrounds from https://unsplash.com/collections/1065384/music-wallpapers
   loginBackgroundURL: 'https://source.unsplash.com/collection/1065384/1600x900',
-  maxSidebarPlaylists: MAX_SIDEBAR_ITEMS,
-  maxSidebarPlaylistFolders: MAX_SIDEBAR_ITEMS,
+  maxSidebarPlaylists: 200,
+  maxSidebarPlaylistFolders: 200,
   enableTranscodingConfig: true,
   enableDownloads: true,
   enableFavourites: true,

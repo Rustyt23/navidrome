@@ -11,8 +11,15 @@ const TypeAwareEditButton = () => {
   if (!record) return null
 
   return (
-    <Button component={Link} to={`/${record.type}/${record.id}`} label="ra.action.edit" onClick={stop}>
-      <EditIcon />
+   <Button
+      component={Link}
+      to={`/${record.type}/${record.id}`}
+      label="ra.action.edit"
+      onClick={stop}
+      size="small"
+      style={{ minWidth: 0, padding: '0px 0px', fontSize: 12 }}
+    >
+      <EditIcon fontSize="small" style={{ fontSize: 14 }} />
     </Button>
   )
 }

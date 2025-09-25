@@ -63,7 +63,7 @@ const PlaylistShowLayout = (props) => {
             reference="playlistTrack"
             target="playlist_id"
             sort={{ field: 'id', order: 'ASC' }}
-            perPage={100}
+            perPage={50}
             filter={{ playlist_id: props.id, title: searchTerm }} // Pass searchTerm as a filter
           >
             <PlaylistSongs
@@ -78,7 +78,9 @@ const PlaylistShowLayout = (props) => {
               }
               resource={'playlistTrack'}
               exporter={false}
-              pagination={<Pagination rowsPerPageOptions={[100, 250, 500]} />}
+              pagination={<Pagination rowsPerPageOptions={[25, 50, 100, 200]}
+              perPage={50}
+                />}
               searchTerm={searchTerm} // Pass search term to child
             />
           </ReferenceManyField>

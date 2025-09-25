@@ -40,7 +40,7 @@ const PlaylistFolderFilter = (props) => {
           source="owner_id"
           label="resources.playlist.fields.ownerName"
           reference="user"
-          perPage={25}
+          perPage={50}
           sort={{ field: 'name', order: 'ASC' }}
           alwaysOn
         >
@@ -93,6 +93,7 @@ const TogglePublicInput = ({ source }) => {
       onClick={(e) => e.stopPropagation()}
       disabled={isLoading || !isWritable(record?.ownerId)}
       color="primary"
+      size="small"
       inputProps={{ 'aria-label': 'toggle-public' }}
     />
   )
@@ -133,7 +134,7 @@ const FolderChildrenList = (props) => {
       actions={<PlaylistListActions />}
       bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
       empty={<EmptyPlaylist />}
-      perPage={isXsmall ? 50 : 25}
+      perPage={isXsmall ? 50 : 50}
       filter={{ parent_id: parentId }}
       filterDefaultValues={{ parent_id: parentId }}
     >

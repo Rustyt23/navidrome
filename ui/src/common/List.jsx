@@ -13,7 +13,7 @@ export const List = (props) => {
           args={{ smart_count: 2 }}
         />
       }
-      perPage={15}
+      perPage={50}
       pagination={<Pagination />}
       {...props}
     />
