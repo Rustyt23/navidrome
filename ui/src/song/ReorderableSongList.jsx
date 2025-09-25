@@ -209,12 +209,41 @@ const ReorderableSongList = (props) => {
     [dispatch, songs.data, songs.list?.ids],
   )
 
+  const songListIds = songs?.list?.ids
+  const getRowNumber = useCallback(
+    (record) => {
+      if (!record) return ''
+      if (!Array.isArray(songListIds)) {
+        return record.trackNumber ?? ''
+      }
+
+      const recordId = record.id
+      const index = songListIds.findIndex(
+        (id) => String(id) === String(recordId),
+      )
+
+      if (index === -1) {
+        return record.trackNumber ?? ''
+      }
+
+      return index + 1
+    },
+    [songListIds],
+  )
+
   const toggleableFields = useMemo(() => {
     return {
+      title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop ? <AlbumLinkField source="album" sortByOrder={'ASC'} /> : null,
       artist: <ArtistLinkField source="artist" />,
       albumArtist: isDesktop ? <ArtistLinkField source="albumArtist" /> : null,
-      trackNumber: isDesktop ? <NumberField source="trackNumber" /> : null,
+      trackNumber: isDesktop ? (
+        <FunctionField
+          source="trackNumber"
+          sortable={false}
+          render={(record) => getRowNumber(record)}
+        />
+      ) : null,
       playCount: isDesktop ? (
         <NumberField source="playCount" sortByOrder={'DESC'} />
       ) : null,
@@ -253,7 +282,7 @@ const ReorderableSongList = (props) => {
       path: <PathField source="path" />,
       createdAt: <DateField source="createdAt" sortBy="recently_added" showTime />,
     }
-  }, [isDesktop, classes.ratingField])
+  }, [getRowNumber, isDesktop, classes.ratingField])
 
   const columnKeys = useMemo(() => Object.keys(toggleableFields), [toggleableFields])
 
@@ -346,7 +375,6 @@ const ReorderableSongList = (props) => {
             contextAlwaysVisible={!isDesktop}
             classes={{ row: classes.row }}
           >
-            <SongTitleField source="title" showTrackNumbers={false} />
             {visibleColumns}
             <SongContextMenu
               source={'starred_at'}
