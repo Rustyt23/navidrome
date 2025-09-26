@@ -19,6 +19,9 @@ vi.mock('react-admin', () => ({
 vi.mock('./NowPlayingPanel', () => ({
   default: () => <div data-testid="now-playing-panel" />,
 }))
+vi.mock('./NotificationPanel', () => ({
+  default: () => <div data-testid="notification-panel" />,
+}))
 vi.mock('./ActivityPanel', () => ({
   default: () => <div data-testid="activity-panel" />,
 }))

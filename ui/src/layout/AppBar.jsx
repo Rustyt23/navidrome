@@ -8,7 +8,7 @@ import {
 } from 'react-admin'
 import { MdInfo, MdPerson, MdSupervisorAccount } from 'react-icons/md'
 import { useSelector } from 'react-redux'
-import { makeStyles, MenuItem, ListItemIcon, Divider } from '@material-ui/core'
+import { makeStyles, MenuItem, ListItemIcon, Divider, Typography } from '@material-ui/core'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import { Dialogs } from '../dialogs/Dialogs'
 import { AboutDialog } from '../dialogs'
@@ -16,6 +16,7 @@ import PersonalMenu from './PersonalMenu'
 import ActivityPanel from './ActivityPanel'
 import NowPlayingPanel from './NowPlayingPanel'
 import UserMenu from './UserMenu'
+import NotificationPanel from './NotificationPanel'
 import config from '../config'
 
 const useStyles = makeStyles(
@@ -31,6 +32,23 @@ const useStyles = makeStyles(
   {
     name: 'NDAppBar',
   },
+)
+
+const useAppBarContentStyles = makeStyles(
+  (theme) => ({
+    title: {
+      flex: 1,
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+    },
+    actions: {
+      display: 'flex',
+      alignItems: 'center',
+      marginRight: theme.spacing(1),
+    },
+  }),
+  { name: 'NDAppBarContent' },
 )
 
 const AboutMenuItem = forwardRef(({ onClick, ...rest }, ref) => {
@@ -139,8 +157,27 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
   )
 }
 
+const AppBarContent = () => {
+  const classes = useAppBarContentStyles()
+  return (
+    <>
+      <Typography
+        variant="h6"
+        color="inherit"
+        className={classes.title}
+        id="react-admin-title"
+      />
+      <div className={classes.actions}>
+        <NotificationPanel />
+      </div>
+    </>
+  )
+}
+
 const AppBar = (props) => (
-  <RAAppBar {...props} container={Fragment} userMenu={<CustomUserMenu />} />
+  <RAAppBar {...props} container={Fragment} userMenu={<CustomUserMenu />}>
+    <AppBarContent />
+  </RAAppBar>
 )
 
 export default AppBar
