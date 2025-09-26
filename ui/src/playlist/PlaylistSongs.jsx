@@ -169,6 +169,9 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
       playDate: isDesktop && (
         <DateField source="playDate" sortByOrder={'DESC'} showTime />
       ),
+      createdAt: (
+        <DateField source="createdAt" showTime sortable={false} />
+      ),
       quality: isDesktop && <QualityInfo source="quality" sortable={false} />,
       channels: isDesktop && <NumberField source="channels" />,
       bpm: isDesktop && <NumberField source="bpm" />,
@@ -193,6 +196,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
       'year',
       'playCount',
       'playDate',
+      'createdAt',
       'albumArtist',
       'genre',
       'rating',

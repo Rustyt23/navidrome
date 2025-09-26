@@ -201,7 +201,7 @@
         "ownerName": "Owner",
         "public": "Public",
         "updatedAt": "Updated at",
-        "createdAt": "Created at",
+        "createdAt": "Date added",
         "songCount": "Songs",
         "comment": "Comment",
         "sync": "Auto-import",

@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
 import { useDispatch, useSelector } from 'react-redux'
-import { setOmittedFields, setToggleableFields } from '../actions'
+import {
+  setOmittedFields,
+  setToggleableFields,
+  setColumnsOrder,
+} from '../actions'
 
 // TODO Refactor
 export const useSelectedFields = ({
@@ -15,6 +19,9 @@ export const useSelectedFields = ({
     (state) => state.settings.toggleableFields,
   )?.[resource]
   const omittedFields = useSelector((state) => state.settings.omittedFields)?.[
+    resource
+  ]
+  const columnsOrder = useSelector((state) => state.settings.columnsOrder)?.[
     resource
   ]
 
@@ -35,6 +42,13 @@ export const useSelectedFields = ({
     if (!omittedFields) {
       dispatch(setOmittedFields({ [resource]: omittedColumns }))
     }
+    if (
+      !columnsOrder ||
+      columnsOrder.length !== Object.keys(columns).length ||
+      !columnsOrder.every((c) => c in columns)
+    ) {
+      dispatch(setColumnsOrder({ [resource]: Object.keys(columns) }))
+    }
   }, [
     columns,
     defaultOff,
@@ -43,19 +57,36 @@ export const useSelectedFields = ({
     omittedFields,
     resource,
     resourceFields,
+    columnsOrder,
   ])
 
   useEffect(() => {
-    if (resourceFields) {
+    if (resourceFields && columnsOrder) {
       const filtered = []
-      const omitted = omittedColumns
-      for (const [key, val] of Object.entries(columns)) {
+      const omitted = [...omittedColumns]
+      for (const key of columnsOrder) {
+        const val = columns[key]
         if (!val) omitted.push(key)
         else if (resourceFields[key]) filtered.push(val)
       }
-      if (filteredComponents.length !== filtered.length)
-        setFilteredComponents(filtered)
-      if (omittedFields.length !== omitted.length)
+
+      setFilteredComponents((previous) => {
+        const hasSameLength = previous.length === filtered.length
+        const hasSameOrder =
+          hasSameLength &&
+          filtered.every((component, index) => component === previous[index])
+
+        return hasSameOrder ? previous : filtered
+      })
+
+      const currentOmittedFields = omittedFields || []
+      const shouldUpdateOmitted =
+        currentOmittedFields.length !== omitted.length ||
+        omitted.some(
+          (field, index) => field !== currentOmittedFields[index],
+        )
+
+      if (shouldUpdateOmitted)
         dispatch(setOmittedFields({ [resource]: omitted }))
     }
   }, [
@@ -65,7 +96,7 @@ export const useSelectedFields = ({
     omittedColumns,
     omittedFields,
     resource,
-    filteredComponents.length,
+    columnsOrder,
   ])
 
   return React.Children.toArray(filteredComponents)
