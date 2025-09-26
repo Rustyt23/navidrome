@@ -1,5 +1,5 @@
 import React from 'react'
-import SongList from './SongList'
+import ReorderableSongList from './ReorderableSongList'
 import MusicNoteOutlinedIcon from '@material-ui/icons/MusicNoteOutlined'
 import MusicNoteIcon from '@material-ui/icons/MusicNote'
 import DynamicMenuIcon from '../layout/DynamicMenuIcon'
