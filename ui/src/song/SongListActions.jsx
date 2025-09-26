@@ -19,6 +19,8 @@ export const SongListActions = ({
   maxResults,
   total,
   ids,
+  columnsOrder,
+  onColumnsOrderChange,
   ...rest
 }) => {
   const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
@@ -33,7 +35,13 @@ export const SongListActions = ({
           filterValues,
           context: 'button',
         })}
-      {isNotSmall && <ToggleFieldsMenu resource="song" />}
+      {isNotSmall && (
+        <ToggleFieldsMenu
+          resource="song"
+          columnsOrder={columnsOrder}
+          onColumnsOrderChange={onColumnsOrderChange}
+        />
+      )}
     </TopToolbar>
   )
 }
