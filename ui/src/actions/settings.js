@@ -1,5 +1,6 @@
 export const SET_NOTIFICATIONS_STATE = 'SET_NOTIFICATIONS_STATE'
 export const SET_TOGGLEABLE_FIELDS = 'SET_TOGGLEABLE_FIELDS'
+export const SET_COLUMNS_ORDER = 'SET_COLUMNS_ORDER'
 export const SET_OMITTED_FIELDS = 'SET_OMITTED_FIELDS'
 
 export const setNotificationsState = (enabled) => ({
@@ -14,5 +15,10 @@ export const setToggleableFields = (obj) => ({
 
 export const setOmittedFields = (obj) => ({
   type: SET_OMITTED_FIELDS,
+  data: obj,
+})
+
+export const setColumnsOrder = (obj) => ({
+  type: SET_COLUMNS_ORDER,
   data: obj,
 })
