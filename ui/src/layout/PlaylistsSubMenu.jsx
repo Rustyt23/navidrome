@@ -13,9 +13,42 @@ import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import SubMenu from './SubMenu'
 import { canChangeTracks } from '../common'
-import { DraggableTypes } from '../consts'
+import { DraggableTypes, REST_URL } from '../consts'
 import config from '../config'
 import useDragAndDrop from '../common/useDragAndDrop'
+import httpClient from '../dataProvider/httpClient'
+
+const fetchPlaylistTrackIds = async (playlistId) => {
+  const res = await httpClient(`${REST_URL}/playlist/${playlistId}/tracks`)
+  const tracks = Array.isArray(res?.json) ? res.json : []
+  const ids = new Set()
+  tracks.forEach((track) => {
+    if (track?.mediaFileId) {
+      ids.add(track.mediaFileId)
+    }
+  })
+  return ids
+}
+
+const filterSongDropPayload = async (playlistId, item) => {
+  if (!Array.isArray(item?.ids) || item.ids.length === 0) {
+    return item
+  }
+
+  const existingIds = await fetchPlaylistTrackIds(playlistId)
+  const seen = new Set()
+  const uniqueIds = []
+
+  item.ids.forEach((id) => {
+    if (!id || seen.has(id) || existingIds.has(id)) {
+      return
+    }
+    seen.add(id)
+    uniqueIds.push(id)
+  })
+
+  return uniqueIds.length ? { ...item, ids: uniqueIds } : null
+}
 
 const useStyles = makeStyles((theme) => ({
   listItem: {
@@ -125,15 +158,35 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
 
   const parentIdForDnD = pls.parent_id ?? ''
 
+  const handleDrop = useCallback(
+    async (item) => {
+      let payload = item
+      if (Array.isArray(item?.ids) && item.ids.length) {
+        try {
+          const filtered = await filterSongDropPayload(pls.id, item)
+          if (!filtered) {
+            notify('Skipped duplicate song.', { type: 'info' })
+            return
+          }
+          payload = filtered
+        } catch (error) {
+          // Ignore filter errors and let the backend handle any duplicates
+        }
+      }
+
+      return dataProvider
+        .addToPlaylist(pls.id, payload)
+        .then((res) => notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added }))
+        .catch(() => notify('ra.page.error', 'warning'))
+    },
+    [dataProvider, notify, pls.id]
+  )
+
   const { dragDropRef, isDragging } = useDragAndDrop(
     DraggableTypes.PLAYLIST,
     { id: pls.id, type: 'playlist', parentId: parentIdForDnD },
     canChangeTracks(pls) ? DraggableTypes.ALL : [],
-    (item) =>
-      dataProvider
-        .addToPlaylist(pls.id, item)
-        .then((res) => notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added }))
-        .catch(() => notify('ra.page.error', 'warning'))
+    handleDrop
   )
 
   return (
