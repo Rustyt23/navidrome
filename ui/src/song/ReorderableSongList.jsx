@@ -169,6 +169,7 @@ const ReorderableSongList = (props) => {
   useResourceRefresh('song')
 
   const songs = useSelector((state) => state.admin.resources.song)
+  const perPage = songs?.list?.params?.perPage ?? 50
   const toggleableColumnsState = useSelector(
     (state) => state.settings.toggleableFields.song,
   )
@@ -365,7 +366,7 @@ const ReorderableSongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 50}
+        perPage={perPage}
       >
         {isXsmall ? (
           <SongSimpleList />
