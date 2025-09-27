@@ -10,7 +10,12 @@ import config from '../config'
 let store
 
 vi.mock('react-admin', () => ({
-  AppBar: ({ userMenu }) => <div data-testid="appbar">{userMenu}</div>,
+  AppBar: ({ userMenu, children }) => (
+    <div data-testid="appbar">
+      {children}
+      {userMenu}
+    </div>
+  ),
   useTranslate: () => (x) => x,
   usePermissions: () => ({ permissions: 'admin' }),
   getResources: () => [],
@@ -18,6 +23,9 @@ vi.mock('react-admin', () => ({
 
 vi.mock('./NowPlayingPanel', () => ({
   default: () => <div data-testid="now-playing-panel" />,
+}))
+vi.mock('./NotificationPanel', () => ({
+  default: () => <div data-testid="notification-panel" />,
 }))
 vi.mock('./ActivityPanel', () => ({
   default: () => <div data-testid="activity-panel" />,
@@ -51,6 +59,7 @@ describe('<AppBar />', () => {
       </Provider>,
     )
     expect(screen.getByTestId('now-playing-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('notification-panel')).toBeInTheDocument()
   })
 
   it('hides NowPlayingPanel when disabled', () => {
