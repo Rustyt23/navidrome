@@ -169,7 +169,9 @@ const ReorderableSongList = (props) => {
   useResourceRefresh('song')
 
   const songs = useSelector((state) => state.admin.resources.song)
-  const perPage = Number(songs?.list?.params?.perPage) || 50
+  const perPage =
+    Number(songs?.list?.params?.pagination?.perPage ?? songs?.list?.params?.perPage) ||
+    50
   const toggleableColumnsState = useSelector(
     (state) => state.settings.toggleableFields.song,
   )
