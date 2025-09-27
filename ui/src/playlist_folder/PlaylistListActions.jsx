@@ -3,6 +3,7 @@ import { sanitizeListRestProps, TopToolbar } from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
 import { ToggleFieldsMenu } from '../common'
 import PlaylistFolderCreateButton from './PlaylistFolderCreateButton'
+import PlaylistUploadButton from '../playlist/PlaylistUploadButton'
 
 const PlaylistListActions = ({ className, ...rest }) => {
   const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
@@ -11,6 +12,7 @@ const PlaylistListActions = ({ className, ...rest }) => {
     <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
       {rest.filters ? cloneElement(rest.filters, { context: 'button' }) : null}
       <PlaylistFolderCreateButton recordId={rest?.filterValues?.parent_id} />
+      <PlaylistUploadButton />
       {isNotSmall && <ToggleFieldsMenu resource="folder" />}
     </TopToolbar>
   )
