@@ -138,7 +138,7 @@ const SongList = (props) => {
   useResourceRefresh('song')
 
   const songs = useSelector((state) => state.admin.resources.song)
-  const perPage = songs?.list?.params?.perPage ?? 50
+  const perPage = Number(songs?.list?.params?.perPage) || 50
 
   const handleRowClick = useCallback((id, basePath, record) => {
       // Convert songs.data to an array if it's an object
