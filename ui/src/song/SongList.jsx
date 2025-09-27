@@ -21,6 +21,7 @@ import {
   SongDatagrid,
   SongInfo,
   QuickFilter,
+  Pagination,
   SongTitleField,
   SongSimpleList,
   RatingField,
@@ -244,7 +245,8 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 50}
+        perPage={50}
+        pagination={<Pagination />}
       >
         {isXsmall ? (
           <SongSimpleList />
