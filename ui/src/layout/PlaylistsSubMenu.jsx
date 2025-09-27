@@ -54,8 +54,8 @@ const useStyles = makeStyles((theme) => ({
   listItem: {
     borderRadius: 6,
     marginRight: 4,
-    paddingTop: 4,
-    paddingBottom: 4,
+    paddingTop: 1,
+    paddingBottom: 1,
     transition: 'all 0.2s ease-in-out',
     '&:hover': { backgroundColor: theme.palette.action.hover, transform: 'translateX(2px)' },
   },

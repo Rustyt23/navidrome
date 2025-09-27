@@ -37,8 +37,8 @@ const useStyles = makeStyles((theme) => ({
     cursor: 'pointer',
     // ↓ shrink row height by reducing vertical padding on all table cells
     '& td, & th, & .MuiTableCell-root': {
-      paddingTop: 1,
-      paddingBottom: 1,
+      paddingTop: 3,
+      paddingBottom: 3,
     },
     '&:hover': {
       '& $contextMenu': {

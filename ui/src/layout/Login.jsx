@@ -125,7 +125,7 @@ const FormLogin = ({ loading, handleSubmit, validate }) => {
               </div>
               <div className={classes.systemName}>
                 <a
-                  href="https://musicmatters.rustyt.in"
+                  href="https://music.jareddietch.com"
                   target="_blank"
                   rel="noopener noreferrer"
                   className={classes.systemNameLink}
@@ -323,7 +323,7 @@ const Login = ({ location }) => {
     (auth) => {
       setLoading(true)
       dispatch(clearQueue())
-      login(auth, location.state ? location.state.nextPathname : '/').catch(
+      login(auth, location.state ? location.state.nextPathname : '/song').catch(
         (error) => {
           setLoading(false)
           notify(

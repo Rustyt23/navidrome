@@ -48,7 +48,7 @@ import PlaylistShow from './playlist/PlaylistShow'
 import PlaylistEdit from './playlist/PlaylistEdit'
 
 const history = createHashHistory()
-
+if (!shareInfo && history.location.pathname === '/') history.replace('/song')
 if (config.gaTrackingId) {
   ReactGA.initialize(config.gaTrackingId)
   history.listen((location) => {
