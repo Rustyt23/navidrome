@@ -365,7 +365,7 @@ const ReorderableSongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 15}
+        perPage={50}
       >
         {isXsmall ? (
           <SongSimpleList />
