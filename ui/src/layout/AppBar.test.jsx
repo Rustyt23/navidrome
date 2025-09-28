@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, it, beforeEach, vi } from 'vitest'
 import { Provider } from 'react-redux'
 import { createStore, combineReducers } from 'redux'
@@ -10,7 +10,12 @@ import config from '../config'
 let store
 
 vi.mock('react-admin', () => ({
-  AppBar: ({ userMenu }) => <div data-testid="appbar">{userMenu}</div>,
+  AppBar: ({ userMenu, children }) => (
+    <div data-testid="appbar">
+      <div data-testid="appbar-children">{children}</div>
+      {userMenu}
+    </div>
+  ),
   useTranslate: () => (x) => x,
   usePermissions: () => ({ permissions: 'admin' }),
   getResources: () => [],
@@ -51,6 +56,18 @@ describe('<AppBar />', () => {
       </Provider>,
     )
     expect(screen.getByTestId('now-playing-panel')).toBeInTheDocument()
+  })
+
+  it('renders ActivityPanel in the app bar content when enabled', () => {
+    render(
+      <Provider store={store}>
+        <AppBar />
+      </Provider>,
+    )
+    const appBarChildren = screen.getByTestId('appbar-children')
+    expect(
+      within(appBarChildren).getByTestId('activity-panel'),
+    ).toBeInTheDocument()
   })
 
   it('hides NowPlayingPanel when disabled', () => {

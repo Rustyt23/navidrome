@@ -211,17 +211,17 @@ const ActivityPanel = () => {
           </CardContent>
           <Divider />
           <CardActions>
+            <Tooltip title={translate('activity.sync')}>
+              <IconButton onClick={triggerSync} disabled={scanStatus.scanning}>
+                <BiLink />
+              </IconButton>
+            </Tooltip>
             <Tooltip title={translate('activity.quickScan')}>
               <IconButton
                 onClick={triggerScan(false)}
                 disabled={scanStatus.scanning}
               >
                 <VscSync />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title={translate('activity.sync')}>
-              <IconButton onClick={triggerSync} disabled={scanStatus.scanning}>
-                <BiLink />
               </IconButton>
             </Tooltip>
             <Tooltip title={translate('activity.fullScan')}>

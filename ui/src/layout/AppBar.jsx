@@ -8,7 +8,13 @@ import {
 } from 'react-admin'
 import { MdInfo, MdPerson, MdSupervisorAccount } from 'react-icons/md'
 import { useSelector } from 'react-redux'
-import { makeStyles, MenuItem, ListItemIcon, Divider } from '@material-ui/core'
+import {
+  makeStyles,
+  MenuItem,
+  ListItemIcon,
+  Divider,
+  Typography,
+} from '@material-ui/core'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import { Dialogs } from '../dialogs/Dialogs'
 import { AboutDialog } from '../dialogs'
@@ -27,6 +33,12 @@ const useStyles = makeStyles(
       color: theme.palette.text.primary,
     },
     icon: { minWidth: theme.spacing(5) },
+    title: {
+      flex: 1,
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+    },
   }),
   {
     name: 'NDAppBar',
@@ -120,10 +132,6 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
 
   return (
     <>
-      {config.devActivityPanel &&
-        permissions === 'admin' &&
-        config.enableNowPlaying && <NowPlayingPanel />}
-      {config.devActivityPanel && permissions === 'admin' && <ActivityPanel />}
       <UserMenu {...rest}>
         <PersonalMenu sidebarIsOpen={true} onClick={onClick} />
         <Divider />
@@ -139,8 +147,25 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
   )
 }
 
-const AppBar = (props) => (
-  <RAAppBar {...props} container={Fragment} userMenu={<CustomUserMenu />} />
-)
+const AppBar = (props) => {
+  const classes = useStyles()
+  const { permissions } = usePermissions()
+  const showActivityPanel =
+    config.devActivityPanel && permissions === 'admin'
+  const showNowPlaying = showActivityPanel && config.enableNowPlaying
+
+  return (
+    <RAAppBar {...props} container={Fragment} userMenu={<CustomUserMenu />}>
+      <Typography
+        variant="h6"
+        color="inherit"
+        className={classes.title}
+        id="react-admin-title"
+      />
+      {showActivityPanel && <ActivityPanel />}
+      {showNowPlaying && <NowPlayingPanel />}
+    </RAAppBar>
+  )
+}
 
 export default AppBar
