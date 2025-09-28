@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react'
+import React, { useMemo, useState, useCallback, useEffect } from 'react'
 import {
   Badge,
   Box,
@@ -13,6 +13,11 @@ import {
   makeStyles,
 } from '@material-ui/core'
 import { FiBell } from 'react-icons/fi'
+import {
+  subscribeToNotifications,
+  getNotifications,
+  clearNotifications,
+} from './notificationStore'
 
 const useStyles = makeStyles((theme) => ({
   button: {
@@ -82,31 +87,12 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
-const mockNotifications = [
-  {
-    id: 1,
-    title: 'New album added',
-    description: 'Across 110th Street by Bobby Womack is now available.',
-    time: '2 minutes ago',
-  },
-  {
-    id: 2,
-    title: 'Playlist updated',
-    description: 'Jazz Essentials was refreshed with 5 new tracks.',
-    time: '12 minutes ago',
-  },
-  {
-    id: 3,
-    title: 'Sync complete',
-    description: 'Library sync finished without any conflicts.',
-    time: 'Yesterday',
-  },
-]
-
 const NotificationPanel = () => {
   const classes = useStyles()
   const [anchorEl, setAnchorEl] = useState(null)
-  const [notifications, setNotifications] = useState(mockNotifications)
+  const [notifications, setNotifications] = useState(() => getNotifications())
+
+  useEffect(() => subscribeToNotifications(setNotifications), [])
 
   const badgeCount = notifications.length
   const open = Boolean(anchorEl)
@@ -125,7 +111,7 @@ const NotificationPanel = () => {
   const handleClose = useCallback(() => setAnchorEl(null), [])
 
   const handleClear = useCallback(() => {
-    setNotifications([])
+    clearNotifications()
   }, [])
 
   const notificationItems = useMemo(

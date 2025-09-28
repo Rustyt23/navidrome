@@ -1,6 +1,7 @@
 import jsonServerProvider from 'ra-data-json-server'
 import httpClient from './httpClient'
 import { REST_URL } from '../consts'
+import { notifyPlaylistMissingSongs } from './playlistMissingNotifier'
 
 const dataProvider = jsonServerProvider(REST_URL, httpClient)
 
@@ -197,6 +198,16 @@ const wrapperDataProvider = {
         const parentId =
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
         emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
+      }
+      if (resource === 'playlist') {
+        Promise.resolve(
+          notifyPlaylistMissingSongs(res?.data?.id, params?.data?.name),
+        ).catch(() => {})
+      }
+      if (resource === 'playlistTrack' && params?.filter?.playlist_id) {
+        Promise.resolve(
+          notifyPlaylistMissingSongs(params.filter.playlist_id),
+        ).catch(() => {})
       }
       return res
     })
