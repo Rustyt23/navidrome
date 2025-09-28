@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useEffect } from 'react'
 import {
   DateField,
   Filter,
+  NumberField,
   ReferenceInput,
   SearchInput,
   SelectInput,
@@ -15,6 +16,7 @@ import { useMediaQuery } from '@material-ui/core'
 import Switch from '@material-ui/core/Switch'
 
 import {
+  DurationField,
   List,
   Writable,
   isWritable,
@@ -97,6 +99,42 @@ const TogglePublicInput = ({ source }) => {
   )
 }
 
+const ToggleAutoImport = ({ source }) => {
+  const record = useRecordContext()
+  const notify = useNotify()
+  const [update, { isLoading }] = useUpdate()
+
+  if (record?.type !== 'playlist' || !record?.path) return null
+
+  const handleChange = (e) => {
+    e.stopPropagation()
+    if (!record?.id) return
+    const next = !record?.[source]
+
+    update(
+      record.type,
+      record.id,
+      { ...record, [source]: next },
+      {
+        onFailure: () => {
+          notify('ra.page.error', 'warning')
+        },
+      },
+    )
+  }
+
+  return (
+    <Switch
+      checked={Boolean(record?.[source])}
+      onChange={handleChange}
+      onClick={(e) => e.stopPropagation()}
+      disabled={isLoading || !isWritable(record?.ownerId)}
+      color="primary"
+      inputProps={{ 'aria-label': 'toggle-auto-import' }}
+    />
+  )
+}
+
 const rowClick = (id, record) =>
   record?.type === 'folder' ? `/folder/${id}/show` : `/playlist/${id}/show`
 
@@ -108,8 +146,14 @@ const PlaylistFolderList = (props) => {
   const toggleableFields = useMemo(
     () => ({
       ownerName: isDesktop && <TextField source="ownerName" />,
+      songCount: !isXsmall && <NumberField source="songCount" />,
+      duration: !isXsmall && <DurationField source="duration" />,
+      createdAt: isDesktop && <DateField source="createdAt" />,
       updatedAt: isDesktop && <DateField source="updatedAt" />,
       public: !isXsmall && <TogglePublicInput source="public" />,
+      comment: isDesktop && <TextField source="comment" />,
+      path: isDesktop && <TextField source="path" />,
+      sync: !isXsmall && <ToggleAutoImport source="sync" />,
     }),
     [isDesktop, isXsmall],
   )
