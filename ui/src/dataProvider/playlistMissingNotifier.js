@@ -50,9 +50,11 @@ export const notifyPlaylistMissingSongs = async (playlistId, fallbackName) => {
       return
     }
     const playlistName = await fetchPlaylistName(playlistId, fallbackName)
+    const noun = missingCount === 1 ? 'song' : 'songs'
+    const verb = missingCount === 1 ? 'is' : 'are'
     pushNotification({
       title: 'Missing songs detected',
-      description: `${missingCount} songs in playlist '${playlistName}' are missing from the server.`,
+      description: `${missingCount} ${noun} in playlist '${playlistName}' ${verb} missing from the server.`,
       time: 'Just now',
     })
     notifiedPlaylists.add(playlistId)

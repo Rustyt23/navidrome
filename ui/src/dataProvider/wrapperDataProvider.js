@@ -232,7 +232,10 @@ const wrapperDataProvider = {
     return httpClient(`${REST_URL}/playlist/${playlistId}/tracks`, {
       method: 'POST',
       body: JSON.stringify(data),
-    }).then(({ json }) => ({ data: json }))
+    }).then(({ json }) => {
+      Promise.resolve(notifyPlaylistMissingSongs(playlistId)).catch(() => {})
+      return { data: json }
+    })
   },
   getPlaylists: (songId) => {
     return httpClient(`${REST_URL}/song/${songId}/playlists`).then(
