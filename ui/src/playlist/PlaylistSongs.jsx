@@ -201,6 +201,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
       'playDate',
       'createdAt',
       'albumArtist',
+      'comment',
       'genre',
       'rating',
     ],
