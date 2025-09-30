@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/RaveNoX/go-jsoncommentstrip"
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/criteria"
@@ -116,7 +118,8 @@ func (s *playlists) ensurePlaylistFolder(ctx context.Context, playlistPath strin
 }
 
 func (s *playlists) ImportFile(ctx context.Context, folder *model.Folder, filename string) (*model.Playlist, error) {
-	pls, err := s.parsePlaylist(ctx, filename, folder)
+	var missing []string
+	pls, err := s.parsePlaylist(ctx, filename, folder, &missing)
 	if err != nil {
 		log.Error(ctx, "Error parsing playlist", "path", filepath.Join(folder.AbsolutePath(), filename), err)
 		return nil, err
@@ -130,6 +133,8 @@ func (s *playlists) ImportFile(ctx context.Context, folder *model.Folder, filena
 	err = s.updatePlaylist(ctx, pls)
 	if err != nil {
 		log.Error(ctx, "Error updating playlist", "path", filepath.Join(folder.AbsolutePath(), filename), err)
+	} else {
+		s.logMissingPlaylistTracks(ctx, pls.ID, missing)
 	}
 	return pls, err
 }
@@ -141,7 +146,8 @@ func (s *playlists) ImportM3U(ctx context.Context, reader io.Reader) (*model.Pla
 		Public:  false,
 		Sync:    false,
 	}
-	err := s.parseM3U(ctx, pls, nil, reader)
+	var missing []string
+	err := s.parseM3U(ctx, pls, nil, reader, &missing)
 	if err != nil {
 		log.Error(ctx, "Error parsing playlist", err)
 		return nil, err
@@ -151,10 +157,11 @@ func (s *playlists) ImportM3U(ctx context.Context, reader io.Reader) (*model.Pla
 		log.Error(ctx, "Error saving playlist", err)
 		return nil, err
 	}
+	s.logMissingPlaylistTracks(ctx, pls.ID, missing)
 	return pls, nil
 }
 
-func (s *playlists) parsePlaylist(ctx context.Context, playlistFile string, folder *model.Folder) (*model.Playlist, error) {
+func (s *playlists) parsePlaylist(ctx context.Context, playlistFile string, folder *model.Folder, missing *[]string) (*model.Playlist, error) {
 	pls, err := s.newSyncedPlaylist(folder.AbsolutePath(), playlistFile)
 	if err != nil {
 		return nil, err
@@ -171,7 +178,7 @@ func (s *playlists) parsePlaylist(ctx context.Context, playlistFile string, fold
 	case ".nsp":
 		err = s.parseNSP(ctx, pls, file)
 	default:
-		err = s.parseM3U(ctx, pls, folder, file)
+		err = s.parseM3U(ctx, pls, folder, file, missing)
 	}
 	return pls, err
 }
@@ -237,7 +244,12 @@ func (s *playlists) parseNSP(_ context.Context, pls *model.Playlist, reader io.R
 	return nil
 }
 
-func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *model.Folder, reader io.Reader) error {
+type playlistPath struct {
+	Original   string
+	Normalized string
+}
+
+func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *model.Folder, reader io.Reader, missing *[]string) error {
 	mediaFileRepository := s.ds.MediaFile(ctx)
 	var mfs model.MediaFiles
 	for lines := range slice.CollectChunks(slice.LinesFrom(reader), 400) {
@@ -261,11 +273,15 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 			}
 			filteredLines = append(filteredLines, line)
 		}
-		paths, err := s.normalizePaths(ctx, pls, folder, filteredLines)
+		normalizedPaths, err := s.normalizePaths(ctx, pls, folder, filteredLines, missing)
 		if err != nil {
 			log.Warn(ctx, "Error normalizing paths in playlist", "playlist", pls.Name, err)
 			continue
 		}
+		if len(normalizedPaths) == 0 {
+			continue
+		}
+		paths := slice.Map(normalizedPaths, func(p playlistPath) string { return p.Normalized })
 		found, err := mediaFileRepository.FindByPaths(paths)
 		if err != nil {
 			log.Warn(ctx, "Error reading files from DB", "playlist", pls.Name, err)
@@ -275,12 +291,15 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 		for idx := range found {
 			existing[normalizePathForComparison(found[idx].Path)] = idx
 		}
-		for _, path := range paths {
-			idx, ok := existing[normalizePathForComparison(path)]
+		for _, p := range normalizedPaths {
+			idx, ok := existing[normalizePathForComparison(p.Normalized)]
 			if ok {
 				mfs = append(mfs, found[idx])
 			} else {
-				log.Warn(ctx, "Path in playlist not found", "playlist", pls.Name, "path", path)
+				log.Warn(ctx, "Path in playlist not found", "playlist", pls.Name, "path", p.Original)
+				if missing != nil {
+					*missing = append(*missing, p.Original)
+				}
 			}
 		}
 	}
@@ -313,13 +332,13 @@ func inPlaylistsPath(rel string) bool {
 }
 
 // TODO This won't work for multiple libraries
-func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, folder *model.Folder, lines []string) ([]string, error) {
+func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, folder *model.Folder, lines []string, missing *[]string) ([]playlistPath, error) {
 	libs, err := s.ds.Library(ctx).GetAll()
 	if err != nil {
 		return nil, err
 	}
 
-	res := make([]string, 0, len(lines))
+	res := make([]playlistPath, 0, len(lines))
 	for idx, line := range lines {
 		cleanLine := filepath.Clean(line)
 		var relPath string
@@ -373,12 +392,65 @@ func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, fol
 		}
 
 		if found {
-			res = append(res, relPath)
+			res = append(res, playlistPath{Original: line, Normalized: filepath.ToSlash(relPath)})
 		} else {
 			log.Warn(ctx, "Path in playlist not found in any library", "path", line, "line", idx)
+			if missing != nil {
+				*missing = append(*missing, line)
+			}
 		}
 	}
-	return slice.Map(res, filepath.ToSlash), nil
+	return res, nil
+}
+
+func (s *playlists) logMissingPlaylistTracks(ctx context.Context, playlistID string, trackPaths []string) {
+	if playlistID == "" {
+		return
+	}
+
+	tx, err := db.Db().BeginTx(ctx, nil)
+	if err != nil {
+		log.Error(ctx, "Error starting missing playlist tracks transaction", "playlistId", playlistID, err)
+		return
+	}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			log.Error(ctx, "Error rolling back missing playlist tracks transaction", "playlistId", playlistID, rollbackErr)
+		}
+	}()
+
+	if _, err = tx.ExecContext(ctx, "delete from missing_playlist_tracks where playlist_id = ?", playlistID); err != nil {
+		log.Error(ctx, "Error clearing missing playlist tracks", "playlistId", playlistID, err)
+		return
+	}
+
+	if len(trackPaths) > 0 {
+		stmt, err := tx.PrepareContext(ctx, "insert into missing_playlist_tracks (playlist_id, track_path) values (?, ?)")
+		if err != nil {
+			log.Error(ctx, "Error preparing missing playlist track insert", "playlistId", playlistID, err)
+			return
+		}
+		defer stmt.Close()
+		for _, path := range trackPaths {
+			if path == "" {
+				continue
+			}
+			if _, err = stmt.ExecContext(ctx, playlistID, path); err != nil {
+				log.Error(ctx, "Error inserting missing playlist track", "playlistId", playlistID, "path", path, err)
+				return
+			}
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		log.Error(ctx, "Error committing missing playlist tracks transaction", "playlistId", playlistID, err)
+		return
+	}
+	committed = true
 }
 
 func (s *playlists) updatePlaylist(ctx context.Context, newPls *model.Playlist) error {
