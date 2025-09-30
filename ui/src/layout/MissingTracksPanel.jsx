@@ -161,15 +161,69 @@ const MissingTracksPanel = () => {
     return details.join(' • ')
   }, [])
 
+  const formatImportedAt = useCallback((value) => {
+    if (!value) {
+      return ''
+    }
+
+    const date = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return ''
+    }
+
+    const day = String(date.getDate()).padStart(2, '0')
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
+    const month = monthNames[date.getMonth()] || ''
+    const year = date.getFullYear()
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+
+    return `${day} ${month} ${year}, ${hours}:${minutes}`
+  }, [])
+
+  const getImportedAtLabel = useCallback(
+    (entry) => {
+      if (!entry) {
+        return ''
+      }
+
+      if (entry.imported_at) {
+        return formatImportedAt(entry.imported_at)
+      }
+
+      const tracks = Array.isArray(entry.tracks) ? entry.tracks : []
+      let earliest = null
+
+      tracks.forEach((track) => {
+        const candidate = track && track.created_at ? new Date(track.created_at) : null
+        if (!candidate || Number.isNaN(candidate.getTime())) {
+          return
+        }
+        if (!earliest || candidate < earliest) {
+          earliest = candidate
+        }
+      })
+
+      return formatImportedAt(earliest)
+    },
+    [formatImportedAt],
+  )
+
   const renderedEntries = useMemo(
     () =>
       entries.map((entry, index) => {
         const playlistId = entry.playlist_id || `playlist-${index}`
         const summaryCount = entry.missing_count || (entry.tracks ? entry.tracks.length : 0)
-        const summaryText = translate('notifications.missingTracksSummary', {
+        const baseSummary = translate('notifications.missingTracksSummary', {
           smart_count: summaryCount,
           playlist: getPlaylistName(entry),
         })
+        const importedAtText = getImportedAtLabel(entry)
+        const summaryText = importedAtText
+          ? `${baseSummary}${translate('notifications.missingTracksImportedOn', {
+              date: importedAtText,
+            })}`
+          : baseSummary
         const isExpanded = !!expanded[playlistId]
         const tracks = Array.isArray(entry.tracks) ? entry.tracks : []
 
@@ -201,7 +255,19 @@ const MissingTracksPanel = () => {
           </div>
         )
       }),
-    [classes.nestedItem, classes.nestedList, classes.summaryItem, entries, expanded, getPlaylistName, getTrackPrimary, getTrackSecondary, togglePlaylist, translate],
+    [
+      classes.nestedItem,
+      classes.nestedList,
+      classes.summaryItem,
+      entries,
+      expanded,
+      getImportedAtLabel,
+      getPlaylistName,
+      getTrackPrimary,
+      getTrackSecondary,
+      togglePlaylist,
+      translate,
+    ],
   )
 
   return (
