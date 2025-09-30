@@ -632,6 +632,10 @@
     "empty": "Nothing playing",
     "minutesAgo": "%{smart_count} minute ago |||| %{smart_count} minutes ago"
   },
+  "notifications": {
+    "missingTracks": "Missing Tracks",
+    "missingTracksEmpty": "No missing tracks recorded"
+  },
   "help": {
     "title": "MusicMatters Hotkeys",
     "hotkeys": {
