@@ -227,7 +227,6 @@ const SongList = (props) => {
       'bpm',
       'playDate',
       'albumArtist',
-      'genre',
       'mood',
       'comment',
       'path',

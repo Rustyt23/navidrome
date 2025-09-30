@@ -26,6 +26,7 @@ import {
   useResourceRefresh,
   DateField,
   ArtistLinkField,
+  PathField,
   RatingField,
 } from '../common'
 import { AlbumLinkField } from '../song/AlbumLinkField'
@@ -176,6 +177,8 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
       channels: isDesktop && <NumberField source="channels" />,
       bpm: isDesktop && <NumberField source="bpm" />,
       genre: <TextField source="genre" />,
+      comment: <TextField source="comment" />,
+      path: <PathField source="path" />,
       rating: config.enableStarRating && (
         <RatingField
           source="rating"
@@ -195,10 +198,10 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
       'bpm',
       'year',
       'playCount',
+      'comment',
       'playDate',
       'createdAt',
       'albumArtist',
-      'genre',
       'rating',
     ],
   })
