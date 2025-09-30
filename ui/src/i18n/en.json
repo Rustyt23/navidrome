@@ -634,7 +634,10 @@
   },
   "notifications": {
     "missingTracks": "Missing Tracks",
-    "missingTracksEmpty": "No missing tracks recorded"
+    "missingTracksEmpty": "No missing tracks recorded",
+    "missingTracksSummary": "%{smart_count} song is missing from Playlist %{playlist} |||| %{smart_count} songs are missing from Playlist %{playlist}",
+    "missingTracksUnknownPlaylist": "Unknown playlist",
+    "missingTracksUnknownTitle": "Unknown track"
   },
   "help": {
     "title": "MusicMatters Hotkeys",
