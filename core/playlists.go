@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/RaveNoX/go-jsoncommentstrip"
 	"github.com/bmatcuk/doublestar/v4"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -281,6 +283,7 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 				mfs = append(mfs, found[idx])
 			} else {
 				log.Warn(ctx, "Path in playlist not found", "playlist", pls.Name, "path", path)
+				recordMissingPlaylistTrack(ctx, pls.Path, path)
 			}
 		}
 	}
@@ -298,6 +301,43 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 // Apple Music creates playlists with NFC-encoded paths but the filesystem uses NFD.
 func normalizePathForComparison(path string) string {
 	return strings.ToLower(norm.NFC.String(path))
+}
+
+func recordMissingPlaylistTrack(ctx context.Context, playlistPath, trackPath string) {
+	if trackPath == "" || conf.Server.DataFolder == "" {
+		return
+	}
+
+	dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
+
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		log.Debug(ctx, "Unable to open missing tracks database", "path", dbFile, "err", err)
+		return
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		log.Debug(ctx, "Unable to enable WAL for missing tracks database", "path", dbFile, "err", err)
+		return
+	}
+
+	_, err = db.Exec(`
+CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        playlist_id TEXT,
+        track_path TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`)
+	if err != nil {
+		log.Debug(ctx, "Unable to ensure missing tracks table", "path", dbFile, "err", err)
+		return
+	}
+
+	if _, err := db.Exec(`INSERT INTO missing_playlist_tracks (playlist_id, track_path) VALUES (?, ?)`, playlistPath, trackPath); err != nil {
+		log.Debug(ctx, "Unable to record missing track", "path", dbFile, "err", err)
+	}
 }
 
 func inPlaylistsPath(rel string) bool {
@@ -376,6 +416,7 @@ func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, fol
 			res = append(res, relPath)
 		} else {
 			log.Warn(ctx, "Path in playlist not found in any library", "path", line, "line", idx)
+			recordMissingPlaylistTrack(ctx, pls.Path, line)
 		}
 	}
 	return slice.Map(res, filepath.ToSlash), nil
