@@ -26,6 +26,7 @@ import {
   useResourceRefresh,
   DateField,
   ArtistLinkField,
+  PathField,
   RatingField,
 } from '../common'
 import { AlbumLinkField } from '../song/AlbumLinkField'
@@ -169,6 +170,8 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
       playDate: isDesktop && (
         <DateField source="playDate" sortByOrder={'DESC'} showTime />
       ),
+      comment: <TextField source="comment" />,
+        path: <PathField source="path" />,
       createdAt: (
         <DateField source="createdAt" showTime sortable={false} />
       ),
