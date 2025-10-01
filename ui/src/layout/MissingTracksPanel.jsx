@@ -21,7 +21,9 @@ import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import { formatDuration } from '../utils'
 
 const useStyles = makeStyles((theme) => ({
-  button: { color: 'inherit' },
+  button: (props) => ({
+    color: props.open ? theme.palette.secondary.main : 'inherit',
+  }),
   card: { padding: 0 },
   cardContent: {
     padding: `${theme.spacing(1)}px !important`,
@@ -30,8 +32,8 @@ const useStyles = makeStyles((theme) => ({
     },
   },
   list: {
-    width: '30em',
-    maxHeight: '20em',
+    width: '36em',
+    maxHeight: '28em',
     overflowY: 'auto',
     padding: 0,
   },
@@ -60,7 +62,6 @@ const useStyles = makeStyles((theme) => ({
 }))
 
 const MissingTracksPanel = () => {
-  const classes = useStyles()
   const translate = useTranslate()
   const notify = useNotify()
   const [anchorEl, setAnchorEl] = useState(null)
@@ -69,6 +70,7 @@ const MissingTracksPanel = () => {
   const [expanded, setExpanded] = useState({})
 
   const open = Boolean(anchorEl)
+  const classes = useStyles({ open })
 
   const fetchEntries = useCallback(() => {
     setLoading(true)
@@ -134,8 +136,11 @@ const MissingTracksPanel = () => {
         return track.title
       }
       const parts = (track.track_path || '').split(/[\\/]/)
-      const fallback = parts[parts.length - 1]
-      return fallback || translate('notifications.missingTracksUnknownTitle')
+      const fallback = parts[parts.length - 1] || ''
+      const cleanedFallback = fallback.replace(/\.[^./\\]+$/, '')
+      return (
+        cleanedFallback || translate('notifications.missingTracksUnknownTitle')
+      )
     },
     [translate],
   )
@@ -151,12 +156,8 @@ const MissingTracksPanel = () => {
     if (track.duration_seconds && track.duration_seconds > 0) {
       details.push(formatDuration(track.duration_seconds))
     }
-    if (details.length === 0 && track.title) {
-      return ''
-    }
     if (details.length === 0) {
-      const parts = (track.track_path || '').split(/[\\/]/)
-      return parts[parts.length - 1] || ''
+      return ''
     }
     return details.join(' • ')
   }, [])
