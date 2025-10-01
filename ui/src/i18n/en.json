@@ -345,12 +345,13 @@
   "notifications": {
     "missing": {
       "title": "Missing songs",
-      "empty": "Your playlists are up to date.",
+      "empty": "",
       "load_error": "Unable to load missing songs: %{error}",
       "detected": "Detected %{value}",
       "no_playlists": "Not part of any playlist",
       "untitled": "Untitled track",
-      "count": "%{count, plural, =0 {No missing songs} one {# missing song} other {# missing songs}}"
+      "count": "%{smart_count} missing song |||| %{smart_count} missing songs",
+      "none": "No missing songs"
     }
   },
   "ra": {

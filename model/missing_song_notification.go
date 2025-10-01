@@ -4,6 +4,7 @@ import "time"
 
 type MissingSongNotification struct {
 	MediaFileID   string    `structs:"media_file_id" json:"mediaFileId"`
+	SongTitle     string    `structs:"song_title" json:"songTitle"`
 	PlaylistNames []string  `structs:"-" json:"playlistNames"`
 	DetectedAt    time.Time `structs:"detected_at" json:"detectedAt"`
 	MediaFile     MediaFile `structs:"-" json:"mediaFile"`

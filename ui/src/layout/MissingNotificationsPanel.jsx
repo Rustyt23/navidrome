@@ -159,6 +159,13 @@ const MissingNotificationsPanel = () => {
     [classes.button, classes.buttonActive, count],
   )
 
+  const countLabel = useMemo(() => {
+    if (count === 0) {
+      return translate('notifications.missing.none')
+    }
+    return translate('notifications.missing.count', { smart_count: count })
+  }, [count, translate])
+
   const listContent = useMemo(() => {
     if (loading) {
       return (
@@ -177,22 +184,20 @@ const MissingNotificationsPanel = () => {
       )
     }
     if (notifications.length === 0) {
-      return (
-        <Typography className={classes.emptyState} variant="body2">
-          {translate('notifications.missing.empty')}
-        </Typography>
-      )
+      return null
     }
     return (
       <List className={classes.listContainer} dense>
         {notifications.map((item) => {
-          const { mediaFile = {}, playlistNames = [], detectedAt } = item
+          const { mediaFile = {}, playlistNames = [], detectedAt, songTitle } = item
+          const title =
+            mediaFile.title || songTitle || translate('notifications.missing.untitled')
           const artist = mediaFile.artist || translate('resources.song.fields.artist')
           const album = mediaFile.album
           return (
             <ListItem key={item.mediaFileId} className={classes.listItem} divider>
               <ListItemText
-                primary={mediaFile.title || translate('notifications.missing.untitled')}
+                primary={title}
                 secondary={
                   <div className={classes.secondaryLine}>
                     <Typography variant="body2" color="textSecondary">
@@ -268,7 +273,7 @@ const MissingNotificationsPanel = () => {
               {translate('notifications.missing.title')}
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              {translate('notifications.missing.count', { count })}
+              {countLabel}
             </Typography>
           </Box>
           {listContent}

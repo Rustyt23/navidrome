@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 
@@ -23,6 +24,12 @@ type dbMissingSongNotification struct {
 	dbMediaFile
 }
 
+type missingMediaFile struct {
+	ID    string `db:"id"`
+	Title string `db:"title"`
+	Path  string `db:"path"`
+}
+
 type dbMissingSongNotifications []dbMissingSongNotification
 
 func (m dbMissingSongNotifications) toModels() model.MissingSongNotifications {
@@ -38,7 +45,12 @@ func (m *dbMissingSongNotification) PostScan() error {
 	if err := m.dbMediaFile.PostScan(); err != nil {
 		return err
 	}
-	m.MissingSongNotification.MediaFile = *m.dbMediaFile.MediaFile
+	if m.dbMediaFile.MediaFile != nil {
+		m.MissingSongNotification.MediaFile = *m.dbMediaFile.MediaFile
+		if m.MissingSongNotification.SongTitle == "" {
+			m.MissingSongNotification.SongTitle = m.dbMediaFile.MediaFile.Title
+		}
+	}
 	if m.Playlists != "" {
 		if err := json.Unmarshal([]byte(m.Playlists), &m.MissingSongNotification.PlaylistNames); err != nil {
 			return fmt.Errorf("parsing playlist names: %w", err)
@@ -103,18 +115,22 @@ func (r *missingSongNotificationRepository) RefreshForMediaFileIDs(ids ...string
 	}
 
 	for chunk := range slices.Chunk(ids, 200) {
-		missingIDs, err := r.loadMissingMediaFileIDs(chunk)
+		missingFiles, err := r.loadMissingMediaFiles(chunk)
 		if err != nil {
 			return err
 		}
-		if len(missingIDs) == 0 {
+		if len(missingFiles) == 0 {
 			continue
+		}
+		missingIDs := make([]string, len(missingFiles))
+		for i, file := range missingFiles {
+			missingIDs[i] = file.ID
 		}
 		playlists, err := r.loadPlaylistNames(missingIDs)
 		if err != nil {
 			return err
 		}
-		if err := r.upsertNotifications(missingIDs, playlists); err != nil {
+		if err := r.upsertNotifications(missingFiles, playlists); err != nil {
 			return err
 		}
 	}
@@ -173,18 +189,18 @@ func (r *missingSongNotificationRepository) DeleteAll() error {
 	return err
 }
 
-func (r *missingSongNotificationRepository) loadMissingMediaFileIDs(ids []string) ([]string, error) {
+func (r *missingSongNotificationRepository) loadMissingMediaFiles(ids []string) ([]missingMediaFile, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	sel := Select("id").
+	sel := Select("id", "title", "path").
 		From("media_file").
 		Where(And{
 			Eq{"id": ids},
 			Eq{"missing": true},
 		})
-	var res []string
-	if err := r.queryAllSlice(sel, &res); err != nil {
+	var res []missingMediaFile
+	if err := r.queryAll(sel, &res); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -223,19 +239,25 @@ func (r *missingSongNotificationRepository) loadPlaylistNames(ids []string) (map
 	return result, nil
 }
 
-func (r *missingSongNotificationRepository) upsertNotifications(ids []string, playlists map[string][]string) error {
-	for _, id := range ids {
-		names := playlists[id]
+func (r *missingSongNotificationRepository) upsertNotifications(files []missingMediaFile, playlists map[string][]string) error {
+	for _, file := range files {
+		names := playlists[file.ID]
 		sort.Strings(names)
+		title := file.Title
+		if title == "" {
+			title = filepath.Base(file.Path)
+		}
 		data, err := json.Marshal(names)
 		if err != nil {
 			return fmt.Errorf("marshaling playlist names: %w", err)
 		}
 		stmt := Expr(`
-            INSERT INTO missing_song_notification (media_file_id, playlist_names, detected_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(media_file_id) DO UPDATE SET playlist_names=excluded.playlist_names;
-        `, id, string(data))
+            INSERT INTO missing_song_notification (media_file_id, song_title, playlist_names, detected_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(media_file_id) DO UPDATE SET
+                song_title=excluded.song_title,
+                playlist_names=excluded.playlist_names;
+        `, file.ID, title, string(data))
 		if _, err := r.executeSQL(stmt); err != nil {
 			return err
 		}
