@@ -49,14 +49,14 @@ const useStyles = makeStyles((theme) => ({
   currentRow: {
     backgroundColor: theme.palette.action.hover,
     '& td, & th, & .MuiTableCell-root': {
-      color: '#ff66c4',
+      color: '#ff007f',
     },
     '& a': {
-      color: '#ff66c4',
+      color: '#ff007f',
     },
     '& svg': {
-      fill: '#ff66c4',
-      color: '#ff66c4',
+      fill: '#ff007f',
+      color: '#ff007f',
     },
     '& $contextMenu': {
       visibility: 'visible',
