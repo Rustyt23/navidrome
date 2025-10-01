@@ -1,0 +1,169 @@
+package model
+
+import (
+	"slices"
+	"strconv"
+	"time"
+
+	"github.com/navidrome/navidrome/model/criteria"
+)
+
+type Discovery struct {
+	ID        string          `structs:"id" json:"id"`
+	Name      string          `structs:"name" json:"name"`
+	Comment   string          `structs:"comment" json:"comment"`
+	Duration  float32         `structs:"duration" json:"duration"`
+	Size      int64           `structs:"size" json:"size"`
+	SongCount int             `structs:"song_count" json:"songCount"`
+	OwnerName string          `structs:"-" json:"ownerName"`
+	OwnerID   string          `structs:"owner_id" json:"ownerId"`
+	FolderID  *string         `structs:"folder_id" json:"folderId,omitempty"`
+	Public    bool            `structs:"public" json:"public"`
+	Tracks    DiscoveryTracks `structs:"-" json:"tracks,omitempty"`
+	Path      string          `structs:"path" json:"path"`
+	Sync      bool            `structs:"sync" json:"sync"`
+	CreatedAt time.Time       `structs:"created_at" json:"createdAt"`
+	UpdatedAt time.Time       `structs:"updated_at" json:"updatedAt"`
+
+	Type string `structs:"-" json:"type,omitempty"`
+
+	// SmartDiscovery attributes
+	Rules       *criteria.Criteria `structs:"rules" json:"rules"`
+	EvaluatedAt *time.Time         `structs:"evaluated_at" json:"evaluatedAt"`
+}
+
+func (d Discovery) IsSmartDiscovery() bool {
+	return d.Rules != nil && d.Rules.Expression != nil
+}
+
+func (d Discovery) MediaFiles() MediaFiles {
+	if len(d.Tracks) == 0 {
+		return nil
+	}
+	return d.Tracks.MediaFiles()
+}
+
+func (d *Discovery) refreshStats() {
+	d.SongCount = len(d.Tracks)
+	d.Duration = 0
+	d.Size = 0
+	for _, t := range d.Tracks {
+		d.Duration += t.MediaFile.Duration
+		d.Size += t.MediaFile.Size
+	}
+}
+
+func (d *Discovery) SetTracks(tracks DiscoveryTracks) {
+	d.Tracks = tracks
+	d.refreshStats()
+}
+
+func (d *Discovery) RemoveTracks(idxToRemove []int) {
+	var newTracks DiscoveryTracks
+	for i, t := range d.Tracks {
+		if slices.Contains(idxToRemove, i) {
+			continue
+		}
+		newTracks = append(newTracks, t)
+	}
+	d.Tracks = newTracks
+	d.refreshStats()
+}
+
+// ToM3U8 exports the discovery to the Extended M3U8 format
+func (d *Discovery) ToM3U8() string {
+	return d.MediaFiles().ToM3U8(d.Name, true)
+}
+
+func (d *Discovery) AddMediaFilesByID(mediaFileIds []string) {
+	pos := len(d.Tracks)
+	for _, mfId := range mediaFileIds {
+		pos++
+		t := DiscoveryTrack{
+			ID:          strconv.Itoa(pos),
+			MediaFileID: mfId,
+			DiscoveryID: d.ID,
+			MediaFile:   MediaFile{ID: mfId},
+		}
+		d.Tracks = append(d.Tracks, t)
+	}
+	d.refreshStats()
+}
+
+func (d *Discovery) AddMediaFiles(mfs MediaFiles) {
+	pos := len(d.Tracks)
+	for _, mf := range mfs {
+		pos++
+		t := DiscoveryTrack{
+			ID:          strconv.Itoa(pos),
+			MediaFileID: mf.ID,
+			DiscoveryID: d.ID,
+			MediaFile:   mf,
+		}
+		d.Tracks = append(d.Tracks, t)
+	}
+	d.refreshStats()
+}
+
+func (d Discovery) CoverArtID() ArtworkID {
+	return ArtworkID{
+		Kind:       KindPlaylistArtwork,
+		ID:         d.ID,
+		LastUpdate: d.UpdatedAt,
+	}
+}
+
+type Discoveries []Discovery
+
+type DiscoveryRepository interface {
+	ResourceRepository
+	CountAll(options ...QueryOptions) (int64, error)
+	Exists(id string) (bool, error)
+	Put(d *Discovery) error
+	Get(id string) (*Discovery, error)
+	GetWithTracks(id string, refreshSmartDiscovery, includeMissing bool) (*Discovery, error)
+	GetAll(options ...QueryOptions) (Discoveries, error)
+	FindByPath(path string) (*Discovery, error)
+	GetSyncedByDirectory(dir string) (Discoveries, error)
+	Delete(id string) error
+	Tracks(discoveryId string, refreshSmartDiscovery bool) DiscoveryTrackRepository
+	GetDiscoveries(mediaFileId string) (Discoveries, error)
+
+	UpdateDiscoveryFolder(id string, discoveryFolderId *string) error
+
+	GetAllByDiscoveryFolder(options ...QueryOptions) (Discoveries, error)
+}
+
+type DiscoveryTrack struct {
+	ID          string `json:"id"`
+	MediaFileID string `json:"mediaFileId"`
+	DiscoveryID string `json:"discoveryId"`
+	MediaFile
+}
+
+type DiscoveryTracks []DiscoveryTrack
+
+func (dt DiscoveryTracks) MediaFiles() MediaFiles {
+	mfs := make(MediaFiles, len(dt))
+	for i, t := range dt {
+		mfs[i] = t.MediaFile
+	}
+	return mfs
+}
+
+type DiscoveryTrackRepository interface {
+	ResourceRepository
+	GetAll(options ...QueryOptions) (DiscoveryTracks, error)
+	GetAlbumIDs(options ...QueryOptions) ([]string, error)
+	Add(mediaFileIds []string) (int, error)
+	AddAlbums(albumIds []string) (int, error)
+	AddArtists(artistIds []string) (int, error)
+	AddDiscs(discs []DiscID) (int, error)
+	Delete(id ...string) error
+	DeleteAll() error
+	Reorder(pos int, newPos int) error
+
+	AnnotatedRepository
+
+	SearchableRepository[DiscoveryTracks]
+}
