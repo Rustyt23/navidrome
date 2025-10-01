@@ -95,8 +95,8 @@ const MissingTracksPanel = () => {
   const formatTrackLine = useCallback(
     (track) => {
       const title = track && track.title ? track.title : translate('notifications.missingTracksUnknownTitle')
-      const artist = track && track.artist ? track.artist : translate('notifications.missingTracksUnknownArtist')
-      return `${title} — ${artist}`
+      const artist = track && track.artist ? track.artist : null
+      return artist ? `${title} — ${artist}` : title
     },
     [translate],
   )
