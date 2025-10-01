@@ -639,7 +639,7 @@
     "missingTracksImportedOn": " — imported on %{date}",
     "missingTracksUnknownPlaylist": "Unknown playlist",
     "missingTracksUnknownTitle": "Unknown track",
-    "missingTracksUnknownArtist": "Unknown artist"
+    "missingTracksUnknownAlbum": "Unknown album"
   },
   "help": {
     "title": "MusicMatters Hotkeys",

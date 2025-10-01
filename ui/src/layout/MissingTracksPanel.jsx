@@ -83,8 +83,8 @@ const MissingTracksPanel = () => {
   const formatLine = useCallback(
     (track) => {
       const title = track?.title || translate('notifications.missingTracksUnknownTitle')
-      const artist = track?.artist || translate('notifications.missingTracksUnknownArtist')
-      return `${title} — ${artist}`
+      const album = track?.album || translate('notifications.missingTracksUnknownAlbum')
+      return `${title} — ${album}`
     },
     [translate],
   )
@@ -122,7 +122,7 @@ const MissingTracksPanel = () => {
             ) : (
               <List className={classes.list} dense>
                 {entries.map((track, index) => (
-                  <ListItem key={`${track.title || 'track'}-${track.artist || index}-${index}`}>
+                  <ListItem key={`${track.title || 'track'}-${track.album || index}-${index}`}>
                     <ListItemText primary={formatLine(track)} />
                   </ListItem>
                 ))}
