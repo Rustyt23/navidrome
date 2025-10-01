@@ -19,7 +19,9 @@ func ListFoldersAndPlaylists(ds model.DataStore) http.HandlerFunc {
 		ctx := r.Context()
 		opts := parseQueryOptions(r)
 
-		if opts.Search != "" {
+		searching := opts.Search != ""
+
+		if searching {
 			descendants, err := collectDescendantFolderIDs(ctx, ds.PlaylistFolder(ctx), opts.Parent)
 			if err != nil {
 				http.Error(w, err.Error(), statusFor(err))
@@ -30,13 +32,28 @@ func ListFoldersAndPlaylists(ds model.DataStore) http.HandlerFunc {
 			opts.PlaylistOpts.Filters = appendFilter(opts.PlaylistOpts.Filters, playlistFoldersCondition(descendants, opts.Parent))
 		}
 
-		folders, err := ds.PlaylistFolder(ctx).GetAllByParent(opts.FolderOpts)
+		folderRepo := ds.PlaylistFolder(ctx)
+		var (
+			folders model.PlaylistFolders
+			err     error
+		)
+		if searching {
+			folders, err = folderRepo.GetAll(opts.FolderOpts)
+		} else {
+			folders, err = folderRepo.GetAllByParent(opts.FolderOpts)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), statusFor(err))
 			return
 		}
 
-		playlists, err := ds.Playlist(ctx).GetAllByPlaylistFolder(opts.PlaylistOpts)
+		playlistRepo := ds.Playlist(ctx)
+		var playlists model.Playlists
+		if searching {
+			playlists, err = playlistRepo.GetAll(opts.PlaylistOpts)
+		} else {
+			playlists, err = playlistRepo.GetAllByPlaylistFolder(opts.PlaylistOpts)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), statusFor(err))
 			return
@@ -238,7 +255,7 @@ func playlistFilter(_ string, value interface{}) Sqlizer {
 		From("playlist_tracks pt").
 		Join("media_file mf on mf.id = pt.media_file_id").
 		Where(And{
-			Eq{"pt.playlist_id": Expr("playlist.id")},
+			Expr("pt.playlist_id = playlist.id"),
 			songMatch,
 		})
 
@@ -303,15 +320,15 @@ func playlistFoldersCondition(ids []string, parent *string) Sqlizer {
 	}
 	if len(allowed) == 0 {
 		if parent == nil {
-			return Eq{"playlist.folder_id": nil}
+			return Eq{"folder_id": nil}
 		}
 		return Eq{"1": 0}
 	}
-	filter := Eq{"playlist.folder_id": allowed}
+	filter := Eq{"folder_id": allowed}
 	if parent == nil {
 		return Or{
 			filter,
-			Eq{"playlist.folder_id": nil},
+			Eq{"folder_id": nil},
 		}
 	}
 	return filter
