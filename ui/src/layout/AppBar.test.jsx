@@ -22,6 +22,9 @@ vi.mock('./NowPlayingPanel', () => ({
 vi.mock('./ActivityPanel', () => ({
   default: () => <div data-testid="activity-panel" />,
 }))
+vi.mock('./MissingNotificationsPanel', () => ({
+  default: () => <div data-testid="missing-panel" />,
+}))
 vi.mock('./PersonalMenu', () => ({
   default: () => <div />,
 }))
@@ -51,6 +54,7 @@ describe('<AppBar />', () => {
       </Provider>,
     )
     expect(screen.getByTestId('now-playing-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('missing-panel')).toBeInTheDocument()
   })
 
   it('hides NowPlayingPanel when disabled', () => {
@@ -61,5 +65,6 @@ describe('<AppBar />', () => {
       </Provider>,
     )
     expect(screen.queryByTestId('now-playing-panel')).toBeNull()
+    expect(screen.getByTestId('missing-panel')).toBeInTheDocument()
   })
 })

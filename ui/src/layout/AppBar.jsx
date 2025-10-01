@@ -17,6 +17,7 @@ import ActivityPanel from './ActivityPanel'
 import NowPlayingPanel from './NowPlayingPanel'
 import UserMenu from './UserMenu'
 import config from '../config'
+import MissingNotificationsPanel from './MissingNotificationsPanel'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -123,6 +124,7 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
       {config.devActivityPanel &&
         permissions === 'admin' &&
         config.enableNowPlaying && <NowPlayingPanel />}
+      {permissions === 'admin' && <MissingNotificationsPanel />}
       {config.devActivityPanel && permissions === 'admin' && <ActivityPanel />}
       <UserMenu {...rest}>
         <PersonalMenu sidebarIsOpen={true} onClick={onClick} />

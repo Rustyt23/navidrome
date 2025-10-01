@@ -224,6 +224,7 @@ func (n *Router) addMissingFilesRoute(r chi.Router) {
 		r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 			deleteMissingFiles(n.ds, w, r)
 		})
+		r.With(adminOnlyMiddleware).Get("/notifications", getMissingNotifications(n.ds))
 	})
 }
 

@@ -105,3 +105,33 @@ func deleteMissingFiles(ds model.DataStore, w http.ResponseWriter, r *http.Reque
 }
 
 var _ model.ResourceRepository = &missingRepository{}
+
+func getMissingNotifications(ds model.DataStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		repo := ds.MissingSongNotification(ctx)
+		if repo == nil {
+			http.Error(w, "missing notifications repository not available", http.StatusNotImplemented)
+			return
+		}
+
+		options := model.QueryOptions{Sort: "detected_at", Order: "DESC"}
+		notifications, err := repo.GetAll(options)
+		if err != nil {
+			log.Error(ctx, "Error loading missing song notifications", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		total, err := repo.CountAll()
+		if err != nil {
+			log.Error(ctx, "Error counting missing song notifications", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		rest.RespondWithJSON(w, http.StatusOK, map[string]any{
+			"data":  notifications,
+			"total": total,
+		})
+	}
+}

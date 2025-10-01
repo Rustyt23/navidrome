@@ -19,6 +19,7 @@ import (
 
 type mediaFileRepository struct {
 	sqlRepository
+	missingRepo model.MissingSongNotificationRepository
 }
 
 type dbMediaFile struct {
@@ -85,6 +86,7 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 		"recently_added": mediaFileRecentlyAddedSort(),
 		"starred_at":     "starred, starred_at",
 	})
+	r.missingRepo = NewMissingSongNotificationRepository(ctx, db)
 	return r
 }
 
@@ -132,6 +134,11 @@ func (r *mediaFileRepository) Put(m *model.MediaFile) error {
 		return err
 	}
 	m.ID = id
+	if r.missingRepo != nil && !m.Missing {
+		if err := r.missingRepo.Delete(m.ID); err != nil {
+			return fmt.Errorf("clearing missing notification: %w", err)
+		}
+	}
 	return r.updateParticipants(m.ID, m.Participants)
 }
 
@@ -211,7 +218,16 @@ func (r *mediaFileRepository) DeleteAllMissing() (int64, error) {
 		return 0, rest.ErrPermissionDenied
 	}
 	del := Delete(r.tableName).Where(Eq{"missing": true})
-	return r.executeSQL(del)
+	count, err := r.executeSQL(del)
+	if err != nil {
+		return count, err
+	}
+	if r.missingRepo != nil {
+		if err := r.missingRepo.DeleteAll(); err != nil {
+			return count, err
+		}
+	}
+	return count, nil
 }
 
 func (r *mediaFileRepository) DeleteMissing(ids []string) error {
@@ -219,12 +235,20 @@ func (r *mediaFileRepository) DeleteMissing(ids []string) error {
 	if !user.IsAdmin {
 		return rest.ErrPermissionDenied
 	}
-	return r.delete(
+	if err := r.delete(
 		And{
 			Eq{"missing": true},
 			Eq{"id": ids},
 		},
-	)
+	); err != nil {
+		return err
+	}
+	if r.missingRepo != nil {
+		if err := r.missingRepo.Delete(ids...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile) error {
@@ -240,6 +264,18 @@ func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile)
 			return err
 		}
 		log.Debug(r.ctx, "Marked missing mediafiles", "total", c, "ids", chunk)
+		if r.missingRepo != nil {
+			var notifyErr error
+			if missing {
+				notifyErr = r.missingRepo.RefreshForMediaFileIDs(chunk...)
+			} else {
+				notifyErr = r.missingRepo.Delete(chunk...)
+			}
+			if notifyErr != nil {
+				log.Error(r.ctx, "Error syncing missing song notifications", "ids", chunk, notifyErr)
+				return notifyErr
+			}
+		}
 	}
 	return nil
 }
@@ -259,6 +295,18 @@ func (r *mediaFileRepository) MarkMissingByFolder(missing bool, folderIDs ...str
 			return err
 		}
 		log.Debug(r.ctx, "Marked missing mediafiles from missing folders", "total", c, "folders", chunk)
+		if r.missingRepo != nil {
+			var notifyErr error
+			if missing {
+				notifyErr = r.missingRepo.RefreshForFolders(chunk...)
+			} else {
+				notifyErr = r.missingRepo.DeleteByFolders(chunk...)
+			}
+			if notifyErr != nil {
+				log.Error(r.ctx, "Error syncing missing notifications for folders", "folders", chunk, notifyErr)
+				return notifyErr
+			}
+		}
 	}
 	return nil
 }

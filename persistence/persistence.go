@@ -58,7 +58,7 @@ func (s *SQLStore) Playlist(ctx context.Context) model.PlaylistRepository {
 }
 
 func (s *SQLStore) PlaylistFolder(ctx context.Context) model.PlaylistFolderRepository {
-    return NewPlaylistFolderRepository(ctx, s.getDBXBuilder())
+	return NewPlaylistFolderRepository(ctx, s.getDBXBuilder())
 }
 
 func (s *SQLStore) Property(ctx context.Context) model.PropertyRepository {
@@ -91,6 +91,10 @@ func (s *SQLStore) Player(ctx context.Context) model.PlayerRepository {
 
 func (s *SQLStore) ScrobbleBuffer(ctx context.Context) model.ScrobbleBufferRepository {
 	return NewScrobbleBufferRepository(ctx, s.getDBXBuilder())
+}
+
+func (s *SQLStore) MissingSongNotification(ctx context.Context) model.MissingSongNotificationRepository {
+	return NewMissingSongNotificationRepository(ctx, s.getDBXBuilder())
 }
 
 func (s *SQLStore) Resource(ctx context.Context, m interface{}) model.ResourceRepository {
