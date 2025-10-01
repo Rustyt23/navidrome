@@ -69,8 +69,6 @@ const mapResource = (resource, params) => {
   }
 }
 
-const buildDiscoveryPath = (parentPath, name) => (parentPath ? `${parentPath}/${name}` : name)
-
 const callDeleteMany = (resource, params) => {
   const ids = (params.ids || []).map((id) => `id=${id}`)
   const query = ids.length > 0 ? `?${ids.join('&')}` : ''
@@ -148,21 +146,21 @@ const wrapperDataProvider = {
       const path = params?.filter?.path ?? ''
       const query = path ? `?path=${encodeURIComponent(path)}` : ''
       return httpClient(`/api/discoveryfs/list${query}`).then(({ json }) => {
-        const items = Array.isArray(json?.items) ? json.items : []
-        const data = items
-          .filter((item) => item?.type === 'folder')
-          .map((item) => {
-            const fullPath = buildDiscoveryPath(path, item.name)
-            return {
-              id: fullPath || item.name,
-              name: item.name,
-              type: 'folder',
-              ownerName: '—',
-              updatedAt: null,
-              public: false,
-              path,
-            }
-          })
+        const folders = Array.isArray(json?.folders) ? json.folders : []
+        const data = folders.map((item) => {
+          const name = item && item.name ? item.name : ''
+          const itemPath = item && item.path ? item.path : ''
+          const fullPath = itemPath || (path ? `${path}/${name}` : name)
+          return {
+            id: fullPath || name,
+            name,
+            type: 'folder',
+            ownerName: '—',
+            updatedAt: null,
+            public: false,
+            path: fullPath || '',
+          }
+        })
         return { data, total: data.length }
       })
     }

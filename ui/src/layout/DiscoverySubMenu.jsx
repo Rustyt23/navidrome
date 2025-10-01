@@ -43,18 +43,14 @@ const useStyles = makeStyles((theme) => ({
   spinner: { marginLeft: 6 },
 }))
 
-const buildPath = (parentPath, name) => (parentPath ? `${parentPath}/${name}` : name)
-
 const fetchDiscoveryFolders = async (path) => {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
   const { json } = await httpClient(`/api/discoveryfs/list${query}`)
-  const items = Array.isArray(json?.items) ? json.items : []
-  return items
-    .filter((item) => item?.type === 'folder')
-    .map((item) => ({
-      name: item.name,
-      path: buildPath(path, item.name),
-    }))
+  const folders = Array.isArray(json?.folders) ? json.folders : []
+  return folders.map((item) => ({
+    name: item.name,
+    path: item.path,
+  }))
 }
 
 const DiscoveryFolderRow = ({
@@ -186,7 +182,7 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
       const next = { ...prev }
       let cumulative = ''
       segments.forEach((segment) => {
-        cumulative = buildPath(cumulative, segment)
+        cumulative = cumulative ? `${cumulative}/${segment}` : segment
         next[cumulative] = true
       })
       return next

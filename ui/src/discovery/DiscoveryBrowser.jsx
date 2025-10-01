@@ -1,5 +1,4 @@
 import React, {
-  cloneElement,
   useCallback,
   useEffect,
   useMemo,
@@ -9,42 +8,29 @@ import React, {
 import { useHistory, useLocation } from 'react-router-dom'
 import {
   Breadcrumbs,
+  Button as MuiButton,
   Link as MuiLink,
-  Typography,
-  makeStyles,
   List as MuiList,
   ListItem,
   ListItemIcon,
   ListItemText,
-  Switch,
-  Button as MuiButton,
+  Typography,
+  makeStyles,
 } from '@material-ui/core'
 import AddIcon from '@material-ui/icons/Add'
 import CloudUploadIcon from '@material-ui/icons/CloudUpload'
+import FolderIcon from '@material-ui/icons/Folder'
 import MusicNoteIcon from '@material-ui/icons/MusicNote'
-import EditIcon from '@material-ui/icons/Edit'
-import { RiFolder3Fill } from 'react-icons/ri'
-import {
-  DateField,
-  Filter,
-  SearchInput,
-  TextField,
-  Title,
-  TopToolbar,
-  sanitizeListRestProps,
-  useNotify,
-  useRefresh,
-  useRecordContext,
-  useTranslate,
-} from 'react-admin'
-import { List } from '../common'
-import DiscoveryDataGrid from './DiscoveryDataGrid'
+import { Title, useNotify, useTranslate } from 'react-admin'
 import httpClient from '../dataProvider/httpClient'
 import { emitDiscoveryChanged, addDiscoveryChangedListener } from './events'
 
 const AUDIO_ACCEPT = '.mp3,.m4a,.flac,.wav,.ogg'
 
 const useStyles = makeStyles((theme) => ({
+  container: {
+    paddingBottom: theme.spacing(2),
+  },
   breadcrumbs: {
     marginBottom: theme.spacing(2),
     '& a': {
@@ -52,278 +38,73 @@ const useStyles = makeStyles((theme) => ({
       color: theme.palette.text.secondary,
     },
   },
-  filesSection: {
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: theme.spacing(2),
+    '& > *:not(:first-child)': {
+      marginLeft: theme.spacing(1),
+    },
+  },
+  section: {
     marginTop: theme.spacing(2),
   },
-  filesTitle: {
-    fontWeight: theme.typography.fontWeightMedium,
-    marginBottom: theme.spacing(1),
+  empty: {
+    color: theme.palette.text.secondary,
+  },
+  uploadInput: {
+    display: 'none',
   },
 }))
 
-const DiscoveryFilter = (props) => (
-  <Filter {...props} variant="outlined">
-    <SearchInput source="q" alwaysOn />
-  </Filter>
-)
-
-const DiscoveryTypeIconField = () => {
-  const record = useRecordContext()
-  if (!record) return null
-  const isFolder = record.type === 'folder'
-  const Icon = isFolder ? RiFolder3Fill : MusicNoteIcon
-  const color = isFolder ? '#1976d2' : '#9c27b0'
-  return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        width: '100%',
-      }}
-      aria-label={isFolder ? 'Folder' : 'File'}
-    >
-      <Icon style={{ fontSize: 18, color }} />
-    </div>
-  )
-}
-
-const DiscoveryPublicField = () => <Switch size="small" color="primary" disabled />
-
-const DiscoveryEditButton = () => {
-  const record = useRecordContext()
-  const history = useHistory()
-
-  const handleClick = useCallback(
-    (event) => {
-      event.stopPropagation()
-      if (!record || record.type !== 'folder') return
-      const target = record.id || ''
-      const query = target ? `?path=${encodeURIComponent(target)}` : ''
-      history.push(`/discovery${query}`)
-    },
-    [history, record],
-  )
-
-  const disabled = !record || record.type !== 'folder'
-
-  return (
-    <MuiButton
-      onClick={handleClick}
-      disabled={disabled}
-      size="small"
-      style={{ minWidth: 0, padding: '0px 0px', fontSize: 12 }}
-    >
-      <EditIcon fontSize="small" style={{ fontSize: 14 }} />
-    </MuiButton>
-  )
-}
-
-const DiscoveryListActions = ({ className, onItemsChanged, ...rest }) => {
-  const translate = useTranslate()
-  const notify = useNotify()
-  const refresh = useRefresh()
-  const fileInputRef = useRef(null)
-  const path = rest?.filterValues?.path ?? ''
-
-  const emitChange = useCallback(() => {
-    emitDiscoveryChanged({ path })
-    onItemsChanged?.()
-  }, [onItemsChanged, path])
-
-  const createLabel = useMemo(
-    () => `+ ${translate('ra.action.create', { _: 'Create' }).toUpperCase()}`,
-    [translate],
-  )
-
-  const uploadLabel = useMemo(
-    () => translate('resources.discovery.actions.upload', { _: 'Upload' }).toUpperCase(),
-    [translate],
-  )
-
-  const handleCreate = useCallback(() => {
-    const value = window.prompt(
-      translate('resources.discovery.new_folder', { _: 'Folder name' }),
-    )
-    const trimmed = value ? value.trim() : ''
-    if (!trimmed) return
-
-    httpClient('/api/discoveryfs/folder', {
-      method: 'POST',
-      body: JSON.stringify({ path, name: trimmed }),
-      headers: new Headers({
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      }),
-    })
-      .then(() => {
-        refresh()
-        emitChange()
-      })
-      .catch((error) => {
-        const message =
-          error?.body?.error ||
-          error?.message ||
-          translate('resources.discovery.notifications.create_error', {
-            _: 'Unable to create folder',
-          })
-        notify(message, 'warning')
-      })
-  }, [emitChange, notify, path, refresh, translate])
-
-  const handleUploadClick = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
-
-  const handleFileChange = useCallback(
-    (event) => {
-      const input = event.target
-      const { files } = input
-      if (!files || files.length === 0) {
-        return
-      }
-      const formData = new FormData()
-      Array.from(files).forEach((file) => {
-        formData.append('files', file)
-      })
-      const query = path ? `?path=${encodeURIComponent(path)}` : ''
-      httpClient(`/api/discoveryfs/upload${query}`, {
-        method: 'POST',
-        body: formData,
-      })
-        .then(() => {
-          refresh()
-          emitChange()
-        })
-        .catch((error) => {
-          const message =
-            error?.body?.error ||
-            error?.message ||
-            translate('resources.discovery.notifications.upload_error', {
-              _: 'Unable to upload files',
-            })
-          notify(message, 'warning')
-        })
-        .finally(() => {
-          input.value = null
-        })
-    },
-    [emitChange, notify, path, refresh, translate],
-  )
-
-  return (
-    <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
-      {rest.filters ? cloneElement(rest.filters, { context: 'button' }) : null}
-      <MuiButton
-        color="primary"
-        variant="contained"
-        onClick={handleCreate}
-        startIcon={<AddIcon />}
-        size="small"
-      >
-        {createLabel}
-      </MuiButton>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={AUDIO_ACCEPT}
-        multiple
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
-      <MuiButton
-        color="default"
-        variant="contained"
-        onClick={handleUploadClick}
-        startIcon={<CloudUploadIcon />}
-        size="small"
-      >
-        {uploadLabel}
-      </MuiButton>
-    </TopToolbar>
-  )
-}
-
-const EmptyDiscovery = () => {
-  const translate = useTranslate()
-  return (
-    <Typography variant="body2" style={{ padding: 16 }}>
-      {translate('resources.discovery.empty', { _: 'This folder is empty.' })}
-    </Typography>
-  )
-}
-
-const DiscoveryFilesSection = ({ files, loading }) => {
-  const translate = useTranslate()
-
-  if (loading) {
-    return (
-      <Typography variant="body2" color="textSecondary">
-        {translate('ra.page.loading', { _: 'Loading' })}
-      </Typography>
-    )
-  }
-
-  if (!files.length) {
-    return (
-      <Typography variant="body2" color="textSecondary">
-        {translate('resources.discovery.files_empty', { _: 'No files in this folder.' })}
-      </Typography>
-    )
-  }
-
-  return (
-    <MuiList dense>
-      {files.map((file) => (
-        <ListItem key={file.path}>
-          <ListItemIcon>
-            <MusicNoteIcon />
-          </ListItemIcon>
-          <ListItemText primary={file.name} />
-        </ListItem>
-      ))}
-    </MuiList>
-  )
-}
-
 const DiscoveryBrowser = () => {
+  const classes = useStyles()
   const translate = useTranslate()
   const notify = useNotify()
   const history = useHistory()
   const location = useLocation()
-  const classes = useStyles()
+  const fileInputRef = useRef(null)
 
-  const path = useMemo(() => {
+  const [currentPath, setCurrentPath] = useState('')
+  const [folders, setFolders] = useState([])
+  const [files, setFiles] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [refreshToken, setRefreshToken] = useState(0)
+
+  const locationPath = useMemo(() => {
     const params = new URLSearchParams(location.search)
     const raw = params.get('path') || ''
     return raw.replace(/^\/+/, '')
   }, [location.search])
 
-  const [files, setFiles] = useState([])
-  const [filesLoading, setFilesLoading] = useState(false)
-  const [filesVersion, setFilesVersion] = useState(0)
+  useEffect(() => {
+    setCurrentPath((prev) => (prev !== locationPath ? locationPath : prev))
+  }, [locationPath])
 
   const currentTitle = useMemo(
     () => translate('menu.discovery', { _: 'Discovery' }),
     [translate],
   )
 
-  const pathSegments = useMemo(() => (path ? path.split('/') : []), [path])
+  const pathSegments = useMemo(
+    () => (currentPath ? currentPath.split('/') : []),
+    [currentPath],
+  )
 
-  const fetchFiles = useCallback(async () => {
-    setFilesLoading(true)
+  const fetchItems = useCallback(async () => {
+    setLoading(true)
     try {
-      const query = path ? `?path=${encodeURIComponent(path)}` : ''
+      const query = currentPath
+        ? `?path=${encodeURIComponent(currentPath)}`
+        : ''
       const { json } = await httpClient(`/api/discoveryfs/list${query}`)
-      const items = Array.isArray(json?.items) ? json.items : []
-      const nextFiles = items
-        .filter((item) => item?.type === 'file')
-        .map((item) => ({
-          name: item.name,
-          path: path ? `${path}/${item.name}` : item.name,
-        }))
+      const nextFolders = Array.isArray(json?.folders) ? json.folders : []
+      const nextFiles = Array.isArray(json?.files) ? json.files : []
+      setFolders(nextFolders)
       setFiles(nextFiles)
     } catch (error) {
+      setFolders([])
+      setFiles([])
       const message =
         error?.body?.error ||
         error?.message ||
@@ -331,23 +112,33 @@ const DiscoveryBrowser = () => {
           _: 'Unable to load discovery items',
         })
       notify(message, 'warning')
+      if (error?.status === 404) {
+        history.replace('/discovery')
+        setCurrentPath('')
+      }
     } finally {
-      setFilesLoading(false)
+      setLoading(false)
     }
-  }, [notify, path, translate])
+  }, [currentPath, history, notify, translate])
 
   useEffect(() => {
-    fetchFiles()
-  }, [fetchFiles, filesVersion])
+    fetchItems()
+  }, [fetchItems, refreshToken])
 
   useEffect(() => {
-    return addDiscoveryChangedListener(() => setFilesVersion((value) => value + 1))
+    return addDiscoveryChangedListener(() =>
+      setRefreshToken((value) => value + 1),
+    )
   }, [])
 
   const navigateTo = useCallback(
     (nextPath) => {
-      const query = nextPath ? `?path=${encodeURIComponent(nextPath)}` : ''
+      const normalized = nextPath ? nextPath.replace(/^\/+/, '') : ''
+      const query = normalized
+        ? `?path=${encodeURIComponent(normalized)}`
+        : ''
       history.push(`/discovery${query}`)
+      setCurrentPath(normalized)
     },
     [history],
   )
@@ -364,16 +155,91 @@ const DiscoveryBrowser = () => {
     [navigateTo, pathSegments],
   )
 
-  const rowClick = useCallback((id, record) => {
-    if (record?.type !== 'folder') {
-      return false
+  const handleFolderClick = useCallback(
+    (folderPath) => {
+      navigateTo(folderPath)
+    },
+    [navigateTo],
+  )
+
+  const handleCreate = useCallback(() => {
+    const value = window.prompt(
+      translate('resources.discovery.new_folder', { _: 'Folder name' }),
+    )
+    const trimmed = value ? value.trim() : ''
+    if (!trimmed) {
+      return
     }
-    const target = id || ''
-    return `/discovery${target ? `?path=${encodeURIComponent(target)}` : ''}`
+
+    httpClient('/api/discoveryfs/folder', {
+      method: 'POST',
+      body: JSON.stringify({ path: currentPath, name: trimmed }),
+      headers: new Headers({
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      }),
+    })
+      .then(() => {
+        setRefreshToken((value) => value + 1)
+        emitDiscoveryChanged({ path: currentPath })
+      })
+      .catch((error) => {
+        const message =
+          error?.body?.error ||
+          error?.message ||
+          translate('resources.discovery.notifications.create_error', {
+            _: 'Unable to create folder',
+          })
+        notify(message, 'warning')
+      })
+  }, [currentPath, notify, translate])
+
+  const handleUploadClick = useCallback(() => {
+    fileInputRef.current?.click()
   }, [])
 
+  const handleFileChange = useCallback(
+    (event) => {
+      const input = event.target
+      const { files: selectedFiles } = input
+      if (!selectedFiles || selectedFiles.length === 0) {
+        return
+      }
+
+      const formData = new FormData()
+      Array.from(selectedFiles).forEach((file) => {
+        formData.append('files', file)
+      })
+
+      const query = currentPath
+        ? `?path=${encodeURIComponent(currentPath)}`
+        : ''
+      httpClient(`/api/discoveryfs/upload${query}`, {
+        method: 'POST',
+        body: formData,
+      })
+        .then(() => {
+          setRefreshToken((value) => value + 1)
+          emitDiscoveryChanged({ path: currentPath })
+        })
+        .catch((error) => {
+          const message =
+            error?.body?.error ||
+            error?.message ||
+            translate('resources.discovery.notifications.upload_error', {
+              _: 'Unable to upload files',
+            })
+          notify(message, 'warning')
+        })
+        .finally(() => {
+          input.value = null
+        })
+    },
+    [currentPath, notify, translate],
+  )
+
   return (
-    <div>
+    <div className={classes.container}>
       <Title title={`Navidrome - ${currentTitle}`} />
       <Typography variant="h5" gutterBottom>
         {currentTitle}
@@ -402,32 +268,91 @@ const DiscoveryBrowser = () => {
           )
         })}
       </Breadcrumbs>
-      <List
-        key={path}
-        resource="discoveryFolder"
-        basePath="/discovery"
-        sort={{ field: 'name', order: 'ASC' }}
-        filter={{ path }}
-        filters={<DiscoveryFilter />}
-        actions={<DiscoveryListActions onItemsChanged={() => setFilesVersion((value) => value + 1)} />}
-        bulkActionButtons={false}
-        empty={<EmptyDiscovery />}
-        exporter={false}
-      >
-        <DiscoveryDataGrid rowClick={rowClick}>
-          <DiscoveryTypeIconField label={false} />
-          <TextField source="name" />
-          <TextField source="ownerName" />
-          <DateField source="updatedAt" />
-          <DiscoveryPublicField />
-          <DiscoveryEditButton />
-        </DiscoveryDataGrid>
-      </List>
-      <div className={classes.filesSection}>
-        <Typography variant="subtitle1" className={classes.filesTitle}>
+      <div className={classes.actions}>
+        <MuiButton
+          color="primary"
+          variant="contained"
+          onClick={handleCreate}
+          startIcon={<AddIcon />}
+          size="small"
+        >
+          {`+ ${translate('ra.action.create', { _: 'Create' }).toUpperCase()}`}
+        </MuiButton>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={AUDIO_ACCEPT}
+          multiple
+          className={classes.uploadInput}
+          onChange={handleFileChange}
+        />
+        <MuiButton
+          color="default"
+          variant="contained"
+          onClick={handleUploadClick}
+          startIcon={<CloudUploadIcon />}
+          size="small"
+        >
+          {translate('resources.discovery.actions.upload', {
+            _: 'Upload',
+          }).toUpperCase()}
+        </MuiButton>
+      </div>
+      <div className={classes.section}>
+        <Typography variant="subtitle1">
+          {translate('resources.folder.name', { smart_count: 2, _: 'Folders' })}
+        </Typography>
+        {loading ? (
+          <Typography variant="body2" color="textSecondary">
+            {translate('ra.page.loading', { _: 'Loading' })}
+          </Typography>
+        ) : folders.length === 0 ? (
+          <Typography variant="body2" className={classes.empty}>
+            {translate('resources.discovery.empty', { _: 'This folder is empty.' })}
+          </Typography>
+        ) : (
+          <MuiList dense>
+            {folders.map((folder) => (
+              <ListItem
+                button
+                onClick={() => handleFolderClick(folder.path)}
+                key={folder.path}
+              >
+                <ListItemIcon>
+                  <FolderIcon />
+                </ListItemIcon>
+                <ListItemText primary={folder.name} />
+              </ListItem>
+            ))}
+          </MuiList>
+        )}
+      </div>
+      <div className={classes.section}>
+        <Typography variant="subtitle1">
           {translate('resources.discovery.files', { _: 'Files' })}
         </Typography>
-        <DiscoveryFilesSection files={files} loading={filesLoading} />
+        {loading ? (
+          <Typography variant="body2" color="textSecondary">
+            {translate('ra.page.loading', { _: 'Loading' })}
+          </Typography>
+        ) : files.length === 0 ? (
+          <Typography variant="body2" className={classes.empty}>
+            {translate('resources.discovery.files_empty', {
+              _: 'No files in this folder.',
+            })}
+          </Typography>
+        ) : (
+          <MuiList dense>
+            {files.map((file) => (
+              <ListItem key={file.path}>
+                <ListItemIcon>
+                  <MusicNoteIcon />
+                </ListItemIcon>
+                <ListItemText primary={file.name} />
+              </ListItem>
+            ))}
+          </MuiList>
+        )}
       </div>
     </div>
   )

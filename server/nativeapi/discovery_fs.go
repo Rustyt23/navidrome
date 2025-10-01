@@ -16,11 +16,6 @@ import (
 	"github.com/navidrome/navidrome/conf"
 )
 
-const (
-	discoveryItemTypeFolder = "folder"
-	discoveryItemTypeFile   = "file"
-)
-
 var discoveryAudioExtensions = map[string]struct{}{
 	".mp3":  {},
 	".m4a":  {},
@@ -29,14 +24,15 @@ var discoveryAudioExtensions = map[string]struct{}{
 	".ogg":  {},
 }
 
-type discoveryItem struct {
+type discoveryEntry struct {
 	Name string `json:"name"`
-	Type string `json:"type"`
+	Path string `json:"path"`
 }
 
 type discoveryListResponse struct {
-	Path  string          `json:"path"`
-	Items []discoveryItem `json:"items"`
+	Path    string           `json:"path"`
+	Folders []discoveryEntry `json:"folders"`
+	Files   []discoveryEntry `json:"files"`
 }
 
 func (n *Router) addDiscoveryFSRoute(r chi.Router) {
@@ -65,26 +61,33 @@ func (n *Router) discoveryListHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]discoveryItem, 0, len(entries))
+	folders := make([]discoveryEntry, 0, len(entries))
+	files := make([]discoveryEntry, 0, len(entries))
 	for _, entry := range entries {
+		name := entry.Name()
+		relPath := name
+		if clean != "" {
+			relPath = path.Join(clean, name)
+		}
+
 		if entry.IsDir() {
-			items = append(items, discoveryItem{Name: entry.Name(), Type: discoveryItemTypeFolder})
+			folders = append(folders, discoveryEntry{Name: name, Path: relPath})
 			continue
 		}
-		if isAllowedDiscoveryFile(entry.Name()) {
-			items = append(items, discoveryItem{Name: entry.Name(), Type: discoveryItemTypeFile})
+		if isAllowedDiscoveryFile(name) {
+			files = append(files, discoveryEntry{Name: name, Path: relPath})
 		}
 	}
 
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Type == items[j].Type {
-			return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
-		}
-		return items[i].Type == discoveryItemTypeFolder
+	sort.Slice(folders, func(i, j int) bool {
+		return strings.ToLower(folders[i].Name) < strings.ToLower(folders[j].Name)
+	})
+	sort.Slice(files, func(i, j int) bool {
+		return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(discoveryListResponse{Path: clean, Items: items})
+	json.NewEncoder(w).Encode(discoveryListResponse{Path: clean, Folders: folders, Files: files})
 }
 
 func (n *Router) discoveryCreateFolderHandler(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +100,7 @@ func (n *Router) discoveryCreateFolderHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	_, parentAbs, err := sanitizeDiscoveryPath(payload.Path)
+	parentClean, parentAbs, err := sanitizeDiscoveryPath(payload.Path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -132,12 +135,19 @@ func (n *Router) discoveryCreateFolderHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	created := name
+	if parentClean != "" {
+		created = path.Join(parentClean, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"created": created})
 }
 
 func (n *Router) discoveryUploadHandler(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
-	_, abs, err := sanitizeDiscoveryPath(rel)
+	clean, abs, err := sanitizeDiscoveryPath(rel)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -197,7 +207,12 @@ func (n *Router) discoveryUploadHandler(w http.ResponseWriter, r *http.Request) 
 		}
 		dst.Close()
 		src.Close()
-		uploaded = append(uploaded, name)
+
+		relPath := name
+		if clean != "" {
+			relPath = path.Join(clean, name)
+		}
+		uploaded = append(uploaded, relPath)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
