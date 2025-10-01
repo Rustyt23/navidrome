@@ -60,6 +60,7 @@ func (n *Router) routes() http.Handler {
 			n.RX(r, "/share", n.share.NewRepository, true)
 		}
 
+		n.addDiscoveryFSRoute(r)
 		n.addPlaylistRoute(r)
 		n.addPlaylistFolderRoute(r)
 		n.addPlaylistTrackRoute(r)

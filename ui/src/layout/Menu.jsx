@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { useTranslate, MenuItemLink, getResources } from 'react-admin'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import AlbumIcon from '@material-ui/icons/Album'
+import FolderIcon from '@material-ui/icons/Folder'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
@@ -128,6 +129,15 @@ const Menu = ({ dense = false }) => {
         )}
       </SubMenu>
       {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
+      <MenuItemLink
+        key="discovery"
+        to="/discovery"
+        activeClassName={classes.active}
+        primaryText={translate('menu.discovery', { _: 'Discovery' })}
+        leftIcon={<FolderIcon />}
+        sidebarIsOpen={open}
+        dense={dense}
+      />
       {config.devSidebarPlaylists && open ? (
         <>
           <Divider />
