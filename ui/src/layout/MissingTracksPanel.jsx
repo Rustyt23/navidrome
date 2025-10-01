@@ -3,9 +3,6 @@ import {
   Card,
   CardContent,
   IconButton,
-  List,
-  ListItem,
-  ListItemText,
   Popover,
   Tooltip,
   Typography,
@@ -31,13 +28,10 @@ const useStyles = makeStyles((theme) => ({
     width: '36em',
     maxHeight: '28em',
     overflowY: 'auto',
-    padding: 0,
-  },
-  listItem: {
-    paddingTop: theme.spacing(0.5),
-    paddingBottom: theme.spacing(0.5),
-    paddingLeft: theme.spacing(2),
-    paddingRight: theme.spacing(2),
+    padding: theme.spacing(0.5, 2, 1.5),
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(1),
   },
   empty: {
     padding: theme.spacing(1, 2),
@@ -45,6 +39,7 @@ const useStyles = makeStyles((theme) => ({
   header: {
     padding: theme.spacing(1, 2),
     fontWeight: 600,
+    color: theme.palette.secondary.main,
   },
   progressWrapper: {
     display: 'flex',
@@ -96,7 +91,7 @@ const MissingTracksPanel = () => {
     (track) => {
       const title = track && track.title ? track.title : translate('notifications.missingTracksUnknownTitle')
       const artist = track && track.artist ? track.artist : null
-      return artist ? `${title} — ${artist}` : title
+      return artist ? `${title} - ${artist}` : title
     },
     [translate],
   )
@@ -134,13 +129,11 @@ const MissingTracksPanel = () => {
             ) : (
               <>
                 <Typography className={classes.header}>Missing songs list</Typography>
-                <List className={classes.list} dense>
+                <div className={classes.list}>
                   {entries.map((track, index) => (
-                    <ListItem key={`missing-track-${index}`} className={classes.listItem}>
-                      <ListItemText primary={formatTrackLine(track)} />
-                    </ListItem>
+                    <Typography key={`missing-track-${index}`}>{formatTrackLine(track)}</Typography>
                   ))}
-                </List>
+                </div>
               </>
             )}
           </CardContent>
