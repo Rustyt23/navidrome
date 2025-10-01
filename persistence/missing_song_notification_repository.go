@@ -62,9 +62,20 @@ func NewMissingSongNotificationRepository(ctx context.Context, db dbx.Builder) m
 }
 
 func (r *missingSongNotificationRepository) CountAll(options ...model.QueryOptions) (int64, error) {
-	query := Select().
+	countQuery := Select().
+		RemoveColumns().Columns("count(distinct " + r.tableName + ".media_file_id) as count").
+		RemoveOffset().RemoveLimit().
+		OrderBy(r.tableName + ".media_file_id").
+		From(r.tableName).
 		Join("media_file ON media_file.id = " + r.tableName + ".media_file_id")
-	return r.count(query, options...)
+	countQuery = r.applyFilters(countQuery, options...)
+	var res struct {
+		Count int64 `db:"count"`
+	}
+	if err := r.queryOne(countQuery, &res); err != nil {
+		return 0, err
+	}
+	return res.Count, nil
 }
 
 func (r *missingSongNotificationRepository) GetAll(options ...model.QueryOptions) (model.MissingSongNotifications, error) {
