@@ -8,27 +8,28 @@ import (
 )
 
 type MockDataStore struct {
-	RealDS               		model.DataStore
-	MockedLibrary        		model.LibraryRepository
-	MockedFolder         		model.FolderRepository
-	MockedGenre          		model.GenreRepository
-	MockedAlbum          		model.AlbumRepository
-	MockedArtist         		model.ArtistRepository
-	MockedMediaFile      		model.MediaFileRepository
-	MockedTag            		model.TagRepository
-	MockedUser           		model.UserRepository
-	MockedProperty       		model.PropertyRepository
-	MockedPlayer         		model.PlayerRepository
-	MockedPlaylist       		model.PlaylistRepository
-	MockedPlaylistFolder 		model.PlaylistFolderRepository
-	MockedPlayQueue      		model.PlayQueueRepository
-	MockedShare          		model.ShareRepository
-	MockedTranscoding    		model.TranscodingRepository
-	MockedUserProps      		model.UserPropsRepository
-	MockedScrobbleBuffer 		model.ScrobbleBufferRepository
-	MockedRadio          		model.RadioRepository
-	scrobbleBufferMu     		sync.Mutex
-	repoMu               		sync.Mutex
+	RealDS                        model.DataStore
+	MockedLibrary                 model.LibraryRepository
+	MockedFolder                  model.FolderRepository
+	MockedGenre                   model.GenreRepository
+	MockedAlbum                   model.AlbumRepository
+	MockedArtist                  model.ArtistRepository
+	MockedMediaFile               model.MediaFileRepository
+	MockedTag                     model.TagRepository
+	MockedUser                    model.UserRepository
+	MockedProperty                model.PropertyRepository
+	MockedPlayer                  model.PlayerRepository
+	MockedPlaylist                model.PlaylistRepository
+	MockedPlaylistFolder          model.PlaylistFolderRepository
+	MockedPlayQueue               model.PlayQueueRepository
+	MockedShare                   model.ShareRepository
+	MockedTranscoding             model.TranscodingRepository
+	MockedUserProps               model.UserPropsRepository
+	MockedScrobbleBuffer          model.ScrobbleBufferRepository
+	MockedRadio                   model.RadioRepository
+	MockedMissingSongNotification model.MissingSongNotificationRepository
+	scrobbleBufferMu              sync.Mutex
+	repoMu                        sync.Mutex
 }
 
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {
@@ -231,6 +232,19 @@ func (db *MockDataStore) Radio(ctx context.Context) model.RadioRepository {
 		}
 	}
 	return db.MockedRadio
+}
+
+func (db *MockDataStore) MissingSongNotification(ctx context.Context) model.MissingSongNotificationRepository {
+	if db.MockedMissingSongNotification == nil {
+		if db.RealDS != nil {
+			db.MockedMissingSongNotification = db.RealDS.MissingSongNotification(ctx)
+		} else {
+			db.MockedMissingSongNotification = struct {
+				model.MissingSongNotificationRepository
+			}{}
+		}
+	}
+	return db.MockedMissingSongNotification
 }
 
 func (db *MockDataStore) WithTx(block func(tx model.DataStore) error, label ...string) error {

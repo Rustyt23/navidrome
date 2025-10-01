@@ -91,7 +91,7 @@ func (r *missingSongNotificationRepository) RefreshForMediaFileIDs(ids ...string
 		return nil
 	}
 
-	for _, chunk := range slices.Chunk(ids, 200) {
+	for chunk := range slices.Chunk(ids, 200) {
 		missingIDs, err := r.loadMissingMediaFileIDs(chunk)
 		if err != nil {
 			return err
@@ -115,7 +115,7 @@ func (r *missingSongNotificationRepository) RefreshForFolders(folderIDs ...strin
 	if len(folderIDs) == 0 {
 		return nil
 	}
-	for _, chunk := range slices.Chunk(folderIDs, 100) {
+	for chunk := range slices.Chunk(folderIDs, 100) {
 		ids, err := r.mediaFileIDsByFolders(chunk, true)
 		if err != nil {
 			return err
@@ -132,7 +132,7 @@ func (r *missingSongNotificationRepository) Delete(ids ...string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	for _, chunk := range slices.Chunk(ids, 200) {
+	for chunk := range slices.Chunk(ids, 200) {
 		if _, err := r.executeSQL(Delete(r.tableName).Where(Eq{"media_file_id": chunk})); err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func (r *missingSongNotificationRepository) DeleteByFolders(folderIDs ...string)
 	if len(folderIDs) == 0 {
 		return nil
 	}
-	for _, chunk := range slices.Chunk(folderIDs, 100) {
+	for chunk := range slices.Chunk(folderIDs, 100) {
 		ids, err := r.mediaFileIDsByFolders(chunk, false)
 		if err != nil {
 			return err
