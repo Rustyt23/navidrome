@@ -69,6 +69,8 @@ const mapResource = (resource, params) => {
   }
 }
 
+const buildDiscoveryPath = (parentPath, name) => (parentPath ? `${parentPath}/${name}` : name)
+
 const callDeleteMany = (resource, params) => {
   const ids = (params.ids || []).map((id) => `id=${id}`)
   const query = ids.length > 0 ? `?${ids.join('&')}` : ''
@@ -142,6 +144,28 @@ const emitFoldersChanged = (detail) => {
 const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
+    if (resource === 'discoveryFolder') {
+      const path = params?.filter?.path ?? ''
+      const query = path ? `?path=${encodeURIComponent(path)}` : ''
+      return httpClient(`/api/discoveryfs/list${query}`).then(({ json }) => {
+        const items = Array.isArray(json?.items) ? json.items : []
+        const data = items
+          .filter((item) => item?.type === 'folder')
+          .map((item) => {
+            const fullPath = buildDiscoveryPath(path, item.name)
+            return {
+              id: fullPath || item.name,
+              name: item.name,
+              type: 'folder',
+              ownerName: '—',
+              updatedAt: null,
+              public: false,
+              path,
+            }
+          })
+        return { data, total: data.length }
+      })
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getList(r, p)
   },

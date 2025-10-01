@@ -240,6 +240,29 @@
         "updatedAt": "Updated at"
       }
     },
+    "discovery": {
+      "new_folder": "Folder name",
+      "empty": "This folder is empty.",
+      "files": "Files",
+      "files_empty": "No files in this folder.",
+      "actions": {
+        "upload": "Upload"
+      },
+      "notifications": {
+        "load_error": "Unable to load discovery items",
+        "create_error": "Unable to create folder",
+        "upload_error": "Unable to upload files"
+      }
+    },
+    "discoveryFolder": {
+      "name": "Discovery",
+      "fields": {
+        "name": "Name",
+        "ownerName": "Owner",
+        "updatedAt": "Updated at",
+        "public": "Public"
+      }
+    },
     "radio": {
       "name": "Radio |||| Radios",
       "fields": {
