@@ -18,7 +18,7 @@ import (
 type missingTrackDetail struct {
 	TrackPath string `json:"-"`
 	Title     string `json:"title,omitempty"`
-	Album     string `json:"album,omitempty"`
+	Artist    string `json:"artist,omitempty"`
 }
 
 func (n *Router) addNotificationsRoute(r chi.Router) {
@@ -121,11 +121,11 @@ func populateTrackMetadata(ctx context.Context, db *sql.DB, track *missingTrackD
 	}
 
 	var (
-		title sql.NullString
-		album sql.NullString
+		title  sql.NullString
+		artist sql.NullString
 	)
 
-	err := db.QueryRowContext(ctx, `SELECT title, album FROM media_file WHERE path = ? LIMIT 1`, track.TrackPath).Scan(&title, &album)
+	err := db.QueryRowContext(ctx, `SELECT title, artist FROM media_file WHERE path = ? LIMIT 1`, track.TrackPath).Scan(&title, &artist)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			log.Debug(ctx, "Unable to lookup track metadata", "track", track.TrackPath, "err", err)
@@ -134,8 +134,8 @@ func populateTrackMetadata(ctx context.Context, db *sql.DB, track *missingTrackD
 		if title.Valid && title.String != "" {
 			track.Title = title.String
 		}
-		if album.Valid && album.String != "" {
-			track.Album = album.String
+		if artist.Valid && artist.String != "" {
+			track.Artist = artist.String
 		}
 	}
 
