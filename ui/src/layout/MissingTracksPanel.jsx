@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import {
   Card,
   CardContent,
@@ -10,15 +10,11 @@ import {
   Tooltip,
   Typography,
   CircularProgress,
-  Collapse,
   makeStyles,
 } from '@material-ui/core'
 import { MdOutlineNotifications } from 'react-icons/md'
 import { useTranslate, useNotify } from 'react-admin'
 import { httpClient } from '../dataProvider'
-import ExpandLessIcon from '@material-ui/icons/ExpandLess'
-import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
-import { formatDuration } from '../utils'
 
 const useStyles = makeStyles((theme) => ({
   button: (props) => ({
@@ -37,18 +33,13 @@ const useStyles = makeStyles((theme) => ({
     overflowY: 'auto',
     padding: 0,
   },
-  nestedList: {
-    paddingLeft: theme.spacing(2),
+  listItem: {
+    paddingLeft: theme.spacing(1.5),
+    paddingRight: theme.spacing(1.5),
   },
-  summaryItem: {
-    paddingLeft: theme.spacing(1),
-    paddingRight: theme.spacing(1),
-  },
-  nestedItem: {
-    paddingTop: theme.spacing(0.5),
-    paddingBottom: theme.spacing(0.5),
-    paddingLeft: theme.spacing(2),
-    paddingRight: theme.spacing(1),
+  header: {
+    padding: theme.spacing(0, 1.5, 1),
+    fontWeight: theme.typography.fontWeightMedium,
   },
   empty: {
     padding: theme.spacing(1, 2),
@@ -67,7 +58,6 @@ const MissingTracksPanel = () => {
   const [anchorEl, setAnchorEl] = useState(null)
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(false)
-  const [expanded, setExpanded] = useState({})
 
   const open = Boolean(anchorEl)
   const classes = useStyles({ open })
@@ -78,14 +68,12 @@ const MissingTracksPanel = () => {
       .then(({ json }) => {
         const list = Array.isArray(json) ? json : []
         setEntries(list)
-        setExpanded({})
       })
       .catch((error) => {
         notify('ra.notification.http_error', 'warning', {
           messageArgs: { error: error.message || 'Unknown error' },
         })
         setEntries([])
-        setExpanded({})
       })
       .finally(() => setLoading(false))
   }, [notify])
@@ -101,174 +89,16 @@ const MissingTracksPanel = () => {
   const handleClose = useCallback(() => {
     setAnchorEl(null)
   }, [])
-
-  const togglePlaylist = useCallback((playlistId) => {
-    setExpanded((prev) => ({
-      ...prev,
-      [playlistId]: !prev[playlistId],
-    }))
-  }, [])
-
-  const getPlaylistName = useCallback(
+  const getEntryLabel = useCallback(
     (entry) => {
       if (!entry) {
         return ''
       }
-      if (entry.playlist_name) {
-        return entry.playlist_name
-      }
-      if (!entry.playlist_id) {
-        return translate('notifications.missingTracksUnknownPlaylist')
-      }
-      const parts = entry.playlist_id.split(/[\\/]/)
-      const raw = parts[parts.length - 1] || entry.playlist_id
-      return raw.replace(/\.m3u8?$/i, '')
+      const title = entry.title || translate('notifications.missingTracksUnknownTitle')
+      const artist = entry.artist || translate('notifications.missingTracksUnknownArtist')
+      return `${title} — ${artist}`
     },
     [translate],
-  )
-
-  const getTrackPrimary = useCallback(
-    (track) => {
-      if (!track) {
-        return ''
-      }
-      if (track.title) {
-        return track.title
-      }
-      const parts = (track.track_path || '').split(/[\\/]/)
-      const fallback = parts[parts.length - 1] || ''
-      const cleanedFallback = fallback.replace(/\.[^./\\]+$/, '')
-      return (
-        cleanedFallback || translate('notifications.missingTracksUnknownTitle')
-      )
-    },
-    [translate],
-  )
-
-  const getTrackSecondary = useCallback((track) => {
-    if (!track) {
-      return ''
-    }
-    const details = []
-    if (track.artist) {
-      details.push(track.artist)
-    }
-    if (track.duration_seconds && track.duration_seconds > 0) {
-      details.push(formatDuration(track.duration_seconds))
-    }
-    if (details.length === 0) {
-      return ''
-    }
-    return details.join(' • ')
-  }, [])
-
-  const formatImportedAt = useCallback((value) => {
-    if (!value) {
-      return ''
-    }
-
-    const date = value instanceof Date ? value : new Date(value)
-    if (Number.isNaN(date.getTime())) {
-      return ''
-    }
-
-    const day = String(date.getDate()).padStart(2, '0')
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
-    const month = monthNames[date.getMonth()] || ''
-    const year = date.getFullYear()
-    const hours = String(date.getHours()).padStart(2, '0')
-    const minutes = String(date.getMinutes()).padStart(2, '0')
-
-    return `${day} ${month} ${year}, ${hours}:${minutes}`
-  }, [])
-
-  const getImportedAtLabel = useCallback(
-    (entry) => {
-      if (!entry) {
-        return ''
-      }
-
-      if (entry.imported_at) {
-        return formatImportedAt(entry.imported_at)
-      }
-
-      const tracks = Array.isArray(entry.tracks) ? entry.tracks : []
-      let earliest = null
-
-      tracks.forEach((track) => {
-        const candidate = track && track.created_at ? new Date(track.created_at) : null
-        if (!candidate || Number.isNaN(candidate.getTime())) {
-          return
-        }
-        if (!earliest || candidate < earliest) {
-          earliest = candidate
-        }
-      })
-
-      return formatImportedAt(earliest)
-    },
-    [formatImportedAt],
-  )
-
-  const renderedEntries = useMemo(
-    () =>
-      entries.map((entry, index) => {
-        const playlistId = entry.playlist_id || `playlist-${index}`
-        const summaryCount = entry.missing_count || (entry.tracks ? entry.tracks.length : 0)
-        const baseSummary = translate('notifications.missingTracksSummary', {
-          smart_count: summaryCount,
-          playlist: getPlaylistName(entry),
-        })
-        const importedAtText = getImportedAtLabel(entry)
-        const summaryText = importedAtText
-          ? `${baseSummary}${translate('notifications.missingTracksImportedOn', {
-              date: importedAtText,
-            })}`
-          : baseSummary
-        const isExpanded = !!expanded[playlistId]
-        const tracks = Array.isArray(entry.tracks) ? entry.tracks : []
-
-        return (
-          <div key={playlistId}>
-            <ListItem
-              button
-              onClick={() => togglePlaylist(playlistId)}
-              className={classes.summaryItem}
-            >
-              <ListItemText primary={summaryText} />
-              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-            </ListItem>
-            <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-              <List disablePadding className={classes.nestedList}>
-                {tracks.map((track, index) => (
-                  <ListItem
-                    key={`${playlistId}-${track.track_path || index}-${track.created_at || index}-${index}`}
-                    className={classes.nestedItem}
-                  >
-                    <ListItemText
-                      primary={getTrackPrimary(track)}
-                      secondary={getTrackSecondary(track)}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            </Collapse>
-          </div>
-        )
-      }),
-    [
-      classes.nestedItem,
-      classes.nestedList,
-      classes.summaryItem,
-      entries,
-      expanded,
-      getImportedAtLabel,
-      getPlaylistName,
-      getTrackPrimary,
-      getTrackSecondary,
-      togglePlaylist,
-      translate,
-    ],
   )
 
   return (
@@ -293,6 +123,9 @@ const MissingTracksPanel = () => {
       >
         <Card className={classes.card}>
           <CardContent className={classes.cardContent}>
+            <Typography className={classes.header} variant="subtitle2">
+              {translate('notifications.missingTracksListTitle')}
+            </Typography>
             {loading ? (
               <div className={classes.progressWrapper}>
                 <CircularProgress size={24} />
@@ -303,7 +136,11 @@ const MissingTracksPanel = () => {
               </Typography>
             ) : (
               <List className={classes.list} dense>
-                {renderedEntries}
+                {entries.map((entry, index) => (
+                  <ListItem key={`${entry.title || 'missing'}-${entry.artist || index}-${index}`} className={classes.listItem}>
+                    <ListItemText primary={getEntryLabel(entry)} />
+                  </ListItem>
+                ))}
               </List>
             )}
           </CardContent>
