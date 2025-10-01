@@ -277,6 +277,7 @@ func (r *playlistTrackRepository) loadMissingPlaylistTracks(options ...rest.Quer
 				Missing:         true,
 				OrderTitle:      displayTitle,
 				OrderArtistName: displayArtist,
+				Participants:    model.Participants{},
 			},
 		})
 	}
