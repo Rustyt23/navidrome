@@ -5,7 +5,8 @@ import ListItem from '@material-ui/core/ListItem'
 import ListItemIcon from '@material-ui/core/ListItemIcon'
 import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
-import { makeStyles } from '@material-ui/core/styles'
+import { useMediaQuery } from '@material-ui/core'
+import { makeStyles, useTheme } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
 import { setTrack } from '../actions'
@@ -65,51 +66,58 @@ export const SongSimpleList = ({
 }) => {
   const dispatch = useDispatch()
   const classes = useStyles({ classes: classesOverride })
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   return (
     (loading || total > 0) && (
       <List className={className} {...sanitizeListRestProps(rest)}>
-        {ids.map(
-          (id) =>
-            data[id] && (
-              <span key={id} onClick={() => dispatch(setTrack(data[id]))}>
+        {ids.map((id) => {
+          const record = data[id]
+
+          return (
+            record && (
+              <span key={id} onClick={() => dispatch(setTrack(record))}>
                 <ListItem className={classes.listItem} button={true}>
-                  <ListItemText
-                    primary={
-                      <div className={classes.title}>{data[id].title}</div>
-                    }
-                    secondary={
-                      <>
-                        <span className={classes.secondary}>
-                          <span className={classes.artist}>
-                            {data[id].artist}
+                  {isMobile ? (
+                    <ListItemText
+                      primary={record.title}
+                      secondary={record.artist}
+                    />
+                  ) : (
+                    <ListItemText
+                      primary={<div className={classes.title}>{record.title}</div>}
+                      secondary={
+                        <>
+                          <span className={classes.secondary}>
+                            <span className={classes.artist}>{record.artist}</span>
+                            <span className={classes.timeStamp}>
+                              <DurationField record={record} source={'duration'} />
+                            </span>
                           </span>
-                          <span className={classes.timeStamp}>
-                            <DurationField
-                              record={data[id]}
-                              source={'duration'}
+                          {config.enableStarRating && (
+                            <RatingField
+                              record={record}
+                              source={'rating'}
+                              resource={'song'}
+                              size={'small'}
                             />
-                          </span>
-                        </span>
-                        {config.enableStarRating && (
-                          <RatingField
-                            record={data[id]}
-                            source={'rating'}
-                            resource={'song'}
-                            size={'small'}
-                          />
-                        )}
-                      </>
-                    }
-                  />
-                  <ListItemSecondaryAction className={classes.rightIcon}>
-                    <ListItemIcon>
-                      <SongContextMenu record={data[id]} visible={true} />
-                    </ListItemIcon>
-                  </ListItemSecondaryAction>
+                          )}
+                        </>
+                      }
+                    />
+                  )}
+                  {!isMobile && (
+                    <ListItemSecondaryAction className={classes.rightIcon}>
+                      <ListItemIcon>
+                        <SongContextMenu record={record} visible={true} />
+                      </ListItemIcon>
+                    </ListItemSecondaryAction>
+                  )}
                 </ListItem>
               </span>
             ),
-        )}
+          )
+        })}
       </List>
     )
   )
