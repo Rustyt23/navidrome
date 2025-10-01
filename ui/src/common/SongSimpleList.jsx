@@ -74,48 +74,50 @@ export const SongSimpleList = ({
         {ids.map((id) => {
           const record = data[id]
 
+          if (!record) {
+            return null
+          }
+
           return (
-            record && (
-              <span key={id} onClick={() => dispatch(setTrack(record))}>
-                <ListItem className={classes.listItem} button={true}>
-                  {isMobile ? (
-                    <ListItemText
-                      primary={record.title}
-                      secondary={record.artist}
-                    />
-                  ) : (
-                    <ListItemText
-                      primary={<div className={classes.title}>{record.title}</div>}
-                      secondary={
-                        <>
-                          <span className={classes.secondary}>
-                            <span className={classes.artist}>{record.artist}</span>
-                            <span className={classes.timeStamp}>
-                              <DurationField record={record} source={'duration'} />
-                            </span>
+            <span key={id} onClick={() => dispatch(setTrack(record))}>
+              <ListItem className={classes.listItem} button={true}>
+                {isMobile ? (
+                  <ListItemText
+                    primary={record.title}
+                    secondary={record.artist}
+                  />
+                ) : (
+                  <ListItemText
+                    primary={<div className={classes.title}>{record.title}</div>}
+                    secondary={
+                      <>
+                        <span className={classes.secondary}>
+                          <span className={classes.artist}>{record.artist}</span>
+                          <span className={classes.timeStamp}>
+                            <DurationField record={record} source={'duration'} />
                           </span>
-                          {config.enableStarRating && (
-                            <RatingField
-                              record={record}
-                              source={'rating'}
-                              resource={'song'}
-                              size={'small'}
-                            />
-                          )}
-                        </>
-                      }
-                    />
-                  )}
-                  {!isMobile && (
-                    <ListItemSecondaryAction className={classes.rightIcon}>
-                      <ListItemIcon>
-                        <SongContextMenu record={record} visible={true} />
-                      </ListItemIcon>
-                    </ListItemSecondaryAction>
-                  )}
-                </ListItem>
-              </span>
-            ),
+                        </span>
+                        {config.enableStarRating && (
+                          <RatingField
+                            record={record}
+                            source={'rating'}
+                            resource={'song'}
+                            size={'small'}
+                          />
+                        )}
+                      </>
+                    }
+                  />
+                )}
+                {!isMobile && (
+                  <ListItemSecondaryAction className={classes.rightIcon}>
+                    <ListItemIcon>
+                      <SongContextMenu record={record} visible={true} />
+                    </ListItemIcon>
+                  </ListItemSecondaryAction>
+                )}
+              </ListItem>
+            </span>
           )
         })}
       </List>
