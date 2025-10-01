@@ -94,9 +94,13 @@ const MissingTracksPanel = () => {
       if (!entry) {
         return ''
       }
-      const title = entry.title || translate('notifications.missingTracksUnknownTitle')
-      const artist = entry.artist || translate('notifications.missingTracksUnknownArtist')
-      return `${title} — ${artist}`
+      const rawTitle = (entry.title || '').trim()
+      const rawArtist = (entry.artist || '').trim()
+      const title = rawTitle || translate('notifications.missingTracksUnknownTitle')
+      const unknownArtist = translate('notifications.missingTracksUnknownArtist').trim()
+      const hasArtist =
+        rawArtist && rawArtist.toLocaleLowerCase() !== unknownArtist.toLocaleLowerCase()
+      return hasArtist ? `${title} — ${rawArtist}` : title
     },
     [translate],
   )
