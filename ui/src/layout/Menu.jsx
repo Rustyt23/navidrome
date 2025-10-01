@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { useTranslate, MenuItemLink, getResources } from 'react-admin'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import AlbumIcon from '@material-ui/icons/Album'
+import ExploreIcon from '@material-ui/icons/Explore'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
@@ -115,6 +116,16 @@ const Menu = ({ dense = false }) => {
       })}
     >
       {open && <LibrarySelector />}
+      <MenuItemLink
+        key="discovery"
+        to="/discovery"
+        activeClassName={classes.active}
+        primaryText={translate('menu.discovery', { _: 'Discovery' })}
+        leftIcon={<ExploreIcon />}
+        sidebarIsOpen={open}
+        dense={dense}
+        exact
+      />
       <SubMenu
         handleToggle={() => handleToggle('menuAlbumList')}
         isOpen={state.menuAlbumList}
