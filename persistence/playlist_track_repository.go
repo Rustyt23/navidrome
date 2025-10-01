@@ -3,10 +3,13 @@ package persistence
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/slice"
@@ -155,7 +158,25 @@ func (r *playlistTrackRepository) Search(q string, offset, size int, options ...
 }
 
 func (r *playlistTrackRepository) ReadAll(options ...rest.QueryOptions) (interface{}, error) {
-	return r.GetAll(r.parseRestOptions(r.ctx, options...))
+	qo := r.parseRestOptions(r.ctx, options...)
+	tracks, err := r.GetAll(qo)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(options) > 0 && options[0].Offset > 0 {
+		return tracks, nil
+	}
+
+	missing, err := r.loadMissingPlaylistTracks(options...)
+	if err != nil {
+		log.Debug(r.ctx, "Error loading missing playlist tracks", "playlistId", r.playlistId, err)
+		return tracks, nil
+	}
+	if len(missing) > 0 {
+		tracks = append(tracks, missing...)
+	}
+	return tracks, nil
 }
 
 func (r *playlistTrackRepository) EntityName() string {
@@ -164,6 +185,143 @@ func (r *playlistTrackRepository) EntityName() string {
 
 func (r *playlistTrackRepository) NewInstance() interface{} {
 	return &model.PlaylistTrack{}
+}
+
+func (r *playlistTrackRepository) loadMissingPlaylistTracks(options ...rest.QueryOptions) (model.PlaylistTracks, error) {
+	if r.playlist == nil || r.playlist.Path == "" {
+		return nil, nil
+	}
+	if conf.Server.DataFolder == "" {
+		return nil, nil
+	}
+
+	dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
+	if _, err := os.Stat(dbFile); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
+
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	search := ""
+	if len(options) > 0 {
+		if title, ok := options[0].Filters["title"].(string); ok {
+			search = strings.ToLower(strings.TrimSpace(title))
+		}
+	}
+
+	columns := []string{"track_path"}
+	if columnExists(db, "missing_playlist_tracks", "title") {
+		columns = append(columns, "title")
+	} else {
+		columns = append(columns, "NULL")
+	}
+	if columnExists(db, "missing_playlist_tracks", "artist") {
+		columns = append(columns, "artist")
+	} else {
+		columns = append(columns, "NULL")
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM missing_playlist_tracks WHERE playlist_id = ? ORDER BY id", strings.Join(columns, ", "))
+	rows, err := db.QueryContext(r.ctx, query, r.playlist.Path)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	missing := make(model.PlaylistTracks, 0)
+	idx := 0
+	for rows.Next() {
+		var (
+			path   string
+			title  sql.NullString
+			artist sql.NullString
+		)
+		if err := rows.Scan(&path, &title, &artist); err != nil {
+			return nil, err
+		}
+
+		displayTitle := fallbackTitle(path, title)
+		displayArtist := fallbackArtist(path, artist)
+
+		if search != "" {
+			haystack := strings.ToLower(displayTitle + " " + displayArtist + " " + filepath.Base(path))
+			if !strings.Contains(haystack, search) {
+				continue
+			}
+		}
+
+		idx++
+		id := fmt.Sprintf("missing-%d", idx)
+		missing = append(missing, model.PlaylistTrack{
+			ID:          id,
+			PlaylistID:  r.playlistId,
+			MediaFileID: "",
+			MediaFile: model.MediaFile{
+				ID:              id,
+				Path:            path,
+				Title:           displayTitle,
+				Artist:          displayArtist,
+				AlbumArtist:     displayArtist,
+				Missing:         true,
+				OrderTitle:      displayTitle,
+				OrderArtistName: displayArtist,
+				Participants:    model.Participants{},
+			},
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return missing, nil
+}
+
+func columnExists(db *sql.DB, table, column string) bool {
+	query := fmt.Sprintf("SELECT 1 FROM pragma_table_info('%s') WHERE name = ? LIMIT 1", table)
+	var dummy int
+	err := db.QueryRow(query, column).Scan(&dummy)
+	return err == nil
+}
+
+func fallbackTitle(path string, title sql.NullString) string {
+	if title.Valid && strings.TrimSpace(title.String) != "" {
+		return title.String
+	}
+	base := filepath.Base(path)
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	if base == "" {
+		return path
+	}
+	return base
+}
+
+func fallbackArtist(path string, artist sql.NullString) string {
+	if artist.Valid && strings.TrimSpace(artist.String) != "" {
+		return artist.String
+	}
+	base := filepath.Base(path)
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	if base == "" {
+		return path
+	}
+	return base
 }
 
 func (r *playlistTrackRepository) isTracksEditable() bool {
