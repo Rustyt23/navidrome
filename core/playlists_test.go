@@ -105,7 +105,8 @@ var _ = Describe("Playlists", func() {
 				var playlistID, trackPath string
 				Expect(row.Scan(&playlistID, &trackPath)).To(Succeed())
 				Expect(playlistID).To(Equal(playlistPath))
-				Expect(trackPath).To(Equal("missing-track.mp3"))
+				expected := filepath.ToSlash(filepath.Join(filepath.Dir(playlistPath), "missing-track.mp3"))
+				Expect(trackPath).To(Equal(expected))
 			})
 
 			It("locates tracks from music library when playlist lives in playlists folder", func() {

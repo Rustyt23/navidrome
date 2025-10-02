@@ -14,6 +14,7 @@ import (
 	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/utils"
 	"github.com/navidrome/navidrome/utils/slice"
 	"golang.org/x/text/unicode/norm"
 )
@@ -335,7 +336,10 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	missingCount := 0
 
 	for _, entry := range entries {
-		display := filepath.ToSlash(entry)
+		display := utils.ResolvePlaylistEntryPath(pls.Path, entry)
+		if display == "" {
+			display = filepath.ToSlash(entry)
+		}
 		normalizedEntry := normalizePlaylistPath(display)
 		matchIdx, ok := popTrackIndex(normalizedEntry, normalized)
 		if !ok {

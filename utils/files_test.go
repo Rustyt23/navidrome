@@ -176,3 +176,31 @@ var _ = Describe("FileExists", func() {
 		Expect(result).To(Or(BeTrue(), BeFalse()))      // Should not panic
 	})
 })
+
+var _ = Describe("ResolvePlaylistEntryPath", func() {
+	It("returns absolute path unchanged", func() {
+		absolute := filepath.Join(os.TempDir(), "music", "track.mp3")
+
+		resolved := utils.ResolvePlaylistEntryPath("/any/playlist.m3u", absolute)
+
+		Expect(resolved).To(Equal(filepath.ToSlash(filepath.Clean(absolute))))
+	})
+
+	It("resolves relative paths against the playlist file", func() {
+		playlistPath := filepath.Join(os.TempDir(), "playlists", "favorites.m3u")
+		entry := filepath.Join("..", "music", "track.mp3")
+
+		resolved := utils.ResolvePlaylistEntryPath(playlistPath, entry)
+		expected := filepath.ToSlash(filepath.Join(filepath.Dir(playlistPath), entry))
+
+		Expect(resolved).To(Equal(filepath.ToSlash(filepath.Clean(expected))))
+	})
+
+	It("cleans paths when playlist location is unknown", func() {
+		entry := "./mixes/../mixes/song.flac"
+
+		resolved := utils.ResolvePlaylistEntryPath("", entry)
+
+		Expect(resolved).To(Equal(filepath.ToSlash(filepath.Clean(entry))))
+	})
+})

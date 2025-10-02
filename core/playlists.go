@@ -22,6 +22,7 @@ import (
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/criteria"
 	"github.com/navidrome/navidrome/model/request"
+	"github.com/navidrome/navidrome/utils"
 	"github.com/navidrome/navidrome/utils/slice"
 	"golang.org/x/text/unicode/norm"
 )
@@ -305,6 +306,11 @@ func normalizePathForComparison(path string) string {
 func recordMissingPlaylistTrack(ctx context.Context, playlistPath, trackPath string) {
 	if trackPath == "" || conf.Server.DataFolder == "" {
 		return
+	}
+
+	normalizedPath := utils.ResolvePlaylistEntryPath(playlistPath, trackPath)
+	if normalizedPath != "" {
+		trackPath = normalizedPath
 	}
 
 	dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
