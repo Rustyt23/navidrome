@@ -19,12 +19,12 @@ type discoveryTrackRepository struct {
 	discoveryRepo *discoveryRepository
 }
 
-type dbPlaylistTrack struct {
+type dbDiscoveryTrack struct {
 	dbMediaFile
 	*model.DiscoveryTrack `structs:",flatten"`
 }
 
-func (t *dbPlaylistTrack) PostScan() error {
+func (t *dbDiscoveryTrack) PostScan() error {
 	if err := t.dbMediaFile.PostScan(); err != nil {
 		return err
 	}
@@ -33,10 +33,10 @@ func (t *dbPlaylistTrack) PostScan() error {
 	return nil
 }
 
-type dbPlaylistTracks []dbPlaylistTrack
+type dbDiscoveryTracks []dbDiscoveryTrack
 
-func (t dbPlaylistTracks) toModels() model.DiscoveryTracks {
-	return slice.Map(t, func(trk dbPlaylistTrack) model.DiscoveryTrack {
+func (t dbDiscoveryTracks) toModels() model.DiscoveryTracks {
+	return slice.Map(t, func(trk dbDiscoveryTrack) model.DiscoveryTrack {
 		return *trk.DiscoveryTrack
 	})
 }
@@ -105,7 +105,7 @@ func (r *discoveryTrackRepository) Read(id string) (interface{}, error) {
 		).
 		Join("media_file f on f.id = media_file_id").
 		Where(And{Eq{"discovery_id": r.discoveryId}, Eq{"discovery_tracks.id": id}})
-	var trk dbPlaylistTrack
+	var trk dbDiscoveryTrack
 	err := r.queryOne(sel, &trk)
 	return trk.DiscoveryTrack, err
 }

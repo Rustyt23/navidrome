@@ -5,14 +5,14 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-type MockPlaylistRepo struct {
+type MockDiscoveryRepo struct {
 	model.DiscoveryRepository
 
 	Entity *model.Discovery
 	Error  error
 }
 
-func (m *MockPlaylistRepo) Get(_ string) (*model.Discovery, error) {
+func (m *MockDiscoveryRepo) Get(_ string) (*model.Discovery, error) {
 	if m.Error != nil {
 		return nil, m.Error
 	}
@@ -22,7 +22,7 @@ func (m *MockPlaylistRepo) Get(_ string) (*model.Discovery, error) {
 	return m.Entity, nil
 }
 
-func (m *MockPlaylistRepo) Count(_ ...rest.QueryOptions) (int64, error) {
+func (m *MockDiscoveryRepo) Count(_ ...rest.QueryOptions) (int64, error) {
 	if m.Error != nil {
 		return 0, m.Error
 	}
@@ -32,6 +32,6 @@ func (m *MockPlaylistRepo) Count(_ ...rest.QueryOptions) (int64, error) {
 	return 1, nil
 }
 
-func (m *MockPlaylistRepo) GetSyncedByDirectory(string) (model.Discoveries, error) {
+func (m *MockDiscoveryRepo) GetSyncedByDirectory(string) (model.Discoveries, error) {
 	return nil, nil
 }

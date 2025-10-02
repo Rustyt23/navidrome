@@ -8,29 +8,29 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-type MockPlaylistFolderRepo struct {
+type MockDiscoveryFolderRepo struct {
 	model.DiscoveryFolderRepository
 	Folders map[string]*model.DiscoveryFolder
 }
 
-func NewMockPlaylistFolderRepo() *MockPlaylistFolderRepo {
-	return &MockPlaylistFolderRepo{Folders: make(map[string]*model.DiscoveryFolder)}
+func NewMockDiscoveryFolderRepo() *MockDiscoveryFolderRepo {
+	return &MockDiscoveryFolderRepo{Folders: make(map[string]*model.DiscoveryFolder)}
 }
 
-func (r *MockPlaylistFolderRepo) GetAll(options ...model.QueryOptions) (model.DiscoveryFolders, error) {
+func (r *MockDiscoveryFolderRepo) GetAll(options ...model.QueryOptions) (model.DiscoveryFolders, error) {
 	var name, owner string
 	var parent *string
 	if len(options) > 0 {
 		if filters, ok := options[0].Filters.(sq.And); ok {
 			for _, f := range filters {
 				if eq, ok := f.(sq.Eq); ok {
-					if v, ok := eq["playlist_folder.name"]; ok {
+					if v, ok := eq["discovery_folder.name"]; ok {
 						name, _ = v.(string)
 					}
-					if v, ok := eq["playlist_folder.owner_id"]; ok {
+					if v, ok := eq["discovery_folder.owner_id"]; ok {
 						owner, _ = v.(string)
 					}
-					if v, ok := eq["playlist_folder.parent_id"]; ok {
+					if v, ok := eq["discovery_folder.parent_id"]; ok {
 						switch t := v.(type) {
 						case string:
 							parent = &t
@@ -58,9 +58,9 @@ func (r *MockPlaylistFolderRepo) GetAll(options ...model.QueryOptions) (model.Di
 	return model.DiscoveryFolders{}, nil
 }
 
-func (r *MockPlaylistFolderRepo) Put(f *model.DiscoveryFolder) error {
+func (r *MockDiscoveryFolderRepo) Put(f *model.DiscoveryFolder) error {
 	if f.ID == "" {
-		f.ID = fmt.Sprintf("pf-%d", len(r.Folders)+1)
+		f.ID = fmt.Sprintf("df-%d", len(r.Folders)+1)
 	}
 	now := time.Now()
 	if f.CreatedAt.IsZero() {

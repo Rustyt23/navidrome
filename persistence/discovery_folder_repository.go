@@ -1,4 +1,4 @@
-// persistence/playlist_folder_repository.go
+// persistence/discovery_folder_repository.go
 package persistence
 
 import (
@@ -17,44 +17,44 @@ type discoveryFolderRepository struct {
 	sqlRepository
 }
 
-type dbPlaylistFolder struct {
+type dbDiscoveryFolder struct {
 	model.DiscoveryFolder `structs:",flatten"`
 }
 
-func NewPlaylistFolderRepository(ctx context.Context, db dbx.Builder) model.DiscoveryFolderRepository {
+func NewDiscoveryFolderRepository(ctx context.Context, db dbx.Builder) model.DiscoveryFolderRepository {
 	r := &discoveryFolderRepository{}
 	r.ctx = ctx
 	r.db = db
 
 	r.registerModel(&model.DiscoveryFolder{}, map[string]filterFunc{
 		"q":         r.withTableName(discoveryFolderFilter),
-		"parent_id": r.withTableName(parentIdFilter),
-		"owner_id":  r.withTableName(ownerIdFilter),
+		"parent_id": r.withTableName(discoveryParentIdFilter),
+		"owner_id":  r.withTableName(discoveryOwnerIdFilter),
 	})
 	r.setSortMappings(map[string]string{
-		"name":       "lower(playlist_folder.name) asc",
+		"name":       "lower(discovery_folder.name) asc",
 		"owner_name": "owner_name",
-		"updated_at": "playlist_folder.updated_at desc",
+		"updated_at": "discovery_folder.updated_at desc",
 	})
 	return r
 }
 
 func discoveryFolderFilter(_ string, value interface{}) Sqlizer {
-	return substringFilter("playlist_folder.name", value)
+	return substringFilter("discovery_folder.name", value)
 }
 
-func ownerIdFilter(_ string, value interface{}) Sqlizer {
-	return Eq{"playlist_folder.owner_id": value}
+func discoveryOwnerIdFilter(_ string, value interface{}) Sqlizer {
+	return Eq{"discovery_folder.owner_id": value}
 }
 
-func parentIdFilter(_ string, value interface{}) Sqlizer {
+func discoveryParentIdFilter(_ string, value interface{}) Sqlizer {
 	if value == nil {
-		return Eq{"playlist_folder.parent_id": nil}
+		return Eq{"discovery_folder.parent_id": nil}
 	}
 	if s, ok := value.(string); ok && s == "" {
-		return Eq{"playlist_folder.parent_id": nil}
+		return Eq{"discovery_folder.parent_id": nil}
 	}
-	return Eq{"playlist_folder.parent_id": value}
+	return Eq{"discovery_folder.parent_id": value}
 }
 
 func (r *discoveryFolderRepository) userFilter() Sqlizer {
@@ -63,8 +63,8 @@ func (r *discoveryFolderRepository) userFilter() Sqlizer {
 		return And{}
 	}
 	return Or{
-		Eq{"playlist_folder.public": true},
-		Eq{"playlist_folder.owner_id": user.ID},
+		Eq{"discovery_folder.public": true},
+		Eq{"discovery_folder.owner_id": user.ID},
 	}
 }
 
@@ -74,16 +74,16 @@ func (r *discoveryFolderRepository) CountAll(options ...model.QueryOptions) (int
 }
 
 func (r *discoveryFolderRepository) Exists(id string) (bool, error) {
-	return r.exists(And{Eq{"playlist_folder.id": id}, r.userFilter()})
+	return r.exists(And{Eq{"discovery_folder.id": id}, r.userFilter()})
 }
 
 func (r *discoveryFolderRepository) Get(id string) (*model.DiscoveryFolder, error) {
-	return r.findBy(And{Eq{"playlist_folder.id": id}, r.userFilter()})
+	return r.findBy(And{Eq{"discovery_folder.id": id}, r.userFilter()})
 }
 
 func (r *discoveryFolderRepository) GetAll(options ...model.QueryOptions) (model.DiscoveryFolders, error) {
 	sel := r.selectFolder(options...).Where(r.userFilter())
-	var rows []dbPlaylistFolder
+	var rows []dbDiscoveryFolder
 	if err := r.queryAll(sel, &rows); err != nil {
 		return nil, err
 	}
@@ -98,9 +98,9 @@ func (r *discoveryFolderRepository) GetAllByParent(options ...model.QueryOptions
 	hasParent := r.hasParentIDFilter(options...)
 	sel := r.selectFolder(options...).Where(r.userFilter())
 	if !hasParent {
-		sel = sel.Where(Eq{"playlist_folder.parent_id": nil})
+		sel = sel.Where(Eq{"discovery_folder.parent_id": nil})
 	}
-	var rows []dbPlaylistFolder
+	var rows []dbDiscoveryFolder
 	if err := r.queryAll(sel, &rows); err != nil {
 		return nil, err
 	}
@@ -113,23 +113,23 @@ func (r *discoveryFolderRepository) GetAllByParent(options ...model.QueryOptions
 
 func (r *discoveryFolderRepository) ensureUniqueName(f *model.DiscoveryFolder) error {
 	cond := And{
-		Eq{"playlist_folder.owner_id": f.OwnerID},
-		Eq{"playlist_folder.name": f.Name},
+		Eq{"discovery_folder.owner_id": f.OwnerID},
+		Eq{"discovery_folder.name": f.Name},
 	}
 	if f.ParentID == nil {
-		cond = append(cond, Eq{"playlist_folder.parent_id": nil})
+		cond = append(cond, Eq{"discovery_folder.parent_id": nil})
 	} else {
-		cond = append(cond, Eq{"playlist_folder.parent_id": *f.ParentID})
+		cond = append(cond, Eq{"discovery_folder.parent_id": *f.ParentID})
 	}
 	if f.ID != "" {
-		cond = append(cond, NotEq{"playlist_folder.id": f.ID})
+		cond = append(cond, NotEq{"discovery_folder.id": f.ID})
 	}
 	exists, err := r.exists(cond)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return fmt.Errorf("unique constraint failed: playlist_folder.name")
+		return fmt.Errorf("unique constraint failed: discovery_folder.name")
 	}
 	return nil
 }
@@ -155,7 +155,7 @@ func (r *discoveryFolderRepository) Put(f *model.DiscoveryFolder) error {
 	}
 	f.UpdatedAt = time.Now()
 
-	dbf := dbPlaylistFolder{DiscoveryFolder: *f}
+	dbf := dbDiscoveryFolder{DiscoveryFolder: *f}
 	id, err := r.put(dbf.ID, dbf)
 	if err != nil {
 		return err
@@ -177,7 +177,7 @@ func (r *discoveryFolderRepository) Delete(id string) error {
 		}
 	}
 	// Children cascade via FK; discoveries detach via trigger
-	return r.delete(And{Eq{"playlist_folder.id": id}, r.userFilter()})
+	return r.delete(And{Eq{"discovery_folder.id": id}, r.userFilter()})
 }
 
 // UpdateParent moves a folder under new parent (nil => root). Empty string is invalid.
@@ -192,7 +192,7 @@ func (r *discoveryFolderRepository) UpdateParent(id string, parentId *string) er
 		OwnerID string
 		Name    string
 	}
-	if err := r.queryOne(Select("owner_id", "name").From("playlist_folder").Where(Eq{"id": id}), &src); err != nil {
+	if err := r.queryOne(Select("owner_id", "name").From("discovery_folder").Where(Eq{"id": id}), &src); err != nil {
 		return err
 	}
 	if !usr.IsAdmin && src.OwnerID != usr.ID {
@@ -218,7 +218,7 @@ func (r *discoveryFolderRepository) UpdateParent(id string, parentId *string) er
 		return err
 	}
 
-	upd := Update("playlist_folder").
+	upd := Update("discovery_folder").
 		Set("parent_id", parentId). // nil => NULL
 		Set("updated_at", time.Now()).
 		Where(Eq{"id": id})
@@ -238,7 +238,7 @@ func (r *discoveryFolderRepository) selectFolder(options ...model.QueryOptions) 
 
 func (r *discoveryFolderRepository) findBy(where Sqlizer) (*model.DiscoveryFolder, error) {
 	sel := r.selectFolder().Where(where)
-	var rows []dbPlaylistFolder
+	var rows []dbDiscoveryFolder
 	if err := r.queryAll(sel, &rows); err != nil {
 		return nil, err
 	}
@@ -275,7 +275,7 @@ func (r *discoveryFolderRepository) isDescendant(childID, ancestorID string) (bo
 			ParentID *string `db:"parent_id"`
 		}
 		err := r.queryOne(
-			Select("parent_id").From("playlist_folder").Where(Eq{"id": childID}),
+			Select("parent_id").From("discovery_folder").Where(Eq{"id": childID}),
 			&row,
 		)
 		if errors.Is(err, model.ErrNotFound) {
@@ -306,7 +306,7 @@ func (r *discoveryFolderRepository) ReadAll(options ...rest.QueryOptions) (inter
 	return r.GetAll(r.parseRestOptions(r.ctx, options...))
 }
 
-func (r *discoveryFolderRepository) EntityName() string { return "playlist_folder" }
+func (r *discoveryFolderRepository) EntityName() string { return "discovery_folder" }
 
 func (r *discoveryFolderRepository) NewInstance() interface{} { return &model.DiscoveryFolder{} }
 
@@ -340,7 +340,7 @@ func (r *discoveryFolderRepository) Update(id string, entity interface{}, cols .
 	}
 	f.UpdatedAt = time.Now()
 	f.Type = "folder"
-	_, err = r.put(id, dbPlaylistFolder{DiscoveryFolder: *f}, append(cols, "updatedAt")...)
+	_, err = r.put(id, dbDiscoveryFolder{DiscoveryFolder: *f}, append(cols, "updatedAt")...)
 	if errors.Is(err, model.ErrNotFound) {
 		return rest.ErrNotFound
 	}

@@ -8,27 +8,29 @@ import (
 )
 
 type MockDataStore struct {
-	RealDS               		model.DataStore
-	MockedLibrary        		model.LibraryRepository
-	MockedFolder         		model.FolderRepository
-	MockedGenre          		model.GenreRepository
-	MockedAlbum          		model.AlbumRepository
-	MockedArtist         		model.ArtistRepository
-	MockedMediaFile      		model.MediaFileRepository
-	MockedTag            		model.TagRepository
-	MockedUser           		model.UserRepository
-	MockedProperty       		model.PropertyRepository
-	MockedPlayer         		model.PlayerRepository
-	MockedPlaylist       		model.PlaylistRepository
-	MockedPlaylistFolder 		model.PlaylistFolderRepository
-	MockedPlayQueue      		model.PlayQueueRepository
-	MockedShare          		model.ShareRepository
-	MockedTranscoding    		model.TranscodingRepository
-	MockedUserProps      		model.UserPropsRepository
-	MockedScrobbleBuffer 		model.ScrobbleBufferRepository
-	MockedRadio          		model.RadioRepository
-	scrobbleBufferMu     		sync.Mutex
-	repoMu               		sync.Mutex
+	RealDS                model.DataStore
+	MockedLibrary         model.LibraryRepository
+	MockedFolder          model.FolderRepository
+	MockedGenre           model.GenreRepository
+	MockedAlbum           model.AlbumRepository
+	MockedArtist          model.ArtistRepository
+	MockedMediaFile       model.MediaFileRepository
+	MockedTag             model.TagRepository
+	MockedUser            model.UserRepository
+	MockedProperty        model.PropertyRepository
+	MockedPlayer          model.PlayerRepository
+	MockedPlaylist        model.PlaylistRepository
+	MockedDiscovery       model.DiscoveryRepository
+	MockedPlaylistFolder  model.PlaylistFolderRepository
+	MockedDiscoveryFolder model.DiscoveryFolderRepository
+	MockedPlayQueue       model.PlayQueueRepository
+	MockedShare           model.ShareRepository
+	MockedTranscoding     model.TranscodingRepository
+	MockedUserProps       model.UserPropsRepository
+	MockedScrobbleBuffer  model.ScrobbleBufferRepository
+	MockedRadio           model.RadioRepository
+	scrobbleBufferMu      sync.Mutex
+	repoMu                sync.Mutex
 }
 
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {
@@ -121,6 +123,17 @@ func (db *MockDataStore) Playlist(ctx context.Context) model.PlaylistRepository 
 	return db.MockedPlaylist
 }
 
+func (db *MockDataStore) Discovery(ctx context.Context) model.DiscoveryRepository {
+	if db.MockedDiscovery == nil {
+		if db.RealDS != nil {
+			db.MockedDiscovery = db.RealDS.Discovery(ctx)
+		} else {
+			db.MockedDiscovery = &MockDiscoveryRepo{}
+		}
+	}
+	return db.MockedDiscovery
+}
+
 func (db *MockDataStore) PlaylistFolder(ctx context.Context) model.PlaylistFolderRepository {
 	if db.MockedPlaylistFolder == nil {
 		if db.RealDS != nil {
@@ -130,6 +143,17 @@ func (db *MockDataStore) PlaylistFolder(ctx context.Context) model.PlaylistFolde
 		}
 	}
 	return db.MockedPlaylistFolder
+}
+
+func (db *MockDataStore) DiscoveryFolder(ctx context.Context) model.DiscoveryFolderRepository {
+	if db.MockedDiscoveryFolder == nil {
+		if db.RealDS != nil {
+			db.MockedDiscoveryFolder = db.RealDS.DiscoveryFolder(ctx)
+		} else {
+			db.MockedDiscoveryFolder = &MockDiscoveryFolderRepo{}
+		}
+	}
+	return db.MockedDiscoveryFolder
 }
 
 func (db *MockDataStore) PlayQueue(ctx context.Context) model.PlayQueueRepository {
@@ -253,6 +277,8 @@ func (db *MockDataStore) Resource(ctx context.Context, m any) model.ResourceRepo
 		return db.User(ctx).(model.ResourceRepository)
 	case model.Playlist, *model.Playlist:
 		return db.Playlist(ctx).(model.ResourceRepository)
+	case model.Discovery, *model.Discovery:
+		return db.Discovery(ctx).(model.ResourceRepository)
 	case model.Radio, *model.Radio:
 		return db.Radio(ctx).(model.ResourceRepository)
 	case model.Share, *model.Share:
@@ -265,6 +291,8 @@ func (db *MockDataStore) Resource(ctx context.Context, m any) model.ResourceRepo
 		return db.Transcoding(ctx).(model.ResourceRepository)
 	case model.Player, *model.Player:
 		return db.Player(ctx).(model.ResourceRepository)
+	case model.DiscoveryFolder, *model.DiscoveryFolder:
+		return db.DiscoveryFolder(ctx).(model.ResourceRepository)
 	default:
 		return struct{ model.ResourceRepository }{}
 	}

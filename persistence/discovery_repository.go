@@ -25,19 +25,19 @@ type discoveryRepository struct {
 	sqlRepository
 }
 
-type dbPlaylist struct {
+type dbDiscovery struct {
 	model.Discovery `structs:",flatten"`
-	Rules          sql.NullString `structs:"-"`
+	Rules           sql.NullString `structs:"-"`
 }
 
-func (p *dbPlaylist) PostScan() error {
+func (p *dbDiscovery) PostScan() error {
 	if p.Rules.String != "" {
 		return json.Unmarshal([]byte(p.Rules.String), &p.Discovery.Rules)
 	}
 	return nil
 }
 
-func (p dbPlaylist) PostMapArgs(args map[string]any) error {
+func (p dbDiscovery) PostMapArgs(args map[string]any) error {
 	var err error
 	if p.Discovery.IsSmartPlaylist() {
 		args["rules"], err = json.Marshal(p.Discovery.Rules)
@@ -50,13 +50,13 @@ func (p dbPlaylist) PostMapArgs(args map[string]any) error {
 	return nil
 }
 
-func NewPlaylistRepository(ctx context.Context, db dbx.Builder) model.DiscoveryRepository {
+func NewDiscoveryRepository(ctx context.Context, db dbx.Builder) model.DiscoveryRepository {
 	r := &discoveryRepository{}
 	r.ctx = ctx
 	r.db = db
 	r.registerModel(&model.Discovery{}, map[string]filterFunc{
 		"q":     discoveryFilter,
-		"smart": smartPlaylistFilter,
+		"smart": smartDiscoveryFilter,
 	})
 	r.setSortMappings(map[string]string{
 		"owner_name": "owner_name",
@@ -71,7 +71,7 @@ func discoveryFilter(_ string, value interface{}) Sqlizer {
 	}
 }
 
-func smartPlaylistFilter(string, interface{}) Sqlizer {
+func smartDiscoveryFilter(string, interface{}) Sqlizer {
 	return Or{
 		Eq{"rules": ""},
 		Eq{"rules": nil},
@@ -113,7 +113,7 @@ func (r *discoveryRepository) Delete(id string) error {
 }
 
 func (r *discoveryRepository) Put(p *model.Discovery) error {
-	pls := dbPlaylist{Discovery: *p}
+	pls := dbDiscovery{Discovery: *p}
 	if pls.ID == "" {
 		pls.CreatedAt = time.Now()
 	} else {
@@ -199,8 +199,8 @@ func (r *discoveryRepository) GetSyncedByDirectory(dir string) (model.Discoverie
 		where = append(where, Like{"path": pattern})
 	}
 
-	sel := r.selectPlaylist().Where(where)
-	var res []dbPlaylist
+	sel := r.selectDiscovery().Where(where)
+	var res []dbDiscovery
 	if err := r.queryAll(sel, &res); err != nil {
 		return nil, err
 	}
@@ -215,8 +215,8 @@ func (r *discoveryRepository) GetSyncedByDirectory(dir string) (model.Discoverie
 }
 
 func (r *discoveryRepository) findBy(sql Sqlizer) (*model.Discovery, error) {
-	sel := r.selectPlaylist().Where(sql)
-	var pls []dbPlaylist
+	sel := r.selectDiscovery().Where(sql)
+	var pls []dbDiscovery
 	err := r.queryAll(sel, &pls)
 	if err != nil {
 		return nil, err
@@ -231,8 +231,8 @@ func (r *discoveryRepository) findBy(sql Sqlizer) (*model.Discovery, error) {
 }
 
 func (r *discoveryRepository) GetAll(options ...model.QueryOptions) (model.Discoveries, error) {
-	sel := r.selectPlaylist(options...).Where(r.userFilter())
-	var res []dbPlaylist
+	sel := r.selectDiscovery(options...).Where(r.userFilter())
+	var res []dbDiscovery
 	err := r.queryAll(sel, &res)
 	if err != nil {
 		return nil, err
@@ -246,11 +246,11 @@ func (r *discoveryRepository) GetAll(options ...model.QueryOptions) (model.Disco
 
 func (r *discoveryRepository) GetAllByPlaylistFolder(options ...model.QueryOptions) (model.Discoveries, error) {
 	hasFolderFilter := r.hasFolderIDFilter(options...)
-	sel := r.selectPlaylist(options...).Where(r.userFilter())
+	sel := r.selectDiscovery(options...).Where(r.userFilter())
 	if !hasFolderFilter {
 		sel = sel.Where(Eq{"folder_id": nil}) // root only
 	}
-	var res []dbPlaylist
+	var res []dbDiscovery
 	if err := r.queryAll(sel, &res); err != nil {
 		return nil, err
 	}
@@ -282,10 +282,10 @@ func (r *discoveryRepository) hasFolderIDFilter(options ...model.QueryOptions) b
 }
 
 func (r *discoveryRepository) GetPlaylists(mediaFileId string) (model.Discoveries, error) {
-	sel := r.selectPlaylist(model.QueryOptions{Sort: "name"}).
+	sel := r.selectDiscovery(model.QueryOptions{Sort: "name"}).
 		Join("discovery_tracks on discovery.id = discovery_tracks.discovery_id").
 		Where(And{Eq{"discovery_tracks.media_file_id": mediaFileId}, r.userFilter()})
-	var res []dbPlaylist
+	var res []dbDiscovery
 	err := r.queryAll(sel, &res)
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {
@@ -300,7 +300,7 @@ func (r *discoveryRepository) GetPlaylists(mediaFileId string) (model.Discoverie
 	return discoveries, nil
 }
 
-func (r *discoveryRepository) selectPlaylist(options ...model.QueryOptions) SelectBuilder {
+func (r *discoveryRepository) selectDiscovery(options ...model.QueryOptions) SelectBuilder {
 	return r.newSelect(options...).Join("user on user.id = owner_id").
 		Columns(r.tableName+".*", "user.user_name as owner_name")
 }
@@ -392,10 +392,10 @@ func (r *discoveryRepository) updateTracks(id string, tracks model.MediaFiles) e
 	for i := range tracks {
 		ids[i] = tracks[i].ID
 	}
-	return r.updatePlaylist(id, ids)
+	return r.updateDiscovery(id, ids)
 }
 
-func (r *discoveryRepository) updatePlaylist(discoveryId string, mediaFileIds []string) error {
+func (r *discoveryRepository) updateDiscovery(discoveryId string, mediaFileIds []string) error {
 	if !r.isWritable(discoveryId) {
 		return rest.ErrPermissionDenied
 	}
@@ -484,7 +484,7 @@ func (r *discoveryRepository) loadTracks(sel SelectBuilder, id string) (model.Di
 		Join("media_file f on f.id = media_file_id").
 		Join("library on f.library_id = library.id").
 		Where(Eq{"discovery_id": id})
-	tracks := dbPlaylistTracks{}
+	tracks := dbDiscoveryTracks{}
 	err := r.queryAll(tracksQuery, &tracks)
 	if err != nil {
 		return nil, err
@@ -524,7 +524,7 @@ func (r *discoveryRepository) Save(entity interface{}) (string, error) {
 }
 
 func (r *discoveryRepository) Update(id string, entity interface{}, cols ...string) error {
-	pls := dbPlaylist{Discovery: *entity.(*model.Discovery)}
+	pls := dbDiscovery{Discovery: *entity.(*model.Discovery)}
 	current, err := r.Get(id)
 	if err != nil {
 		return err
@@ -589,7 +589,7 @@ func (r *discoveryRepository) renumber(id string) error {
 	if err != nil {
 		return err
 	}
-	return r.updatePlaylist(id, ids)
+	return r.updateDiscovery(id, ids)
 }
 
 func (r *discoveryRepository) isWritable(discoveryId string) bool {
