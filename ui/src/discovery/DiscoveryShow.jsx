@@ -1,0 +1,103 @@
+import React, { useState, useCallback } from 'react'
+import {
+  ReferenceManyField,
+  ShowContextProvider,
+  useShowContext,
+  useShowController,
+  SearchInput,
+  Filter,
+  Pagination,
+  Title as RaTitle,
+} 
+from 'react-admin'
+import { makeStyles } from '@material-ui/core/styles'
+import DiscoveryDetails from './DiscoveryDetails'
+import DiscoverySongs from './DiscoverySongs'
+import DiscoveryActions from './DiscoveryActions'
+import { Title, canChangeTracks, useResourceRefresh } from '../common'
+
+const useStyles = makeStyles(
+  (theme) => ({
+    playlistActions: {
+      width: '100%',
+    },
+  }),
+  {
+    name: 'NDDiscoveryShow',
+  },
+)
+
+const DiscoveryShowLayout = (props) => {
+  const { loading, ...context } = useShowContext(props)
+  const { record } = context
+  const classes = useStyles()
+  useResourceRefresh('song')
+
+  // Store search query in state to prevent losing focus
+  const [searchTerm, setSearchTerm] = useState('')
+
+  // Handle search change
+  const handleSearchChange = useCallback((event) => {
+    setSearchTerm(event.target.value)
+  }, [])
+
+  return (
+    <>
+      {record && <RaTitle title={<Title subTitle={record.name} />} />}
+      {record && <DiscoveryDetails {...context} />}
+      {record && (
+        <>
+          {/* Pass search state and handler to Filter */}
+          <Filter variant="outlined">
+            <SearchInput
+              id="search"
+              source="q"
+              alwaysOn
+              value={searchTerm}
+              onChange={handleSearchChange} // Update parent state on change
+            />
+          </Filter>
+
+          <ReferenceManyField
+            {...context}
+            addLabel={false}
+            reference="playlistTrack"
+            target="playlist_id"
+            sort={{ field: 'id', order: 'ASC' }}
+            perPage={50}
+            filter={{ playlist_id: props.id, q: searchTerm }} // Pass searchTerm as a filter
+          >
+            <DiscoverySongs
+              {...props}
+              readOnly={!canChangeTracks(record)}
+              title={<Title subTitle={record.name} />}
+              actions={
+                <DiscoveryActions
+                  className={classes.playlistActions}
+                  record={record}
+                />
+              }
+              resource={'playlistTrack'}
+              exporter={false}
+              pagination={<Pagination rowsPerPageOptions={[25, 50, 100, 200]}
+              perPage={50}
+                />}
+              searchTerm={searchTerm} // Pass search term to child
+            />
+          </ReferenceManyField>
+        </>
+      )}
+    </>
+  )
+}
+
+const DiscoveryShow = (props) => {
+  const controllerProps = useShowController(props)
+  return (
+    <ShowContextProvider value={controllerProps}>
+      <DiscoveryShowLayout {...props} {...controllerProps} />
+    </ShowContextProvider>
+  )
+}
+
+export default DiscoveryShow

@@ -1,15 +1,11 @@
-package nativeapi
-
-import (
+package nativeapi (
 	"context"
 	"encoding/json"
 	"html"
 	"io"
 	"net/http"
 	"strconv"
-	"time"
-
-	"github.com/deluan/rest"
+	"time"	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/navidrome/navidrome/conf"
@@ -19,30 +15,22 @@ import (
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server"
-)
-
-type Router struct {
+)type Router struct {
 	http.Handler
 	ds        model.DataStore
 	share     core.Share
 	playlists core.Playlists
+	discoveries core.Discoveries
 	insights  metrics.Insights
 	libs      core.Library
-}
-
-func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
-	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService}
+}func New(ds model.DataStore, share core.Share, playlists core.Playlists
+	discoveries core.Discoveries, insights metrics.Insights, libraryService core.Library) *Router {
+	r := &Router{ds: ds, share: share, playlists: playlists, discoveries: discoveries, insights: insights, libs: libraryService}
 	r.Handler = r.routes()
 	return r
-}
-
-func (n *Router) routes() http.Handler {
-	r := chi.NewRouter()
-
-	// Public
-	n.RX(r, "/translation", newTranslationRepository, false)
-
-	// Protected
+}func (n *Router) routes() http.Handler {
+	r := chi.NewRouter()	// Public
+	n.RX(r, "/translation", newTranslationRepository, false)	// Protected
 	r.Group(func(r chi.Router) {
 		r.Use(server.Authenticator(n.ds))
 		r.Use(server.JWTRefresher)
@@ -58,37 +46,27 @@ func (n *Router) routes() http.Handler {
 		n.R(r, "/tag", model.Tag{}, true)
 		if conf.Server.EnableSharing {
 			n.RX(r, "/share", n.share.NewRepository, true)
-		}
-
-		n.addPlaylistRoute(r)
+		}		n.addPlaylistRoute(r)
 		n.addPlaylistFolderRoute(r)
 		n.addPlaylistTrackRoute(r)
 		n.addSongPlaylistsRoute(r)
 		n.addQueueRoute(r)
 		n.addMissingFilesRoute(r)
 		n.addKeepAliveRoute(r)
-		n.addInsightsRoute(r)
-
-		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
+		n.addInsightsRoute(r)		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
 			n.addInspectRoute(r)
 			n.addConfigRoute(r)
 			n.addUserLibraryRoute(r)
 			n.addSyncRoute(r)
 			n.RX(r, "/library", n.libs.NewRepository, true)
 		})
-	})
-
-	return r
-}
-
-func (n *Router) R(r chi.Router, pathPrefix string, model interface{}, persistable bool) {
+	})	return r
+}func (n *Router) R(r chi.Router, pathPrefix string, model interface{}, persistable bool) {
 	constructor := func(ctx context.Context) rest.Repository {
 		return n.ds.Resource(ctx, model)
 	}
 	n.RX(r, pathPrefix, constructor, persistable)
-}
-
-func (n *Router) RX(r chi.Router, pathPrefix string, constructor rest.RepositoryConstructor, persistable bool) {
+}func (n *Router) RX(r chi.Router, pathPrefix string, constructor rest.RepositoryConstructor, persistable bool) {
 	r.Route(pathPrefix, func(r chi.Router) {
 		r.Get("/", rest.GetAll(constructor))
 		if persistable {
@@ -103,14 +81,10 @@ func (n *Router) RX(r chi.Router, pathPrefix string, constructor rest.Repository
 			}
 		})
 	})
-}
-
-func (n *Router) addPlaylistRoute(r chi.Router) {
+}func (n *Router) addPlaylistRoute(r chi.Router) {
 	constructor := func(ctx context.Context) rest.Repository {
 		return n.ds.Resource(ctx, model.Playlist{})
-	}
-
-	r.Route("/playlist", func(r chi.Router) {
+	}	r.Route("/playlist", func(r chi.Router) {
 		r.Get("/", rest.GetAll(constructor))
 		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Content-type") == "application/json" {
@@ -118,17 +92,11 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 				return
 			}
 			createPlaylistFromM3U(n.playlists)(w, r)
-		})
-
-		r.Route("/{id}", func(r chi.Router) {
+		})		r.Route("/{id}", func(r chi.Router) {
 			r.Use(server.URLParamsMiddleware)
 			r.Get("/", rest.Get(constructor))
 			r.Put("/", rest.Put(constructor))
-			r.Delete("/", rest.Delete(constructor))
-
-			r.Post("/publish", publishPlaylist(n.ds, n.playlists))
-
-			r.Patch("/folder", func(w http.ResponseWriter, r *http.Request) {
+			r.Delete("/", rest.Delete(constructor))			r.Post("/publish", publishPlaylist(n.ds, n.playlists))			r.Patch("/folder", func(w http.ResponseWriter, r *http.Request) {
 				id := chi.URLParam(r, "id")
 				type reqBody struct {
 					FolderID *string `json:"folderId"`
@@ -150,32 +118,20 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 			})
 		})
 	})
-}
-
-func (n *Router) addPlaylistFolderRoute(r chi.Router) {
+}func (n *Router) addPlaylistFolderRoute(r chi.Router) {
 	constructor := func(ctx context.Context) rest.Repository {
 		return n.ds.Resource(ctx, model.PlaylistFolder{})
-	}
-
-	r.Route("/folder", func(r chi.Router) {
+	}	r.Route("/folder", func(r chi.Router) {
 		// Combined list (folders + playlists) with paging
 		r.Get("/", ListFoldersAndPlaylists(n.ds))
-		r.Post("/", rest.Post(constructor))
-
-		r.Route("/{id}", func(r chi.Router) {
+		r.Post("/", rest.Post(constructor))		r.Route("/{id}", func(r chi.Router) {
 			r.Use(server.URLParamsMiddleware)
 			r.Get("/", rest.Get(constructor))
 			r.Put("/", rest.Put(constructor))
-			r.Delete("/", rest.Delete(constructor))
-
-			r.Patch("/parent", MoveFolder(n.ds))
-		})
-
-		r.Patch("/move", BulkMove(n.ds, n.playlists))
+			r.Delete("/", rest.Delete(constructor))			r.Patch("/parent", MoveFolder(n.ds))
+		})		r.Patch("/move", BulkMove(n.ds, n.playlists))
 	})
-}
-
-func (n *Router) addPlaylistTrackRoute(r chi.Router) {
+}func (n *Router) addPlaylistTrackRoute(r chi.Router) {
 	r.Route("/playlist/{playlistId}/tracks", func(r chi.Router) {
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			getPlaylist(n.ds)(w, r)
@@ -201,33 +157,25 @@ func (n *Router) addPlaylistTrackRoute(r chi.Router) {
 			})
 		})
 	})
-}
-
-func (n *Router) addSongPlaylistsRoute(r chi.Router) {
+}func (n *Router) addSongPlaylistsRoute(r chi.Router) {
 	r.With(server.URLParamsMiddleware).Get("/song/{id}/playlists", func(w http.ResponseWriter, r *http.Request) {
 		getSongPlaylists(n.ds)(w, r)
 	})
-}
-
-func (n *Router) addQueueRoute(r chi.Router) {
+}func (n *Router) addQueueRoute(r chi.Router) {
 	r.Route("/queue", func(r chi.Router) {
 		r.Get("/", getQueue(n.ds))
 		r.Post("/", saveQueue(n.ds))
 		r.Put("/", updateQueue(n.ds))
 		r.Delete("/", clearQueue(n.ds))
 	})
-}
-
-func (n *Router) addMissingFilesRoute(r chi.Router) {
+}func (n *Router) addMissingFilesRoute(r chi.Router) {
 	r.Route("/missing", func(r chi.Router) {
 		n.RX(r, "/", newMissingRepository(n.ds), false)
 		r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 			deleteMissingFiles(n.ds, w, r)
 		})
 	})
-}
-
-func writeDeleteManyResponse(w http.ResponseWriter, r *http.Request, ids []string) {
+}func writeDeleteManyResponse(w http.ResponseWriter, r *http.Request, ids []string) {
 	var resp []byte
 	var err error
 	if len(ids) == 1 {
@@ -245,9 +193,7 @@ func writeDeleteManyResponse(w http.ResponseWriter, r *http.Request, ids []strin
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-}
-
-func (n *Router) addInspectRoute(r chi.Router) {
+}func (n *Router) addInspectRoute(r chi.Router) {
 	if conf.Server.Inspect.Enabled {
 		r.Group(func(r chi.Router) {
 			if conf.Server.Inspect.MaxRequests > 0 {
@@ -259,15 +205,11 @@ func (n *Router) addInspectRoute(r chi.Router) {
 			r.Get("/inspect", inspect(n.ds))
 		})
 	}
-}
-
-func (n *Router) addConfigRoute(r chi.Router) {
+}func (n *Router) addConfigRoute(r chi.Router) {
 	if conf.Server.DevUIShowConfig {
 		r.Get("/config/*", getConfig)
 	}
-}
-
-func (n *Router) addSyncRoute(r chi.Router) {
+}func (n *Router) addSyncRoute(r chi.Router) {
 	r.Get("/sync", func(w http.ResponseWriter, r *http.Request) {
 		resp, err := http.Get("https://push.jareddietch.com")
 		if err != nil {
@@ -280,15 +222,11 @@ func (n *Router) addSyncRoute(r chi.Router) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
-}
-
-func (n *Router) addKeepAliveRoute(r chi.Router) {
+}func (n *Router) addKeepAliveRoute(r chi.Router) {
 	r.Get("/keepalive/*", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"response":"ok", "id":"keepalive"}`))
 	})
-}
-
-func (n *Router) addInsightsRoute(r chi.Router) {
+}func (n *Router) addInsightsRoute(r chi.Router) {
 	r.Get("/insights/*", func(w http.ResponseWriter, r *http.Request) {
 		last, success := n.insights.LastRun(r.Context())
 		if conf.Server.EnableInsightsCollector {
@@ -297,9 +235,7 @@ func (n *Router) addInsightsRoute(r chi.Router) {
 			_, _ = w.Write([]byte(`{"id":"insights_status", "lastRun":"disabled", "success":false}`))
 		}
 	})
-}
-
-// Middleware to ensure only admin users can access endpoints
+}// Middleware to ensure only admin users can access endpoints
 func adminOnlyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, ok := request.UserFrom(r.Context())

@@ -29,7 +29,9 @@
 		Genre(ctx context.Context) GenreRepository
 		Tag(ctx context.Context) TagRepository
 		Playlist(ctx context.Context) PlaylistRepository
+    Discovery(ctx context.Context) DiscoveryRepository
 		PlaylistFolder(ctx context.Context) PlaylistFolderRepository
+    DiscoveryFolder(ctx context.Context) DiscoveryFolderRepository
 		PlayQueue(ctx context.Context) PlayQueueRepository
 		Transcoding(ctx context.Context) TranscodingRepository
 		Player(ctx context.Context) PlayerRepository
