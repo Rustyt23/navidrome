@@ -31,6 +31,58 @@ import { keyMap } from '../hotkeys'
 import keyHandlers from './keyHandlers'
 import { calculateGain } from '../utils/calculateReplayGain'
 
+const buildNotificationBody = (song) => {
+  if (!song) {
+    return ''
+  }
+
+  const trimValue = (value) => (value ? value.trim() : '')
+  const titleLower = trimValue(song.title).toLowerCase()
+  const seen = new Set()
+  const parts = []
+
+  const addPart = (value) => {
+    const trimmed = trimValue(value)
+    if (!trimmed) {
+      return
+    }
+
+    const lowered = trimmed.toLowerCase()
+    if (!lowered || lowered === titleLower || seen.has(lowered)) {
+      return
+    }
+
+    seen.add(lowered)
+    parts.push(trimmed)
+  }
+
+  const removePrefixed = (value, prefix) => {
+    let result = trimValue(value)
+    const prefixTrimmed = trimValue(prefix)
+    if (!result || !prefixTrimmed) {
+      return result
+    }
+
+    const separator = ' - '
+    const lowerPrefix = prefixTrimmed.toLowerCase()
+
+    while (result.toLowerCase().startsWith(`${lowerPrefix}${separator}`)) {
+      result = result.slice(prefixTrimmed.length + separator.length).trim()
+    }
+
+    return result
+  }
+
+  addPart(song.artist)
+
+  let album = trimValue(song.album)
+  album = removePrefixed(album, song.artist)
+  album = removePrefixed(album, song.title)
+  addPart(album)
+
+  return parts.join(' - ')
+}
+
 const Player = () => {
   const theme = useCurrentTheme()
   const translate = useTranslate()
@@ -226,11 +278,7 @@ const Player = () => {
           })
         }
         if (showNotifications) {
-          sendNotification(
-            song.title,
-            `${song.artist} - ${song.album}`,
-            info.cover,
-          )
+          sendNotification(song.title, buildNotificationBody(song), info.cover)
         }
       }
     },

@@ -65,7 +65,8 @@ func (n *Router) routes() http.Handler {
 		n.addPlaylistTrackRoute(r)
 		n.addSongPlaylistsRoute(r)
 		n.addQueueRoute(r)
-		n.addMissingFilesRoute(r)
+                n.addMissingFilesRoute(r)
+                n.addNotificationsRoute(r)
 		n.addKeepAliveRoute(r)
 		n.addInsightsRoute(r)
 
