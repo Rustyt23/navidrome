@@ -47,6 +47,16 @@ const useStyles = makeStyles(
     rightIcon: {
       top: '26px',
     },
+    mobilePrimary: {
+      display: 'flex',
+      alignItems: 'baseline',
+      columnGap: 6,
+    },
+    mobileArtist: {
+      fontWeight: 'inherit',
+      fontSize: 'inherit',
+      color: 'inherit',
+    },
   },
   { name: 'RaSongSimpleList' },
 )
@@ -83,8 +93,12 @@ export const SongSimpleList = ({
               <ListItem className={classes.listItem} button={true}>
                 {isMobile ? (
                   <ListItemText
-                    primary={record.title}
-                    secondary={record.artist}
+                    primary={
+                      <span className={classes.mobilePrimary}>
+                        <span>{record.title}</span>
+                        <span className={classes.mobileArtist}>{record.artist}</span>
+                      </span>
+                    }
                   />
                 ) : (
                   <ListItemText
@@ -109,13 +123,11 @@ export const SongSimpleList = ({
                     }
                   />
                 )}
-                {!isMobile && (
-                  <ListItemSecondaryAction className={classes.rightIcon}>
-                    <ListItemIcon>
-                      <SongContextMenu record={record} visible={true} />
-                    </ListItemIcon>
-                  </ListItemSecondaryAction>
-                )}
+                <ListItemSecondaryAction className={classes.rightIcon}>
+                  <ListItemIcon>
+                    <SongContextMenu record={record} visible={true} />
+                  </ListItemIcon>
+                </ListItemSecondaryAction>
               </ListItem>
             </span>
           )
