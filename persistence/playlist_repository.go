@@ -167,9 +167,9 @@ func (r *playlistRepository) GetWithTracks(id string, refreshSmartPlaylist, incl
 	if refreshSmartPlaylist {
 		r.refreshSmartPlaylist(pls)
 	}
-	tracks, err := r.loadTracks(Select().From("playlist_tracks").
-		Where(Eq{"missing": false}).
-		OrderBy("playlist_tracks.id"), id)
+	sel := Select().From("playlist_tracks").
+		OrderBy("playlist_tracks.id")
+	tracks, err := r.loadTracks(sel, id, includeMissing)
 	if err != nil {
 		log.Error(r.ctx, "Error loading playlist tracks ", "playlist", pls.Name, "id", pls.ID, err)
 		return nil, err
@@ -462,7 +462,7 @@ func (r *playlistRepository) refreshCounters(pls *model.Playlist) error {
 	return nil
 }
 
-func (r *playlistRepository) loadTracks(sel SelectBuilder, id string) (model.PlaylistTracks, error) {
+func (r *playlistRepository) loadTracks(sel SelectBuilder, id string, includeMissing bool) (model.PlaylistTracks, error) {
 	sel = r.applyLibraryFilter(sel, "f")
 	userID := loggedUser(r.ctx).ID
 	tracksQuery := sel.
@@ -484,12 +484,136 @@ func (r *playlistRepository) loadTracks(sel SelectBuilder, id string) (model.Pla
 		Join("media_file f on f.id = media_file_id").
 		Join("library on f.library_id = library.id").
 		Where(Eq{"playlist_id": id})
+	if !includeMissing {
+		tracksQuery = tracksQuery.Where(Eq{"f.missing": false})
+	}
 	tracks := dbPlaylistTracks{}
 	err := r.queryAll(tracksQuery, &tracks)
+	if errors.Is(err, model.ErrNotFound) {
+		if includeMissing {
+			return r.mergeMissingTracks(id, nil)
+		}
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	return tracks.toModels(), err
+	models := tracks.toModels()
+	if !includeMissing {
+		return models, nil
+	}
+	return r.mergeMissingTracks(id, models)
+}
+
+type missingTrackMetadata struct {
+	Title    string
+	Artist   string
+	Filename string
+}
+
+func (r *playlistRepository) mergeMissingTracks(id string, existing model.PlaylistTracks) (model.PlaylistTracks, error) {
+	sel := Select("id", "media_file_id").
+		From("playlist_tracks").
+		Where(Eq{"playlist_id": id}).
+		OrderBy("id")
+	var rows []struct {
+		ID          string `db:"id"`
+		MediaFileID string `db:"media_file_id"`
+	}
+	if err := r.queryAll(sel, &rows); err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			return existing, nil
+		}
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return existing, nil
+	}
+	existingByID := make(map[string]model.PlaylistTrack, len(existing))
+	for _, track := range existing {
+		existingByID[track.ID] = track
+	}
+	metadata := r.readMissingTrackMetadata(id)
+	ordered := make(model.PlaylistTracks, 0, len(rows))
+	for _, row := range rows {
+		if track, ok := existingByID[row.ID]; ok {
+			ordered = append(ordered, track)
+			continue
+		}
+		ordered = append(ordered, r.placeholderTrack(row.ID, id, row.MediaFileID, metadata[row.MediaFileID]))
+	}
+	return ordered, nil
+}
+
+func (r *playlistRepository) readMissingTrackMetadata(id string) map[string]missingTrackMetadata {
+	path := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		log.Debug(r.ctx, "Error opening missing tracks database", "path", path, err)
+		return nil
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(r.ctx, "SELECT media_file_id, title, artist, filename FROM missing_tracks WHERE playlist_id = ?", id)
+	if err != nil {
+		log.Debug(r.ctx, "Error querying missing tracks metadata", "playlistId", id, err)
+		return nil
+	}
+	defer rows.Close()
+	result := make(map[string]missingTrackMetadata)
+	for rows.Next() {
+		var mediaFileID string
+		var title, artist, filename sql.NullString
+		if err := rows.Scan(&mediaFileID, &title, &artist, &filename); err != nil {
+			log.Debug(r.ctx, "Error scanning missing track metadata", err)
+			continue
+		}
+		result[mediaFileID] = missingTrackMetadata{
+			Title:    strings.TrimSpace(title.String),
+			Artist:   strings.TrimSpace(artist.String),
+			Filename: strings.TrimSpace(filename.String),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Debug(r.ctx, "Error iterating missing track metadata", err)
+	}
+	return result
+}
+
+func (r *playlistRepository) placeholderTrack(id, playlistID, mediaFileID string, meta missingTrackMetadata) model.PlaylistTrack {
+	path := strings.TrimSpace(meta.Filename)
+	fallback := path
+	if fallback == "" {
+		fallback = mediaFileID
+	}
+	if fallback == "" {
+		fallback = id
+	}
+	base := filepath.Base(fallback)
+	title := strings.TrimSpace(meta.Title)
+	if title == "" {
+		title = base
+	}
+	artist := strings.TrimSpace(meta.Artist)
+	if artist == "" {
+		artist = base
+	}
+	mf := model.MediaFile{
+		ID:          mediaFileID,
+		Title:       title,
+		Artist:      artist,
+		AlbumArtist: artist,
+		Path:        path,
+		Missing:     true,
+	}
+	return model.PlaylistTrack{
+		ID:          id,
+		PlaylistID:  playlistID,
+		MediaFileID: mediaFileID,
+		MediaFile:   mf,
+	}
 }
 
 func (r *playlistRepository) Count(options ...rest.QueryOptions) (int64, error) {

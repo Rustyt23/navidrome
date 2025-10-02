@@ -140,11 +140,14 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
 
   const handleDragEnd = useCallback(
     (from, to) => {
-      const toId = ids[to]
       const fromId = ids[from]
+      const toId = ids[to]
+      if (data?.[fromId]?.missing || (toId && data?.[toId]?.missing)) {
+        return
+      }
       reorder(playlistId, fromId, toId)
     },
-    [playlistId, reorder, ids],
+    [playlistId, reorder, ids, data],
   )
 
   const toggleableFields = useMemo(() => {

@@ -111,7 +111,7 @@ func (r *playlistTrackRepository) Read(id string) (interface{}, error) {
 }
 
 func (r *playlistTrackRepository) GetAll(options ...model.QueryOptions) (model.PlaylistTracks, error) {
-	tracks, err := r.playlistRepo.loadTracks(r.newSelect(options...), r.playlistId)
+	tracks, err := r.playlistRepo.loadTracks(r.newSelect(options...), r.playlistId, true)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (r *playlistTrackRepository) Search(q string, offset, size int, options ...
 	}
 	sel = sel.Where(Eq{"f.missing": false}).Limit(uint64(size)).Offset(uint64(offset))
 
-	tracks, err := r.playlistRepo.loadTracks(sel, r.playlistId)
+	tracks, err := r.playlistRepo.loadTracks(sel, r.playlistId, false)
 	if err != nil {
 		return nil, fmt.Errorf("searching playlist tracks by query %q: %w", q, err)
 	}

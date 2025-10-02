@@ -65,6 +65,7 @@ const useStyles = makeStyles((theme) => ({
   missingRow: {
     cursor: 'inherit',
     opacity: 0.3,
+    fontStyle: 'italic',
   },
   headerStyle: {
     '& thead': {
@@ -184,6 +185,8 @@ export const SongDatagridRow = ({
     isCurrent && classes.currentRow,
   )
   const childCount = fields.length
+  const rowRef = record?.missing ? undefined : dragSongRef
+
   return (
     <>
       {firstTracksOfDiscs.has(record.id) && (
@@ -196,7 +199,7 @@ export const SongDatagridRow = ({
         />
       )}
       <PureDatagridRow
-        ref={dragSongRef}
+        ref={rowRef}
         record={record}
         {...rest}
         rowClick={rowClick}

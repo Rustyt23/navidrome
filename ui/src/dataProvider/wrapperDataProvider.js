@@ -45,9 +45,6 @@ const mapResource = (resource, params) => {
 
       let plsId = '0'
       plsId = params.filter.playlist_id
-      if (!isAdmin()) {
-        params.filter.missing = false
-      }
       params = applyLibraryFilter(resource, params)
 
       return [`playlist/${plsId}/tracks`, params]
