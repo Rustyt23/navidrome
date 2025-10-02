@@ -8,15 +8,15 @@ import (
 )
 
 func init() {
-	goose.AddMigrationContext(Up20201012210022, Down20201012210022)
+	goose.AddMigrationContext(Up20251003110007, Down20251003110007)
 }
 
-func Up20201012210022(_ context.Context, tx *sql.Tx) error {
+func Up20251003110007(_ context.Context, tx *sql.Tx) error {
 	_, err := tx.Exec(`
 alter table artist
-	add size integer default 0 not null;
+add size integer default 0 not null;
 create index if not exists artist_size
-	on artist(size);
+on artist(size);
 
 update artist set size = ifnull((
    select sum(f.size)
@@ -26,20 +26,20 @@ update artist set size = ifnull((
 where id not null;
 
 alter table discovery
-	add size integer default 0 not null;
-create index if not exists playlist_size
-	on discovery(size);
+add size integer default 0 not null;
+create index if not exists discovery_size
+on discovery(size);
 
 update discovery set size = ifnull((
-    select sum(size)
-    from media_file f
-             left join discovery_tracks pt on f.id = pt.media_file_id
-    where pt.discovery_id = playlist.id
+select sum(size)
+from media_file f
+left join discovery_tracks pt on f.id = pt.media_file_id
+where pt.discovery_id = discovery.id
 ), 0);`)
 
 	return err
 }
 
-func Down20201012210022(_ context.Context, tx *sql.Tx) error {
+func Down20251003110007(_ context.Context, tx *sql.Tx) error {
 	return nil
 }

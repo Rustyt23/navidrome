@@ -10,20 +10,20 @@ import (
 )
 
 func init() {
-	goose.AddMigrationContext(Up20200516140647, Down20200516140647)
+	goose.AddMigrationContext(Up20251003130001, Down20251003130001)
 }
 
-func Up20200516140647(_ context.Context, tx *sql.Tx) error {
+func Up20251003130001(_ context.Context, tx *sql.Tx) error {
 	_, err := tx.Exec(`
 create table if not exists discovery_tracks
 (
-	id integer default 0 not null, 
-    discovery_id varchar(255) not null, 
-	media_file_id varchar(255) not null
+id integer default 0 not null,
+discovery_id varchar(255) not null,
+media_file_id varchar(255) not null
 );
 
-create unique index if not exists playlist_tracks_pos
-	on discovery_tracks (discovery_id, id);
+create unique index if not exists discovery_tracks_pos
+on discovery_tracks (discovery_id, id);
 `)
 	if err != nil {
 		return err
@@ -39,7 +39,7 @@ create unique index if not exists playlist_tracks_pos
 		if err != nil {
 			return err
 		}
-		err = Up20200516140647UpdatePlaylistTracks(tx, id, tracks)
+		err = up20251003130001UpdateDiscoveryTracks(tx, id, tracks)
 		if err != nil {
 			return err
 		}
@@ -52,8 +52,8 @@ create unique index if not exists playlist_tracks_pos
 	_, err = tx.Exec(`
 create table discovery_dg_tmp
 (
-	id varchar(255) not null
-		primary key,
+id varchar(255) not null
+primary key,
 	name varchar(255) default '' not null,
 	comment varchar(255) default '' not null,
 	duration real default 0 not null,
@@ -64,24 +64,24 @@ create table discovery_dg_tmp
 	updated_at datetime
 );
 
-insert into discovery_dg_tmp(id, name, comment, duration, owner, public, created_at, updated_at) 
-	select id, name, comment, duration, owner, public, created_at, updated_at from discovery;
+insert into discovery_dg_tmp(id, name, comment, duration, owner, public, created_at, updated_at)
+select id, name, comment, duration, owner, public, created_at, updated_at from discovery;
 
-drop table playlist;
+drop table discovery;
 
 alter table discovery_dg_tmp rename to discovery;
 
-create index playlist_name
-	on discovery (name);
+create index discovery_name
+on discovery (name);
 
-update discovery set song_count = (select count(*) from discovery_tracks where discovery_id = playlist.id)
+update discovery set song_count = (select count(*) from discovery_tracks where discovery_id = discovery.id)
 where id <> ''
 
 `)
 	return err
 }
 
-func Up20200516140647UpdatePlaylistTracks(tx *sql.Tx, id string, tracks string) error {
+func up20251003130001UpdateDiscoveryTracks(tx *sql.Tx, id string, tracks string) error {
 	trackList := strings.Split(tracks, ",")
 	stmt, err := tx.Prepare("insert into discovery_tracks (discovery_id, media_file_id, id) values (?, ?, ?)")
 	if err != nil {
@@ -90,12 +90,12 @@ func Up20200516140647UpdatePlaylistTracks(tx *sql.Tx, id string, tracks string) 
 	for i, trackId := range trackList {
 		_, err := stmt.Exec(id, trackId, i+1)
 		if err != nil {
-			log.Error("Error adding track to playlist", "playlistId", id, "trackId", trackId, err)
+			log.Error("Error adding track to discovery", "discoveryId", id, "trackId", trackId, err)
 		}
 	}
 	return nil
 }
 
-func Down20200516140647(_ context.Context, tx *sql.Tx) error {
+func Down20251003130001(_ context.Context, tx *sql.Tx) error {
 	return nil
 }

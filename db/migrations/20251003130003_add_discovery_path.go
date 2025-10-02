@@ -8,21 +8,21 @@ import (
 )
 
 func init() {
-	goose.AddMigrationContext(upAddPlaylistPath, downAddPlaylistPath)
+	goose.AddMigrationContext(upAddDiscoveryPath, downAddDiscoveryPath)
 }
 
-func upAddPlaylistPath(_ context.Context, tx *sql.Tx) error {
+func upAddDiscoveryPath(_ context.Context, tx *sql.Tx) error {
 	_, err := tx.Exec(`
 alter table discovery
-	add path string default '' not null;
+add path string default '' not null;
 
 alter table discovery
-	add sync bool default false not null;
+add sync bool default false not null;
 `)
 
 	return err
 }
 
-func downAddPlaylistPath(_ context.Context, tx *sql.Tx) error {
+func downAddDiscoveryPath(_ context.Context, tx *sql.Tx) error {
 	return nil
 }

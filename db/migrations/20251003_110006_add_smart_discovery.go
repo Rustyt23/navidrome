@@ -8,31 +8,31 @@ import (
 )
 
 func init() {
-	goose.AddMigrationContext(upAddSmartPlaylist, downAddSmartPlaylist)
+	goose.AddMigrationContext(upAddSmartDiscovery, downAddSmartDiscovery)
 }
 
-func upAddSmartPlaylist(_ context.Context, tx *sql.Tx) error {
+func upAddSmartDiscovery(_ context.Context, tx *sql.Tx) error {
 	_, err := tx.Exec(`
-alter table playlist
-	add column rules varchar null;
-alter table playlist
-	add column evaluated_at datetime null;
-create index if not exists playlist_evaluated_at
-	on playlist(evaluated_at);
+alter table discovery
+add column rules varchar null;
+alter table discovery
+add column evaluated_at datetime null;
+create index if not exists discovery_evaluated_at
+on discovery(evaluated_at);
 
-create table playlist_fields (
-    field varchar(255) not null, 
-	playlist_id varchar(255) not null
-		constraint playlist_fields_playlist_id_fk
-			references playlist
-				on update cascade on delete cascade
+create table discovery_fields (
+field varchar(255) not null,
+discovery_id varchar(255) not null
+constraint discovery_fields_discovery_id_fk
+references discovery
+on update cascade on delete cascade
 );
-create unique index playlist_fields_idx
-	on playlist_fields (field, playlist_id);
+create unique index discovery_fields_idx
+on discovery_fields (field, discovery_id);
 `)
 	return err
 }
 
-func downAddSmartPlaylist(_ context.Context, tx *sql.Tx) error {
+func downAddSmartDiscovery(_ context.Context, tx *sql.Tx) error {
 	return nil
 }

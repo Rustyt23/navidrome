@@ -8,14 +8,14 @@ import (
 )
 
 func init() {
-	goose.AddMigrationContext(upTouchPlaylists, downTouchPlaylists)
+	goose.AddMigrationContext(upTouchDiscoveries, downTouchDiscoveries)
 }
 
-func upTouchPlaylists(_ context.Context, tx *sql.Tx) error {
-	_, err := tx.Exec(`update playlist set updated_at = datetime('now');`)
+func upTouchDiscoveries(_ context.Context, tx *sql.Tx) error {
+	_, err := tx.Exec(`update discovery set updated_at = datetime('now');`)
 	return err
 }
 
-func downTouchPlaylists(_ context.Context, tx *sql.Tx) error {
+func downTouchDiscoveries(_ context.Context, tx *sql.Tx) error {
 	return nil
 }
