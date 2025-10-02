@@ -38,6 +38,7 @@ export const SongTitleField = ({ showTrackNumbers, ...props }) => {
   const currentTrack = useSelector((state) => state?.player?.current || {})
   const currentId = currentTrack.trackId
   const paused = currentTrack.paused
+  const isMissing = record?.missing
   const isCurrent =
     currentId && (currentId === record.id || currentId === record.mediaFileId)
 
@@ -77,7 +78,7 @@ export const SongTitleField = ({ showTrackNumbers, ...props }) => {
 
   return (
     <>
-      {isCurrent && <Icon />}
+      {isCurrent && !isMissing && <Icon />}
       <FunctionField
         {...props}
         source="title"

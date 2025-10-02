@@ -3,6 +3,7 @@ package persistence
 import (
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	. "github.com/Masterminds/squirrel"
@@ -25,11 +26,47 @@ type dbPlaylistTrack struct {
 }
 
 func (t *dbPlaylistTrack) PostScan() error {
-	if err := t.dbMediaFile.PostScan(); err != nil {
-		return err
+	if t.dbMediaFile.MediaFile != nil && t.dbMediaFile.MediaFile.ID != "" {
+		if err := t.dbMediaFile.PostScan(); err != nil {
+			return err
+		}
+		t.PlaylistTrack.MediaFile = *t.dbMediaFile.MediaFile
+		t.PlaylistTrack.MediaFile.ID = t.MediaFileID
+		t.PlaylistTrack.Missing = t.PlaylistTrack.MediaFile.Missing
+		return nil
 	}
-	t.PlaylistTrack.MediaFile = *t.dbMediaFile.MediaFile
-	t.PlaylistTrack.MediaFile.ID = t.MediaFileID
+
+	t.PlaylistTrack.Missing = true
+	originalPath := t.PlaylistTrack.OriginalPath
+	title := ""
+	if originalPath != "" {
+		title = filepath.Base(originalPath)
+	}
+	if title == "" || title == "." {
+		fallback := t.MediaFileID
+		if fallback != "" {
+			title = filepath.Base(fallback)
+			if title == "" || title == "." {
+				title = fallback
+			}
+		}
+	}
+	if ext := filepath.Ext(title); ext != "" {
+		title = strings.TrimSuffix(title, ext)
+	}
+	if title == "" || title == "." {
+		title = "(missing track)"
+	}
+	pathValue := originalPath
+	if pathValue == "" {
+		pathValue = t.MediaFileID
+	}
+	t.PlaylistTrack.MediaFile = model.MediaFile{
+		ID:      t.MediaFileID,
+		Title:   title,
+		Path:    pathValue,
+		Missing: true,
+	}
 	return nil
 }
 

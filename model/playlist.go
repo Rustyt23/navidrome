@@ -131,9 +131,11 @@ type PlaylistRepository interface {
 }
 
 type PlaylistTrack struct {
-	ID          string `json:"id"`
-	MediaFileID string `json:"mediaFileId"`
-	PlaylistID  string `json:"playlistId"`
+	ID           string `json:"id"`
+	MediaFileID  string `json:"mediaFileId"`
+	PlaylistID   string `json:"playlistId"`
+	OriginalPath string `json:"originalPath,omitempty" structs:"original_path"`
+	Missing      bool   `json:"missing,omitempty" structs:"missing"`
 	MediaFile
 }
 

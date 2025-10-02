@@ -23,6 +23,12 @@ import { DraggableTypes } from '../consts'
 import { formatFullDate } from '../utils'
 
 const useStyles = makeStyles((theme) => ({
+  '@global': {
+    '.nd-missing': {
+      opacity: 0.5,
+      fontStyle: 'italic',
+    },
+  },
   subtitle: {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
@@ -64,7 +70,6 @@ const useStyles = makeStyles((theme) => ({
   },
   missingRow: {
     cursor: 'inherit',
-    opacity: 0.3,
   },
   headerStyle: {
     '& thead': {
@@ -175,12 +180,15 @@ export const SongDatagridRow = ({
   const rowClick = record.missing ? undefined : rest.rowClick
 
   const isCurrent =
-    currentId && (currentId === record.id || currentId === record.mediaFileId)
+    !record?.missing &&
+    currentId &&
+    (currentId === record.id || currentId === record.mediaFileId)
 
   const computedClasses = clsx(
     className,
     classes.row,
     record.missing && classes.missingRow,
+    record.missing && 'nd-missing',
     isCurrent && classes.currentRow,
   )
   const childCount = fields.length

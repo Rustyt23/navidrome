@@ -167,9 +167,11 @@ func (r *playlistRepository) GetWithTracks(id string, refreshSmartPlaylist, incl
 	if refreshSmartPlaylist {
 		r.refreshSmartPlaylist(pls)
 	}
-	tracks, err := r.loadTracks(Select().From("playlist_tracks").
-		Where(Eq{"missing": false}).
-		OrderBy("playlist_tracks.id"), id)
+	sel := Select().From("playlist_tracks").OrderBy("playlist_tracks.id")
+	if !includeMissing {
+		sel = sel.Where(Eq{"missing": false})
+	}
+	tracks, err := r.loadTracks(sel, id)
 	if err != nil {
 		log.Error(r.ctx, "Error loading playlist tracks ", "playlist", pls.Name, "id", pls.ID, err)
 		return nil, err
@@ -463,7 +465,6 @@ func (r *playlistRepository) refreshCounters(pls *model.Playlist) error {
 }
 
 func (r *playlistRepository) loadTracks(sel SelectBuilder, id string) (model.PlaylistTracks, error) {
-	sel = r.applyLibraryFilter(sel, "f")
 	userID := loggedUser(r.ctx).ID
 	tracksQuery := sel.
 		Columns(
@@ -481,9 +482,16 @@ func (r *playlistRepository) loadTracks(sel SelectBuilder, id string) (model.Pla
 			"annotation.item_id = media_file_id" +
 			" AND annotation.item_type = 'media_file'" +
 			" AND annotation.user_id = '" + userID + "')").
-		Join("media_file f on f.id = media_file_id").
-		Join("library on f.library_id = library.id").
+		LeftJoin("media_file f on f.id = media_file_id").
+		LeftJoin("library on f.library_id = library.id").
 		Where(Eq{"playlist_id": id})
+	user := loggedUser(r.ctx)
+	if !user.IsAdmin && user.ID != invalidUserId {
+		tracksQuery = tracksQuery.Where(Or{
+			Expr("f.id IS NULL"),
+			Expr("f.library_id IN (SELECT ul.library_id FROM user_library ul WHERE ul.user_id = ?)", user.ID),
+		})
+	}
 	tracks := dbPlaylistTracks{}
 	err := r.queryAll(tracksQuery, &tracks)
 	if err != nil {
