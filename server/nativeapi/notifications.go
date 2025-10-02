@@ -50,7 +50,7 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 			log.Debug(ctx, "Unable to enable WAL for missing tracks database", "path", dbFile, "err", err)
 		}
 
-		rows, err := db.QueryContext(ctx, `SELECT track_path FROM missing_playlist_tracks ORDER BY created_at DESC LIMIT 200`)
+		rows, err := db.QueryContext(ctx, `SELECT track_path FROM missing_playlist_tracks GROUP BY track_path ORDER BY MAX(created_at) DESC LIMIT 200`)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such table") {
 				writeMissingTrackResponse(w, entries, ctx)
