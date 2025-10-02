@@ -37,7 +37,7 @@ type discoveries struct {
 }
 
 func NewDiscoveries(ds model.DataStore) Discoveries {
-	return &playlists{ds: ds}
+	return &playlistsdiscoveries{ds: ds}
 }
 
 func InPlaylistsPath(folder model.Folder) bool {

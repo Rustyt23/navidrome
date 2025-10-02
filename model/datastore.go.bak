@@ -30,6 +30,7 @@
 		Tag(ctx context.Context) TagRepository
 		Playlist(ctx context.Context) PlaylistRepository
     Discovery(ctx context.Context) DiscoveryRepository
+    Discovery(ctx context.Context) DiscoveryRepository
 		PlaylistFolder(ctx context.Context) PlaylistFolderRepository
     DiscoveryFolder(ctx context.Context) DiscoveryFolderRepository
     DiscoveryFolder(ctx context.Context) DiscoveryFolderRepository

@@ -1,4 +1,4 @@
-package nativeapi (
+package nativeapi
 	"context"
 	"encoding/json"
 	"html"

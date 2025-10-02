@@ -62,7 +62,7 @@ func getPlaylistTrack(ds model.DataStore) http.HandlerFunc {
 	return wrapper(rest.Get)
 }
 
-func createPlaylist(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
+func createDiscovery(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
 	constructor := func(ctx context.Context) rest.Repository {
 		return ds.Resource(ctx, model.Discovery{})
 	}
@@ -97,7 +97,7 @@ func createPlaylist(ds model.DataStore, playlists core.Discoveries) http.Handler
 	}
 }
 
-func createPlaylistFromM3U(playlists core.Discoveries) http.HandlerFunc {
+func createDiscoveryFromM3U(playlists core.Discoveries) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		pls, err := playlists.ImportM3U(ctx, r.Body)
@@ -147,7 +147,7 @@ func handleExportPlaylist(ds model.DataStore) http.HandlerFunc {
 	}
 }
 
-func publishPlaylist(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
+func publishDiscovery(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		ctx := r.Context()
@@ -163,7 +163,7 @@ func publishPlaylist(ds model.DataStore, playlists core.Discoveries) http.Handle
 	}
 }
 
-func deleteFromPlaylist(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
+func deleteFromDiscovery(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := req.Params(r)
 		discoveryId, _ := p.String(":discoveryId")
@@ -190,7 +190,7 @@ func deleteFromPlaylist(ds model.DataStore, playlists core.Discoveries) http.Han
 	}
 }
 
-func addToPlaylist(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
+func addToDiscovery(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
 	type addTracksPayload struct {
 		Ids       []string       `json:"ids"`
 		AlbumIds  []string       `json:"albumIds"`
@@ -243,7 +243,7 @@ func addToPlaylist(ds model.DataStore, playlists core.Discoveries) http.HandlerF
 	}
 }
 
-func reorderItem(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
+func reorderDiscoveryItem(ds model.DataStore, playlists core.Discoveries) http.HandlerFunc {
 	type reorderPayload struct {
 		InsertBefore string `json:"insert_before"`
 	}
@@ -308,7 +308,7 @@ func getSongPlaylists(ds model.DataStore) http.HandlerFunc {
 	}
 }
 
-func syncPlaylist(playlists core.Discoveries, ds model.DataStore, ctx context.Context, discoveryId string) error {
+func syncDiscovery(playlists core.Discoveries, ds model.DataStore, ctx context.Context, discoveryId string) error {
 	pls, err := ds.Discovery(ctx).Get(discoveryId)
 	if err != nil {
 		return err
