@@ -65,6 +65,13 @@ const useStyles = makeStyles((theme) => ({
   missingRow: {
     cursor: 'inherit',
     opacity: 0.3,
+    '& td, & th, & .MuiTableCell-root, & a, & svg': {
+      color: theme.palette.text.disabled,
+    },
+    '& .draggable': {
+      cursor: 'default',
+      pointerEvents: 'none',
+    },
   },
   headerStyle: {
     '& thead': {
@@ -196,7 +203,7 @@ export const SongDatagridRow = ({
         />
       )}
       <PureDatagridRow
-        ref={dragSongRef}
+        ref={record?.missing ? undefined : dragSongRef}
         record={record}
         {...rest}
         rowClick={rowClick}

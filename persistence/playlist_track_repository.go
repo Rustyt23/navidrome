@@ -1,8 +1,13 @@
 package persistence
 
 import (
+	"bufio"
+	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	. "github.com/Masterminds/squirrel"
@@ -10,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/slice"
+	"golang.org/x/text/unicode/norm"
 )
 
 type playlistTrackRepository struct {
@@ -17,6 +23,7 @@ type playlistTrackRepository struct {
 	playlistId   string
 	playlist     *model.Playlist
 	playlistRepo *playlistRepository
+	lastRestOpts rest.QueryOptions
 }
 
 type dbPlaylistTrack struct {
@@ -81,10 +88,16 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 }
 
 func (r *playlistTrackRepository) Count(options ...rest.QueryOptions) (int64, error) {
-	query := Select().
-		LeftJoin("media_file f on f.id = media_file_id").
-		Where(Eq{"playlist_id": r.playlistId})
-	return r.count(query, r.parseRestOptions(r.ctx, options...))
+	var restOpts rest.QueryOptions
+	if len(options) > 0 {
+		restOpts = options[0]
+	}
+	modelOpts := r.parseRestOptions(r.ctx, options...)
+	tracks, err := r.listWithMissing(modelOpts, restOpts)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(tracks)), nil
 }
 
 func (r *playlistTrackRepository) Read(id string) (interface{}, error) {
@@ -111,11 +124,27 @@ func (r *playlistTrackRepository) Read(id string) (interface{}, error) {
 }
 
 func (r *playlistTrackRepository) GetAll(options ...model.QueryOptions) (model.PlaylistTracks, error) {
-	tracks, err := r.playlistRepo.loadTracks(r.newSelect(options...), r.playlistId)
+	var opt model.QueryOptions
+	if len(options) > 0 {
+		opt = options[0]
+	}
+
+	tracks, err := r.listWithMissing(opt, r.lastRestOpts)
 	if err != nil {
 		return nil, err
 	}
-	return tracks, err
+
+	if opt.Offset > 0 {
+		if opt.Offset >= len(tracks) {
+			return model.PlaylistTracks{}, nil
+		}
+		tracks = tracks[opt.Offset:]
+	}
+	if opt.Max > 0 && opt.Max < len(tracks) {
+		tracks = tracks[:opt.Max]
+	}
+
+	return tracks, nil
 }
 
 func (r *playlistTrackRepository) GetAlbumIDs(options ...model.QueryOptions) ([]string, error) {
@@ -156,7 +185,41 @@ func (r *playlistTrackRepository) Search(q string, offset, size int, options ...
 }
 
 func (r *playlistTrackRepository) ReadAll(options ...rest.QueryOptions) (interface{}, error) {
+	if len(options) > 0 {
+		r.lastRestOpts = options[0]
+	} else {
+		r.lastRestOpts = rest.QueryOptions{}
+	}
 	return r.GetAll(r.parseRestOptions(r.ctx, options...))
+}
+
+func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOpts rest.QueryOptions) (model.PlaylistTracks, error) {
+	noLimit := opt
+	noLimit.Max = 0
+	noLimit.Offset = 0
+
+	tracks, err := r.playlistRepo.loadTracks(r.newSelect(noLimit), r.playlistId)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.playlist == nil || !r.playlist.Sync || r.playlist.Path == "" {
+		return tracks, nil
+	}
+
+	searchTerm := ""
+	if restOpts.Filters != nil {
+		if v, ok := restOpts.Filters["q"].(string); ok {
+			searchTerm = strings.TrimSpace(strings.ToLower(v))
+		}
+	}
+
+	merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm)
+	if err != nil {
+		log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
+		return tracks, nil
+	}
+	return merged, nil
 }
 
 func (r *playlistTrackRepository) EntityName() string {
@@ -244,6 +307,143 @@ func (r *playlistTrackRepository) AddDiscs(discs []model.DiscID) (int, error) {
 		clauses = append(clauses, And{Eq{"album_id": d.AlbumID}, Eq{"release_date": d.ReleaseDate}, Eq{"disc_number": d.DiscNumber}})
 	}
 	return r.addMediaFileIds(clauses)
+}
+
+func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTracks, pls *model.Playlist, searchTerm string) (model.PlaylistTracks, error) {
+	entries, err := readPlaylistEntries(pls.Path)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return tracks, nil
+	}
+
+	normalized := make(map[string][]int, len(tracks))
+	for idx, t := range tracks {
+		rel := filepath.ToSlash(t.Path)
+		key := normalizePlaylistPath(rel)
+		normalized[key] = append(normalized[key], idx)
+		if t.LibraryPath != "" && t.Path != "" {
+			abs := filepath.ToSlash(filepath.Join(t.LibraryPath, t.Path))
+			absKey := normalizePlaylistPath(abs)
+			normalized[absKey] = append(normalized[absKey], idx)
+		}
+	}
+
+	used := make([]bool, len(tracks))
+	result := make(model.PlaylistTracks, 0, len(entries))
+	missingCount := 0
+
+	for _, entry := range entries {
+		display := filepath.ToSlash(entry)
+		normalizedEntry := normalizePlaylistPath(display)
+		matchIdx, ok := popTrackIndex(normalizedEntry, normalized)
+		if !ok {
+			for key := range normalized {
+				if strings.HasSuffix(normalizedEntry, key) {
+					if idx, matched := popTrackIndex(key, normalized); matched {
+						matchIdx = idx
+						ok = true
+						break
+					}
+				}
+			}
+		}
+
+		if ok && matchIdx >= 0 && matchIdx < len(tracks) && !used[matchIdx] {
+			result = append(result, tracks[matchIdx])
+			used[matchIdx] = true
+			continue
+		}
+
+		if searchTerm != "" {
+			lowerDisplay := strings.ToLower(display)
+			base := strings.ToLower(filepath.Base(display))
+			if !strings.Contains(lowerDisplay, searchTerm) && !strings.Contains(base, searchTerm) {
+				continue
+			}
+		}
+
+		missingCount++
+		id := fmt.Sprintf("missing-%d", missingCount)
+		title := strings.TrimSuffix(filepath.Base(display), filepath.Ext(display))
+		if title == "" {
+			title = display
+		}
+		suffix := strings.TrimPrefix(strings.ToLower(filepath.Ext(display)), ".")
+
+		placeholder := model.PlaylistTrack{
+			ID:          id,
+			MediaFileID: id,
+			PlaylistID:  pls.ID,
+			MediaFile: model.MediaFile{
+				ID:      id,
+				Title:   title,
+				Path:    display,
+				Missing: true,
+				Suffix:  suffix,
+			},
+		}
+		result = append(result, placeholder)
+	}
+
+	for idx, t := range tracks {
+		if used[idx] {
+			continue
+		}
+		result = append(result, t)
+	}
+
+	return result, nil
+}
+
+func readPlaylistEntries(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	entries := make([]string, 0)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "file://") {
+			line = strings.TrimPrefix(line, "file://")
+			if decoded, err := url.QueryUnescape(line); err == nil {
+				line = decoded
+			}
+		}
+		if !model.IsAudioFile(line) {
+			continue
+		}
+		entries = append(entries, filepath.ToSlash(line))
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func normalizePlaylistPath(path string) string {
+	return strings.ToLower(norm.NFC.String(path))
+}
+
+func popTrackIndex(key string, indexes map[string][]int) (int, bool) {
+	list, ok := indexes[key]
+	if !ok || len(list) == 0 {
+		return 0, false
+	}
+	idx := list[0]
+	if len(list) == 1 {
+		delete(indexes, key)
+	} else {
+		indexes[key] = list[1:]
+	}
+	return idx, true
 }
 
 // Get ids from all current tracks

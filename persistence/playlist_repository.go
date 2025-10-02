@@ -167,12 +167,21 @@ func (r *playlistRepository) GetWithTracks(id string, refreshSmartPlaylist, incl
 	if refreshSmartPlaylist {
 		r.refreshSmartPlaylist(pls)
 	}
-	tracks, err := r.loadTracks(Select().From("playlist_tracks").
-		Where(Eq{"missing": false}).
-		OrderBy("playlist_tracks.id"), id)
+	query := Select().From("playlist_tracks").OrderBy("playlist_tracks.id")
+	if !includeMissing {
+		query = query.Where(Eq{"missing": false})
+	}
+	tracks, err := r.loadTracks(query, id)
 	if err != nil {
 		log.Error(r.ctx, "Error loading playlist tracks ", "playlist", pls.Name, "id", pls.ID, err)
 		return nil, err
+	}
+	if includeMissing && pls.Sync && pls.Path != "" {
+		if merged, mergeErr := mergePlaylistTracksWithMissing(r.ctx, tracks, pls, ""); mergeErr == nil {
+			tracks = merged
+		} else {
+			log.Warn(r.ctx, "Error resolving missing tracks for playlist", "playlistId", pls.ID, mergeErr)
+		}
 	}
 	pls.SetTracks(tracks)
 	return pls, nil
