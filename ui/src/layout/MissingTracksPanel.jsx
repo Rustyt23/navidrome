@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react'
 import {
+  Badge,
   Card,
   CardContent,
   IconButton,
@@ -39,7 +40,8 @@ const useStyles = makeStyles((theme) => ({
   },
   header: {
     padding: theme.spacing(0, 1.5, 1),
-    fontWeight: theme.typography.fontWeightMedium,
+    fontWeight: theme.typography.fontWeightBold,
+    color: theme.palette.info.main,
   },
   empty: {
     padding: theme.spacing(1, 2),
@@ -49,6 +51,17 @@ const useStyles = makeStyles((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
     padding: theme.spacing(2),
+  },
+  notificationBadge: {
+    '& .MuiBadge-badge': {
+      minWidth: theme.spacing(2),
+      height: theme.spacing(2),
+      borderRadius: '50%',
+      fontSize: '0.65rem',
+      padding: 0,
+      top: theme.spacing(0.5),
+      right: theme.spacing(0.5),
+    },
   },
 }))
 
@@ -108,14 +121,21 @@ const MissingTracksPanel = () => {
   return (
     <div>
       <Tooltip title={translate('notifications.missingTracks')}>
-        <IconButton
-          className={classes.button}
-          onClick={handleOpen}
-          aria-label={translate('notifications.missingTracks')}
-          aria-haspopup="true"
+        <Badge
+          badgeContent={entries.length}
+          color="secondary"
+          invisible={entries.length === 0}
+          className={classes.notificationBadge}
         >
-          <MdOutlineNotifications size={20} />
-        </IconButton>
+          <IconButton
+            className={classes.button}
+            onClick={handleOpen}
+            aria-label={translate('notifications.missingTracks')}
+            aria-haspopup="true"
+          >
+            <MdOutlineNotifications size={20} />
+          </IconButton>
+        </Badge>
       </Tooltip>
       <Popover
         id="panel-missing-tracks"

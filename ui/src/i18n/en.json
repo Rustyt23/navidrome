@@ -634,7 +634,7 @@
   },
   "notifications": {
     "missingTracks": "Missing Tracks",
-    "missingTracksListTitle": "Missing songs list",
+    "missingTracksListTitle": "Missing Tracks",
     "missingTracksEmpty": "No missing tracks recorded",
     "missingTracksSummary": "%{smart_count} song is missing from Playlist %{playlist} |||| %{smart_count} songs are missing from Playlist %{playlist}",
     "missingTracksImportedOn": " — imported on %{date}",
