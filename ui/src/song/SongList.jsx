@@ -81,6 +81,7 @@ const SongFilter = (props) => {
         perPage={0}
         sort={{ field: 'name', order: 'ASC' }}
         filterToQuery={(searchText) => ({ name: [searchText] })}
+        helperText={false}
       >
         <AutocompleteArrayInput emptyText="-- None --" classes={classes} />
       </ReferenceArrayInput>

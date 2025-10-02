@@ -13,6 +13,7 @@ vi.mock('react-admin', () => ({
   AppBar: ({ userMenu }) => <div data-testid="appbar">{userMenu}</div>,
   useTranslate: () => (x) => x,
   usePermissions: () => ({ permissions: 'admin' }),
+  useNotify: () => vi.fn(),
   getResources: () => [],
 }))
 

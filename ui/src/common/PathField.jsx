@@ -4,17 +4,24 @@ import { usePermissions, useRecordContext } from 'react-admin'
 import config from '../config'
 
 export const PathField = (props) => {
-  const record = useRecordContext(props)
+  const record = useRecordContext(props) || {}
   const { permissions } = usePermissions()
-  let path = permissions === 'admin' ? record.libraryPath : ''
 
-  if (path && path.endsWith(config.separator)) {
-    path = `${path}${record.path}`
-  } else {
-    path = path ? `${path}${config.separator}${record.path}` : record.path
+  if (!record.path || record.missing) {
+    return <span></span>
   }
 
-  return <span>{path}</span>
+  const libraryPath = permissions === 'admin' ? record.libraryPath || '' : ''
+
+  if (!libraryPath) {
+    return <span>{record.path}</span>
+  }
+
+  const separator = libraryPath.endsWith(config.separator)
+    ? ''
+    : config.separator
+
+  return <span>{`${libraryPath}${separator}${record.path}`}</span>
 }
 
 PathField.propTypes = {
