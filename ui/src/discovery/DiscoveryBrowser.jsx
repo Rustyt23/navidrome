@@ -10,19 +10,24 @@ import {
   Breadcrumbs,
   Button as MuiButton,
   Link as MuiLink,
-  List as MuiList,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
   Typography,
   makeStyles,
 } from '@material-ui/core'
 import AddIcon from '@material-ui/icons/Add'
 import CloudUploadIcon from '@material-ui/icons/CloudUpload'
-import FolderIcon from '@material-ui/icons/Folder'
-import MusicNoteIcon from '@material-ui/icons/MusicNote'
-import { Title, useNotify, useTranslate } from 'react-admin'
+import {
+  FunctionField,
+  TextField,
+  Title,
+  TopToolbar,
+  sanitizeListRestProps,
+  useNotify,
+  useTranslate,
+} from 'react-admin'
 import httpClient from '../dataProvider/httpClient'
+import { List } from '../common'
+import DiscoveryDataGrid from './DiscoveryDataGrid'
+import DiscoveryTypeIconField from './DiscoveryTypeIconField'
 import { emitDiscoveryChanged, addDiscoveryChangedListener } from './events'
 
 const AUDIO_ACCEPT = '.mp3,.m4a,.flac,.wav,.ogg'
@@ -38,6 +43,9 @@ const useStyles = makeStyles((theme) => ({
       color: theme.palette.text.secondary,
     },
   },
+  uploadInput: {
+    display: 'none',
+  },
   actions: {
     display: 'flex',
     alignItems: 'center',
@@ -46,16 +54,53 @@ const useStyles = makeStyles((theme) => ({
       marginLeft: theme.spacing(1),
     },
   },
-  section: {
-    marginTop: theme.spacing(2),
-  },
-  empty: {
-    color: theme.palette.text.secondary,
-  },
-  uploadInput: {
-    display: 'none',
-  },
 }))
+
+const DiscoveryListActions = ({
+  className,
+  onCreate,
+  onUploadClick,
+  onFileChange,
+  fileInputRef,
+  uploadInputClassName,
+  ...rest
+}) => {
+  const translate = useTranslate()
+
+  return (
+    <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
+      <MuiButton
+        color="primary"
+        variant="contained"
+        onClick={onCreate}
+        startIcon={<AddIcon />}
+        size="small"
+      >
+        {`+ ${translate('ra.action.create', { _: 'Create' }).toUpperCase()}`}
+      </MuiButton>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={AUDIO_ACCEPT}
+        multiple
+        className={uploadInputClassName}
+        style={{ display: 'none' }}
+        onChange={onFileChange}
+      />
+      <MuiButton
+        color="default"
+        variant="contained"
+        onClick={onUploadClick}
+        startIcon={<CloudUploadIcon />}
+        size="small"
+      >
+        {translate('resources.discovery.actions.upload', {
+          _: 'Upload',
+        }).toUpperCase()}
+      </MuiButton>
+    </TopToolbar>
+  )
+}
 
 const DiscoveryBrowser = () => {
   const classes = useStyles()
@@ -66,9 +111,6 @@ const DiscoveryBrowser = () => {
   const fileInputRef = useRef(null)
 
   const [currentPath, setCurrentPath] = useState('')
-  const [folders, setFolders] = useState([])
-  const [files, setFiles] = useState([])
-  const [loading, setLoading] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
 
   const locationPath = useMemo(() => {
@@ -90,40 +132,6 @@ const DiscoveryBrowser = () => {
     () => (currentPath ? currentPath.split('/') : []),
     [currentPath],
   )
-
-  const fetchItems = useCallback(async () => {
-    setLoading(true)
-    try {
-      const query = currentPath
-        ? `?path=${encodeURIComponent(currentPath)}`
-        : ''
-      const { json } = await httpClient(`/api/discoveryfs/list${query}`)
-      const nextFolders = Array.isArray(json?.folders) ? json.folders : []
-      const nextFiles = Array.isArray(json?.files) ? json.files : []
-      setFolders(nextFolders)
-      setFiles(nextFiles)
-    } catch (error) {
-      setFolders([])
-      setFiles([])
-      const message =
-        error?.body?.error ||
-        error?.message ||
-        translate('resources.discovery.notifications.load_error', {
-          _: 'Unable to load discovery items',
-        })
-      notify(message, 'warning')
-      if (error?.status === 404) {
-        history.replace('/discovery')
-        setCurrentPath('')
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [currentPath, history, notify, translate])
-
-  useEffect(() => {
-    fetchItems()
-  }, [fetchItems, refreshToken])
 
   useEffect(() => {
     return addDiscoveryChangedListener(() =>
@@ -153,13 +161,6 @@ const DiscoveryBrowser = () => {
       navigateTo(next)
     },
     [navigateTo, pathSegments],
-  )
-
-  const handleFolderClick = useCallback(
-    (folderPath) => {
-      navigateTo(folderPath)
-    },
-    [navigateTo],
   )
 
   const handleCreate = useCallback(() => {
@@ -238,12 +239,26 @@ const DiscoveryBrowser = () => {
     [currentPath, notify, translate],
   )
 
+  const listFilter = useMemo(
+    () => ({ path: currentPath }),
+    [currentPath],
+  )
+
+  const listKey = useMemo(
+    () => `${currentPath || 'root'}-${refreshToken}`,
+    [currentPath, refreshToken],
+  )
+
+  const rowClick = useCallback((id, record) => {
+    if (!record || record.type !== 'folder') return null
+    const targetPath = record.path || ''
+    const query = targetPath ? `?path=${encodeURIComponent(targetPath)}` : ''
+    return `/discovery${query}`
+  }, [])
+
   return (
     <div className={classes.container}>
       <Title title={`Navidrome - ${currentTitle}`} />
-      <Typography variant="h5" gutterBottom>
-        {currentTitle}
-      </Typography>
       <Breadcrumbs aria-label="breadcrumb" className={classes.breadcrumbs}>
         <MuiLink color="inherit" onClick={() => handleBreadcrumbClick(-1)}>
           {currentTitle}
@@ -268,92 +283,40 @@ const DiscoveryBrowser = () => {
           )
         })}
       </Breadcrumbs>
-      <div className={classes.actions}>
-        <MuiButton
-          color="primary"
-          variant="contained"
-          onClick={handleCreate}
-          startIcon={<AddIcon />}
-          size="small"
-        >
-          {`+ ${translate('ra.action.create', { _: 'Create' }).toUpperCase()}`}
-        </MuiButton>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={AUDIO_ACCEPT}
-          multiple
-          className={classes.uploadInput}
-          onChange={handleFileChange}
-        />
-        <MuiButton
-          color="default"
-          variant="contained"
-          onClick={handleUploadClick}
-          startIcon={<CloudUploadIcon />}
-          size="small"
-        >
-          {translate('resources.discovery.actions.upload', {
-            _: 'Upload',
-          }).toUpperCase()}
-        </MuiButton>
-      </div>
-      <div className={classes.section}>
-        <Typography variant="subtitle1">
-          {translate('resources.folder.name', { smart_count: 2, _: 'Folders' })}
-        </Typography>
-        {loading ? (
-          <Typography variant="body2" color="textSecondary">
-            {translate('ra.page.loading', { _: 'Loading' })}
-          </Typography>
-        ) : folders.length === 0 ? (
-          <Typography variant="body2" className={classes.empty}>
-            {translate('resources.discovery.empty', { _: 'This folder is empty.' })}
-          </Typography>
-        ) : (
-          <MuiList dense>
-            {folders.map((folder) => (
-              <ListItem
-                button
-                onClick={() => handleFolderClick(folder.path)}
-                key={folder.path}
-              >
-                <ListItemIcon>
-                  <FolderIcon />
-                </ListItemIcon>
-                <ListItemText primary={folder.name} />
-              </ListItem>
-            ))}
-          </MuiList>
-        )}
-      </div>
-      <div className={classes.section}>
-        <Typography variant="subtitle1">
-          {translate('resources.discovery.files', { _: 'Files' })}
-        </Typography>
-        {loading ? (
-          <Typography variant="body2" color="textSecondary">
-            {translate('ra.page.loading', { _: 'Loading' })}
-          </Typography>
-        ) : files.length === 0 ? (
-          <Typography variant="body2" className={classes.empty}>
-            {translate('resources.discovery.files_empty', {
-              _: 'No files in this folder.',
-            })}
-          </Typography>
-        ) : (
-          <MuiList dense>
-            {files.map((file) => (
-              <ListItem key={file.path}>
-                <ListItemIcon>
-                  <MusicNoteIcon />
-                </ListItemIcon>
-                <ListItemText primary={file.name} />
-              </ListItem>
-            ))}
-          </MuiList>
-        )}
-      </div>
+      <List
+        key={listKey}
+        basePath="/discovery"
+        resource="discoveryFolder"
+        filter={listFilter}
+        sort={{ field: 'order', order: 'ASC' }}
+        exporter={false}
+        bulkActionButtons={false}
+        actions={
+          <DiscoveryListActions
+            className={classes.actions}
+            onCreate={handleCreate}
+            onUploadClick={handleUploadClick}
+            onFileChange={handleFileChange}
+            fileInputRef={fileInputRef}
+            uploadInputClassName={classes.uploadInput}
+          />
+        }
+      >
+        <DiscoveryDataGrid rowClick={rowClick}>
+          <DiscoveryTypeIconField label={false} />
+          <TextField source="name" />
+          <TextField source="ownerName" />
+          <FunctionField
+            label="resources.discoveryFolder.fields.updatedAt"
+            render={(record) => record?.updatedAt || '—'}
+          />
+          <FunctionField
+            label="resources.discoveryFolder.fields.public"
+            render={(record) => record?.public || '—'}
+          />
+          <FunctionField label="ra.action.edit" render={() => '—'} />
+        </DiscoveryDataGrid>
+      </List>
     </div>
   )
 }

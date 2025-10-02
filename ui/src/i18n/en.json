@@ -260,7 +260,8 @@
         "name": "Name",
         "ownerName": "Owner",
         "updatedAt": "Updated at",
-        "public": "Public"
+        "public": "Public",
+        "edit": "Edit"
       }
     },
     "radio": {

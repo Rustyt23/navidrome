@@ -147,7 +147,21 @@ const wrapperDataProvider = {
       const query = path ? `?path=${encodeURIComponent(path)}` : ''
       return httpClient(`/api/discoveryfs/list${query}`).then(({ json }) => {
         const folders = Array.isArray(json?.folders) ? json.folders : []
-        const data = folders.map((item) => {
+        const files = Array.isArray(json?.files) ? json.files : []
+
+        const sortedFolders = [...folders].sort((a, b) =>
+          (a?.name || '').localeCompare(b?.name || '', undefined, {
+            sensitivity: 'base',
+          }),
+        )
+
+        const sortedFiles = [...files].sort((a, b) =>
+          (a?.name || '').localeCompare(b?.name || '', undefined, {
+            sensitivity: 'base',
+          }),
+        )
+
+        const folderEntries = sortedFolders.map((item, index) => {
           const name = item && item.name ? item.name : ''
           const itemPath = item && item.path ? item.path : ''
           const fullPath = itemPath || (path ? `${path}/${name}` : name)
@@ -156,11 +170,30 @@ const wrapperDataProvider = {
             name,
             type: 'folder',
             ownerName: '—',
-            updatedAt: null,
-            public: false,
+            updatedAt: '—',
+            public: '—',
             path: fullPath || '',
+            order: index,
           }
         })
+
+        const fileEntries = sortedFiles.map((item, index) => {
+          const name = item && item.name ? item.name : ''
+          const itemPath = item && item.path ? item.path : ''
+          const fullPath = itemPath || (path ? `${path}/${name}` : name)
+          return {
+            id: fullPath || name,
+            name,
+            type: 'file',
+            ownerName: '—',
+            updatedAt: '—',
+            public: '—',
+            path: fullPath || '',
+            order: folderEntries.length + index,
+          }
+        })
+
+        const data = [...folderEntries, ...fileEntries]
         return { data, total: data.length }
       })
     }
