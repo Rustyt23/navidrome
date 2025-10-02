@@ -143,7 +143,16 @@ const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
     if (resource === 'discoveryFolder') {
-      const path = params?.filter?.path ?? ''
+      const hasFilterPath =
+        params?.filter && Object.prototype.hasOwnProperty.call(params.filter, 'path')
+      const path = hasFilterPath
+        ? params.filter.path ?? ''
+        : params?.meta?.path ?? ''
+      const searchValueRaw = params?.filter?.q ?? ''
+      const searchValue =
+        typeof searchValueRaw === 'string'
+          ? searchValueRaw.trim().toLowerCase()
+          : ''
       const query = path ? `?path=${encodeURIComponent(path)}` : ''
       return httpClient(`/api/discoveryfs/list${query}`).then(({ json }) => {
         const folders = Array.isArray(json?.folders) ? json.folders : []
@@ -161,7 +170,19 @@ const wrapperDataProvider = {
           }),
         )
 
-        const folderEntries = sortedFolders.map((item, index) => {
+        const filteredFolders = searchValue
+          ? sortedFolders.filter((item) =>
+              (item?.name || '').toLowerCase().includes(searchValue),
+            )
+          : sortedFolders
+
+        const filteredFiles = searchValue
+          ? sortedFiles.filter((item) =>
+              (item?.name || '').toLowerCase().includes(searchValue),
+            )
+          : sortedFiles
+
+        const folderEntries = filteredFolders.map((item, index) => {
           const name = item && item.name ? item.name : ''
           const itemPath = item && item.path ? item.path : ''
           const fullPath = itemPath || (path ? `${path}/${name}` : name)
@@ -177,7 +198,9 @@ const wrapperDataProvider = {
           }
         })
 
-        const fileEntries = sortedFiles.map((item, index) => {
+        const folderCount = folderEntries.length
+
+        const fileEntries = filteredFiles.map((item, index) => {
           const name = item && item.name ? item.name : ''
           const itemPath = item && item.path ? item.path : ''
           const fullPath = itemPath || (path ? `${path}/${name}` : name)
@@ -189,7 +212,7 @@ const wrapperDataProvider = {
             updatedAt: '—',
             public: '—',
             path: fullPath || '',
-            order: folderEntries.length + index,
+            order: folderCount + index,
           }
         })
 

@@ -48,16 +48,16 @@ const DiscoveryRow = ({ record, children, className, rowClick, ...rest }) => {
 
 const DiscoveryDatagridBody = (props) => <PureDatagridBody {...props} row={<DiscoveryRow />} />
 
-const DiscoveryDataGrid = (props) => {
+const DiscoveryFolderDataGrid = (props) => {
   const classes = useStyles()
   return (
     <Datagrid
       className={classes.headerStyle}
-      isRowSelectable={() => false}
+      isRowSelectable={(record) => !record?.missing}
       body={<DiscoveryDatagridBody />}
       {...props}
     />
   )
 }
 
-export default DiscoveryDataGrid
+export default DiscoveryFolderDataGrid

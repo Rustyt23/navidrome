@@ -19,7 +19,7 @@ import { RiFolder3Fill } from 'react-icons/ri'
 import { useNotify, useTranslate } from 'react-admin'
 import SubMenu from './SubMenu'
 import httpClient from '../dataProvider/httpClient'
-import { addDiscoveryChangedListener } from '../discovery/events'
+import { addDiscoveryChangedListener } from '../discovery_folder/events'
 
 const useStyles = makeStyles((theme) => ({
   listItem: {

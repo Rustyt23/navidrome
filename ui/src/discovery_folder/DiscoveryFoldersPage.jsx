@@ -1,4 +1,5 @@
 import React, {
+  cloneElement,
   useCallback,
   useEffect,
   useMemo,
@@ -16,7 +17,9 @@ import {
 import AddIcon from '@material-ui/icons/Add'
 import CloudUploadIcon from '@material-ui/icons/CloudUpload'
 import {
+  Filter,
   FunctionField,
+  SearchInput,
   TextField,
   Title,
   TopToolbar,
@@ -26,7 +29,7 @@ import {
 } from 'react-admin'
 import httpClient from '../dataProvider/httpClient'
 import { List } from '../common'
-import DiscoveryDataGrid from './DiscoveryDataGrid'
+import DiscoveryFolderDataGrid from './DiscoveryFolderDataGrid'
 import DiscoveryTypeIconField from './DiscoveryTypeIconField'
 import { emitDiscoveryChanged, addDiscoveryChangedListener } from './events'
 
@@ -56,6 +59,12 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
+const DiscoveryFolderFilter = (props) => (
+  <Filter {...props} variant="outlined">
+    <SearchInput source="q" alwaysOn />
+  </Filter>
+)
+
 const DiscoveryListActions = ({
   className,
   onCreate,
@@ -63,12 +72,14 @@ const DiscoveryListActions = ({
   onFileChange,
   fileInputRef,
   uploadInputClassName,
+  filters,
   ...rest
 }) => {
   const translate = useTranslate()
 
   return (
     <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
+      {filters && cloneElement(filters, { context: 'button' })}
       <MuiButton
         color="primary"
         variant="contained"
@@ -102,7 +113,7 @@ const DiscoveryListActions = ({
   )
 }
 
-const DiscoveryBrowser = () => {
+const DiscoveryFoldersPage = () => {
   const classes = useStyles()
   const translate = useTranslate()
   const notify = useNotify()
@@ -244,6 +255,11 @@ const DiscoveryBrowser = () => {
     [currentPath],
   )
 
+  const listQueryOptions = useMemo(
+    () => ({ meta: { path: currentPath } }),
+    [currentPath],
+  )
+
   const listKey = useMemo(
     () => `${currentPath || 'root'}-${refreshToken}`,
     [currentPath, refreshToken],
@@ -291,6 +307,9 @@ const DiscoveryBrowser = () => {
         sort={{ field: 'order', order: 'ASC' }}
         exporter={false}
         bulkActionButtons={false}
+        filters={<DiscoveryFolderFilter />}
+        perPage={50}
+        queryOptions={listQueryOptions}
         actions={
           <DiscoveryListActions
             className={classes.actions}
@@ -302,10 +321,16 @@ const DiscoveryBrowser = () => {
           />
         }
       >
-        <DiscoveryDataGrid rowClick={rowClick}>
+        <DiscoveryFolderDataGrid rowClick={rowClick}>
           <DiscoveryTypeIconField label={false} />
-          <TextField source="name" />
-          <TextField source="ownerName" />
+          <TextField
+            source="name"
+            label="resources.discoveryFolder.fields.name"
+          />
+          <TextField
+            source="ownerName"
+            label="resources.discoveryFolder.fields.ownerName"
+          />
           <FunctionField
             label="resources.discoveryFolder.fields.updatedAt"
             render={(record) => record?.updatedAt || '—'}
@@ -315,10 +340,10 @@ const DiscoveryBrowser = () => {
             render={(record) => record?.public || '—'}
           />
           <FunctionField label="ra.action.edit" render={() => '—'} />
-        </DiscoveryDataGrid>
+        </DiscoveryFolderDataGrid>
       </List>
     </div>
   )
 }
 
-export default DiscoveryBrowser
+export default DiscoveryFoldersPage
