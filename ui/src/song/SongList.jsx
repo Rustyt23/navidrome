@@ -83,7 +83,11 @@ const SongFilter = (props) => {
         filterToQuery={(searchText) => ({ name: [searchText] })}
         helperText={false}
       >
-        <AutocompleteArrayInput emptyText="-- None --" classes={classes} />
+        <AutocompleteArrayInput
+          emptyText="-- None --"
+          classes={classes}
+          helperText={false}
+        />
       </ReferenceArrayInput>
       <ReferenceArrayInput
         label={translate('resources.song.fields.grouping')}
@@ -100,6 +104,7 @@ const SongFilter = (props) => {
           emptyText="-- None --"
           classes={classes}
           optionText="tagValue"
+          helperText={false}
         />
       </ReferenceArrayInput>
       <ReferenceArrayInput
@@ -117,6 +122,7 @@ const SongFilter = (props) => {
           emptyText="-- None --"
           classes={classes}
           optionText="tagValue"
+          helperText={false}
         />
       </ReferenceArrayInput>
       {config.enableFavourites && (

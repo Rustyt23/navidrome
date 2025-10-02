@@ -5,7 +5,6 @@ import IconButton from '@material-ui/core/IconButton'
 import Menu from '@material-ui/core/Menu'
 import MenuItem from '@material-ui/core/MenuItem'
 import MoreVertIcon from '@material-ui/icons/MoreVert'
-import { MdQuestionMark } from 'react-icons/md'
 import { makeStyles } from '@material-ui/core/styles'
 import { useDataProvider, useNotify, useTranslate } from 'react-admin'
 import clsx from 'clsx'
@@ -35,20 +34,17 @@ const useStyles = makeStyles({
 })
 
 const MoreButton = ({ record, onClick, info, ...rest }) => {
-  const handleClick = record.missing
-    ? (e) => {
-        e.preventDefault()
-        info.action(record)
-        e.stopPropagation()
-      }
-    : onClick
+  const handleClick =
+    record.missing && info?.action
+      ? (e) => {
+          e.preventDefault()
+          info.action(record)
+          e.stopPropagation()
+        }
+      : onClick
   return (
     <IconButton onClick={handleClick} size={'small'} {...rest}>
-      {record?.missing ? (
-        <MdQuestionMark fontSize={'large'} />
-      ) : (
-        <MoreVertIcon fontSize={'small'} />
-      )}
+      <MoreVertIcon fontSize={'small'} />
     </IconButton>
   )
 }

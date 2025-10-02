@@ -44,7 +44,7 @@ const useStyles = makeStyles({
 export const SongInfo = (props) => {
   const classes = useStyles({ gain: config.enableReplayGain })
   const translate = useTranslate()
-  const record = useRecordContext(props)
+  const record = useRecordContext(props) ?? {}
   const [tab, setTab] = useState(0)
 
   // These are already displayed in other fields or are album-level tags
@@ -87,11 +87,13 @@ export const SongInfo = (props) => {
 
   const roles = []
 
-  for (const name of Object.keys(record.participants)) {
+  const participants = record.participants ?? {}
+
+  for (const name of Object.keys(participants)) {
     if (name === 'albumartist' || name === 'artist') {
       continue
     }
-    roles.push([name, record.participants[name].length])
+    roles.push([name, participants[name].length])
   }
 
   const optionalFields = [
@@ -103,9 +105,15 @@ export const SongInfo = (props) => {
     'sampleRate',
   ]
   optionalFields.forEach((field) => {
-    !record[field] && delete data[field]
+    let hasValue = record?.[field]
+    if (field === 'genre') {
+      hasValue = record?.genres?.length
+    }
+    if (!hasValue) {
+      delete data[field]
+    }
   })
-  if (record.playCount > 0) {
+  if ((record?.playCount ?? 0) > 0) {
     data.playDate = <DateField record={record} source="playDate" showTime />
   }
 

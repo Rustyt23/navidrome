@@ -10,7 +10,6 @@ import {
 import { IconButton, Menu, MenuItem } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import MoreVertIcon from '@material-ui/icons/MoreVert'
-import { MdQuestionMark } from 'react-icons/md'
 import clsx from 'clsx'
 import {
   playNext,
@@ -34,19 +33,16 @@ const useStyles = makeStyles({
 })
 
 const MoreButton = ({ record, onClick, info }) => {
-  const handleClick = record.missing
-    ? (e) => {
-        info.action(record)
-        e.stopPropagation()
-      }
-    : onClick
+  const handleClick =
+    record.missing && info?.action
+      ? (e) => {
+          info.action(record)
+          e.stopPropagation()
+        }
+      : onClick
   return (
     <IconButton onClick={handleClick} size={'small'}>
-      {record?.missing ? (
-        <MdQuestionMark fontSize={'large'} />
-      ) : (
-        <MoreVertIcon fontSize={'small'} />
-      )}
+      <MoreVertIcon fontSize={'small'} />
     </IconButton>
   )
 }
