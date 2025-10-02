@@ -63,10 +63,17 @@ const useStyles = makeStyles((theme) => ({
     },
   },
   missingRow: {
-    cursor: 'inherit',
-    opacity: 0.3,
-    '& td, & th, & .MuiTableCell-root, & a, & svg': {
+    cursor: 'default',
+    backgroundColor: theme.palette.action.hover,
+    '& td, & th, & .MuiTableCell-root': {
       color: theme.palette.text.disabled,
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    },
+    '& a, & button, & svg, & .MuiIconButton-root': {
+      color: theme.palette.text.disabled,
+      pointerEvents: 'none',
     },
     '& .draggable': {
       cursor: 'default',
