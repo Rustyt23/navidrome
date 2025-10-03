@@ -130,7 +130,8 @@ var _ = Describe("Playlists", func() {
 
 				track := "missing-track.mp3"
 
-				recordMissingPlaylistTrack(ctx, "Playlist A", track)
+				psImpl := ps.(*playlists)
+				psImpl.recordMissingPlaylistTrack(ctx, "Playlist A", track)
 
 				db, err := sql.Open("sqlite3", conf.Server.DbPath)
 				Expect(err).ToNot(HaveOccurred())
@@ -144,7 +145,7 @@ var _ = Describe("Playlists", func() {
 
 				time.Sleep(time.Second)
 
-				recordMissingPlaylistTrack(ctx, "Playlist B", track)
+				psImpl.recordMissingPlaylistTrack(ctx, "Playlist B", track)
 
 				var (
 					updatedJSON string
@@ -182,7 +183,8 @@ var _ = Describe("Playlists", func() {
 				Expect(os.WriteFile(legacyWal, []byte("wal"), 0644)).To(Succeed())
 				Expect(os.WriteFile(legacyShm, []byte("shm"), 0644)).To(Succeed())
 
-				recordMissingPlaylistTrack(ctx, "Playlist A", "missing-track.mp3")
+				psImpl := ps.(*playlists)
+				psImpl.recordMissingPlaylistTrack(ctx, "Playlist A", "missing-track.mp3")
 
 				Expect(legacyDB).ToNot(BeAnExistingFile())
 				Expect(legacyWal).ToNot(BeAnExistingFile())
@@ -346,6 +348,48 @@ var _ = Describe("Playlists", func() {
 			Expect(pls.Tracks[2].Path).To(Equal("downloads/newfile.flac"))
 			Expect(pls.Tracks[3].Path).To(Equal("tests/01 Invisible (RED) Edit Version.mp3"))
 			Expect(mockPlsRepo.last).To(Equal(pls))
+		})
+
+		It("does not record missing tracks when files exist on disk", func() {
+			DeferCleanup(configtest.SetupConfig())
+
+			root := GinkgoT().TempDir()
+			musicDir := filepath.Join(root, "music")
+			Expect(os.MkdirAll(musicDir, 0755)).To(Succeed())
+
+			conf.Server.DataFolder = filepath.Join(root, "data")
+			Expect(os.MkdirAll(conf.Server.DataFolder, 0755)).To(Succeed())
+			conf.Server.DbPath = filepath.Join(conf.Server.DataFolder, consts.DefaultDbPath)
+
+			existingTrack := filepath.Join(musicDir, "existing-track.mp3")
+			Expect(os.WriteFile(existingTrack, []byte("test"), 0644)).To(Succeed())
+
+			mockLibRepo.SetData([]model.Library{{ID: 1, Path: musicDir}})
+
+			repo := &mockedMediaFileFromListRepo{}
+			ds.MockedMediaFile = repo
+			ps = NewPlaylists(ds)
+
+			playlist := strings.Join([]string{"existing-track.mp3"}, "\n")
+			_, err := ps.ImportM3U(ctx, strings.NewReader(playlist))
+			Expect(err).ToNot(HaveOccurred())
+
+			dbFilePath := conf.Server.DbPath
+			if idx := strings.Index(dbFilePath, "?"); idx >= 0 {
+				dbFilePath = dbFilePath[:idx]
+			}
+
+			if _, err := os.Stat(dbFilePath); os.IsNotExist(err) {
+				return
+			}
+
+			db, err := sql.Open("sqlite3", conf.Server.DbPath)
+			Expect(err).ToNot(HaveOccurred())
+			defer db.Close()
+
+			var count int
+			scanErr := db.QueryRow(`SELECT COUNT(*) FROM missing_playlist_tracks`).Scan(&count)
+			Expect(scanErr).To(HaveOccurred())
 		})
 
 		It("sets the playlist name as a timestamp if the #PLAYLIST directive is not present", func() {

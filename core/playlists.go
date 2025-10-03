@@ -283,7 +283,7 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 				mfs = append(mfs, found[idx])
 			} else {
 				log.Warn(ctx, "Path in playlist not found", "playlist", pls.Name, "path", path)
-				recordMissingPlaylistTrack(ctx, pls.Name, path)
+				s.recordMissingPlaylistTrack(ctx, pls.Name, path)
 			}
 		}
 	}
@@ -303,8 +303,12 @@ func normalizePathForComparison(path string) string {
 	return strings.ToLower(norm.NFC.String(path))
 }
 
-func recordMissingPlaylistTrack(ctx context.Context, playlistName, trackPath string) {
+func (s *playlists) recordMissingPlaylistTrack(ctx context.Context, playlistName, trackPath string) {
 	if trackPath == "" {
+		return
+	}
+
+	if s.trackExistsInLibraries(ctx, trackPath) {
 		return
 	}
 
@@ -393,6 +397,43 @@ CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
 	if err := tx.Commit(); err != nil {
 		log.Debug(ctx, "Unable to commit missing track entry", "path", dbPath, "track", trackPath, "err", err)
 	}
+}
+
+func (s *playlists) trackExistsInLibraries(ctx context.Context, trackPath string) bool {
+	if s == nil || s.ds == nil {
+		return false
+	}
+
+	libs, err := s.ds.Library(ctx).GetAll()
+	if err != nil {
+		log.Debug(ctx, "Unable to list libraries for missing track check", "err", err)
+		return false
+	}
+
+	cleaned := filepath.Clean(filepath.FromSlash(trackPath))
+
+	for _, lib := range libs {
+		libPath := filepath.Clean(lib.Path)
+		if libPath == "" {
+			continue
+		}
+
+		if filepath.IsAbs(cleaned) {
+			if strings.HasPrefix(cleaned, libPath+string(os.PathSeparator)) || cleaned == libPath {
+				if info, err := os.Stat(cleaned); err == nil && !info.IsDir() {
+					return true
+				}
+			}
+			continue
+		}
+
+		candidate := filepath.Join(libPath, cleaned)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+
+	return false
 }
 
 func cleanupLegacyMissingTracksDB(ctx context.Context, dbPath string) {
@@ -508,7 +549,7 @@ func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, fol
 			res = append(res, relPath)
 		} else {
 			log.Warn(ctx, "Path in playlist not found in any library", "path", line, "line", idx)
-			recordMissingPlaylistTrack(ctx, pls.Path, line)
+			s.recordMissingPlaylistTrack(ctx, pls.Path, line)
 		}
 	}
 	return slice.Map(res, filepath.ToSlash), nil
