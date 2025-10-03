@@ -61,6 +61,14 @@ func (s *SQLStore) Discovery(ctx context.Context) model.DiscoveryRepository {
 	return NewDiscoveryRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) DiscoveryFolder(ctx context.Context) model.DiscoveryFolderRepository {
+	return NewDiscoveryFolderRepository(ctx, s.getDBXBuilder())
+}
+
+func (s *SQLStore) DiscoverySong(ctx context.Context, discoveryID string, refreshSmartDiscovery bool) model.DiscoverySongRepository {
+	return NewDiscoveryRepository(ctx, s.getDBXBuilder()).Songs(discoveryID, refreshSmartDiscovery)
+}
+
 func (s *SQLStore) PlaylistFolder(ctx context.Context) model.PlaylistFolderRepository {
 	return NewPlaylistFolderRepository(ctx, s.getDBXBuilder())
 }
@@ -119,6 +127,8 @@ func (s *SQLStore) Resource(ctx context.Context, m interface{}) model.ResourceRe
 		return s.PlaylistFolder(ctx).(model.ResourceRepository)
 	case model.Discovery:
 		return s.Discovery(ctx).(model.ResourceRepository)
+	case model.DiscoveryFolder:
+		return s.DiscoveryFolder(ctx).(model.ResourceRepository)
 	case model.Radio:
 		return s.Radio(ctx).(model.ResourceRepository)
 	case model.Share:

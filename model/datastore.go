@@ -31,6 +31,8 @@ type DataStore interface {
 	Playlist(ctx context.Context) PlaylistRepository
 	PlaylistFolder(ctx context.Context) PlaylistFolderRepository
 	Discovery(ctx context.Context) DiscoveryRepository
+	DiscoveryFolder(ctx context.Context) DiscoveryFolderRepository
+	DiscoverySong(ctx context.Context, discoveryID string, refreshSmartDiscovery bool) DiscoverySongRepository
 	PlayQueue(ctx context.Context) PlayQueueRepository
 	Transcoding(ctx context.Context) TranscodingRepository
 	Player(ctx context.Context) PlayerRepository

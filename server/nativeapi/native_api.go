@@ -23,15 +23,16 @@ import (
 
 type Router struct {
 	http.Handler
-	ds        model.DataStore
-	share     core.Share
-	playlists core.Playlists
-	insights  metrics.Insights
-	libs      core.Library
+	ds          model.DataStore
+	share       core.Share
+	playlists   core.Playlists
+	discoveries core.Discoveries
+	insights    metrics.Insights
+	libs        core.Library
 }
 
-func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
-	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService}
+func New(ds model.DataStore, share core.Share, playlists core.Playlists, discoveries core.Discoveries, insights metrics.Insights, libraryService core.Library) *Router {
+	r := &Router{ds: ds, share: share, playlists: playlists, discoveries: discoveries, insights: insights, libs: libraryService}
 	r.Handler = r.routes()
 	return r
 }
@@ -64,6 +65,7 @@ func (n *Router) routes() http.Handler {
 		n.addPlaylistFolderRoute(r)
 		n.addPlaylistTrackRoute(r)
 		n.addSongPlaylistsRoute(r)
+		n.addDiscoveryRoutes(r)
 		n.addQueueRoute(r)
 		n.addMissingFilesRoute(r)
 		n.addKeepAliveRoute(r)

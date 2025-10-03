@@ -19,3 +19,19 @@ type DiscoveryFolder struct {
 }
 
 type DiscoveryFolders []*DiscoveryFolder
+
+type DiscoveryFolderRepository interface {
+	ResourceRepository
+
+	Get(id string) (*DiscoveryFolder, error)
+	GetAll(options ...QueryOptions) (DiscoveryFolders, error)
+	Put(*DiscoveryFolder) error
+	Delete(id string) error
+	Exists(id string) (bool, error)
+
+	CountAll(options ...QueryOptions) (int64, error)
+
+	UpdateParent(id string, parentId *string) error
+
+	GetAllByParent(options ...QueryOptions) (DiscoveryFolders, error)
+}
