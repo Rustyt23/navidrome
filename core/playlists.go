@@ -282,7 +282,7 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 				mfs = append(mfs, found[idx])
 			} else {
 				log.Warn(ctx, "Path in playlist not found", "playlist", pls.Name, "path", path)
-				recordMissingPlaylistTrack(ctx, pls.Path, path)
+				recordMissingPlaylistTrack(ctx, pls, path)
 			}
 		}
 	}
@@ -302,41 +302,71 @@ func normalizePathForComparison(path string) string {
 	return strings.ToLower(norm.NFC.String(path))
 }
 
-func recordMissingPlaylistTrack(ctx context.Context, playlistPath, trackPath string) {
-	if trackPath == "" || conf.Server.DataFolder == "" {
+func recordMissingPlaylistTrack(ctx context.Context, playlist *model.Playlist, trackPath string) {
+	if trackPath == "" || conf.Server.DbPath == "" {
 		return
 	}
 
-	dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
-	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
+	songName := extractSongName(trackPath)
+	if songName == "" {
+		return
+	}
 
-	db, err := sql.Open("sqlite3", dsn)
+	playlistName := ""
+	if playlist != nil {
+		playlistName = playlist.Name
+		if playlistName == "" {
+			playlistName = playlist.Path
+		}
+	}
+
+	db, err := sql.Open("sqlite3", conf.Server.DbPath)
 	if err != nil {
-		log.Debug(ctx, "Unable to open missing tracks database", "path", dbFile, "err", err)
+		log.Debug(ctx, "Unable to open missing tracks database", "path", conf.Server.DbPath, "err", err)
 		return
 	}
 	defer db.Close()
 
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-		log.Debug(ctx, "Unable to enable WAL for missing tracks database", "path", dbFile, "err", err)
+	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+		log.Debug(ctx, "Unable to set busy timeout for missing tracks table", "path", conf.Server.DbPath, "err", err)
 		return
 	}
 
-	_, err = db.Exec(`
+	_, err = db.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        playlist_id TEXT,
-        track_path TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+       song_name TEXT PRIMARY KEY,
+       track_path TEXT,
+       playlist TEXT,
+       time_added TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`)
 	if err != nil {
-		log.Debug(ctx, "Unable to ensure missing tracks table", "path", dbFile, "err", err)
+		log.Debug(ctx, "Unable to ensure missing tracks table", "path", conf.Server.DbPath, "err", err)
 		return
 	}
 
-	if _, err := db.Exec(`INSERT INTO missing_playlist_tracks (playlist_id, track_path) VALUES (?, ?)`, playlistPath, trackPath); err != nil {
-		log.Debug(ctx, "Unable to record missing track", "path", dbFile, "err", err)
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO missing_playlist_tracks (song_name, track_path, playlist, time_added)
+VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(song_name) DO UPDATE SET
+       track_path = excluded.track_path,
+       playlist = excluded.playlist,
+       time_added = CURRENT_TIMESTAMP
+`, songName, trackPath, playlistName); err != nil {
+		log.Debug(ctx, "Unable to record missing track", "path", conf.Server.DbPath, "err", err)
 	}
+}
+
+func extractSongName(trackPath string) string {
+	if trackPath == "" {
+		return ""
+	}
+
+	base := filepath.Base(trackPath)
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+
+	return base
 }
 
 func inPlaylistsPath(rel string) bool {
@@ -415,7 +445,7 @@ func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, fol
 			res = append(res, relPath)
 		} else {
 			log.Warn(ctx, "Path in playlist not found in any library", "path", line, "line", idx)
-			recordMissingPlaylistTrack(ctx, pls.Path, line)
+			recordMissingPlaylistTrack(ctx, pls, line)
 		}
 	}
 	return slice.Map(res, filepath.ToSlash), nil

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -30,33 +29,30 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 		ctx := r.Context()
 		entries := []missingTrackNotification{}
 
-		if conf.Server.DataFolder == "" {
+		if conf.Server.DbPath == "" {
 			writeMissingTrackResponse(w, entries, ctx)
 			return
 		}
 
-		dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
-		dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
-
-		db, err := sql.Open("sqlite3", dsn)
+		db, err := sql.Open("sqlite3", conf.Server.DbPath)
 		if err != nil {
-			log.Warn(ctx, "Unable to open missing tracks database", "path", dbFile, "err", err)
+			log.Warn(ctx, "Unable to open missing tracks database", "path", conf.Server.DbPath, "err", err)
 			writeMissingTrackResponse(w, entries, ctx)
 			return
 		}
 		defer db.Close()
 
-		if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-			log.Debug(ctx, "Unable to enable WAL for missing tracks database", "path", dbFile, "err", err)
+		if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+			log.Debug(ctx, "Unable to set busy timeout for missing tracks table", "path", conf.Server.DbPath, "err", err)
 		}
 
-		rows, err := db.QueryContext(ctx, `SELECT track_path FROM missing_playlist_tracks GROUP BY track_path ORDER BY MAX(created_at) DESC LIMIT 200`)
+		rows, err := db.QueryContext(ctx, `SELECT song_name, track_path FROM missing_playlist_tracks ORDER BY time_added DESC LIMIT 200`)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such table") {
 				writeMissingTrackResponse(w, entries, ctx)
 				return
 			}
-			log.Error(ctx, "Unable to query missing tracks notifications", "path", dbFile, "err", err)
+			log.Error(ctx, "Unable to query missing tracks notifications", "path", conf.Server.DbPath, "err", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
@@ -65,25 +61,36 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 		entries = make([]missingTrackNotification, 0)
 
 		for rows.Next() {
-			var trackPath string
+			var (
+				songName  sql.NullString
+				trackPath sql.NullString
+			)
 
-			if err := rows.Scan(&trackPath); err != nil {
-				log.Warn(ctx, "Unable to scan missing track notification", "path", dbFile, "err", err)
+			if err := rows.Scan(&songName, &trackPath); err != nil {
+				log.Warn(ctx, "Unable to scan missing track notification", "path", conf.Server.DbPath, "err", err)
 				continue
 			}
 
-			entries = append(entries, missingTrackNotification{
-				Title:     deriveTrackName(trackPath),
-				TrackPath: trackPath,
-			})
+			entry := missingTrackNotification{}
+			if songName.Valid {
+				entry.Title = songName.String
+			}
+			if trackPath.Valid {
+				entry.TrackPath = trackPath.String
+			}
+			if entry.Title == "" {
+				entry.Title = deriveTrackName(entry.TrackPath)
+			}
+
+			entries = append(entries, entry)
 		}
 
 		if err := rows.Err(); err != nil {
-			log.Warn(ctx, "Error iterating missing track notifications", "path", dbFile, "err", err)
+			log.Warn(ctx, "Error iterating missing track notifications", "path", conf.Server.DbPath, "err", err)
 		}
 
 		if len(entries) > 0 {
-			enrichMissingTrackMetadata(ctx, entries)
+			enrichMissingTrackMetadata(ctx, db, entries)
 			for i := range entries {
 				if entries[i].Title == "" {
 					entries[i].Title = deriveTrackName(entries[i].TrackPath)
@@ -114,20 +121,13 @@ func deriveTrackName(trackPath string) string {
 	return base
 }
 
-func enrichMissingTrackMetadata(ctx context.Context, entries []missingTrackNotification) {
-	if conf.Server.DbPath == "" {
+func enrichMissingTrackMetadata(ctx context.Context, db *sql.DB, entries []missingTrackNotification) {
+	if db == nil {
 		return
 	}
-
-	mainDB, err := sql.Open("sqlite3", conf.Server.DbPath)
-	if err != nil {
-		log.Warn(ctx, "Unable to open main database for missing track metadata", "path", conf.Server.DbPath, "err", err)
-		return
-	}
-	defer mainDB.Close()
 
 	for i := range entries {
-		populateTrackMetadata(ctx, mainDB, &entries[i])
+		populateTrackMetadata(ctx, db, &entries[i])
 	}
 }
 

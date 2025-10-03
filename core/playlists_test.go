@@ -77,35 +77,36 @@ var _ = Describe("Playlists", func() {
 				Expect(pls.Tracks).To(HaveLen(2))
 			})
 
-			It("records missing tracks in a separate database", func() {
+			It("records missing tracks in the main database", func() {
 				DeferCleanup(configtest.SetupConfig())
 
 				dataDir := GinkgoT().TempDir()
 				conf.Server.DataFolder = dataDir
+				conf.Server.DbPath = filepath.Join(dataDir, "navidrome.db")
+				DeferCleanup(func() { conf.Server.DbPath = "" })
 
 				playlistName := "missing-log.m3u"
 				playlistPath := filepath.Join(folder.AbsolutePath(), playlistName)
 				Expect(os.WriteFile(playlistPath, []byte("missing-track.mp3\n"), 0644)).To(Succeed())
 				DeferCleanup(func() { _ = os.Remove(playlistPath) })
 
-				dbPath := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
-				_ = os.Remove(dbPath)
+				_ = os.Remove(conf.Server.DbPath)
 
 				_, err := ps.ImportFile(ctx, folder, playlistName)
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(dbPath).To(BeAnExistingFile())
+				Expect(conf.Server.DbPath).To(BeAnExistingFile())
 
-				dsn := "file:" + filepath.ToSlash(dbPath) + "?_journal_mode=WAL"
-				db, err := sql.Open("sqlite3", dsn)
+				db, err := sql.Open("sqlite3", conf.Server.DbPath)
 				Expect(err).ToNot(HaveOccurred())
 				defer db.Close()
 
-				row := db.QueryRow(`SELECT playlist_id, track_path FROM missing_playlist_tracks LIMIT 1`)
-				var playlistID, trackPath string
-				Expect(row.Scan(&playlistID, &trackPath)).To(Succeed())
-				Expect(playlistID).To(Equal(playlistPath))
+				row := db.QueryRow(`SELECT song_name, track_path, playlist FROM missing_playlist_tracks LIMIT 1`)
+				var songName, trackPath, playlist string
+				Expect(row.Scan(&songName, &trackPath, &playlist)).To(Succeed())
+				Expect(songName).To(Equal("missing-track"))
 				Expect(trackPath).To(Equal("missing-track.mp3"))
+				Expect(playlist).To(Equal("missing-log"))
 			})
 
 			It("locates tracks from music library when playlist lives in playlists folder", func() {
