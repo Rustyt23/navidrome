@@ -18,6 +18,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/criteria"
@@ -282,7 +283,7 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 				mfs = append(mfs, found[idx])
 			} else {
 				log.Warn(ctx, "Path in playlist not found", "playlist", pls.Name, "path", path)
-				recordMissingPlaylistTrack(ctx, pls.Path, path)
+				recordMissingPlaylistTrack(ctx, pls.Name, path)
 			}
 		}
 	}
@@ -302,40 +303,93 @@ func normalizePathForComparison(path string) string {
 	return strings.ToLower(norm.NFC.String(path))
 }
 
-func recordMissingPlaylistTrack(ctx context.Context, playlistPath, trackPath string) {
-	if trackPath == "" || conf.Server.DataFolder == "" {
+func recordMissingPlaylistTrack(ctx context.Context, playlistName, trackPath string) {
+	if trackPath == "" {
 		return
 	}
 
-	dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
-	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
+	dbPath := conf.Server.DbPath
+	if dbPath == "" {
+		if conf.Server.DataFolder == "" {
+			return
+		}
+		dbPath = filepath.Join(conf.Server.DataFolder, consts.DefaultDbPath)
+	}
 
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		log.Debug(ctx, "Unable to open missing tracks database", "path", dbFile, "err", err)
+		log.Debug(ctx, "Unable to open database for missing tracks", "path", dbPath, "err", err)
 		return
 	}
 	defer db.Close()
 
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-		log.Debug(ctx, "Unable to enable WAL for missing tracks database", "path", dbFile, "err", err)
-		return
-	}
-
-	_, err = db.Exec(`
+	const createTableSQL = `
 CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        playlist_id TEXT,
-        track_path TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)`)
-	if err != nil {
-		log.Debug(ctx, "Unable to ensure missing tracks table", "path", dbFile, "err", err)
+        track_path TEXT PRIMARY KEY,
+        playlists TEXT NOT NULL,
+        time_added TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`
+
+	if _, err := db.Exec(createTableSQL); err != nil {
+		log.Debug(ctx, "Unable to ensure missing tracks table", "path", dbPath, "err", err)
 		return
 	}
 
-	if _, err := db.Exec(`INSERT INTO missing_playlist_tracks (playlist_id, track_path) VALUES (?, ?)`, playlistPath, trackPath); err != nil {
-		log.Debug(ctx, "Unable to record missing track", "path", dbFile, "err", err)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Debug(ctx, "Unable to begin transaction for missing track", "path", dbPath, "err", err)
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var existingPlaylistsJSON sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT playlists FROM missing_playlist_tracks WHERE track_path = ?`, trackPath).Scan(&existingPlaylistsJSON)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		log.Debug(ctx, "Unable to query existing missing track", "path", dbPath, "track", trackPath, "err", err)
+		return
+	}
+
+	playlists := []string{}
+	if existingPlaylistsJSON.Valid {
+		if err := json.Unmarshal([]byte(existingPlaylistsJSON.String), &playlists); err != nil {
+			log.Debug(ctx, "Unable to unmarshal stored playlists", "path", dbPath, "track", trackPath, "err", err)
+			playlists = []string{}
+		}
+	}
+
+	if playlistName != "" {
+		found := false
+		for _, p := range playlists {
+			if p == playlistName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			playlists = append(playlists, playlistName)
+		}
+	}
+
+	playlistsJSON, err := json.Marshal(playlists)
+	if err != nil {
+		log.Debug(ctx, "Unable to marshal playlists for missing track", "path", dbPath, "track", trackPath, "err", err)
+		return
+	}
+
+	if existingPlaylistsJSON.Valid {
+		if _, err := tx.ExecContext(ctx, `UPDATE missing_playlist_tracks SET playlists = ?, time_added = CURRENT_TIMESTAMP WHERE track_path = ?`, string(playlistsJSON), trackPath); err != nil {
+			log.Debug(ctx, "Unable to update missing track entry", "path", dbPath, "track", trackPath, "err", err)
+			return
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO missing_playlist_tracks (track_path, playlists) VALUES (?, ?)`, trackPath, string(playlistsJSON)); err != nil {
+			log.Debug(ctx, "Unable to record missing track", "path", dbPath, "track", trackPath, "err", err)
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Debug(ctx, "Unable to commit missing track entry", "path", dbPath, "track", trackPath, "err", err)
 	}
 }
 

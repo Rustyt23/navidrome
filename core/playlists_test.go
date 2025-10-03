@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
+	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/criteria"
 	"github.com/navidrome/navidrome/model/request"
@@ -77,35 +79,86 @@ var _ = Describe("Playlists", func() {
 				Expect(pls.Tracks).To(HaveLen(2))
 			})
 
-			It("records missing tracks in a separate database", func() {
+			It("records missing tracks in the main database", func() {
 				DeferCleanup(configtest.SetupConfig())
 
 				dataDir := GinkgoT().TempDir()
 				conf.Server.DataFolder = dataDir
+				conf.Server.DbPath = filepath.Join(conf.Server.DataFolder, consts.DefaultDbPath)
 
 				playlistName := "missing-log.m3u"
 				playlistPath := filepath.Join(folder.AbsolutePath(), playlistName)
 				Expect(os.WriteFile(playlistPath, []byte("missing-track.mp3\n"), 0644)).To(Succeed())
 				DeferCleanup(func() { _ = os.Remove(playlistPath) })
 
-				dbPath := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
-				_ = os.Remove(dbPath)
+				dbFilePath := conf.Server.DbPath
+				if idx := strings.Index(dbFilePath, "?"); idx >= 0 {
+					dbFilePath = dbFilePath[:idx]
+				}
+				_ = os.Remove(dbFilePath)
 
 				_, err := ps.ImportFile(ctx, folder, playlistName)
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(dbPath).To(BeAnExistingFile())
+				Expect(dbFilePath).To(BeAnExistingFile())
 
-				dsn := "file:" + filepath.ToSlash(dbPath) + "?_journal_mode=WAL"
-				db, err := sql.Open("sqlite3", dsn)
+				db, err := sql.Open("sqlite3", conf.Server.DbPath)
 				Expect(err).ToNot(HaveOccurred())
 				defer db.Close()
 
-				row := db.QueryRow(`SELECT playlist_id, track_path FROM missing_playlist_tracks LIMIT 1`)
-				var playlistID, trackPath string
-				Expect(row.Scan(&playlistID, &trackPath)).To(Succeed())
-				Expect(playlistID).To(Equal(playlistPath))
+				row := db.QueryRow(`SELECT playlists, track_path FROM missing_playlist_tracks LIMIT 1`)
+				var playlistsJSON, trackPath string
+				Expect(row.Scan(&playlistsJSON, &trackPath)).To(Succeed())
+				var playlists []string
+				Expect(json.Unmarshal([]byte(playlistsJSON), &playlists)).To(Succeed())
+				Expect(playlists).To(ContainElement("missing-log"))
 				Expect(trackPath).To(Equal("missing-track.mp3"))
+			})
+
+			It("tracks multiple playlists and refreshes the timestamp", func() {
+				DeferCleanup(configtest.SetupConfig())
+
+				dataDir := GinkgoT().TempDir()
+				conf.Server.DataFolder = dataDir
+				conf.Server.DbPath = filepath.Join(conf.Server.DataFolder, consts.DefaultDbPath)
+
+				dbFilePath := conf.Server.DbPath
+				if idx := strings.Index(dbFilePath, "?"); idx >= 0 {
+					dbFilePath = dbFilePath[:idx]
+				}
+				_ = os.Remove(dbFilePath)
+
+				track := "missing-track.mp3"
+
+				recordMissingPlaylistTrack(ctx, "Playlist A", track)
+
+				db, err := sql.Open("sqlite3", conf.Server.DbPath)
+				Expect(err).ToNot(HaveOccurred())
+				defer db.Close()
+
+				var (
+					initialJSON string
+					initialTime time.Time
+				)
+				Expect(db.QueryRow(`SELECT playlists, time_added FROM missing_playlist_tracks WHERE track_path = ?`, track).Scan(&initialJSON, &initialTime)).To(Succeed())
+
+				time.Sleep(time.Second)
+
+				recordMissingPlaylistTrack(ctx, "Playlist B", track)
+
+				var (
+					updatedJSON string
+					updatedTime time.Time
+				)
+				Expect(db.QueryRow(`SELECT playlists, time_added FROM missing_playlist_tracks WHERE track_path = ?`, track).Scan(&updatedJSON, &updatedTime)).To(Succeed())
+
+				var initialPlaylists, updatedPlaylists []string
+				Expect(json.Unmarshal([]byte(initialJSON), &initialPlaylists)).To(Succeed())
+				Expect(json.Unmarshal([]byte(updatedJSON), &updatedPlaylists)).To(Succeed())
+
+				Expect(initialPlaylists).To(ConsistOf("Playlist A"))
+				Expect(updatedPlaylists).To(ConsistOf("Playlist A", "Playlist B"))
+				Expect(updatedTime.After(initialTime)).To(BeTrue())
 			})
 
 			It("locates tracks from music library when playlist lives in playlists folder", func() {

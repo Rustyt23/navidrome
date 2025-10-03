@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/log"
 )
 
@@ -30,33 +30,30 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 		ctx := r.Context()
 		entries := []missingTrackNotification{}
 
-		if conf.Server.DataFolder == "" {
-			writeMissingTrackResponse(w, entries, ctx)
-			return
+		dbPath := conf.Server.DbPath
+		if dbPath == "" {
+			if conf.Server.DataFolder == "" {
+				writeMissingTrackResponse(w, entries, ctx)
+				return
+			}
+			dbPath = filepath.Join(conf.Server.DataFolder, consts.DefaultDbPath)
 		}
 
-		dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
-		dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
-
-		db, err := sql.Open("sqlite3", dsn)
+		db, err := sql.Open("sqlite3", dbPath)
 		if err != nil {
-			log.Warn(ctx, "Unable to open missing tracks database", "path", dbFile, "err", err)
+			log.Warn(ctx, "Unable to open database for missing tracks", "path", dbPath, "err", err)
 			writeMissingTrackResponse(w, entries, ctx)
 			return
 		}
 		defer db.Close()
 
-		if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-			log.Debug(ctx, "Unable to enable WAL for missing tracks database", "path", dbFile, "err", err)
-		}
-
-		rows, err := db.QueryContext(ctx, `SELECT track_path FROM missing_playlist_tracks GROUP BY track_path ORDER BY MAX(created_at) DESC LIMIT 200`)
+		rows, err := db.QueryContext(ctx, `SELECT track_path FROM missing_playlist_tracks ORDER BY time_added DESC LIMIT 200`)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such table") {
 				writeMissingTrackResponse(w, entries, ctx)
 				return
 			}
-			log.Error(ctx, "Unable to query missing tracks notifications", "path", dbFile, "err", err)
+			log.Error(ctx, "Unable to query missing tracks notifications", "path", dbPath, "err", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
@@ -68,7 +65,7 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 			var trackPath string
 
 			if err := rows.Scan(&trackPath); err != nil {
-				log.Warn(ctx, "Unable to scan missing track notification", "path", dbFile, "err", err)
+				log.Warn(ctx, "Unable to scan missing track notification", "path", dbPath, "err", err)
 				continue
 			}
 
@@ -79,7 +76,7 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 		}
 
 		if err := rows.Err(); err != nil {
-			log.Warn(ctx, "Error iterating missing track notifications", "path", dbFile, "err", err)
+			log.Warn(ctx, "Error iterating missing track notifications", "path", dbPath, "err", err)
 		}
 
 		if len(entries) > 0 {
