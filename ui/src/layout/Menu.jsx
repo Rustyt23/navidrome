@@ -9,6 +9,7 @@ import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
 import PlaylistsSubMenu from './PlaylistsSubMenu'
+import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
 
@@ -59,6 +60,7 @@ const Menu = ({ dense = false }) => {
   const [state, setState] = useState({
     menuAlbumList: true,
     menuPlaylists: true,
+    menuDiscovery: true,
     menuSharedPlaylists: true,
   })
 
@@ -132,6 +134,12 @@ const Menu = ({ dense = false }) => {
         <>
           <Divider />
           <PlaylistsSubMenu
+            state={state}
+            setState={setState}
+            sidebarIsOpen={open}
+            dense={dense}
+          />
+          <DiscoverySubMenu
             state={state}
             setState={setState}
             sidebarIsOpen={open}
