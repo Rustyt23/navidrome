@@ -283,7 +283,7 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 				mfs = append(mfs, found[idx])
 			} else {
 				log.Warn(ctx, "Path in playlist not found", "playlist", pls.Name, "path", path)
-				s.recordMissingPlaylistTrack(ctx, pls.Name, path)
+				s.recordMissingPlaylistTrack(ctx, pls, path)
 			}
 		}
 	}
@@ -303,7 +303,7 @@ func normalizePathForComparison(path string) string {
 	return strings.ToLower(norm.NFC.String(path))
 }
 
-func (s *playlists) recordMissingPlaylistTrack(ctx context.Context, playlistName, trackPath string) {
+func (s *playlists) recordMissingPlaylistTrack(ctx context.Context, playlist *model.Playlist, trackPath string) {
 	if trackPath == "" {
 		return
 	}
@@ -329,15 +329,7 @@ func (s *playlists) recordMissingPlaylistTrack(ctx context.Context, playlistName
 	}
 	defer db.Close()
 
-	const createTableSQL = `
-CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
-        track_path TEXT PRIMARY KEY,
-        playlists TEXT NOT NULL,
-        time_added TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-)`
-
-	if _, err := db.Exec(createTableSQL); err != nil {
-		log.Debug(ctx, "Unable to ensure missing tracks table", "path", dbPath, "err", err)
+	if err := ensureMissingTracksSchema(ctx, db, dbPath); err != nil {
 		return
 	}
 
@@ -348,32 +340,25 @@ CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var existingPlaylistsJSON sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT playlists FROM missing_playlist_tracks WHERE track_path = ?`, trackPath).Scan(&existingPlaylistsJSON)
+	var (
+		existingPlaylistsJSON sql.NullString
+		existingPathsJSON     sql.NullString
+	)
+
+	err = tx.QueryRowContext(ctx, `SELECT playlists, playlist_paths FROM missing_playlist_tracks WHERE track_path = ?`, trackPath).Scan(&existingPlaylistsJSON, &existingPathsJSON)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		log.Debug(ctx, "Unable to query existing missing track", "path", dbPath, "track", trackPath, "err", err)
 		return
 	}
 
-	playlists := []string{}
-	if existingPlaylistsJSON.Valid {
-		if err := json.Unmarshal([]byte(existingPlaylistsJSON.String), &playlists); err != nil {
-			log.Debug(ctx, "Unable to unmarshal stored playlists", "path", dbPath, "track", trackPath, "err", err)
-			playlists = []string{}
-		}
-	}
+	playlists := decodeStoredStringArray(existingPlaylistsJSON)
+	playlistPaths := decodeStoredStringArray(existingPathsJSON)
 
-	if playlistName != "" {
-		found := false
-		for _, p := range playlists {
-			if p == playlistName {
-				found = true
-				break
-			}
-		}
-		if !found {
-			playlists = append(playlists, playlistName)
-		}
+	if name := playlistNameForStorage(playlist); name != "" {
+		playlists = appendIfMissing(playlists, name)
+	}
+	if p := playlistPathForStorage(playlist); p != "" {
+		playlistPaths = appendIfMissing(playlistPaths, p)
 	}
 
 	playlistsJSON, err := json.Marshal(playlists)
@@ -381,14 +366,19 @@ CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
 		log.Debug(ctx, "Unable to marshal playlists for missing track", "path", dbPath, "track", trackPath, "err", err)
 		return
 	}
+	playlistPathsJSON, err := json.Marshal(playlistPaths)
+	if err != nil {
+		log.Debug(ctx, "Unable to marshal playlist paths for missing track", "path", dbPath, "track", trackPath, "err", err)
+		return
+	}
 
-	if existingPlaylistsJSON.Valid {
-		if _, err := tx.ExecContext(ctx, `UPDATE missing_playlist_tracks SET playlists = ?, time_added = CURRENT_TIMESTAMP WHERE track_path = ?`, string(playlistsJSON), trackPath); err != nil {
+	if existingPlaylistsJSON.Valid || existingPathsJSON.Valid {
+		if _, err := tx.ExecContext(ctx, `UPDATE missing_playlist_tracks SET playlists = ?, playlist_paths = ?, time_added = CURRENT_TIMESTAMP WHERE track_path = ?`, string(playlistsJSON), string(playlistPathsJSON), trackPath); err != nil {
 			log.Debug(ctx, "Unable to update missing track entry", "path", dbPath, "track", trackPath, "err", err)
 			return
 		}
 	} else {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO missing_playlist_tracks (track_path, playlists) VALUES (?, ?)`, trackPath, string(playlistsJSON)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO missing_playlist_tracks (track_path, playlists, playlist_paths) VALUES (?, ?, ?)`, trackPath, string(playlistsJSON), string(playlistPathsJSON)); err != nil {
 			log.Debug(ctx, "Unable to record missing track", "path", dbPath, "track", trackPath, "err", err)
 			return
 		}
@@ -434,6 +424,110 @@ func (s *playlists) trackExistsInLibraries(ctx context.Context, trackPath string
 	}
 
 	return false
+}
+
+func ensureMissingTracksSchema(ctx context.Context, db *sql.DB, dbPath string) error {
+	const createTableSQL = `
+CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
+        track_path TEXT PRIMARY KEY,
+        playlists TEXT NOT NULL,
+        playlist_paths TEXT NOT NULL DEFAULT '[]',
+        time_added TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`
+
+	if _, err := db.Exec(createTableSQL); err != nil {
+		log.Debug(ctx, "Unable to ensure missing tracks table", "path", dbPath, "err", err)
+		return err
+	}
+
+	hasColumn, err := tableHasColumn(db, "missing_playlist_tracks", "playlist_paths")
+	if err != nil {
+		log.Debug(ctx, "Unable to inspect missing tracks table", "path", dbPath, "err", err)
+		return err
+	}
+	if !hasColumn {
+		if _, err := db.Exec(`ALTER TABLE missing_playlist_tracks ADD COLUMN playlist_paths TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+				log.Debug(ctx, "Unable to add playlist_paths column", "path", dbPath, "err", err)
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func tableHasColumn(db *sql.DB, table, column string) (bool, error) {
+	query := fmt.Sprintf("PRAGMA table_info(%s)", table)
+	rows, err := db.Query(query)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			dfltValue  sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &dfltValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func decodeStoredStringArray(value sql.NullString) []string {
+	if !value.Valid {
+		return []string{}
+	}
+	raw := strings.TrimSpace(value.String)
+	if raw == "" {
+		return []string{}
+	}
+
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return []string{}
+	}
+	return out
+}
+
+func playlistNameForStorage(playlist *model.Playlist) string {
+	if playlist == nil {
+		return ""
+	}
+	return strings.TrimSpace(playlist.Name)
+}
+
+func playlistPathForStorage(playlist *model.Playlist) string {
+	if playlist == nil {
+		return ""
+	}
+	path := strings.TrimSpace(playlist.Path)
+	if path == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(path)
+	if cleaned == "." {
+		return ""
+	}
+	return filepath.ToSlash(cleaned)
+}
+
+func appendIfMissing(items []string, value string) []string {
+	for _, existing := range items {
+		if existing == value {
+			return items
+		}
+	}
+	return append(items, value)
 }
 
 func cleanupLegacyMissingTracksDB(ctx context.Context, dbPath string) {
@@ -549,7 +643,7 @@ func (s *playlists) normalizePaths(ctx context.Context, pls *model.Playlist, fol
 			res = append(res, relPath)
 		} else {
 			log.Warn(ctx, "Path in playlist not found in any library", "path", line, "line", idx)
-			s.recordMissingPlaylistTrack(ctx, pls.Path, line)
+			s.recordMissingPlaylistTrack(ctx, pls, line)
 		}
 	}
 	return slice.Map(res, filepath.ToSlash), nil

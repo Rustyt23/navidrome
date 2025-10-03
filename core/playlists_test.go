@@ -106,12 +106,16 @@ var _ = Describe("Playlists", func() {
 				Expect(err).ToNot(HaveOccurred())
 				defer db.Close()
 
-				row := db.QueryRow(`SELECT playlists, track_path FROM missing_playlist_tracks LIMIT 1`)
-				var playlistsJSON, trackPath string
-				Expect(row.Scan(&playlistsJSON, &trackPath)).To(Succeed())
-				var playlists []string
+				row := db.QueryRow(`SELECT playlists, playlist_paths, track_path FROM missing_playlist_tracks LIMIT 1`)
+				var playlistsJSON, playlistPathsJSON, trackPath string
+				Expect(row.Scan(&playlistsJSON, &playlistPathsJSON, &trackPath)).To(Succeed())
+
+				var playlists, playlistPaths []string
 				Expect(json.Unmarshal([]byte(playlistsJSON), &playlists)).To(Succeed())
+				Expect(json.Unmarshal([]byte(playlistPathsJSON), &playlistPaths)).To(Succeed())
+
 				Expect(playlists).To(ContainElement("missing-log"))
+				Expect(playlistPaths).To(ContainElement(filepath.ToSlash(playlistPath)))
 				Expect(trackPath).To(Equal("missing-track.mp3"))
 			})
 
@@ -131,34 +135,45 @@ var _ = Describe("Playlists", func() {
 				track := "missing-track.mp3"
 
 				psImpl := ps.(*playlists)
-				psImpl.recordMissingPlaylistTrack(ctx, "Playlist A", track)
+				playlistA := &model.Playlist{Name: "Playlist A", Path: filepath.Join(dataDir, "Playlist A.m3u")}
+				psImpl.recordMissingPlaylistTrack(ctx, playlistA, track)
 
 				db, err := sql.Open("sqlite3", conf.Server.DbPath)
 				Expect(err).ToNot(HaveOccurred())
 				defer db.Close()
 
 				var (
-					initialJSON string
-					initialTime time.Time
+					initialJSON  string
+					initialPaths string
+					initialTime  time.Time
 				)
-				Expect(db.QueryRow(`SELECT playlists, time_added FROM missing_playlist_tracks WHERE track_path = ?`, track).Scan(&initialJSON, &initialTime)).To(Succeed())
+				Expect(db.QueryRow(`SELECT playlists, playlist_paths, time_added FROM missing_playlist_tracks WHERE track_path = ?`, track).Scan(&initialJSON, &initialPaths, &initialTime)).To(Succeed())
 
 				time.Sleep(time.Second)
 
-				psImpl.recordMissingPlaylistTrack(ctx, "Playlist B", track)
+				playlistB := &model.Playlist{Name: "Playlist B", Path: filepath.Join(dataDir, "Playlist B.m3u")}
+				psImpl.recordMissingPlaylistTrack(ctx, playlistB, track)
 
 				var (
-					updatedJSON string
-					updatedTime time.Time
+					updatedJSON  string
+					updatedPaths string
+					updatedTime  time.Time
 				)
-				Expect(db.QueryRow(`SELECT playlists, time_added FROM missing_playlist_tracks WHERE track_path = ?`, track).Scan(&updatedJSON, &updatedTime)).To(Succeed())
+				Expect(db.QueryRow(`SELECT playlists, playlist_paths, time_added FROM missing_playlist_tracks WHERE track_path = ?`, track).Scan(&updatedJSON, &updatedPaths, &updatedTime)).To(Succeed())
 
-				var initialPlaylists, updatedPlaylists []string
+				var initialPlaylists, updatedPlaylists, initialPlaylistPaths, updatedPlaylistPaths []string
 				Expect(json.Unmarshal([]byte(initialJSON), &initialPlaylists)).To(Succeed())
 				Expect(json.Unmarshal([]byte(updatedJSON), &updatedPlaylists)).To(Succeed())
+				Expect(json.Unmarshal([]byte(initialPaths), &initialPlaylistPaths)).To(Succeed())
+				Expect(json.Unmarshal([]byte(updatedPaths), &updatedPlaylistPaths)).To(Succeed())
 
 				Expect(initialPlaylists).To(ConsistOf("Playlist A"))
 				Expect(updatedPlaylists).To(ConsistOf("Playlist A", "Playlist B"))
+				Expect(initialPlaylistPaths).To(ConsistOf(filepath.ToSlash(playlistA.Path)))
+				Expect(updatedPlaylistPaths).To(ConsistOf(
+					filepath.ToSlash(playlistA.Path),
+					filepath.ToSlash(playlistB.Path),
+				))
 				Expect(updatedTime.After(initialTime)).To(BeTrue())
 			})
 
@@ -184,12 +199,48 @@ var _ = Describe("Playlists", func() {
 				Expect(os.WriteFile(legacyShm, []byte("shm"), 0644)).To(Succeed())
 
 				psImpl := ps.(*playlists)
-				psImpl.recordMissingPlaylistTrack(ctx, "Playlist A", "missing-track.mp3")
+				playlist := &model.Playlist{Name: "Playlist A", Path: filepath.Join(dataDir, "Playlist A.m3u")}
+				psImpl.recordMissingPlaylistTrack(ctx, playlist, "missing-track.mp3")
 
 				Expect(legacyDB).ToNot(BeAnExistingFile())
 				Expect(legacyWal).ToNot(BeAnExistingFile())
 				Expect(legacyShm).ToNot(BeAnExistingFile())
 				Expect(dbFilePath).To(BeAnExistingFile())
+			})
+
+			It("upgrades legacy missing track tables with playlist paths", func() {
+				DeferCleanup(configtest.SetupConfig())
+
+				dataDir := GinkgoT().TempDir()
+				conf.Server.DataFolder = dataDir
+				conf.Server.DbPath = filepath.Join(conf.Server.DataFolder, consts.DefaultDbPath)
+
+				db, err := sql.Open("sqlite3", conf.Server.DbPath)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = db.Exec(`CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
+        track_path TEXT PRIMARY KEY,
+        playlists TEXT NOT NULL,
+        time_added TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(db.Close()).To(Succeed())
+
+				playlist := &model.Playlist{Name: "Legacy", Path: filepath.Join(dataDir, "Legacy.m3u")}
+				psImpl := ps.(*playlists)
+				psImpl.recordMissingPlaylistTrack(ctx, playlist, "missing-track.mp3")
+
+				db, err = sql.Open("sqlite3", conf.Server.DbPath)
+				Expect(err).ToNot(HaveOccurred())
+				defer db.Close()
+
+				row := db.QueryRow(`SELECT playlist_paths FROM missing_playlist_tracks WHERE track_path = ?`, "missing-track.mp3")
+				var playlistPathsJSON string
+				Expect(row.Scan(&playlistPathsJSON)).To(Succeed())
+
+				var playlistPaths []string
+				Expect(json.Unmarshal([]byte(playlistPathsJSON), &playlistPaths)).To(Succeed())
+				Expect(playlistPaths).To(ContainElement(filepath.ToSlash(playlist.Path)))
 			})
 
 			It("locates tracks from music library when playlist lives in playlists folder", func() {

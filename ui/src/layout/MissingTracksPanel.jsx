@@ -109,11 +109,31 @@ const MissingTracksPanel = () => {
       }
       const rawTitle = (entry.title || '').trim()
       const rawArtist = (entry.artist || '').trim()
-      const title = rawTitle || translate('notifications.missingTracksUnknownTitle')
-      const unknownArtist = translate('notifications.missingTracksUnknownArtist').trim()
+      const title =
+        rawTitle || translate('notifications.missingTracksUnknownTitle')
+      const unknownArtist = translate(
+        'notifications.missingTracksUnknownArtist',
+      ).trim()
       const hasArtist =
-        rawArtist && rawArtist.toLocaleLowerCase() !== unknownArtist.toLocaleLowerCase()
+        rawArtist &&
+        rawArtist.toLocaleLowerCase() !== unknownArtist.toLocaleLowerCase()
       return hasArtist ? `${title} — ${rawArtist}` : title
+    },
+    [translate],
+  )
+
+  const getSecondaryLabel = useCallback(
+    (entry) => {
+      const folders = Array.isArray(entry?.folders)
+        ? entry.folders.filter(
+            (folder) => typeof folder === 'string' && folder.trim() !== '',
+          )
+        : []
+      if (folders.length === 0) {
+        return ''
+      }
+      const folderLabel = folders.join(', ')
+      return `${translate('notifications.missingTracksFoldersLabel')}: ${folderLabel}`
     },
     [translate],
   )
@@ -161,8 +181,18 @@ const MissingTracksPanel = () => {
             ) : (
               <List className={classes.list} dense>
                 {entries.map((entry, index) => (
-                  <ListItem key={`${entry.title || 'missing'}-${entry.artist || index}-${index}`} className={classes.listItem}>
-                    <ListItemText primary={getEntryLabel(entry)} />
+                  <ListItem
+                    key={`${entry.title || 'missing'}-${entry.artist || index}-${index}`}
+                    className={classes.listItem}
+                  >
+                    <ListItemText
+                      primary={getEntryLabel(entry)}
+                      secondary={getSecondaryLabel(entry)}
+                      secondaryTypographyProps={{
+                        variant: 'body2',
+                        color: 'textSecondary',
+                      }}
+                    />
                   </ListItem>
                 ))}
               </List>

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -16,9 +18,11 @@ import (
 )
 
 type missingTrackNotification struct {
-	Title     string `json:"title"`
-	Artist    string `json:"artist"`
-	TrackPath string `json:"-"`
+	Title     string   `json:"title"`
+	Artist    string   `json:"artist"`
+	TrackPath string   `json:"-"`
+	Playlists []string `json:"playlists,omitempty"`
+	Folders   []string `json:"folders,omitempty"`
 }
 
 func (n *Router) addNotificationsRoute(r chi.Router) {
@@ -47,7 +51,7 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 		}
 		defer db.Close()
 
-		rows, err := db.QueryContext(ctx, `SELECT track_path FROM missing_playlist_tracks ORDER BY time_added DESC LIMIT 200`)
+		rows, err := db.QueryContext(ctx, `SELECT track_path, playlists, playlist_paths FROM missing_playlist_tracks ORDER BY time_added DESC LIMIT 200`)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such table") {
 				writeMissingTrackResponse(w, entries, ctx)
@@ -62,16 +66,25 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 		entries = make([]missingTrackNotification, 0)
 
 		for rows.Next() {
-			var trackPath string
+			var (
+				trackPath         string
+				playlistsJSON     sql.NullString
+				playlistPathsJSON sql.NullString
+			)
 
-			if err := rows.Scan(&trackPath); err != nil {
+			if err := rows.Scan(&trackPath, &playlistsJSON, &playlistPathsJSON); err != nil {
 				log.Warn(ctx, "Unable to scan missing track notification", "path", dbPath, "err", err)
 				continue
 			}
 
+			playlists := decodeNotificationArray(playlistsJSON.String)
+			playlistPaths := decodeNotificationArray(playlistPathsJSON.String)
+
 			entries = append(entries, missingTrackNotification{
 				Title:     deriveTrackName(trackPath),
 				TrackPath: trackPath,
+				Playlists: playlists,
+				Folders:   derivePlaylistFolders(playlistPaths),
 			})
 		}
 
@@ -152,4 +165,83 @@ func populateTrackMetadata(ctx context.Context, db *sql.DB, track *missingTrackN
 	if artist.Valid {
 		track.Artist = artist.String
 	}
+}
+
+func decodeNotificationArray(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	var values []string
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return nil
+	}
+	return values
+}
+
+func derivePlaylistFolders(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(paths))
+	folders := make([]string, 0, len(paths))
+	for _, p := range paths {
+		folder := displayFolderFromPlaylistPath(p)
+		if folder == "" {
+			continue
+		}
+		if _, ok := seen[folder]; ok {
+			continue
+		}
+		seen[folder] = struct{}{}
+		folders = append(folders, folder)
+	}
+	sort.Strings(folders)
+	return folders
+}
+
+func displayFolderFromPlaylistPath(path string) string {
+	cleaned := strings.TrimSpace(path)
+	if cleaned == "" {
+		return ""
+	}
+
+	cleaned = filepath.Clean(cleaned)
+	dir := filepath.Dir(cleaned)
+	if dir == "." || dir == "" {
+		return ""
+	}
+
+	dir = filepath.Clean(dir)
+
+	if conf.Server.PlaylistsPath != "" {
+		for _, root := range strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator)) {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			root = strings.TrimSuffix(root, "**")
+			root = strings.TrimSuffix(root, string(os.PathSeparator))
+			absRoot, err := filepath.Abs(root)
+			if err != nil {
+				continue
+			}
+			rel, err := filepath.Rel(absRoot, dir)
+			if err == nil && !strings.HasPrefix(rel, "..") {
+				rel = filepath.ToSlash(rel)
+				if rel == "." {
+					return filepath.Base(dir)
+				}
+				return rel
+			}
+		}
+	}
+
+	base := filepath.Base(dir)
+	if base == "." || base == string(os.PathSeparator) || base == "" {
+		return filepath.ToSlash(dir)
+	}
+	return base
 }
