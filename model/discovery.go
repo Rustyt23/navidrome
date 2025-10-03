@@ -42,6 +42,42 @@ type DiscoverySong struct {
 
 type DiscoverySongs []DiscoverySong
 
+type DiscoveryRepository interface {
+	ResourceRepository
+	CountAll(options ...QueryOptions) (int64, error)
+	Exists(id string) (bool, error)
+	Put(d *Discovery) error
+	Get(id string) (*Discovery, error)
+	GetWithSongs(id string, refreshSmartDiscovery, includeMissing bool) (*Discovery, error)
+	GetAll(options ...QueryOptions) (Discoveries, error)
+	FindByPath(path string) (*Discovery, error)
+	GetSyncedByDirectory(dir string) (Discoveries, error)
+	Delete(id string) error
+	Songs(discoveryId string, refreshSmartDiscovery bool) DiscoverySongRepository
+	GetDiscoveries(mediaFileId string) (Discoveries, error)
+
+	UpdateDiscoveryFolder(id string, discoveryFolderId *string) error
+
+	GetAllByDiscoveryFolder(options ...QueryOptions) (Discoveries, error)
+}
+
+type DiscoverySongRepository interface {
+	ResourceRepository
+	GetAll(options ...QueryOptions) (DiscoverySongs, error)
+	GetAlbumIDs(options ...QueryOptions) ([]string, error)
+	Add(mediaFileIds []string) (int, error)
+	AddAlbums(albumIds []string) (int, error)
+	AddArtists(artistIds []string) (int, error)
+	AddDiscs(discs []DiscID) (int, error)
+	Delete(id ...string) error
+	DeleteAll() error
+	Reorder(pos int, newPos int) error
+
+	AnnotatedRepository
+
+	SearchableRepository[DiscoverySongs]
+}
+
 func (d Discovery) IsSmartDiscovery() bool {
 	return d.Rules != nil && d.Rules.Expression != nil
 }

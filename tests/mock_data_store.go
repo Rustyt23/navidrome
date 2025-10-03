@@ -8,27 +8,28 @@ import (
 )
 
 type MockDataStore struct {
-	RealDS               		model.DataStore
-	MockedLibrary        		model.LibraryRepository
-	MockedFolder         		model.FolderRepository
-	MockedGenre          		model.GenreRepository
-	MockedAlbum          		model.AlbumRepository
-	MockedArtist         		model.ArtistRepository
-	MockedMediaFile      		model.MediaFileRepository
-	MockedTag            		model.TagRepository
-	MockedUser           		model.UserRepository
-	MockedProperty       		model.PropertyRepository
-	MockedPlayer         		model.PlayerRepository
-	MockedPlaylist       		model.PlaylistRepository
-	MockedPlaylistFolder 		model.PlaylistFolderRepository
-	MockedPlayQueue      		model.PlayQueueRepository
-	MockedShare          		model.ShareRepository
-	MockedTranscoding    		model.TranscodingRepository
-	MockedUserProps      		model.UserPropsRepository
-	MockedScrobbleBuffer 		model.ScrobbleBufferRepository
-	MockedRadio          		model.RadioRepository
-	scrobbleBufferMu     		sync.Mutex
-	repoMu               		sync.Mutex
+	RealDS               model.DataStore
+	MockedLibrary        model.LibraryRepository
+	MockedFolder         model.FolderRepository
+	MockedGenre          model.GenreRepository
+	MockedAlbum          model.AlbumRepository
+	MockedArtist         model.ArtistRepository
+	MockedMediaFile      model.MediaFileRepository
+	MockedTag            model.TagRepository
+	MockedUser           model.UserRepository
+	MockedProperty       model.PropertyRepository
+	MockedPlayer         model.PlayerRepository
+	MockedPlaylist       model.PlaylistRepository
+	MockedPlaylistFolder model.PlaylistFolderRepository
+	MockedDiscovery      model.DiscoveryRepository
+	MockedPlayQueue      model.PlayQueueRepository
+	MockedShare          model.ShareRepository
+	MockedTranscoding    model.TranscodingRepository
+	MockedUserProps      model.UserPropsRepository
+	MockedScrobbleBuffer model.ScrobbleBufferRepository
+	MockedRadio          model.RadioRepository
+	scrobbleBufferMu     sync.Mutex
+	repoMu               sync.Mutex
 }
 
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {
@@ -130,6 +131,17 @@ func (db *MockDataStore) PlaylistFolder(ctx context.Context) model.PlaylistFolde
 		}
 	}
 	return db.MockedPlaylistFolder
+}
+
+func (db *MockDataStore) Discovery(ctx context.Context) model.DiscoveryRepository {
+	if db.MockedDiscovery == nil {
+		if db.RealDS != nil {
+			db.MockedDiscovery = db.RealDS.Discovery(ctx)
+		} else {
+			db.MockedDiscovery = struct{ model.DiscoveryRepository }{}
+		}
+	}
+	return db.MockedDiscovery
 }
 
 func (db *MockDataStore) PlayQueue(ctx context.Context) model.PlayQueueRepository {
