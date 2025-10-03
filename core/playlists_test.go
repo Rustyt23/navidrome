@@ -161,6 +161,35 @@ var _ = Describe("Playlists", func() {
 				Expect(updatedTime.After(initialTime)).To(BeTrue())
 			})
 
+			It("removes legacy missing tracks databases", func() {
+				DeferCleanup(configtest.SetupConfig())
+
+				dataDir := GinkgoT().TempDir()
+				conf.Server.DataFolder = dataDir
+				conf.Server.DbPath = filepath.Join(conf.Server.DataFolder, consts.DefaultDbPath)
+
+				dbFilePath := conf.Server.DbPath
+				if idx := strings.Index(dbFilePath, "?"); idx >= 0 {
+					dbFilePath = dbFilePath[:idx]
+				}
+				_ = os.Remove(dbFilePath)
+
+				legacyDB := filepath.Join(dataDir, "missing_tracks.db")
+				legacyWal := legacyDB + "-wal"
+				legacyShm := legacyDB + "-shm"
+
+				Expect(os.WriteFile(legacyDB, []byte("legacy"), 0644)).To(Succeed())
+				Expect(os.WriteFile(legacyWal, []byte("wal"), 0644)).To(Succeed())
+				Expect(os.WriteFile(legacyShm, []byte("shm"), 0644)).To(Succeed())
+
+				recordMissingPlaylistTrack(ctx, "Playlist A", "missing-track.mp3")
+
+				Expect(legacyDB).ToNot(BeAnExistingFile())
+				Expect(legacyWal).ToNot(BeAnExistingFile())
+				Expect(legacyShm).ToNot(BeAnExistingFile())
+				Expect(dbFilePath).To(BeAnExistingFile())
+			})
+
 			It("locates tracks from music library when playlist lives in playlists folder", func() {
 				DeferCleanup(configtest.SetupConfig())
 

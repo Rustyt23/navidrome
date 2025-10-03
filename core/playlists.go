@@ -316,6 +316,8 @@ func recordMissingPlaylistTrack(ctx context.Context, playlistName, trackPath str
 		dbPath = filepath.Join(conf.Server.DataFolder, consts.DefaultDbPath)
 	}
 
+	cleanupLegacyMissingTracksDB(ctx, dbPath)
+
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		log.Debug(ctx, "Unable to open database for missing tracks", "path", dbPath, "err", err)
@@ -390,6 +392,43 @@ CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
 
 	if err := tx.Commit(); err != nil {
 		log.Debug(ctx, "Unable to commit missing track entry", "path", dbPath, "track", trackPath, "err", err)
+	}
+}
+
+func cleanupLegacyMissingTracksDB(ctx context.Context, dbPath string) {
+	if dbPath == "" || strings.HasPrefix(dbPath, "file:") || strings.HasPrefix(dbPath, ":memory:") {
+		return
+	}
+
+	basePath := stripDSN(dbPath)
+	if basePath == "" {
+		return
+	}
+
+	dataDir := filepath.Dir(basePath)
+	if conf.Server.DataFolder != "" {
+		dataDir = conf.Server.DataFolder
+	}
+
+	legacyBase := filepath.Join(dataDir, "missing_tracks.db")
+	removeLegacyMissingTracksFile(ctx, legacyBase)
+	removeLegacyMissingTracksFile(ctx, legacyBase+"-wal")
+	removeLegacyMissingTracksFile(ctx, legacyBase+"-shm")
+}
+
+func stripDSN(path string) string {
+	if idx := strings.Index(path, "?"); idx >= 0 {
+		return path[:idx]
+	}
+	return path
+}
+
+func removeLegacyMissingTracksFile(ctx context.Context, path string) {
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Debug(ctx, "Unable to remove legacy missing tracks database", "path", path, "err", err)
 	}
 }
 
