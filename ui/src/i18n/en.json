@@ -542,6 +542,8 @@
     "songsAddedToPlaylist": "Added 1 song to playlist |||| Added %{smart_count} songs to playlist",
     "movedSuccess": "Moved successfully",
     "folderExists": "Folder already exists",
+    "selectDiscoveryFolder": "Please select a Discovery Folder first",
+    "uploadSuccess": "Uploaded %{smart_count} file |||| Uploaded %{smart_count} files",
     "noSimilarSongsFound": "No similar songs found",
     "noTopSongsFound": "No top songs found",
     "noPlaylistsAvailable": "None available",
