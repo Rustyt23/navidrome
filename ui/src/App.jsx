@@ -160,6 +160,7 @@ const Admin = (props) => {
         <Resource name="genre" />,
         <Resource name="tag" />,
         <Resource name="playlistTrack" />,
+        <Resource name="discoveryTrack" />,
         <Resource name="keepalive" />,
         <Resource name="insights" />,
         <Resource name="config" />,
