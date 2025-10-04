@@ -1,9 +1,6 @@
 package model
 
-import (
-	"strconv"
-	"time"
-)
+import "time"
 
 type Discovery struct {
 	ID        string          `structs:"id" json:"id"`
@@ -26,28 +23,13 @@ func (d *Discovery) refreshStats() {
 	d.Duration = 0
 	d.Size = 0
 	for _, t := range d.Tracks {
-		d.Duration += t.MediaFile.Duration
-		d.Size += t.MediaFile.Size
+		d.Duration += t.Duration
+		d.Size += t.Size
 	}
 }
 
 func (d *Discovery) SetTracks(tracks DiscoveryTracks) {
 	d.Tracks = tracks
-	d.refreshStats()
-}
-
-func (d *Discovery) AddMediaFiles(mfs MediaFiles) {
-	pos := len(d.Tracks)
-	for _, mf := range mfs {
-		pos++
-		t := DiscoveryTrack{
-			ID:          strconv.Itoa(pos),
-			MediaFileID: mf.ID,
-			DiscoveryID: d.ID,
-			MediaFile:   mf,
-		}
-		d.Tracks = append(d.Tracks, t)
-	}
 	d.refreshStats()
 }
 
@@ -65,14 +47,18 @@ type DiscoveryRepository interface {
 	Delete(id string) error
 	Tracks(discoveryID string) DiscoveryTrackRepository
 	GetDiscoveries(mediaFileId string) (Discoveries, error)
-	ReplaceTracks(id string, mediaFileIDs []string) error
+	ReplaceTracks(id string, tracks DiscoveryTracks) error
 }
 
 type DiscoveryTrack struct {
-	ID          string `json:"id"`
-	MediaFileID string `json:"mediaFileId"`
-	DiscoveryID string `json:"discoveryId"`
-	MediaFile
+	ID          string  `json:"id"`
+	DiscoveryID string  `json:"discoveryId"`
+	Path        string  `json:"path"`
+	Title       string  `json:"title"`
+	Artist      string  `json:"artist"`
+	Album       string  `json:"album"`
+	Duration    float32 `json:"duration"`
+	Size        int64   `json:"size"`
 }
 
 type DiscoveryTracks []DiscoveryTrack

@@ -30,21 +30,26 @@ func upCreateDiscoveryTables(ctx context.Context, tx *sql.Tx) error {
                 CREATE INDEX IF NOT EXISTS idx_discovery_owner ON discovery(owner_id);
                 CREATE INDEX IF NOT EXISTS idx_discovery_path ON discovery(path);
 
-                CREATE TABLE IF NOT EXISTS discovery_tracks (
-                        id            INTEGER NOT NULL,
-                        discovery_id  VARCHAR NOT NULL REFERENCES discovery(id) ON DELETE CASCADE,
-                        media_file_id VARCHAR NOT NULL REFERENCES media_file(id) ON DELETE CASCADE,
-                        PRIMARY KEY (discovery_id, id)
-                );
+               CREATE TABLE IF NOT EXISTS discovery_tracks (
+                       id            INTEGER NOT NULL,
+                       discovery_id  VARCHAR NOT NULL REFERENCES discovery(id) ON DELETE CASCADE,
+                       path          TEXT    NOT NULL,
+                       title         TEXT    NOT NULL DEFAULT '',
+                       artist        TEXT    NOT NULL DEFAULT '',
+                       album         TEXT    NOT NULL DEFAULT '',
+                       duration      REAL    NOT NULL DEFAULT 0,
+                       size          INTEGER NOT NULL DEFAULT 0,
+                       PRIMARY KEY (discovery_id, id)
+               );
 
-                CREATE INDEX IF NOT EXISTS idx_discovery_tracks_media ON discovery_tracks(media_file_id);
+               CREATE INDEX IF NOT EXISTS idx_discovery_tracks_path ON discovery_tracks(path);
         `)
 	return err
 }
 
 func downCreateDiscoveryTables(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `
-                DROP INDEX IF EXISTS idx_discovery_tracks_media;
+                DROP INDEX IF EXISTS idx_discovery_tracks_path;
                 DROP TABLE IF EXISTS discovery_tracks;
 
                 DROP INDEX IF EXISTS idx_discovery_owner_name;

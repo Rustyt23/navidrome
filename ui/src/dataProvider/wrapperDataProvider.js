@@ -26,7 +26,6 @@ const applyLibraryFilter = (resource, params) => {
     'song',
     'artist',
     'playlistTrack',
-    'discoveryTrack',
     'tag',
   ]
 

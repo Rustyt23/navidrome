@@ -1,12 +1,7 @@
 import React from 'react'
-import {
-  Datagrid,
-  FunctionField,
-  ListContextProvider,
-  useListContext,
-} from 'react-admin'
+import { Datagrid, ListContextProvider, TextField, useListContext } from 'react-admin'
 import { Card, CardContent } from '@material-ui/core'
-import { DurationField, SongContextMenu } from '../common'
+import { DurationField } from '../common'
 
 const DiscoverySongs = (props) => {
   const listContext = useListContext()
@@ -15,28 +10,11 @@ const DiscoverySongs = (props) => {
       <Card variant="outlined">
         <CardContent>
           <Datagrid rowClick="show" {...props} bulkActionButtons={false}>
-            <FunctionField
-              label="resources.song.fields.title"
-              render={(record) => record?.mediaFile?.title || ''}
-            />
-            <FunctionField
-              label="resources.song.fields.artist"
-              render={(record) => record?.mediaFile?.artist || ''}
-            />
-            <FunctionField
-              label="resources.song.fields.album"
-              render={(record) => record?.mediaFile?.album || ''}
-            />
-            <DurationField source="mediaFile.duration" />
-            <FunctionField
-              label="resources.song.fields.actions"
-              render={(record) => (
-                <SongContextMenu
-                  resource="song"
-                  record={{ ...record.mediaFile, playlistId: null }}
-                />
-              )}
-            />
+            <TextField source="title" label="resources.song.fields.title" />
+            <TextField source="artist" label="resources.song.fields.artist" />
+            <TextField source="album" label="resources.song.fields.album" />
+            <DurationField source="duration" />
+            <TextField source="path" label="resources.song.fields.path" />
           </Datagrid>
         </CardContent>
       </Card>

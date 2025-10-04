@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	. "github.com/Masterminds/squirrel"
@@ -17,17 +18,27 @@ type discoveryRepository struct {
 }
 
 type dbDiscoveryTrack struct {
-	dbMediaFile
-	*model.DiscoveryTrack `structs:",flatten"`
+	ID          int     `db:"id"`
+	DiscoveryID string  `db:"discovery_id"`
+	Path        string  `db:"path"`
+	Title       string  `db:"title"`
+	Artist      string  `db:"artist"`
+	Album       string  `db:"album"`
+	Duration    float64 `db:"duration"`
+	Size        int64   `db:"size"`
 }
 
-func (t *dbDiscoveryTrack) PostScan() error {
-	if err := t.dbMediaFile.PostScan(); err != nil {
-		return err
+func (t dbDiscoveryTrack) toModel() model.DiscoveryTrack {
+	return model.DiscoveryTrack{
+		ID:          strconv.Itoa(t.ID),
+		DiscoveryID: t.DiscoveryID,
+		Path:        t.Path,
+		Title:       t.Title,
+		Artist:      t.Artist,
+		Album:       t.Album,
+		Duration:    float32(t.Duration),
+		Size:        t.Size,
 	}
-	t.DiscoveryTrack.MediaFile = *t.dbMediaFile.MediaFile
-	t.DiscoveryTrack.MediaFile.ID = t.MediaFileID
-	return nil
 }
 
 type dbDiscoveryTracks []dbDiscoveryTrack
@@ -35,7 +46,7 @@ type dbDiscoveryTracks []dbDiscoveryTrack
 func (t dbDiscoveryTracks) toModels() model.DiscoveryTracks {
 	tracks := make(model.DiscoveryTracks, len(t))
 	for i := range t {
-		tracks[i] = *t[i].DiscoveryTrack
+		tracks[i] = t[i].toModel()
 	}
 	return tracks
 }
@@ -109,10 +120,7 @@ func (r *discoveryRepository) GetWithTracks(id string) (*model.Discovery, error)
 	if err != nil {
 		return nil, err
 	}
-	tracks, err := r.loadTracks(
-		r.newSelect().Columns("discovery_tracks.*").Where(Eq{"discovery_tracks.discovery_id": id}),
-		id,
-	)
+	tracks, err := r.loadTracks(r.newSelect(), id)
 	if err != nil {
 		return nil, fmt.Errorf("loading discovery tracks: %w", err)
 	}
@@ -169,34 +177,14 @@ func (r *discoveryRepository) Tracks(discoveryID string) model.DiscoveryTrackRep
 	return repo
 }
 
-func (r *discoveryRepository) GetDiscoveries(mediaFileId string) (model.Discoveries, error) {
-	sel := r.selectDiscovery().
-		Join("discovery_tracks on discovery.id = discovery_tracks.discovery_id").
-		Where(And{Eq{"discovery_tracks.media_file_id": mediaFileId}, r.userFilter()})
-	var res []struct {
-		model.Discovery
-		OwnerName string `db:"owner_name"`
-	}
-	if err := r.queryAll(sel, &res); err != nil {
-		return nil, err
-	}
-	out := make(model.Discoveries, len(res))
-	for i := range res {
-		res[i].Discovery.OwnerName = res[i].OwnerName
-		res[i].Discovery.Type = "discovery"
-		out[i] = res[i].Discovery
-	}
-	return out, nil
+func (r *discoveryRepository) GetDiscoveries(string) (model.Discoveries, error) {
+	return model.Discoveries{}, nil
 }
 
 func (r *discoveryRepository) loadTracks(sel SelectBuilder, id string) (model.DiscoveryTracks, error) {
 	sel = sel.
-		Columns(
-			"discovery_tracks.*",
-			"f.*",
-		).
+		Columns("discovery_tracks.*").
 		From("discovery_tracks").
-		Join("media_file f on f.id = discovery_tracks.media_file_id").
 		Where(Eq{"discovery_tracks.discovery_id": id}).
 		OrderBy("discovery_tracks.id")
 	rows := dbDiscoveryTracks{}
@@ -206,35 +194,30 @@ func (r *discoveryRepository) loadTracks(sel SelectBuilder, id string) (model.Di
 	return rows.toModels(), nil
 }
 
-func (r *discoveryRepository) ReplaceTracks(id string, mediaFileIDs []string) error {
+func (r *discoveryRepository) ReplaceTracks(id string, tracks model.DiscoveryTracks) error {
 	del := Delete("discovery_tracks").Where(Eq{"discovery_id": id})
 	if _, err := r.executeSQL(del); err != nil {
 		return err
 	}
-	if len(mediaFileIDs) == 0 {
-		return r.refreshCounters(id)
-	}
-	builder := Insert("discovery_tracks").Columns("id", "discovery_id", "media_file_id")
-	for idx, mfID := range mediaFileIDs {
-		builder = builder.Values(idx+1, id, mfID)
-	}
-	if _, err := r.executeSQL(builder); err != nil {
-		return err
-	}
-	return r.refreshCounters(id)
-}
 
-func (r *discoveryRepository) refreshCounters(id string) error {
+	var totalDuration float64
+	var totalSize int64
+	if len(tracks) > 0 {
+		builder := Insert("discovery_tracks").Columns("id", "discovery_id", "path", "title", "artist", "album", "duration", "size")
+		for idx, track := range tracks {
+			builder = builder.Values(idx+1, id, track.Path, track.Title, track.Artist, track.Album, track.Duration, track.Size)
+			totalDuration += float64(track.Duration)
+			totalSize += track.Size
+		}
+		if _, err := r.executeSQL(builder); err != nil {
+			return err
+		}
+	}
+
 	upd := Update("discovery").
-		Set("song_count", Select("count(*)").From("discovery_tracks").Where(Eq{"discovery_id": id})).
-		Set("duration", Select("ifnull(sum(m.duration),0)").
-			From("discovery_tracks dt").
-			Join("media_file m on m.id = dt.media_file_id").
-			Where(Eq{"dt.discovery_id": id})).
-		Set("size", Select("ifnull(sum(m.size),0)").
-			From("discovery_tracks dt").
-			Join("media_file m on m.id = dt.media_file_id").
-			Where(Eq{"dt.discovery_id": id})).
+		Set("song_count", len(tracks)).
+		Set("duration", totalDuration).
+		Set("size", totalSize).
 		Set("updated_at", time.Now()).
 		Where(Eq{"id": id})
 	_, err := r.executeSQL(upd)

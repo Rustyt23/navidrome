@@ -21,10 +21,15 @@ func (r *discoveryTrackRepository) Count(options ...rest.QueryOptions) (int64, e
 func (r *discoveryTrackRepository) Read(id string) (interface{}, error) {
 	sel := r.newSelect().
 		Columns("discovery_tracks.*").
-		Where(And{Eq{"discovery_tracks.discovery_id": r.discoveryID}, Eq{"discovery_tracks.id": id}})
-	var track model.DiscoveryTrack
-	err := r.queryOne(sel, &track)
-	return track, err
+		Where(Eq{"discovery_tracks.id": id})
+	tracks, err := r.discoveryRepo.loadTracks(sel, r.discoveryID)
+	if err != nil {
+		return nil, err
+	}
+	if len(tracks) == 0 {
+		return nil, rest.ErrNotFound
+	}
+	return tracks[0], nil
 }
 
 func (r *discoveryTrackRepository) ReadAll(options ...rest.QueryOptions) (interface{}, error) {

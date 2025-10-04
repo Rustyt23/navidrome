@@ -2,17 +2,19 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/storage"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	modelmetadata "github.com/navidrome/navidrome/model/metadata"
 	"github.com/navidrome/navidrome/model/request"
 )
 
@@ -92,17 +94,17 @@ func (d *discoveries) Sync(ctx context.Context) error {
 }
 
 func (d *discoveries) importDirectory(ctx context.Context, repo model.DiscoveryRepository, current model.Discovery, absPath, name string) error {
-	mediaFiles, err := d.collectMediaFiles(ctx, absPath)
+	tracks, err := d.collectTracks(ctx, absPath)
 	if err != nil {
 		return err
 	}
-	if len(mediaFiles) == 0 {
+	if len(tracks) == 0 {
 		return nil
 	}
 
 	usr, ok := request.UserFrom(ctx)
 	if !ok {
-		return errors.New("discovery sync requires authenticated user")
+		return fmt.Errorf("discovery sync requires authenticated user")
 	}
 
 	disc := &model.Discovery{}
@@ -113,25 +115,51 @@ func (d *discoveries) importDirectory(ctx context.Context, repo model.DiscoveryR
 	disc.OwnerID = usr.ID
 	disc.Path = absPath
 	disc.Comment = current.Comment
-	disc.AddMediaFiles(mediaFiles)
+	var totalDuration float32
+	var totalSize int64
+	for _, track := range tracks {
+		totalDuration += track.Duration
+		totalSize += track.Size
+	}
+	disc.Duration = totalDuration
+	disc.Size = totalSize
+	disc.SongCount = len(tracks)
 
 	if err := repo.Put(disc); err != nil {
 		return err
 	}
 
-	ids := make([]string, len(mediaFiles))
-	for i, mf := range mediaFiles {
-		ids[i] = mf.ID
-	}
-	if err := repo.ReplaceTracks(disc.ID, ids); err != nil {
+	if err := repo.ReplaceTracks(disc.ID, tracks); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (d *discoveries) collectMediaFiles(ctx context.Context, root string) (model.MediaFiles, error) {
-	var files []string
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+type fileInfoWithBirth struct {
+	fs.FileInfo
+}
+
+func (f fileInfoWithBirth) BirthTime() time.Time {
+	return f.ModTime()
+}
+
+type trackCandidate struct {
+	abs string
+	rel string
+}
+
+func (d *discoveries) collectTracks(ctx context.Context, root string) (model.DiscoveryTracks, error) {
+	store, err := storage.For(root)
+	if err != nil {
+		return nil, err
+	}
+	musicFS, err := store.FS()
+	if err != nil {
+		return nil, err
+	}
+
+	var candidates []trackCandidate
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -144,74 +172,73 @@ func (d *discoveries) collectMediaFiles(ctx context.Context, root string) (model
 		if !model.IsAudioFile(entry.Name()) {
 			return nil
 		}
-		files = append(files, path)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		candidates = append(candidates, trackCandidate{
+			abs: filepath.Clean(path),
+			rel: filepath.ToSlash(rel),
+		})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(files)
-	return d.lookupMediaFiles(ctx, files)
-}
-
-func (d *discoveries) lookupMediaFiles(ctx context.Context, files []string) (model.MediaFiles, error) {
-	if len(files) == 0 {
+	if len(candidates) == 0 {
 		return nil, nil
 	}
-	libs, err := d.ds.Library(ctx).GetAll()
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].abs < candidates[j].abs
+	})
+
+	relPaths := make([]string, len(candidates))
+	absPaths := make([]string, len(candidates))
+	for i, cand := range candidates {
+		relPaths[i] = cand.rel
+		absPaths[i] = cand.abs
+	}
+
+	tagResults, err := musicFS.ReadTags(relPaths...)
 	if err != nil {
-		return nil, err
+		log.Warn(ctx, "Discovery: unable to read tags", "path", root, err)
 	}
-	mfRepo := d.ds.MediaFile(ctx)
-	ordered := make(model.MediaFiles, 0, len(files))
-	for _, file := range files {
-		candidates := []string{filepath.Clean(file)}
-		if resolved, err := filepath.EvalSymlinks(file); err == nil {
-			resolved = filepath.Clean(resolved)
-			if resolved != candidates[0] {
-				candidates = append([]string{resolved}, candidates...)
+
+	tracks := make(model.DiscoveryTracks, 0, len(absPaths))
+	for idx, absPath := range absPaths {
+		relPath := relPaths[idx]
+		info, ok := tagResults[relPath]
+		if !ok {
+			info = modelmetadata.Info{}
+		}
+		if info.FileInfo == nil {
+			if stat, statErr := os.Stat(absPath); statErr == nil {
+				info.FileInfo = fileInfoWithBirth{FileInfo: stat}
 			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			log.Warn(ctx, "Discovery: unable to resolve symlink", "path", file, err)
+		}
+		md := modelmetadata.New(absPath, info)
+		title := md.String(model.TagTitle)
+		if title == "" {
+			base := filepath.Base(absPath)
+			title = strings.TrimSuffix(base, filepath.Ext(base))
+		}
+		artist := md.String(model.TagArtist)
+		album := md.String(model.TagAlbum)
+		size := int64(0)
+		if info.FileInfo != nil {
+			size = info.FileInfo.Size()
 		}
 
-		var matched bool
-		for _, candidate := range candidates {
-			rels := possibleRelatives(libs, candidate)
-			if len(rels) == 0 {
-				continue
-			}
-			mfs, err := mfRepo.FindByPaths(rels)
-			if err != nil {
-				return nil, err
-			}
-			if len(mfs) == 0 {
-				continue
-			}
-			ordered = append(ordered, mfs[0])
-			matched = true
-			break
-		}
-		if !matched {
-			log.Warn(ctx, "Discovery: media file not found", "path", file)
-		}
+		tracks = append(tracks, model.DiscoveryTrack{
+			Path:     absPath,
+			Title:    title,
+			Artist:   artist,
+			Album:    album,
+			Duration: md.Length(),
+			Size:     size,
+		})
 	}
-	return ordered, nil
-}
-
-func possibleRelatives(libs model.Libraries, path string) []string {
-	rels := []string{}
-	for _, lib := range libs {
-		rel, err := filepath.Rel(lib.Path, path)
-		if err != nil {
-			continue
-		}
-		if strings.HasPrefix(rel, "..") {
-			continue
-		}
-		rels = append(rels, filepath.ToSlash(rel))
-	}
-	return rels
+	return tracks, nil
 }
 
 func ensureDir(path string) error {
