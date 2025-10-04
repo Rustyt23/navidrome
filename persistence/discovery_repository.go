@@ -261,7 +261,7 @@ func (r *discoveryRepository) findBy(cond Sqlizer) (*model.Discovery, error) {
 
 func (r *discoveryRepository) selectDiscovery(options ...model.QueryOptions) SelectBuilder {
 	sel := r.newSelect(options...).
-		Columns("discovery.*", "owner.username as owner_name").
+		Columns("discovery.*", "owner.user_name as owner_name").
 		From("discovery").
 		LeftJoin("user owner on owner.id = discovery.owner_id")
 	return sel
