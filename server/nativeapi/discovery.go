@@ -19,6 +19,7 @@ func (n *Router) addDiscoveryRoute(r chi.Router) {
 		r.Route("/{id}", func(r chi.Router) {
 			r.Use(server.URLParamsMiddleware)
 			r.Get("/", n.getDiscovery())
+			r.Get("/tracks", n.getDiscoveryTracks())
 			r.Get("/export", n.exportDiscovery())
 		})
 	})
@@ -61,6 +62,23 @@ func (n *Router) getDiscovery() http.HandlerFunc {
 			return
 		}
 		rest.RespondWithJSON(w, http.StatusOK, entry)
+	}
+}
+
+func (n *Router) getDiscoveryTracks() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		tracks, err := n.discovery.Tracks(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, rest.ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			log.Error(r.Context(), "Error retrieving discovery playlist tracks", "id", id, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rest.RespondWithJSON(w, http.StatusOK, tracks)
 	}
 }
 

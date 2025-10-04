@@ -133,22 +133,127 @@ const applyDiscoveryFilter = (records, filter) => {
   )
 }
 
+const applyDiscoveryTrackFilter = (records, filter = {}) => {
+  const query = String(filter.q || '').trim().toLowerCase()
+  if (!query) {
+    return [...records]
+  }
+  return records.filter((track) => {
+    const candidates = [
+      track?.title,
+      track?.album,
+      track?.artist,
+      track?.albumArtist,
+      track?.path,
+    ]
+    return candidates.some((value) =>
+      String(value || '')
+        .toLowerCase()
+        .includes(query),
+    )
+  })
+}
+
 const getDiscoveryList = async (params = {}) => {
   const { pagination = {}, sort, filter } = params
   const { json } = await httpClient(`${REST_URL}/discovery`)
   const records = Array.isArray(json) ? json : []
   const filtered = applyDiscoveryFilter(records, filter)
   const sorted = sortDiscoveryRecords(filtered, sort)
+  const perPageRaw = pagination.perPage
+  const perPage =
+    perPageRaw === 0
+      ? sorted.length || 1
+      : Math.max(1, perPageRaw || (sorted.length || 1))
   const page = Math.max(1, pagination.page || 1)
-  const perPage = Math.max(1, pagination.perPage || (sorted.length || 1))
   const start = (page - 1) * perPage
-  const paginated = sorted.slice(start, start + perPage)
+  const end = perPageRaw === 0 ? sorted.length : start + perPage
+  const paginated = sorted.slice(start, end)
   return { data: paginated, total: sorted.length }
 }
 
 const getDiscoveryOne = async (id) => {
   const { json } = await httpClient(`${REST_URL}/discovery/${id}`)
   return { data: json }
+}
+
+const findDiscoveryTrack = async (trackId, discoveryId) => {
+  if (!trackId) {
+    return null
+  }
+
+  const searchWithin = async (id) => {
+    if (!id) {
+      return null
+    }
+    const res = await getDiscoveryTracks({
+      filter: { discovery_id: id },
+      pagination: { page: 1, perPage: 0 },
+    })
+    return res.data.find((item) => item.id === trackId) || null
+  }
+
+  const direct = await searchWithin(discoveryId)
+  if (direct) {
+    return direct
+  }
+
+  const all = await getDiscoveryList({
+    pagination: { page: 1, perPage: 0 },
+  })
+
+  for (const playlist of all.data) {
+    const found = await searchWithin(playlist.id)
+    if (found) {
+      return found
+    }
+  }
+
+  return null
+}
+
+const sortDiscoveryTracks = (records, sort) => {
+  if (!sort?.field) {
+    return [...records]
+  }
+  const { field, order } = sort
+  const direction = order === 'DESC' ? -1 : 1
+  return [...records].sort((a, b) => {
+    const aValue = a?.[field]
+    const bValue = b?.[field]
+    if (typeof aValue === 'number' && typeof bValue === 'number') {
+      return (aValue - bValue) * direction
+    }
+    const aText = String(aValue ?? '').toLowerCase()
+    const bText = String(bValue ?? '').toLowerCase()
+    return aText.localeCompare(bText) * direction
+  })
+}
+
+const getDiscoveryTracks = async (params = {}) => {
+  const { pagination = {}, sort, filter = {} } = params
+  const discoveryId =
+    filter.discovery_id || filter.discoveryId || filter.id || ''
+  if (!discoveryId) {
+    return { data: [], total: 0 }
+  }
+  const { json } = await httpClient(
+    `${REST_URL}/discovery/${discoveryId}/tracks`,
+  )
+  const records = Array.isArray(json) ? json : []
+  const filtered = applyDiscoveryTrackFilter(records, filter)
+  const sorted = sortDiscoveryTracks(filtered, sort)
+  const total = sorted.length
+  const perPageRaw = pagination.perPage
+  const perPage =
+    perPageRaw === 0
+      ? total || 1
+      : Math.max(1, perPageRaw || (sorted.length || 1))
+  const page = Math.max(1, pagination.page || 1)
+  const start = (page - 1) * perPage
+  const end = perPageRaw === 0 ? sorted.length : start + perPage
+  const paginated = sorted.slice(start, end)
+  return { data: paginated, total }
 }
 
 // Enhanced user creation that handles library associations
@@ -202,12 +307,20 @@ const wrapperDataProvider = {
     if (resource === 'discovery') {
       return getDiscoveryList(params)
     }
+    if (resource === 'discoveryTrack') {
+      return getDiscoveryTracks(params)
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getList(r, p)
   },
   getOne: (resource, params) => {
     if (resource === 'discovery') {
       return getDiscoveryOne(params.id)
+    }
+    if (resource === 'discoveryTrack') {
+      return findDiscoveryTrack(params.id, params?.filter?.discovery_id).then(
+        (track) => ({ data: track }),
+      )
     }
     const [r, p] = mapResource(resource, params)
     const response = dataProvider.getOne(r, p)
@@ -231,12 +344,24 @@ const wrapperDataProvider = {
         data: results.map((item) => item.data),
       }))
     }
+    if (resource === 'discoveryTrack') {
+      const filter = params?.filter || {}
+      return getDiscoveryTracks({
+        filter,
+        pagination: { page: 1, perPage: 0 },
+      }).then((res) => ({
+        data: res.data.filter((track) => params.ids.includes(track.id)),
+      }))
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getMany(r, p)
   },
   getManyReference: (resource, params) => {
     if (resource === 'discovery') {
       return getDiscoveryList(params)
+    }
+    if (resource === 'discoveryTrack') {
+      return getDiscoveryTracks(params)
     }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getManyReference(r, p)

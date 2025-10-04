@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ type Discovery interface {
 	Get(ctx context.Context, id string) (*model.DiscoveryPlaylist, error)
 	Export(ctx context.Context, id string, w io.Writer) error
 	Refresh(ctx context.Context) (model.DiscoveryPlaylists, error)
+	Tracks(ctx context.Context, id string) (model.DiscoveryTracks, error)
 }
 
 type discovery struct {
@@ -62,19 +64,19 @@ func (d *discovery) Refresh(ctx context.Context) (model.DiscoveryPlaylists, erro
 			continue
 		}
 		folderPath := filepath.Join(root, entry.Name())
-		tracks, err := d.collectTracks(folderPath)
+		trackPaths, err := d.collectTrackPaths(folderPath)
 		if err != nil {
 			log.Error(ctx, "Error collecting discovery playlist tracks", "folder", folderPath, err)
 			continue
 		}
-		if len(tracks) == 0 {
+		if len(trackPaths) == 0 {
 			continue
 		}
 		playlists = append(playlists, model.DiscoveryPlaylist{
 			ID:         id.NewHash(folderPath),
 			Name:       entry.Name(),
 			FolderPath: folderPath,
-			SongCount:  len(tracks),
+			SongCount:  len(trackPaths),
 			UpdatedAt:  now,
 		})
 	}
@@ -92,24 +94,35 @@ func (d *discovery) Get(ctx context.Context, id string) (*model.DiscoveryPlaylis
 	if err != nil {
 		return nil, err
 	}
-	tracks, err := d.collectTracks(entry.FolderPath)
+	tracks, err := d.buildTracks(ctx, entry)
 	if err != nil {
 		return nil, err
 	}
 	entry.Tracks = tracks
 	entry.SongCount = len(tracks)
+	entry.Sync = false
+	entry.Duration = 0
+	entry.Size = 0
+	for _, track := range tracks {
+		entry.Duration += track.MediaFile.Duration
+		entry.Size += track.MediaFile.Size
+	}
 	return entry, nil
 }
 
 func (d *discovery) Export(ctx context.Context, id string, w io.Writer) error {
-	entry, err := d.Get(ctx, id)
+	entry, err := d.ds.DiscoveryPlaylist(ctx).Get(id)
 	if err != nil {
 		return err
 	}
 	builder := &strings.Builder{}
 	builder.WriteString("#EXTM3U\n")
 	builder.WriteString("#PLAYLIST:" + entry.Name + "\n")
-	for _, track := range entry.Tracks {
+	trackPaths, err := d.collectTrackPaths(entry.FolderPath)
+	if err != nil {
+		return err
+	}
+	for _, track := range trackPaths {
 		builder.WriteString(track)
 		builder.WriteString("\n")
 	}
@@ -117,7 +130,7 @@ func (d *discovery) Export(ctx context.Context, id string, w io.Writer) error {
 	return err
 }
 
-func (d *discovery) collectTracks(folder string) ([]string, error) {
+func (d *discovery) collectTrackPaths(folder string) ([]string, error) {
 	var tracks []string
 	err := filepath.WalkDir(folder, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -144,4 +157,56 @@ func (d *discovery) collectTracks(folder string) ([]string, error) {
 	}
 	sort.Strings(tracks)
 	return tracks, nil
+}
+
+func (d *discovery) buildTracks(ctx context.Context, entry *model.DiscoveryPlaylist) (model.DiscoveryTracks, error) {
+	paths, err := d.collectTrackPaths(entry.FolderPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	repo := d.ds.MediaFile(ctx)
+	mediaFiles, err := repo.FindByPaths(paths)
+	if err != nil {
+		return nil, err
+	}
+	mfByPath := make(map[string]model.MediaFile, len(mediaFiles))
+	for _, mf := range mediaFiles {
+		mfByPath[strings.ToLower(filepath.ToSlash(mf.Path))] = mf
+	}
+	tracks := make(model.DiscoveryTracks, 0, len(paths))
+	for idx, path := range paths {
+		key := strings.ToLower(path)
+		mediaFile, ok := mfByPath[key]
+		if !ok {
+			mediaFile = model.MediaFile{
+				ID:      id.NewHash(entry.ID + path),
+				Path:    path,
+				Title:   filepath.Base(path),
+				Missing: true,
+			}
+		}
+		trackID := mediaFile.ID
+		if trackID == "" {
+			trackID = id.NewHash(entry.ID + path + "#" + strconv.Itoa(idx))
+		}
+		tracks = append(tracks, model.DiscoveryTrack{
+			ID:          trackID,
+			DiscoveryID: entry.ID,
+			MediaFileID: mediaFile.ID,
+			Position:    idx + 1,
+			MediaFile:   mediaFile,
+		})
+	}
+	return tracks, nil
+}
+
+func (d *discovery) Tracks(ctx context.Context, id string) (model.DiscoveryTracks, error) {
+	entry, err := d.ds.DiscoveryPlaylist(ctx).Get(id)
+	if err != nil {
+		return nil, err
+	}
+	return d.buildTracks(ctx, entry)
 }
