@@ -128,7 +128,8 @@ const FolderChildrenList = (props) => {
     (id, rec) => {
       const folderPath = '/discovery/folder'
       const playlistPath = '/discovery'
-      return rec?.type === 'folder'
+      const recordType = rec?.type
+      return recordType === 'folder' || recordType === 'discoveryFolder'
         ? `${folderPath}/${id}/show`
         : `${playlistPath}/${id}/show`
     },

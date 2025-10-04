@@ -125,7 +125,8 @@ const DiscoveryFolderList = (props) => {
     (id, record) => {
       const folderPath = '/discovery/folder'
       const playlistPath = '/discovery'
-      return record?.type === 'folder'
+      const recordType = record?.type
+      return recordType === 'folder' || recordType === 'discoveryFolder'
         ? `${folderPath}/${id}/show`
         : `${playlistPath}/${id}/show`
     },

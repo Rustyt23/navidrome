@@ -2,7 +2,6 @@ import React, { cloneElement, useCallback, useMemo, useRef, useState } from 'rea
 import {
   sanitizeListRestProps,
   TopToolbar,
-  useDataProvider,
   useListContext,
   useNotify,
   useRefresh,
@@ -45,12 +44,12 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
   const classes = useStyles()
   const translate = useTranslate()
   const notify = useNotify()
-  const dataProvider = useDataProvider()
   const refresh = useRefresh()
   const { selectedIds = [], data = {} } = useListContext() || {}
   const [createOpen, setCreateOpen] = useState(false)
   const [folderName, setFolderName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef(null)
   const targetParentId = useMemo(() => {
     if (parentId !== undefined) {
@@ -74,12 +73,15 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
       }
       setSaving(true)
       try {
-        await dataProvider.create('discoveryFolder', {
-          data: {
-            name: folderName.trim(),
-            public: true,
-            parentId: targetParentId ?? null,
-          },
+        const body = {
+          name: folderName.trim(),
+          public: true,
+          parentId: targetParentId ?? null,
+        }
+        await httpClient(`${REST_URL}/discovery/folder`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
         })
         notify('ra.notification.created', 'info', { smart_count: 1 })
         refresh()
@@ -93,11 +95,11 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
         setSaving(false)
       }
     },
-    [dataProvider, folderName, notify, refresh, targetParentId],
+    [folderName, notify, refresh, targetParentId],
   )
 
   const ensureFolderIdForUpload = useCallback(() => {
-    if (targetParentId) {
+    if (targetParentId !== undefined && targetParentId !== null && targetParentId !== '') {
       return targetParentId
     }
     notify('message.selectDiscoveryFolder', 'warning')
@@ -123,6 +125,7 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
       const formData = new FormData()
       files.forEach((file) => formData.append('files', file))
       try {
+        setUploading(true)
         await httpClient(`${REST_URL}/discovery/folder/${folderId}/upload`, {
           method: 'POST',
           body: formData,
@@ -132,6 +135,8 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
         refresh()
       } catch (error) {
         notify('ra.page.error', 'warning')
+      } finally {
+        setUploading(false)
       }
     },
     [ensureFolderIdForUpload, notify, refresh],
@@ -154,6 +159,7 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
           color="primary"
           startIcon={<CloudUploadIcon />}
           onClick={handleUploadClick}
+          disabled={uploading}
         >
           {translate('ra.action.upload') || 'Upload'}
         </Button>
