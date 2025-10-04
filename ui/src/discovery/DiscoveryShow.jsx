@@ -12,7 +12,7 @@ import {
 } from '@material-ui/core'
 import RefreshIcon from '@material-ui/icons/Refresh'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
-import { Button, RaTitle, TopToolbar, useNotify, useTranslate } from 'react-admin'
+import { Button, Title as RaTitle, TopToolbar, useNotify, useTranslate } from 'react-admin'
 import { useParams } from 'react-router-dom'
 import httpClient from '../dataProvider/httpClient'
 import { M3U_MIME_TYPE, REST_URL } from '../consts'
