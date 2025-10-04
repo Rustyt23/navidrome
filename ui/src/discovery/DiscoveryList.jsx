@@ -26,8 +26,9 @@ import {
   useSelectedFields,
   useResourceRefresh,
 } from '../common'
-import DiscoveryListActions from './DiscoveryListActions'
+import PlaylistListActions from '../playlist/PlaylistListActions'
 import ChangePublicStatusButton from '../playlist/ChangePublicStatusButton'
+import DiscoveryListActions from './DiscoveryListActions'
 
 const DiscoveryFilter = (props) => {
   const { permissions } = usePermissions()
@@ -162,7 +163,7 @@ const DiscoveryList = (props) => {
       {...props}
       exporter={false}
       filters={<DiscoveryFilter />}
-      actions={<DiscoveryListActions />}
+      actions={<DiscoveryListActions fallbackActions={<PlaylistListActions />} />}
       bulkActionButtons={!isXsmall && <DiscoveryListBulkActions />}
     >
       <Datagrid rowClick="show" isRowSelectable={(r) => isWritable(r?.ownerId)}>

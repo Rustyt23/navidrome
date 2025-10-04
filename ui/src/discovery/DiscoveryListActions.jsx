@@ -1,11 +1,13 @@
-import React, { cloneElement, useCallback, useMemo, useRef, useState } from 'react'
+import React, { cloneElement, useMemo, useRef, useState } from 'react'
 import {
   sanitizeListRestProps,
   TopToolbar,
   useListContext,
   useNotify,
-  useRefresh,
   useTranslate,
+  useDataProvider,
+  useRefresh,
+  useResourceContext,
 } from 'react-admin'
 import {
   Button,
@@ -15,136 +17,136 @@ import {
   DialogTitle,
   TextField,
   makeStyles,
+  useMediaQuery,
 } from '@material-ui/core'
 import AddIcon from '@material-ui/icons/Add'
 import CloudUploadIcon from '@material-ui/icons/CloudUpload'
+
 import PropTypes from 'prop-types'
 
-import httpClient from '../dataProvider/httpClient'
+import { ToggleFieldsMenu } from '../common'
 import { REST_URL } from '../consts'
+import { httpClient } from '../dataProvider'
 
 const useStyles = makeStyles((theme) => ({
   toolbar: { display: 'flex', gap: theme.spacing(1), alignItems: 'center' },
   hiddenInput: { display: 'none' },
 }))
 
-const isFolderRecord = (record) => {
-  if (!record) return false
-  const type = record.type || record?.Type
-  return type === 'folder' || type === 'discoveryFolder'
-}
-
-const normalizeParentId = (value) => {
-  if (value === undefined) return undefined
-  if (value === null || value === '') return null
+const normalizeFolderId = (value) => {
+  if (value === undefined || value === null) return null
+  if (value === '') return null
   return value
 }
 
-const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
+const DiscoveryListActions = ({ className, fallbackActions, ...rest }) => {
+  const resource = useResourceContext() || 'discovery'
+  if (resource !== 'discovery') {
+    return fallbackActions ? cloneElement(fallbackActions, rest) : null
+  }
+
   const classes = useStyles()
   const translate = useTranslate()
   const notify = useNotify()
   const refresh = useRefresh()
-  const { selectedIds = [], data = {} } = useListContext() || {}
+  const dataProvider = useDataProvider()
+  const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
+  const fileInputRef = useRef(null)
+
+  const { filterValues = {} } = useListContext() || {}
+  const currentFolderId = useMemo(
+    () =>
+      normalizeFolderId(
+        filterValues.parent_id ??
+          filterValues.folder_id ??
+          filterValues.folderId ??
+          filterValues.discoveryFolderId,
+      ),
+    [filterValues],
+  )
+
   const [createOpen, setCreateOpen] = useState(false)
   const [folderName, setFolderName] = useState('')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const fileInputRef = useRef(null)
-  const targetParentId = useMemo(() => {
-    if (parentId !== undefined) {
-      return normalizeParentId(parentId)
-    }
-    const selectedFolderId = selectedIds.find((id) => isFolderRecord(data?.[id]))
-    return normalizeParentId(selectedFolderId)
-  }, [data, parentId, selectedIds])
 
-  const handleDialogClose = () => {
+  const closeDialog = () => {
     setCreateOpen(false)
     setFolderName('')
     setSaving(false)
   }
 
-  const handleCreate = useCallback(
-    async (event) => {
-      event.preventDefault()
-      if (!folderName.trim()) {
-        return
+  const handleCreate = async (event) => {
+    event.preventDefault()
+    if (!folderName.trim()) return
+    setSaving(true)
+    try {
+      const payload = {
+        name: folderName.trim(),
+        public: true,
       }
-      setSaving(true)
-      try {
-        const body = {
-          name: folderName.trim(),
-          public: true,
-          parentId: targetParentId ?? null,
-        }
-        await httpClient(`${REST_URL}/discovery/folder`, {
-          method: 'POST',
-          body: JSON.stringify(body),
-          headers: new Headers({ 'Content-Type': 'application/json' }),
-        })
-        notify('ra.notification.created', 'info', { smart_count: 1 })
-        refresh()
-        handleDialogClose()
-      } catch (error) {
-        if (error?.status === 409) {
-          notify('message.folderExists', 'warning')
-        } else {
-          notify('ra.page.error', 'warning')
-        }
-        setSaving(false)
+      if (currentFolderId) {
+        payload.parentId = currentFolderId
       }
-    },
-    [folderName, notify, refresh, targetParentId],
-  )
-
-  const ensureFolderIdForUpload = useCallback(() => {
-    if (targetParentId !== undefined && targetParentId !== null && targetParentId !== '') {
-      return targetParentId
+      await dataProvider.create('discoveryFolder', { data: payload })
+      notify('ra.notification.created', 'info', { smart_count: 1 })
+      refresh()
+      closeDialog()
+    } catch (error) {
+      if (error?.status === 409) {
+        notify('message.folderExists', 'warning')
+      } else {
+        notify('ra.page.error', 'warning')
+      }
+      setSaving(false)
     }
-    notify('message.selectDiscoveryFolder', 'warning')
-    return null
-  }, [notify, targetParentId])
+  }
+
+  const ensureFolderSelected = () => {
+    if (!currentFolderId) {
+      notify('message.selectDiscoveryFolder', 'warning')
+      return false
+    }
+    return true
+  }
 
   const handleUploadClick = () => {
-    if (!ensureFolderIdForUpload()) {
+    if (!ensureFolderSelected()) {
       return
     }
     fileInputRef.current?.click()
   }
 
-  const handleFilesSelected = useCallback(
-    async (event) => {
-      const files = Array.from(event.target.files || [])
-      event.target.value = ''
-      if (!files.length) return
-      const folderId = ensureFolderIdForUpload()
-      if (!folderId) {
-        return
-      }
-      const formData = new FormData()
-      files.forEach((file) => formData.append('files', file))
-      try {
-        setUploading(true)
-        await httpClient(`${REST_URL}/discovery/folder/${folderId}/upload`, {
-          method: 'POST',
-          body: formData,
-          headers: new Headers(),
-        })
-        notify('message.uploadSuccess', 'info', { smart_count: files.length })
-        refresh()
-      } catch (error) {
-        notify('ra.page.error', 'warning')
-      } finally {
-        setUploading(false)
-      }
-    },
-    [ensureFolderIdForUpload, notify, refresh],
-  )
+  const handleFilesSelected = async (event) => {
+    const files = Array.from(event.target.files || [])
+    event.target.value = ''
+    if (!files.length) return
+    if (!ensureFolderSelected()) {
+      return
+    }
+
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+
+    try {
+      setUploading(true)
+      await httpClient(`${REST_URL}/discovery/folder/${currentFolderId}/upload`, {
+        method: 'POST',
+        body: formData,
+        headers: new Headers(),
+      })
+      notify('message.uploadSuccess', 'info', { smart_count: files.length })
+      refresh()
+    } catch (error) {
+      notify('ra.page.error', 'warning')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
-      {filters && cloneElement(filters, { context: 'button' })}
+      {rest.filters && cloneElement(rest.filters, { context: 'button' })}
       <div className={classes.toolbar}>
         <Button
           variant="contained"
@@ -152,7 +154,7 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
           startIcon={<AddIcon />}
           onClick={() => setCreateOpen(true)}
         >
-          {translate('ra.action.create')}
+          {translate('resources.discovery.actions.createFolder')}
         </Button>
         <Button
           variant="contained"
@@ -172,8 +174,9 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
           onChange={handleFilesSelected}
         />
       </div>
-      <Dialog open={createOpen} onClose={handleDialogClose} aria-labelledby="create-discovery-folder">
-        <DialogTitle id="create-discovery-folder">
+      {isNotSmall && <ToggleFieldsMenu resource={resource} />}
+      <Dialog open={createOpen} onClose={closeDialog} aria-labelledby="create-discovery-folder-dialog">
+        <DialogTitle id="create-discovery-folder-dialog">
           {translate('resources.discovery.actions.createFolder')}
         </DialogTitle>
         <DialogContent>
@@ -181,13 +184,17 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
             autoFocus
             margin="dense"
             fullWidth
-            label={translate('resources.discovery.fields.name') || translate('resources.discoveryFolder.fields.name') || translate('ra.field.name')}
+            label={
+              translate('resources.discovery.fields.name') ||
+              translate('resources.discoveryFolder.fields.name') ||
+              translate('ra.field.name')
+            }
             value={folderName}
             onChange={(e) => setFolderName(e.target.value)}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleDialogClose} color="primary">
+          <Button onClick={closeDialog} color="primary">
             {translate('ra.action.cancel')}
           </Button>
           <Button onClick={handleCreate} color="primary" disabled={!folderName.trim() || saving}>
@@ -201,12 +208,11 @@ const DiscoveryListActions = ({ className, filters, parentId, ...rest }) => {
 
 DiscoveryListActions.propTypes = {
   className: PropTypes.string,
-  filters: PropTypes.element,
-  parentId: PropTypes.oneOfType([PropTypes.string, PropTypes.number, PropTypes.oneOf([null])]),
+  fallbackActions: PropTypes.element,
 }
 
 DiscoveryListActions.defaultProps = {
-  parentId: undefined,
+  fallbackActions: null,
 }
 
 export default DiscoveryListActions
