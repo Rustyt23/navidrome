@@ -58,6 +58,8 @@ const useBulkActionHandler = (listResource, actionKind, makePublic) => {
   const unselectAll = useUnselectAll()
   const refresh = useRefresh()
   const [loading, setLoading] = useState(false)
+  const folderResource = listResource || 'folder'
+  const playlistResource = folderResource === 'discoveryFolder' ? 'discovery' : 'playlist'
 
   return useMemo(
     () =>
@@ -66,12 +68,14 @@ const useBulkActionHandler = (listResource, actionKind, makePublic) => {
         setLoading(true)
         try {
           const playlistIds = []
+          const discoveryIds = []
           const folderIds = []
 
           selectedIds.forEach((id) => {
             const rec = getRecord(data, id)
             if (!rec) return
             if (rec.type === 'playlist') playlistIds.push(id)
+            else if (rec.type === 'discovery') discoveryIds.push(id)
             else if (rec.type === 'folder') folderIds.push(id)
           })
 
@@ -80,18 +84,28 @@ const useBulkActionHandler = (listResource, actionKind, makePublic) => {
           if (actionKind === 'togglePublic') {
             if (playlistIds.length)
               ops.push(safeUpdateMany(dataProvider, 'playlist', playlistIds, { public: makePublic }))
+            if (discoveryIds.length)
+              ops.push(
+                safeUpdateMany(dataProvider, playlistResource, discoveryIds, {
+                  public: makePublic,
+                })
+              )
             if (folderIds.length)
               ops.push(
-                safeUpdateMany(dataProvider, 'folder', folderIds, { public: makePublic })
+                safeUpdateMany(dataProvider, folderResource, folderIds, {
+                  public: makePublic,
+                })
               )
           }
 
           if (actionKind === 'delete') {
             if (playlistIds.length)
               ops.push(safeDeleteMany(dataProvider, 'playlist', playlistIds))
+            if (discoveryIds.length)
+              ops.push(safeDeleteMany(dataProvider, playlistResource, discoveryIds))
             if (folderIds.length)
               ops.push(
-                safeDeleteMany(dataProvider, 'folder', folderIds)
+                safeDeleteMany(dataProvider, folderResource, folderIds)
               )
           }
 
@@ -117,17 +131,29 @@ const useBulkActionHandler = (listResource, actionKind, makePublic) => {
             )
           }
 
-          unselectAll(listResource)
+          unselectAll(folderResource)
           refresh({ hard: true })
         } finally {
           setLoading(false)
         }
       },
-    [selectedIds, data, dataProvider, notify, unselectAll, refresh, listResource, actionKind, makePublic, loading]
+    [
+      selectedIds,
+      data,
+      dataProvider,
+      notify,
+      unselectAll,
+      refresh,
+      folderResource,
+      playlistResource,
+      actionKind,
+      makePublic,
+      loading,
+    ]
   )
 }
 
-const CustomBulkDeleteButton = ({ resource }) => {
+const CustomBulkDeleteButton = ({ resource = 'folder' }) => {
   const classes = useStyles()
   const translate = useTranslate()
   const handleBulkDelete = useBulkActionHandler(resource, 'delete')
@@ -144,13 +170,14 @@ const CustomBulkDeleteButton = ({ resource }) => {
   )
 }
 
-const ChangePublicStatusButton = ({ resource, makePublic }) => {
+const ChangePublicStatusButton = ({ resource = 'folder', makePublic }) => {
   const classes = useStyles()
   const translate = useTranslate()
   const handleChangeStatus = useBulkActionHandler(resource, 'togglePublic', makePublic)
+  const baseKey = resource === 'discoveryFolder' ? 'resources.discovery.actions' : 'resources.playlist.actions'
   const label = makePublic
-    ? translate('resources.playlist.actions.makePublic')
-    : translate('resources.playlist.actions.makePrivate')
+    ? translate(`${baseKey}.makePublic`)
+    : translate(`${baseKey}.makePrivate`)
   const icon = makePublic ? <LockOpen /> : <Lock />
 
   return (

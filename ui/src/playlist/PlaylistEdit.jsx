@@ -16,6 +16,7 @@ import {
   useRefresh,
   useDataProvider,
   useRecordContext,
+  useResourceContext,
   Toolbar,
   SaveButton,
 } from 'react-admin'
@@ -37,7 +38,8 @@ const SyncFragment = ({ formData, variant, ...rest }) => {
 
 const PlaylistTitle = ({ record }) => {
   const translate = useTranslate()
-  const resourceName = translate('resources.playlist.name', { smart_count: 1 })
+  const resource = useResourceContext() || 'playlist'
+  const resourceName = translate(`resources.${resource}.name`, { smart_count: 1 })
   return <Title subTitle={`${resourceName} "${record ? record.name : ''}"`} />
 }
 
@@ -55,6 +57,9 @@ const PlaylistEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   const redirect = useRedirect()
   const refresh = useRefresh()
   const location = useLocation()
+  const resource = useResourceContext() || 'playlist'
+  const folderBasePath = resource === 'discovery' ? '/discovery/folder' : '/folder'
+  const folderStateKey = resource === 'discovery' ? 'discoveryFolderId' : 'playlistFolderId'
 
   const { pristine, submitting, invalid } = useFormState({
     subscription: { pristine: true, submitting: true, invalid: true },
@@ -64,12 +69,16 @@ const PlaylistEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   const handleDelete = async () => {
     if (!record?.id) return
     try {
-      await dataProvider.delete('playlist', { id: record.id })
+      await dataProvider.delete(resource, { id: record.id })
       notify('ra.notification.deleted', { type: 'info', messageArgs: { smart_count: 1 } })
 
-      const folderId = record?.folderId ?? location.state?.folderId ?? null
-      if (folderId) redirect(`/folder/${folderId}/show`)
-      else redirect('list', '/folder')
+      const folderId =
+        record?.folderId ??
+        location.state?.folderId ??
+        location.state?.[folderStateKey] ??
+        null
+      if (folderId) redirect(`${folderBasePath}/${folderId}/show`)
+      else redirect('list', folderBasePath)
 
       refresh()
     } catch (e) {
@@ -102,27 +111,34 @@ const PlaylistEditForm = () => {
   const redirect = useRedirect()
   const refresh = useRefresh()
   const location = useLocation()
+  const resource = useResourceContext() || 'playlist'
+  const folderBasePath = resource === 'discovery' ? '/discovery/folder' : '/folder'
+  const folderStateKey = resource === 'discovery' ? 'discoveryFolderId' : 'playlistFolderId'
 
   const savePlaylist = useCallback(
     async (values) => {
       if (!record?.id) return
       try {
-        const res = await dataProvider.update('playlist', { id: record.id, data: values })
+        const res = await dataProvider.update(resource, { id: record.id, data: values })
         const saved = res?.data ?? values
         notify('ra.notification.updated', { type: 'info', messageArgs: { smart_count: 1 } })
 
         const folderId =
-          saved?.folderId ?? saved?.folder_id ?? location.state?.folderId ?? null
+          saved?.folderId ??
+          saved?.folder_id ??
+          location.state?.folderId ??
+          location.state?.[folderStateKey] ??
+          null
 
-        if (folderId) redirect(`/folder/${folderId}/show`)
-        else redirect('list', '/folder')
+        if (folderId) redirect(`${folderBasePath}/${folderId}/show`)
+        else redirect('list', folderBasePath)
 
         refresh()
       } catch (e) {
         notify(e?.message || 'ra.page.error', { type: 'warning' })
       }
     },
-    [dataProvider, record?.id, notify, redirect, refresh, location]
+    [dataProvider, record?.id, notify, redirect, refresh, location, resource, folderBasePath, folderStateKey]
   )
 
   return (
@@ -142,7 +158,7 @@ const PlaylistEditForm = () => {
           sort={{ field: 'name', order: 'ASC' }}
         >
           <SelectInput
-            label={'resources.playlist.fields.ownerName'}
+            label={`resources.${resource}.fields.ownerName`}
             optionText="userName"
           />
         </ReferenceInput>

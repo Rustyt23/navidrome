@@ -8,8 +8,8 @@ import {
   Filter,
   Pagination,
   Title as RaTitle,
-} 
-from 'react-admin'
+  useResourceContext,
+} from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import PlaylistDetails from './PlaylistDetails'
 import PlaylistSongs from './PlaylistSongs'
@@ -32,6 +32,9 @@ const PlaylistShowLayout = (props) => {
   const { record } = context
   const classes = useStyles()
   useResourceRefresh('song')
+  const resource = useResourceContext() || 'playlist'
+  const trackResource = resource === 'discovery' ? 'discoverySong' : 'playlistTrack'
+  const trackFilterKey = resource === 'discovery' ? 'discovery_id' : 'playlist_id'
 
   // Store search query in state to prevent losing focus
   const [searchTerm, setSearchTerm] = useState('')
@@ -61,11 +64,11 @@ const PlaylistShowLayout = (props) => {
           <ReferenceManyField
             {...context}
             addLabel={false}
-            reference="playlistTrack"
-            target="playlist_id"
+            reference={trackResource}
+            target={trackFilterKey}
             sort={{ field: 'id', order: 'ASC' }}
             perPage={50}
-            filter={{ playlist_id: props.id, q: searchTerm }} // Pass searchTerm as a filter
+            filter={{ [trackFilterKey]: props.id, q: searchTerm }} // Pass searchTerm as a filter
           >
             <PlaylistSongs
               {...props}
@@ -77,7 +80,7 @@ const PlaylistShowLayout = (props) => {
                   record={record}
                 />
               }
-              resource={'playlistTrack'}
+              resource={trackResource}
               exporter={false}
               pagination={<Pagination rowsPerPageOptions={[25, 50, 100, 200]}
               perPage={50}

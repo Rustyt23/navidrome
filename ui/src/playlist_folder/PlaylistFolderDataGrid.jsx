@@ -6,6 +6,7 @@ import {
   useDataProvider,
   useNotify,
   useRefresh,
+  useResourceContext,
 } from 'react-admin'
 import PropTypes from 'prop-types'
 import clsx from 'clsx'
@@ -38,11 +39,14 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
   const refresh = useRefresh()
   const history = useHistory()
   const location = useLocation()
+  const listResource = useResourceContext() || 'folder'
+  const isDiscovery = listResource === 'discoveryFolder' || record.type === 'discovery'
 
   const pathname = location?.pathname || '/'
 
   const sourceId = (() => {
-    const m = matchPath(pathname, { path: '/folder/:id/show', exact: false })
+    const pattern = isDiscovery ? '/discovery/folder/:id/show' : '/folder/:id/show'
+    const m = matchPath(pathname, { path: pattern, exact: false })
     return m?.params?.id ?? ''
   })()
 
@@ -58,11 +62,14 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
       try {
         if (!item) return
         const currentSourceId = sourceIdRef.current ?? ''
+        const playlistType = isDiscovery ? 'discovery' : 'playlist'
+        const folderType = isDiscovery ? 'discoveryFolder' : 'folder'
         const isTargetFolder = record.type === 'folder'
-        const isTargetPlaylist = record.type === 'playlist'
+        const isTargetPlaylist = record.type === 'playlist' || record.type === 'discovery'
 
-        if (isTargetPlaylist && item.type !== 'playlist' && item.type !== 'folder') {
-          const res = await dataProvider.addToPlaylist(record.id, item)
+        if (isTargetPlaylist && item.type !== playlistType && item.type !== folderType) {
+          const addFn = isDiscovery ? dataProvider.addToDiscovery : dataProvider.addToPlaylist
+          const res = await addFn(record.id, item)
           notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
           refresh()
           return
@@ -70,20 +77,36 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
 
         if (item.id === record.id) return
 
-        if (item.type === 'playlist') {
+        if (item.type === playlistType) {
           const targetFolderId = isTargetFolder ? record.id : null
-          await dataProvider.setPlaylistFolder({
-            playlistId: item.id,
-            targetFolderId: targetFolderId,
-            sourceParentId: currentSourceId
-          })
-        } else if (item.type === 'folder') {
+          if (isDiscovery) {
+            await dataProvider.setDiscoveryFolder({
+              discoveryId: item.id,
+              targetFolderId,
+              sourceParentId: currentSourceId,
+            })
+          } else {
+            await dataProvider.setPlaylistFolder({
+              playlistId: item.id,
+              targetFolderId,
+              sourceParentId: currentSourceId,
+            })
+          }
+        } else if (item.type === folderType) {
           const targetParentId = isTargetFolder ? record.id : null
-          await dataProvider.moveFolder({
-            folderId: item.id,
-            targetParentId: targetParentId,
-            sourceParentId: currentSourceId
-          })
+          if (isDiscovery) {
+            await dataProvider.moveDiscoveryFolder({
+              folderId: item.id,
+              targetParentId,
+              sourceParentId: currentSourceId,
+            })
+          } else {
+            await dataProvider.moveFolder({
+              folderId: item.id,
+              targetParentId,
+              sourceParentId: currentSourceId,
+            })
+          }
         }
         notify('message.movedSuccess', 'info')
         refresh()
@@ -91,13 +114,30 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
         notify('ra.page.error', 'warning')
       }
     },
-    [dataProvider, notify, refresh, record.id, record.type]
+    [
+      dataProvider,
+      notify,
+      refresh,
+      record.id,
+      record.type,
+      isDiscovery,
+    ]
   )
 
   const { dragDropRef, isDragging } = useDragAndDrop(
-    record.type === 'playlist' ? DraggableTypes.PLAYLIST : DraggableTypes.FOLDER,
-    { id: record.id, type: record.type },
-    record.type === 'playlist' ? DraggableTypes.ALL : [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
+    record.type === 'playlist'
+      ? DraggableTypes.PLAYLIST
+      : record.type === 'discovery'
+      ? DraggableTypes.DISCOVERY
+      : isDiscovery
+      ? DraggableTypes.DISCOVERY_FOLDER
+      : DraggableTypes.FOLDER,
+    { id: record.id, type: record.type === 'folder' && isDiscovery ? 'discoveryFolder' : record.type },
+    record.type === 'playlist' || record.type === 'discovery'
+      ? DraggableTypes.ALL
+      : isDiscovery
+      ? [DraggableTypes.DISCOVERY, DraggableTypes.DISCOVERY_FOLDER]
+      : [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
     handleDrop
   )
 

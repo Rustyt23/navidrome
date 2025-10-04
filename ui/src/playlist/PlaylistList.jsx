@@ -14,6 +14,7 @@ import {
   useRecordContext,
   BulkDeleteButton,
   usePermissions,
+  useResourceContext,
 } from 'react-admin'
 import Switch from '@material-ui/core/Switch'
 import { useMediaQuery } from '@material-ui/core'
@@ -30,13 +31,14 @@ import ChangePublicStatusButton from './ChangePublicStatusButton'
 
 const PlaylistFilter = (props) => {
   const { permissions } = usePermissions()
+  const resource = useResourceContext() || 'playlist'
   return (
     <Filter {...props} variant={'outlined'}>
       <SearchInput source="q" alwaysOn />
       {permissions === 'admin' && (
         <ReferenceInput
           source="owner_id"
-          label={'resources.playlist.fields.ownerName'}
+          label={`resources.${resource}.fields.ownerName`}
           reference="user"
           perPage={0}
           sort={{ field: 'name', order: 'ASC' }}
@@ -52,8 +54,10 @@ const PlaylistFilter = (props) => {
 const TogglePublicInput = ({ resource, source }) => {
   const record = useRecordContext()
   const notify = useNotify()
+  const contextResource = useResourceContext()
+  const targetResource = resource || contextResource || 'playlist'
   const [togglePublic] = useUpdate(
-    resource,
+    targetResource,
     record.id,
     {
       ...record,
@@ -84,8 +88,10 @@ const TogglePublicInput = ({ resource, source }) => {
 const ToggleAutoImport = ({ resource, source }) => {
   const record = useRecordContext()
   const notify = useNotify()
+  const contextResource = useResourceContext()
+  const targetResource = resource || contextResource || 'playlist'
   const [ToggleAutoImport] = useUpdate(
-    resource,
+    targetResource,
     record.id,
     {
       ...record,
@@ -121,9 +127,10 @@ const PlaylistListBulkActions = (props) => (
 )
 
 const PlaylistList = (props) => {
+  const resource = useResourceContext() || 'playlist'
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
-  useResourceRefresh('playlist')
+  useResourceRefresh(resource)
 
   const toggleableFields = useMemo(
     () => ({
@@ -134,17 +141,18 @@ const PlaylistList = (props) => {
         <DateField source="updatedAt" sortByOrder={'DESC'} />
       ),
       createdAt: <DateField source="createdAt" showTime />,
-      public: !isXsmall && (
-        <TogglePublicInput source="public" sortByOrder={'DESC'} />
-      ),
+      public:
+        !isXsmall && (
+          <TogglePublicInput resource={resource} source="public" sortByOrder={'DESC'} />
+        ),
       comment: <TextField source="comment" />,
-      sync: <ToggleAutoImport source="sync" sortByOrder={'DESC'} />,
+      sync: <ToggleAutoImport resource={resource} source="sync" sortByOrder={'DESC'} />,
     }),
-    [isDesktop, isXsmall],
+    [isDesktop, isXsmall, resource],
   )
 
   const columns = useSelectedFields({
-    resource: 'playlist',
+    resource,
     columns: toggleableFields,
     defaultOff: ['comment'],
   })

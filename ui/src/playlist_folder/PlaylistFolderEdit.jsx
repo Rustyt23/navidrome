@@ -16,6 +16,7 @@ import {
   useRefresh,
   useDataProvider,
   useRecordContext,
+  useResourceContext,
   Toolbar,
   SaveButton,
 } from 'react-admin'
@@ -35,7 +36,8 @@ const SyncFragment = ({ formData, ...rest }) => (
 
 const PlaylistFolderTitle = ({ record }) => {
   const translate = useTranslate()
-  const resourceName = translate('resources.folder.name', { smart_count: 1 })
+  const resource = useResourceContext() || 'folder'
+  const resourceName = translate(`resources.${resource}.name`, { smart_count: 1 })
   return <Title subTitle={`${resourceName} "${record ? record.name : ''}"`} />
 }
 
@@ -53,6 +55,9 @@ const FolderEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   const redirect = useRedirect()
   const refresh = useRefresh()
   const location = useLocation()
+  const resource = useResourceContext() || 'folder'
+  const isDiscovery = resource === 'discoveryFolder'
+  const basePath = isDiscovery ? '/discovery/folder' : '/folder'
 
   const { pristine, submitting, invalid } = useFormState({
     subscription: { pristine: true, submitting: true, invalid: true },
@@ -62,12 +67,12 @@ const FolderEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   const handleDelete = async () => {
     if (!record?.id) return
     try {
-      await dataProvider.delete('folder', { id: record.id })
+      await dataProvider.delete(resource, { id: record.id })
       notify('ra.notification.deleted', { type: 'info', messageArgs: { smart_count: 1 } })
 
       const parentId = record?.parentId ?? location.state?.parentId ?? null
-      if (parentId) redirect(`/folder/${parentId}/show`)
-      else redirect('list', '/folder')
+      if (parentId) redirect(`${basePath}/${parentId}/show`)
+      else redirect('list', basePath)
 
       refresh()
     } catch (e) {
@@ -100,27 +105,29 @@ const PlaylistFolderEditForm = () => {
   const redirect = useRedirect()
   const refresh = useRefresh()
   const location = useLocation()
+  const resource = useResourceContext() || 'folder'
+  const basePath = resource === 'discoveryFolder' ? '/discovery/folder' : '/folder'
 
   const saveFolder = useCallback(
     async (values) => {
       if (!record?.id) return
       try {
-        const res = await dataProvider.update('folder', { id: record.id, data: values })
+        const res = await dataProvider.update(resource, { id: record.id, data: values })
         const saved = res?.data ?? values
         notify('ra.notification.updated', { type: 'info', messageArgs: { smart_count: 1 } })
 
         const parentId =
           saved?.parentId ?? saved?.parent_id ?? location.state?.parentId ?? null
 
-        if (parentId) redirect(`/folder/${parentId}/show`)
-        else redirect('list', '/folder')
+        if (parentId) redirect(`${basePath}/${parentId}/show`)
+        else redirect('list', basePath)
 
         refresh()
       } catch (e) {
         notify(e?.message || 'ra.page.error', { type: 'warning' })
       }
     },
-    [dataProvider, record?.id, notify, redirect, refresh, location]
+    [dataProvider, record?.id, notify, redirect, refresh, location, resource, basePath]
   )
 
   return (
@@ -140,7 +147,7 @@ const PlaylistFolderEditForm = () => {
           sort={{ field: 'name', order: 'ASC' }}
         >
           <SelectInput
-            label="resources.folder.fields.ownerName"
+            label={`resources.${resource}.fields.ownerName`}
             optionText="userName"
           />
         </ReferenceInput>

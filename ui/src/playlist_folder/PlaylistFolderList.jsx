@@ -10,6 +10,7 @@ import {
   useNotify,
   useRecordContext,
   usePermissions,
+  useResourceContext,
 } from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
 import Switch from '@material-ui/core/Switch'
@@ -30,13 +31,14 @@ import { PlaylistFolderDataGrid } from './PlaylistFolderDataGrid'
 
 const PlaylistFolderFilter = (props) => {
   const { permissions } = usePermissions()
+  const resource = useResourceContext() || 'folder'
   return (
     <Filter {...props} variant="outlined">
       <SearchInput source="q" alwaysOn />
       {permissions === 'admin' && (
         <ReferenceInput
           source="owner_id"
-          label="resources.playlist.fields.ownerName"
+          label={`resources.${resource}.fields.ownerName`}
           reference="user"
           perPage={50}
           sort={{ field: 'name', order: 'ASC' }}
@@ -53,6 +55,7 @@ const TogglePublicInput = ({ source }) => {
   const record = useRecordContext()
   const notify = useNotify()
   const [update, { isLoading }] = useUpdate()
+  const parentResource = useResourceContext() || 'folder'
 
   const serverValue = Boolean(record?.[source])
 
@@ -66,7 +69,12 @@ const TogglePublicInput = ({ source }) => {
     (e) => {
       e.stopPropagation()
       if (!record?.id) return
-      const resource = record.type
+      const resource =
+        record.type === 'folder'
+          ? parentResource === 'discoveryFolder'
+            ? 'discoveryFolder'
+            : 'folder'
+          : record.type
       const next = !checked
       setChecked(next)
 
@@ -81,8 +89,8 @@ const TogglePublicInput = ({ source }) => {
           },
         }
       )
-    },
-    [checked, notify, record, update]
+      },
+      [checked, notify, parentResource, record, update]
   )
 
   return (
@@ -98,13 +106,12 @@ const TogglePublicInput = ({ source }) => {
   )
 }
 
-const rowClick = (id, record) =>
-  record?.type === 'folder' ? `/folder/${id}/show` : `/playlist/${id}/show`
-
 const PlaylistFolderList = (props) => {
+  const resource = useResourceContext() || 'folder'
+  const isDiscovery = resource === 'discoveryFolder'
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
-  useResourceRefresh('folder')
+  useResourceRefresh(resource)
 
   const toggleableFields = useMemo(
     () => ({
@@ -116,9 +123,20 @@ const PlaylistFolderList = (props) => {
   )
 
   const columns = useSelectedFields({
-    resource: 'folder',
+    resource,
     columns: toggleableFields,
   })
+
+  const rowClick = useCallback(
+    (id, record) => {
+      const folderPath = isDiscovery ? '/discovery/folder' : '/folder'
+      const playlistPath = isDiscovery ? '/discovery' : '/playlist'
+      return record?.type === 'folder'
+        ? `${folderPath}/${id}/show`
+        : `${playlistPath}/${id}/show`
+    },
+    [isDiscovery],
+  )
 
   return (
     <List
@@ -126,7 +144,7 @@ const PlaylistFolderList = (props) => {
       exporter={false}
       filters={<PlaylistFolderFilter />}
       actions={<PlaylistListActions />}
-      bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions />}
+      bulkActionButtons={!isXsmall && <PlaylistFolderBulkActions resource={resource} />}
       empty={<EmptyPlaylist />}
       perPage={isXsmall ? 50 : 50}
     >

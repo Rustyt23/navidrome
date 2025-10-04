@@ -8,20 +8,23 @@ import {
   useRedirect,
   useRefresh,
   useTranslate,
+  useResourceContext,
 } from 'react-admin'
 import { useLocation } from 'react-router-dom'
 import { Title } from '../common'
 
 const PlaylistFolderCreate = (props) => {
-  const { basePath } = props
   const location = useLocation()
   const parentId = location.state?.parentId || null
   const refresh = useRefresh()
   const notify = useNotify()
   const redirect = useRedirect()
   const translate = useTranslate()
+  const resource = useResourceContext() || 'folder'
+  const isDiscovery = resource === 'discoveryFolder'
+  const basePath = isDiscovery ? '/discovery/folder' : '/folder'
 
-  const resourceName = translate('resources.folder.name', { smart_count: 1 })
+  const resourceName = translate(`resources.${resource}.name`, { smart_count: 1 })
   const title = translate('ra.page.create', { name: resourceName })
 
   const onSuccess = () => {

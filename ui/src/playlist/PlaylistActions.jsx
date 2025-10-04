@@ -7,6 +7,7 @@ import {
   useTranslate,
   useDataProvider,
   useNotify,
+  useResourceContext,
 } from 'react-admin'
 import { useMediaQuery, makeStyles } from '@material-ui/core'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
@@ -44,6 +45,13 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
   const notify = useNotify()
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
+  const resource = useResourceContext() || 'playlist'
+  const isDiscovery = resource === 'discovery'
+  const trackResource = isDiscovery ? 'discoverySong' : 'playlistTrack'
+  const trackFilterKey = isDiscovery ? 'discovery_id' : 'playlist_id'
+  const tracksEndpoint = isDiscovery
+    ? `${REST_URL}/discovery/${record.id}/songs`
+    : `${REST_URL}/playlist/${record.id}/tracks`
 
   const getAllSongsAndDispatch = React.useCallback(
     (action) => {
@@ -52,10 +60,10 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
       }
 
       dataProvider
-        .getList('playlistTrack', {
+        .getList(trackResource, {
           pagination: { page: 1, perPage: 0 },
           sort: { field: 'id', order: 'ASC' },
-          filter: { playlist_id: record.id },
+          filter: { [trackFilterKey]: record.id },
         })
         .then((res) => {
           const data = res.data.reduce(
@@ -68,7 +76,7 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
           notify('ra.page.error', 'warning')
         })
     },
-    [dataProvider, dispatch, record, data, ids, notify],
+    [dataProvider, dispatch, record, data, ids, notify, trackFilterKey, trackResource],
   )
 
   const handlePlay = React.useCallback(() => {
@@ -88,8 +96,8 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
   }, [getAllSongsAndDispatch])
 
   const handleShare = React.useCallback(() => {
-    dispatch(openShareMenu([record.id], 'playlist', record.name))
-  }, [dispatch, record])
+    dispatch(openShareMenu([record.id], resource, record.name))
+  }, [dispatch, record, resource])
 
   const handleDownload = React.useCallback(() => {
     dispatch(openDownloadMenu(record, DOWNLOAD_MENU_PLAY))
@@ -97,7 +105,7 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
 
   const handleExport = React.useCallback(
     () =>
-      httpClient(`${REST_URL}/playlist/${record.id}/tracks`, {
+      httpClient(tracksEndpoint, {
         headers: new Headers({ Accept: M3U_MIME_TYPE }),
       }).then((res) => {
         const blob = new Blob([res.body], { type: M3U_MIME_TYPE })
@@ -109,7 +117,7 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
         link.click()
         link.parentNode.removeChild(link)
       }),
-    [record],
+    [record, tracksEndpoint],
   )
 
   return (
@@ -140,7 +148,7 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
           >
             <RiPlayListAddFill />
           </Button>
-          {config.enableSharing && (
+          {!isDiscovery && config.enableSharing && (
             <Button onClick={handleShare} label={translate('ra.action.share')}>
               <ShareIcon />
             </Button>
@@ -156,15 +164,17 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
               <CloudDownloadOutlinedIcon />
             </Button>
           )}
-          <Button
-            onClick={handleExport}
-            label={translate('resources.playlist.actions.export')}
-          >
-            <QueueMusicIcon />
-          </Button>
-          <PublishPlaylistButton record={record} />
+          {!isDiscovery && (
+            <Button
+              onClick={handleExport}
+              label={translate('resources.playlist.actions.export')}
+            >
+              <QueueMusicIcon />
+            </Button>
+          )}
+          {!isDiscovery && <PublishPlaylistButton record={record} />}
         </div>
-        <div>{isNotSmall && <ToggleFieldsMenu resource="playlistTrack" />}</div>
+        <div>{isNotSmall && <ToggleFieldsMenu resource={trackResource} />}</div>
       </div>
     </TopToolbar>
   )

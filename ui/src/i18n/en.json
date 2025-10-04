@@ -231,8 +231,55 @@
         "noPlaylists": "No playlists available"
       }
     },
+    "discovery": {
+      "name": "Discovery |||| Discoveries",
+      "fields": {
+        "name": "Name",
+        "duration": "Duration",
+        "ownerName": "Owner",
+        "public": "Public",
+        "updatedAt": "Updated at",
+        "createdAt": "Date added",
+        "songCount": "Songs",
+        "comment": "Comment",
+        "sync": "Auto-import",
+        "path": "Import from"
+      },
+      "actions": {
+        "create": "Create Discovery",
+        "createFolder": "Create Folder",
+        "selectPlaylist": "Select a discovery:",
+        "addNewPlaylist": "Create \"%{name}\"",
+        "export": "Export",
+        "publish": "Publish",
+        "saveQueue": "Save Queue to Discovery",
+        "makePublic": "Make Public",
+        "makePrivate": "Make Private",
+        "searchOrCreate": "Search discoveries or type to create new...",
+        "pressEnterToCreate": "Press Enter to create new discovery",
+        "removeFromSelection": "Remove from selection"
+      },
+      "notifications": {
+        "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
+      },
+      "message": {
+        "duplicate_song": "Add duplicated songs",
+        "song_exist": "There are duplicates being added to the discovery. Would you like to add the duplicates or skip them?",
+        "noPlaylistsFound": "No discoveries found",
+        "noPlaylists": "No discoveries available"
+      }
+    },
     "folder": {
       "name": "Folder |||| Folders",
+      "fields": {
+        "name": "Name",
+        "ownerName": "Owner Name",
+        "public": "Public",
+        "updatedAt": "Updated at"
+      }
+    },
+    "discoveryFolder": {
+      "name": "Discovery Folder |||| Discovery Folders",
       "fields": {
         "name": "Name",
         "ownerName": "Owner Name",

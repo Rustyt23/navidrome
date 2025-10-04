@@ -4,22 +4,27 @@ import AddIcon from '@material-ui/icons/Add'
 import { useTranslate } from 'react-admin'
 import { useHistory } from 'react-router-dom'
 
-const PlaylistFolderCreateButton = ({ recordId = null }) => {
+const PlaylistFolderCreateButton = ({ recordId = null, resource = 'folder' }) => {
   const translate = useTranslate()
   const history = useHistory()
   const [anchorEl, setAnchorEl] = useState(null)
+  const isDiscovery = resource === 'discoveryFolder'
 
   const open = (e) => setAnchorEl(e.currentTarget)
   const close = () => setAnchorEl(null)
 
   const goFolder = () => {
     const state = recordId ? { parentId: recordId } : {}
-    history.push({ pathname: '/folder/create', state })
+    const pathname = isDiscovery ? '/discovery/folder/create' : '/folder/create'
+    history.push({ pathname, state })
     close()
   }
   const goPlaylist = () => {
-    const state = recordId ? { playlistFolderId: recordId } : {}
-    history.push({ pathname: '/playlist/create', state })
+    const state = recordId
+      ? { [isDiscovery ? 'discoveryFolderId' : 'playlistFolderId']: recordId }
+      : {}
+    const pathname = isDiscovery ? '/discovery/create' : '/playlist/create'
+    history.push({ pathname, state })
     close()
   }
 
@@ -30,10 +35,10 @@ const PlaylistFolderCreateButton = ({ recordId = null }) => {
       </Button>
       <Menu anchorEl={anchorEl} keepMounted open={Boolean(anchorEl)} onClose={close}>
         <MenuItem onClick={goFolder}>
-          {translate('resources.playlist.actions.createFolder')}
+          {translate(`resources.${isDiscovery ? 'discovery' : 'playlist'}.actions.createFolder`)}
         </MenuItem>
         <MenuItem onClick={goPlaylist}>
-          {translate('resources.playlist.actions.create')}
+          {translate(`resources.${isDiscovery ? 'discovery' : 'playlist'}.actions.create`)}
         </MenuItem>
       </Menu>
     </>

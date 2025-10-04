@@ -14,6 +14,8 @@ import album from './album'
 import artist from './artist'
 import playlist from './playlist'
 import playlist_folder from './playlist_folder'
+import discovery from './discovery'
+import discovery_folder from './discovery_folder'
 import radio from './radio'
 import share from './share'
 import library from './library'
@@ -115,10 +117,16 @@ const Admin = (props) => {
           show={PlaylistShow}
           edit={PlaylistEdit}
         />,
+        <Resource name="discovery" {...discovery} />,
         <Resource
           {...playlist_folder}
           name="folder"
           options={{ subMenu: 'playlist' }}
+        />,
+        <Resource
+          {...discovery_folder}
+          name="discoveryFolder"
+          options={{ subMenu: 'discovery' }}
         />,
         <Resource name="user" {...user} options={{ subMenu: 'settings' }} />,
         <Resource

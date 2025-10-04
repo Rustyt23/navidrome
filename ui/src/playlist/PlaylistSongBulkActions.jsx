@@ -22,6 +22,8 @@ const PlaylistSongBulkActions = ({
   resource,
   selectedIds,
   onUnselectItems,
+  parentResource = 'playlist',
+  readOnly,
   ...rest
 }) => {
   const classes = useStyles()
@@ -29,10 +31,13 @@ const PlaylistSongBulkActions = ({
   const listContext = useListContext()
   const data = listContext?.data
   useEffect(() => {
-    unselectAll('playlistTrack')
-  }, [unselectAll])
+    unselectAll(resource)
+  }, [unselectAll, resource])
 
-  const mappedResource = `playlist/${playlistId}/tracks`
+  const mappedResource =
+    parentResource === 'discovery'
+      ? `discovery/${playlistId}/songs`
+      : `playlist/${playlistId}/tracks`
   const selectedMediaIds = selectedIds.map(
     (id) => data?.[id]?.mediaFileId ?? id,
   )
@@ -46,12 +51,13 @@ const PlaylistSongBulkActions = ({
           resource={mappedResource}
           onClick={onUnselectItems}
         />
-        {/* Add the AddToPlaylistButton */}
-        <AddToPlaylistButton
-          resource={mappedResource} // Use the mapped resource for consistency
-          selectedIds={selectedMediaIds} // Pass the mapped media IDs
-          className={classes.button} // Apply custom styles
-        />
+        {!readOnly && (
+          <AddToPlaylistButton
+            resource={mappedResource}
+            selectedIds={selectedMediaIds}
+            className={classes.button}
+          />
+        )}
       </Fragment>
     </ResourceContextProvider>
   )
@@ -64,6 +70,8 @@ PlaylistSongBulkActions.propTypes = {
     PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   ).isRequired,
   onUnselectItems: PropTypes.func,
+  parentResource: PropTypes.string,
+  readOnly: PropTypes.bool,
 }
 
 export default PlaylistSongBulkActions

@@ -7,7 +7,8 @@ import {
   useTranslate,
   useRefresh,
   useNotify,
-  useRedirect
+  useRedirect,
+  useResourceContext,
 } from 'react-admin'
 import { Title } from '../common'
 import { useLocation } from 'react-router-dom'
@@ -17,17 +18,25 @@ const PlaylistCreate = (props) => {
   const notify = useNotify()
   const redirect = useRedirect()
   const translate = useTranslate()
-  const resourceName = translate('resources.playlist.name', { smart_count: 1 })
+  const resource = useResourceContext() || 'playlist'
+  const resourceName = translate(`resources.${resource}.name`, { smart_count: 1 })
   const title = translate('ra.page.create', {
     name: `${resourceName}`,
   })
   const location = useLocation()
-  const playlistFolderId = location.state?.playlistFolderId || null
+  const folderStateKey = resource === 'discovery' ? 'discoveryFolderId' : 'playlistFolderId'
+  const fallbackKey = resource === 'discovery' ? 'discoveryId' : 'playlistId'
+  const folderId =
+    location.state?.[folderStateKey] ??
+    location.state?.folderId ??
+    location.state?.[fallbackKey] ??
+    null
+  const folderBasePath = resource === 'discovery' ? '/discovery/folder' : '/folder'
 
   const onSuccess = () => {
     notify('ra.notification.created', 'info', { smart_count: 1 })
-    if (playlistFolderId) redirect(`/folder/${playlistFolderId}/show`)
-    else redirect('list', '/folder')
+    if (folderId) redirect(`${folderBasePath}/${folderId}/show`)
+    else redirect('list', folderBasePath)
     refresh()
   }
 
@@ -36,7 +45,7 @@ const PlaylistCreate = (props) => {
       <SimpleForm redirect="list" variant={'outlined'}>
         <TextInput source="name" validate={required()} />
         <TextInput multiline source="comment" />
-        <TextInput source="folderId" defaultValue={playlistFolderId} style={{ display: 'none' }} />
+        <TextInput source="folderId" defaultValue={folderId} style={{ display: 'none' }} />
         <BooleanInput source="public" initialValue={true} />
       </SimpleForm>
     </Create>

@@ -9,6 +9,7 @@ import {
   useVersion,
   useListContext,
   FunctionField,
+  useResourceContext,
 } from 'react-admin'
 import clsx from 'clsx'
 import { useDispatch } from 'react-redux'
@@ -104,7 +105,11 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
   const dataProvider = useDataProvider()
   const notify = useNotify()
   const version = useVersion()
-  useResourceRefresh('song', 'playlist')
+  const resource = useResourceContext() || props.resource || 'playlistTrack'
+  const isDiscovery = resource === 'discoverySong'
+  const parentResource = isDiscovery ? 'discovery' : 'playlist'
+  const parentFilterKey = isDiscovery ? 'discovery_id' : 'playlist_id'
+  useResourceRefresh('song', parentResource)
 
   useEffect(() => {
     setPage(1)
@@ -123,10 +128,10 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
   const reorder = useCallback(
     (playlistId, id, newPos) => {
       dataProvider
-        .update('playlistTrack', {
+        .update(resource, {
           id,
           data: { insert_before: newPos },
-          filter: { playlist_id: playlistId },
+          filter: { [parentFilterKey]: playlistId },
         })
         .then(() => {
           refetch()
@@ -135,7 +140,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
           notify('ra.page.error', 'warning')
         })
     },
-    [dataProvider, notify, refetch],
+    [dataProvider, notify, refetch, resource, parentFilterKey],
   )
 
   const handleDragEnd = useCallback(
@@ -191,7 +196,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
   }, [isDesktop, classes.draggable, classes.ratingField])
 
   const columns = useSelectedFields({
-    resource: 'playlistTrack',
+    resource,
     columns: toggleableFields,
     defaultOff: [
       'channels',
@@ -248,6 +253,9 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
               playlistId={playlistId}
               onUnselectItems={onUnselectItems}
               readOnly={readOnly}
+              resource={resource}
+              parentResource={parentResource}
+              selectedIds={selectedIds}
             />
           </BulkActionsToolbar>
           <ReorderableList
