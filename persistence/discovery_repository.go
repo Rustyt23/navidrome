@@ -70,6 +70,10 @@ func (r *discoveryRepository) CountAll(options ...model.QueryOptions) (int64, er
 	return r.count(sel, options...)
 }
 
+func (r *discoveryRepository) Count(options ...rest.QueryOptions) (int64, error) {
+	return r.CountAll(r.parseRestOptions(r.ctx, options...))
+}
+
 func (r *discoveryRepository) Exists(id string) (bool, error) {
 	return r.exists(And{Eq{"discovery.id": id}, r.userFilter()})
 }
@@ -94,6 +98,10 @@ func (r *discoveryRepository) Put(d *model.Discovery) error {
 
 func (r *discoveryRepository) Get(id string) (*model.Discovery, error) {
 	return r.findBy(And{Eq{"discovery.id": id}, r.userFilter()})
+}
+
+func (r *discoveryRepository) Read(id string) (interface{}, error) {
+	return r.Get(id)
 }
 
 func (r *discoveryRepository) GetWithTracks(id string) (*model.Discovery, error) {
@@ -128,6 +136,10 @@ func (r *discoveryRepository) GetAll(options ...model.QueryOptions) (model.Disco
 		out[i] = res[i].Discovery
 	}
 	return out, nil
+}
+
+func (r *discoveryRepository) ReadAll(options ...rest.QueryOptions) (interface{}, error) {
+	return r.GetAll(r.parseRestOptions(r.ctx, options...))
 }
 
 func (r *discoveryRepository) FindByPath(path string) (*model.Discovery, error) {

@@ -37,19 +37,11 @@ func (r *discoveryTrackRepository) EntityName() string { return "discovery_track
 
 func (r *discoveryTrackRepository) NewInstance() interface{} { return &model.DiscoveryTrack{} }
 
-func (r *discoveryTrackRepository) Save(entity interface{}) (string, error) {
-	return "", rest.ErrNotImplemented
-}
-
-func (r *discoveryTrackRepository) Update(id string, entity interface{}, cols ...string) error {
-	return rest.ErrNotImplemented
-}
-
 func (r *discoveryTrackRepository) GetAll(options ...model.QueryOptions) (model.DiscoveryTracks, error) {
 	sel := r.newSelect(options...).
 		Columns("discovery_tracks.*").
 		Where(Eq{"discovery_tracks.discovery_id": r.discoveryID})
-	tracks, err := r.discoveryRepo.loadTracks(sel)
+	tracks, err := r.discoveryRepo.loadTracks(sel, r.discoveryID)
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +49,11 @@ func (r *discoveryTrackRepository) GetAll(options ...model.QueryOptions) (model.
 }
 
 func (r *discoveryTrackRepository) Delete(id ...string) error {
-	return rest.ErrNotImplemented
+	return rest.ErrPermissionDenied
 }
 
 func (r *discoveryTrackRepository) DeleteAll() error {
-	return rest.ErrNotImplemented
+	return rest.ErrPermissionDenied
 }
 
 var _ model.DiscoveryTrackRepository = (*discoveryTrackRepository)(nil)
