@@ -57,7 +57,7 @@ const FolderEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   const location = useLocation()
   const resource = useResourceContext() || 'folder'
   const isDiscovery = resource === 'discoveryFolder'
-  const basePath = isDiscovery ? '/discovery/folder' : '/folder'
+  const basePath = isDiscovery ? '/discoveryFolder' : '/folder'
 
   const { pristine, submitting, invalid } = useFormState({
     subscription: { pristine: true, submitting: true, invalid: true },
@@ -106,7 +106,7 @@ const PlaylistFolderEditForm = () => {
   const refresh = useRefresh()
   const location = useLocation()
   const resource = useResourceContext() || 'folder'
-  const basePath = resource === 'discoveryFolder' ? '/discovery/folder' : '/folder'
+  const basePath = resource === 'discoveryFolder' ? '/discoveryFolder' : '/folder'
 
   const saveFolder = useCallback(
     async (values) => {

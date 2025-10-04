@@ -31,7 +31,7 @@ const PlaylistCreate = (props) => {
     location.state?.folderId ??
     location.state?.[fallbackKey] ??
     null
-  const folderBasePath = resource === 'discovery' ? '/discovery/folder' : '/folder'
+  const folderBasePath = resource === 'discovery' ? '/discoveryFolder' : '/folder'
 
   const onSuccess = () => {
     notify('ra.notification.created', 'info', { smart_count: 1 })

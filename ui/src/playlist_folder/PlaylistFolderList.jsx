@@ -129,7 +129,7 @@ const PlaylistFolderList = (props) => {
 
   const rowClick = useCallback(
     (id, record) => {
-      const folderPath = isDiscovery ? '/discovery/folder' : '/folder'
+      const folderPath = isDiscovery ? '/discoveryFolder' : '/folder'
       const playlistPath = isDiscovery ? '/discovery' : '/playlist'
       return record?.type === 'folder'
         ? `${folderPath}/${id}/show`

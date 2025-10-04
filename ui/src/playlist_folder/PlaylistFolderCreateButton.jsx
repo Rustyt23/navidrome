@@ -15,7 +15,7 @@ const PlaylistFolderCreateButton = ({ recordId = null, resource = 'folder' }) =>
 
   const goFolder = () => {
     const state = recordId ? { parentId: recordId } : {}
-    const pathname = isDiscovery ? '/discovery/folder/create' : '/folder/create'
+    const pathname = isDiscovery ? '/discoveryFolder/create' : '/folder/create'
     history.push({ pathname, state })
     close()
   }

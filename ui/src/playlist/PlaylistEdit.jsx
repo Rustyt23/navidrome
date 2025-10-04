@@ -58,7 +58,7 @@ const PlaylistEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
   const refresh = useRefresh()
   const location = useLocation()
   const resource = useResourceContext() || 'playlist'
-  const folderBasePath = resource === 'discovery' ? '/discovery/folder' : '/folder'
+  const folderBasePath = resource === 'discovery' ? '/discoveryFolder' : '/folder'
   const folderStateKey = resource === 'discovery' ? 'discoveryFolderId' : 'playlistFolderId'
 
   const { pristine, submitting, invalid } = useFormState({
@@ -112,7 +112,7 @@ const PlaylistEditForm = () => {
   const refresh = useRefresh()
   const location = useLocation()
   const resource = useResourceContext() || 'playlist'
-  const folderBasePath = resource === 'discovery' ? '/discovery/folder' : '/folder'
+  const folderBasePath = resource === 'discovery' ? '/discoveryFolder' : '/folder'
   const folderStateKey = resource === 'discovery' ? 'discoveryFolderId' : 'playlistFolderId'
 
   const savePlaylist = useCallback(

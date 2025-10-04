@@ -22,7 +22,7 @@ const PlaylistFolderCreate = (props) => {
   const translate = useTranslate()
   const resource = useResourceContext() || 'folder'
   const isDiscovery = resource === 'discoveryFolder'
-  const basePath = isDiscovery ? '/discovery/folder' : '/folder'
+  const basePath = isDiscovery ? '/discoveryFolder' : '/folder'
 
   const resourceName = translate(`resources.${resource}.name`, { smart_count: 1 })
   const title = translate('ra.page.create', { name: resourceName })

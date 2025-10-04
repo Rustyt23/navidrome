@@ -308,7 +308,7 @@ const FolderRow = memo(function FolderRow({
     <>
       <ListItem
         button
-        onClick={() => history.push(`/discovery/folder/${node.id}/show`)}
+        onClick={() => history.push(`/discoveryFolder/${node.id}/show`)}
         className={`${classes.listItem} ${classes.depth}`}
         ref={dragDropRef}
         style={{ opacity: isDragging ? 0.5 : 1 }}
@@ -363,7 +363,7 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const handleToggle = (menu) => setState((s) => ({ ...s, [menu]: !s[menu] }))
 
   const onDiscoveryConfig = useCallback(() => {
-    history.push({ pathname: '/discovery/folder', state: { parentId: null } })
+    history.push({ pathname: '/discoveryFolder', state: { parentId: null } })
   }, [history])
 
   const { get, markDirty, ensure, moveItem } = childrenStore

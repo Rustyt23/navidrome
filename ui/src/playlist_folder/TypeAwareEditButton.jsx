@@ -13,7 +13,7 @@ const TypeAwareEditButton = () => {
 
   let target = `/${record.type}/${record.id}`
   if (record.type === 'folder') {
-    target = `${resource === 'discoveryFolder' ? '/discovery/folder' : '/folder'}/${record.id}`
+    target = `${resource === 'discoveryFolder' ? '/discoveryFolder' : '/folder'}/${record.id}`
   } else if (record.type === 'discovery') {
     target = `/discovery/${record.id}`
   }

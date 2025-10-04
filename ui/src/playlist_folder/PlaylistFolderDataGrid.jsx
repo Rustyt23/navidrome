@@ -45,7 +45,7 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
   const pathname = location?.pathname || '/'
 
   const sourceId = (() => {
-    const pattern = isDiscovery ? '/discovery/folder/:id/show' : '/folder/:id/show'
+    const pattern = isDiscovery ? '/discoveryFolder/:id/show' : '/folder/:id/show'
     const m = matchPath(pathname, { path: pattern, exact: false })
     return m?.params?.id ?? ''
   })()

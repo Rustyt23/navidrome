@@ -133,7 +133,7 @@ const FolderChildrenList = (props) => {
 
   const handleRowClick = useCallback(
     (id, rec) => {
-      const folderPath = isDiscovery ? '/discovery/folder' : '/folder'
+      const folderPath = isDiscovery ? '/discoveryFolder' : '/folder'
       const playlistPath = isDiscovery ? '/discovery' : '/playlist'
       return rec?.type === 'folder'
         ? `${folderPath}/${id}/show`

@@ -14,7 +14,7 @@ export default {
   show: PlaylistFolderShow,
   icon: (
     <DynamicMenuIcon
-      path={'discovery/folders'}
+      path={'discoveryFolder'}
       icon={LibraryMusicOutlinedIcon}
       activeIcon={LibraryMusicIcon}
     />
