@@ -13,6 +13,7 @@ import { useMediaQuery, makeStyles } from '@material-ui/core'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import ShuffleIcon from '@material-ui/icons/Shuffle'
 import CloudDownloadOutlinedIcon from '@material-ui/icons/CloudDownloadOutlined'
+import CloudUploadIcon from '@material-ui/icons/CloudUpload'
 import { RiPlayListAddFill, RiPlayList2Fill } from 'react-icons/ri'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import ShareIcon from '@material-ui/icons/Share'
@@ -25,6 +26,7 @@ import {
   openDownloadMenu,
   DOWNLOAD_MENU_PLAY,
   openShareMenu,
+  openDiscoveryUpload,
 } from '../actions'
 import { M3U_MIME_TYPE, REST_URL } from '../consts'
 import PropTypes from 'prop-types'
@@ -148,6 +150,21 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
           >
             <RiPlayListAddFill />
           </Button>
+          {isDiscovery && (
+            <Button
+              onClick={() =>
+                dispatch(
+                  openDiscoveryUpload({
+                    discoveryId: record.id,
+                    discoveryName: record.name,
+                  }),
+                )
+              }
+              label={translate('resources.discovery.actions.uploadSongs')}
+            >
+              <CloudUploadIcon />
+            </Button>
+          )}
           {!isDiscovery && config.enableSharing && (
             <Button onClick={handleShare} label={translate('ra.action.share')}>
               <ShareIcon />

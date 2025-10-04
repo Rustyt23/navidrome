@@ -17,6 +17,9 @@ export const DOWNLOAD_MENU_SONG = 'song'
 export const SHARE_MENU_OPEN = 'SHARE_MENU_OPEN'
 export const SHARE_MENU_CLOSE = 'SHARE_MENU_CLOSE'
 
+export const DISCOVERY_UPLOAD_OPEN = 'DISCOVERY_UPLOAD_OPEN'
+export const DISCOVERY_UPLOAD_CLOSE = 'DISCOVERY_UPLOAD_CLOSE'
+
 export const openShareMenu = (ids, resource, name, label) => ({
   type: SHARE_MENU_OPEN,
   ids,
@@ -37,6 +40,16 @@ export const openAddToPlaylist = ({ selectedIds, onSuccess }) => ({
 
 export const closeAddToPlaylist = () => ({
   type: ADD_TO_PLAYLIST_CLOSE,
+})
+
+export const openDiscoveryUpload = ({ discoveryId, discoveryName }) => ({
+  type: DISCOVERY_UPLOAD_OPEN,
+  discoveryId,
+  discoveryName,
+})
+
+export const closeDiscoveryUpload = () => ({
+  type: DISCOVERY_UPLOAD_CLOSE,
 })
 
 export const openDownloadMenu = (record, recordType) => {

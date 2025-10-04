@@ -257,16 +257,21 @@
         "makePrivate": "Make Private",
         "searchOrCreate": "Search discoveries or type to create new...",
         "pressEnterToCreate": "Press Enter to create new discovery",
-        "removeFromSelection": "Remove from selection"
+        "removeFromSelection": "Remove from selection",
+        "uploadSongs": "Upload Songs",
+        "uploadSelected": "Upload Selected",
+        "searchSongs": "Search songs to upload..."
       },
       "notifications": {
-        "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
+        "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder",
+        "uploaded": "%{smart_count} song uploaded to %{name} |||| %{smart_count} songs uploaded to %{name}"
       },
       "message": {
         "duplicate_song": "Add duplicated songs",
         "song_exist": "There are duplicates being added to the discovery. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No discoveries found",
-        "noPlaylists": "No discoveries available"
+        "noPlaylists": "No discoveries available",
+        "noSongsFound": "No songs found"
       }
     },
     "folder": {

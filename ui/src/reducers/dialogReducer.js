@@ -1,6 +1,8 @@
 import {
   ADD_TO_PLAYLIST_CLOSE,
   ADD_TO_PLAYLIST_OPEN,
+  DISCOVERY_UPLOAD_CLOSE,
+  DISCOVERY_UPLOAD_OPEN,
   DOWNLOAD_MENU_ALBUM,
   DOWNLOAD_MENU_ARTIST,
   DOWNLOAD_MENU_CLOSE,
@@ -75,6 +77,35 @@ export const addToPlaylistDialogReducer = (
       }
     case DUPLICATE_SONG_WARNING_CLOSE:
       return { ...previousState, duplicateSong: false }
+    default:
+      return previousState
+  }
+}
+
+export const discoveryUploadDialogReducer = (
+  previousState = {
+    open: false,
+    discoveryId: undefined,
+    discoveryName: undefined,
+  },
+  payload,
+) => {
+  const { type } = payload
+  switch (type) {
+    case DISCOVERY_UPLOAD_OPEN:
+      return {
+        ...previousState,
+        open: true,
+        discoveryId: payload.discoveryId,
+        discoveryName: payload.discoveryName,
+      }
+    case DISCOVERY_UPLOAD_CLOSE:
+      return {
+        ...previousState,
+        open: false,
+        discoveryId: undefined,
+        discoveryName: undefined,
+      }
     default:
       return previousState
   }
