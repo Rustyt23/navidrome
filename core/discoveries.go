@@ -37,6 +37,12 @@ func (d *discoveries) Sync(ctx context.Context) error {
 		return err
 	}
 
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	root = absRoot
+
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return err
@@ -50,7 +56,13 @@ func (d *discoveries) Sync(ctx context.Context) error {
 
 	existingByPath := map[string]model.Discovery{}
 	for _, disc := range existing {
-		existingByPath[filepath.Clean(disc.Path)] = disc
+		path := filepath.Clean(disc.Path)
+		if !filepath.IsAbs(path) {
+			if absPath, err := filepath.Abs(path); err == nil {
+				path = absPath
+			}
+		}
+		existingByPath[path] = disc
 	}
 
 	seen := map[string]struct{}{}
@@ -153,20 +165,36 @@ func (d *discoveries) lookupMediaFiles(ctx context.Context, files []string) (mod
 	mfRepo := d.ds.MediaFile(ctx)
 	ordered := make(model.MediaFiles, 0, len(files))
 	for _, file := range files {
-		rels := possibleRelatives(libs, file)
-		if len(rels) == 0 {
-			log.Warn(ctx, "Discovery: skipping file outside libraries", "path", file)
-			continue
+		candidates := []string{filepath.Clean(file)}
+		if resolved, err := filepath.EvalSymlinks(file); err == nil {
+			resolved = filepath.Clean(resolved)
+			if resolved != candidates[0] {
+				candidates = append([]string{resolved}, candidates...)
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			log.Warn(ctx, "Discovery: unable to resolve symlink", "path", file, err)
 		}
-		mfs, err := mfRepo.FindByPaths(rels)
-		if err != nil {
-			return nil, err
+
+		var matched bool
+		for _, candidate := range candidates {
+			rels := possibleRelatives(libs, candidate)
+			if len(rels) == 0 {
+				continue
+			}
+			mfs, err := mfRepo.FindByPaths(rels)
+			if err != nil {
+				return nil, err
+			}
+			if len(mfs) == 0 {
+				continue
+			}
+			ordered = append(ordered, mfs[0])
+			matched = true
+			break
 		}
-		if len(mfs) == 0 {
+		if !matched {
 			log.Warn(ctx, "Discovery: media file not found", "path", file)
-			continue
 		}
-		ordered = append(ordered, mfs[0])
 	}
 	return ordered, nil
 }
