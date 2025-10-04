@@ -618,7 +618,7 @@ func (r *discoveryRepository) UpdateDiscoveryFolder(id string, folderID *string)
 
 	if folderID != nil {
 		var dstOwner struct{ OwnerID string }
-		if err := r.queryOne(Select("owner_id").From("discovery_folders").Where(Eq{"id": *folderID}), &dstOwner); err != nil {
+		if err := r.queryOne(Select("owner_id").From("discovery_folder").Where(Eq{"id": *folderID}), &dstOwner); err != nil {
 			return err
 		}
 		usr := loggedUser(r.ctx)

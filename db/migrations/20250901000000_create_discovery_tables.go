@@ -13,7 +13,7 @@ func init() {
 
 func upCreateDiscoveryTables(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `
-        CREATE TABLE IF NOT EXISTS discovery_folders (
+CREATE TABLE IF NOT EXISTS discovery_folder (
             id         VARCHAR NOT NULL PRIMARY KEY,
             name       VARCHAR NOT NULL CHECK (length(trim(name)) > 0),
             parent_id  VARCHAR NULL,
@@ -21,14 +21,14 @@ func upCreateDiscoveryTables(ctx context.Context, tx *sql.Tx) error {
             public     BOOL NOT NULL DEFAULT FALSE,
             created_at DATETIME NOT NULL DEFAULT (datetime('now')),
             updated_at DATETIME NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (parent_id) REFERENCES discovery_folders(id) ON DELETE CASCADE
-        );
+FOREIGN KEY (parent_id) REFERENCES discovery_folder(id) ON DELETE CASCADE
+);
 
-        CREATE UNIQUE INDEX IF NOT EXISTS discovery_folders_sibling_uniq
-          ON discovery_folders (owner_id, parent_id, lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS discovery_folder_sibling_uniq
+  ON discovery_folder (owner_id, parent_id, lower(name));
 
-        CREATE INDEX IF NOT EXISTS idx_discovery_folders_parent_id ON discovery_folders(parent_id);
-        CREATE INDEX IF NOT EXISTS idx_discovery_folders_owner_id  ON discovery_folders(owner_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_folder_parent_id ON discovery_folder(parent_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_folder_owner_id  ON discovery_folder(owner_id);
 
         CREATE TABLE IF NOT EXISTS discovery (
             id           VARCHAR(255) NOT NULL PRIMARY KEY,
@@ -57,8 +57,8 @@ func upCreateDiscoveryTables(ctx context.Context, tx *sql.Tx) error {
         CREATE INDEX IF NOT EXISTS discovery_updated_at   ON discovery(updated_at);
         CREATE INDEX IF NOT EXISTS discovery_folder_id    ON discovery(folder_id);
 
-        CREATE TRIGGER IF NOT EXISTS trg_discovery_folder_delete_discovery
-        AFTER DELETE ON discovery_folders
+CREATE TRIGGER IF NOT EXISTS trg_discovery_folder_delete_discovery
+AFTER DELETE ON discovery_folder
         BEGIN
             DELETE FROM discovery WHERE folder_id = OLD.id;
         END;
@@ -92,10 +92,10 @@ func downCreateDiscoveryTables(ctx context.Context, tx *sql.Tx) error {
         DROP INDEX IF EXISTS discovery_created_at;
         DROP TABLE IF EXISTS discovery;
 
-        DROP INDEX IF EXISTS discovery_folders_sibling_uniq;
-        DROP INDEX IF EXISTS idx_discovery_folders_parent_id;
-        DROP INDEX IF EXISTS idx_discovery_folders_owner_id;
-        DROP TABLE IF EXISTS discovery_folders;
-    `)
+DROP INDEX IF EXISTS discovery_folder_sibling_uniq;
+DROP INDEX IF EXISTS idx_discovery_folder_parent_id;
+DROP INDEX IF EXISTS idx_discovery_folder_owner_id;
+DROP TABLE IF EXISTS discovery_folder;
+`)
 	return err
 }
