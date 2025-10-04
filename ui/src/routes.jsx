@@ -5,7 +5,19 @@ import DiscoveryShow from './discovery/DiscoveryShow'
 
 const routes = [
   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
-  <Route exact path="/discovery/:id" render={() => <DiscoveryShow />} key={'discovery-show'} />,
+  <Route
+    exact
+    path="/discovery/:id"
+    render={(routeProps) => (
+      <DiscoveryShow
+        {...routeProps}
+        resource="discovery"
+        basePath="/discovery"
+        id={routeProps.match.params.id}
+      />
+    )}
+    key={'discovery-show'}
+  />,
 ]
 
 export default routes
