@@ -21,7 +21,14 @@ const getSelectedLibraries = () => {
 // Function to apply library filtering to appropriate resources
 const applyLibraryFilter = (resource, params) => {
   // Content resources that should be filtered by selected libraries
-  const filteredResources = ['album', 'song', 'artist', 'playlistTrack', 'tag']
+  const filteredResources = [
+    'album',
+    'song',
+    'artist',
+    'playlistTrack',
+    'discoverySong',
+    'tag',
+  ]
 
   // Get selected libraries from localStorage
   const selectedLibraries = getSelectedLibraries()
@@ -63,6 +70,19 @@ const mapResource = (resource, params) => {
       params = applyLibraryFilter(resource, params)
 
       return [resource, params]
+    }
+    case 'discovery': {
+      return ['discovery', params]
+    }
+    case 'discoveryFolder': {
+      return ['discovery/folder', params]
+    }
+    case 'discoverySong': {
+      params.filter = params.filter || {}
+      const discoveryId = params.filter.discovery_id
+      delete params.filter.discovery_id
+      params = applyLibraryFilter(resource, params)
+      return [`discovery/${discoveryId}/songs`, params]
     }
     default:
       return [resource, params]
@@ -139,6 +159,14 @@ const emitFoldersChanged = (detail) => {
   }
 }
 
+const emitDiscoveryFoldersChanged = (detail) => {
+  try {
+    window.dispatchEvent(new CustomEvent('discoveryFolder:changed', { detail }))
+  } catch (err) {
+    // Ignore errors if dispatching fails
+  }
+}
+
 const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
@@ -180,6 +208,15 @@ const wrapperDataProvider = {
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
         emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
       }
+      if (resource === 'discovery' || resource === 'discoveryFolder') {
+        const parentId =
+          (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
+        emitDiscoveryFoldersChanged({
+          type: 'create',
+          resource,
+          targetParentId: parentId,
+        })
+      }
       return res
     })
   },
@@ -198,6 +235,15 @@ const wrapperDataProvider = {
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
         emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
       }
+      if (resource === 'discovery' || resource === 'discoveryFolder') {
+        const parentId =
+          (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
+        emitDiscoveryFoldersChanged({
+          type: 'create',
+          resource,
+          targetParentId: parentId,
+        })
+      }
       return res
     })
   },
@@ -206,6 +252,13 @@ const wrapperDataProvider = {
     return dataProvider.delete(r, p).then((res) => {
       if (resource === 'playlist' || resource === 'folder') {
         emitFoldersChanged({ type: 'delete', resource, targetParentId: '' })
+      }
+      if (resource === 'discovery' || resource === 'discoveryFolder') {
+        emitDiscoveryFoldersChanged({
+          type: 'delete',
+          resource,
+          targetParentId: '',
+        })
       }
       return res
     })
@@ -219,6 +272,12 @@ const wrapperDataProvider = {
   },
   addToPlaylist: (playlistId, data) => {
     return httpClient(`${REST_URL}/playlist/${playlistId}/tracks`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then(({ json }) => ({ data: json }))
+  },
+  addToDiscovery: (discoveryId, data) => {
+    return httpClient(`${REST_URL}/discovery/${discoveryId}/songs`, {
       method: 'POST',
       body: JSON.stringify(data),
     }).then(({ json }) => ({ data: json }))
@@ -250,6 +309,22 @@ const wrapperDataProvider = {
       return { data: { id: playlistId, folderId: targetFolderId } }
     })
   },
+  setDiscoveryFolder: ({ discoveryId, targetFolderId, sourceParentId }) => {
+    return httpClient(`${REST_URL}/discovery/${discoveryId}/folder`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        folderId: targetFolderId,
+      }),
+    }).then(() => {
+      emitDiscoveryFoldersChanged({
+        type: 'move',
+        resource: 'discovery',
+        sourceParentId: sourceParentId ?? '',
+        targetParentId: targetFolderId ?? '',
+      })
+      return { data: { id: discoveryId, folderId: targetFolderId } }
+    })
+  },
 
   moveFolder: ({ folderId, targetParentId, sourceParentId }) => {
     return httpClient(`${REST_URL}/folder/${folderId}/parent`, {
@@ -261,6 +336,22 @@ const wrapperDataProvider = {
       emitFoldersChanged({
         type: 'move',
         resource: 'folder',
+        sourceParentId: sourceParentId ?? '',
+        targetParentId: targetParentId ?? '',
+      })
+      return { data: json }
+    })
+  },
+  moveDiscoveryFolder: ({ folderId, targetParentId, sourceParentId }) => {
+    return httpClient(`${REST_URL}/discovery/folder/${folderId}/parent`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        parentId: targetParentId,
+      }),
+    }).then(({ json }) => {
+      emitDiscoveryFoldersChanged({
+        type: 'move',
+        resource: 'discoveryFolder',
         sourceParentId: sourceParentId ?? '',
         targetParentId: targetParentId ?? '',
       })
@@ -279,6 +370,21 @@ const wrapperDataProvider = {
       })
       if ((targetParentId ?? '') === '') {
         emitFoldersChanged({ type: 'bulkMove', targetParentId: '' })
+      }
+      return { data: json }
+    })
+  },
+  bulkMoveDiscovery: ({ discoveryIds = [], folderIds = [], targetParentId = null }) => {
+    return httpClient(`${REST_URL}/discovery/folder/move`, {
+      method: 'PATCH',
+      body: JSON.stringify({ discoveryIds, folderIds, targetParentId }),
+    }).then(({ json }) => {
+      emitDiscoveryFoldersChanged({
+        type: 'bulkMove',
+        targetParentId: targetParentId ?? '',
+      })
+      if ((targetParentId ?? '') === '') {
+        emitDiscoveryFoldersChanged({ type: 'bulkMove', targetParentId: '' })
       }
       return { data: json }
     })

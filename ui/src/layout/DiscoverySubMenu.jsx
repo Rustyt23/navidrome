@@ -18,8 +18,8 @@ import config from '../config'
 import useDragAndDrop from '../common/useDragAndDrop'
 import httpClient from '../dataProvider/httpClient'
 
-const fetchPlaylistTrackIds = async (playlistId) => {
-  const res = await httpClient(`${REST_URL}/playlist/${playlistId}/tracks`)
+const fetchDiscoverySongIds = async (discoveryId) => {
+  const res = await httpClient(`${REST_URL}/discovery/${discoveryId}/songs`)
   const tracks = Array.isArray(res?.json) ? res.json : []
   const ids = new Set()
   tracks.forEach((track) => {
@@ -30,12 +30,12 @@ const fetchPlaylistTrackIds = async (playlistId) => {
   return ids
 }
 
-const filterSongDropPayload = async (playlistId, item) => {
+const filterDiscoverySongDropPayload = async (discoveryId, item) => {
   if (!Array.isArray(item?.ids) || item.ids.length === 0) {
     return item
   }
 
-  const existingIds = await fetchPlaylistTrackIds(playlistId)
+  const existingIds = await fetchDiscoverySongIds(discoveryId)
   const seen = new Set()
   const uniqueIds = []
 
@@ -80,6 +80,12 @@ const useChildrenStore = () => {
     const key = parentKey(parentId)
     const enriched = (items || []).map((it) => ({
       ...it,
+      type:
+        it.type === 'folder'
+          ? 'discoveryFolder'
+          : it.type === 'playlist'
+          ? 'discovery'
+          : it.type,
       parent_id:
         it.parent_id ?? it.parentId ?? it.folder_id ?? it.folderId ?? key,
     }))
@@ -163,7 +169,7 @@ const DiscoveryMenuItemLink = memo(({ pls, depth = 0 }) => {
       let payload = item
       if (Array.isArray(item?.ids) && item.ids.length) {
         try {
-          const filtered = await filterSongDropPayload(pls.id, item)
+          const filtered = await filterDiscoverySongDropPayload(pls.id, item)
           if (!filtered) {
             notify('Skipped duplicate song.', { type: 'info' })
             return
@@ -175,7 +181,7 @@ const DiscoveryMenuItemLink = memo(({ pls, depth = 0 }) => {
       }
 
       return dataProvider
-        .addToPlaylist(pls.id, payload)
+        .addToDiscovery(pls.id, payload)
         .then((res) => notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added }))
         .catch(() => notify('ra.page.error', 'warning'))
     },
@@ -183,8 +189,8 @@ const DiscoveryMenuItemLink = memo(({ pls, depth = 0 }) => {
   )
 
   const { dragDropRef, isDragging } = useDragAndDrop(
-    DraggableTypes.PLAYLIST,
-    { id: pls.id, type: 'playlist', parentId: parentIdForDnD },
+    DraggableTypes.DISCOVERY,
+    { id: pls.id, type: 'discovery', parentId: parentIdForDnD },
     canChangeTracks(pls) ? DraggableTypes.ALL : [],
     handleDrop
   )
@@ -230,7 +236,7 @@ const FolderRow = memo(function FolderRow({
     setLoading(true)
     try {
       await ensure(node.id, async () => {
-        const res = await dataProvider.getList('folder', {
+        const res = await dataProvider.getList('discoveryFolder', {
           pagination: { page: 1, perPage: config.maxSidebarPlaylistFolders },
           sort: { field: 'name', order: 'ASC' },
           filter: { parent_id: parentFilterValue(node.id) },
@@ -254,23 +260,23 @@ const FolderRow = memo(function FolderRow({
   const parentIdForDnD = node.parent_id ?? ''
 
   const { dragDropRef, isDragging } = useDragAndDrop(
-    DraggableTypes.FOLDER,
-    { id: node.id, type: 'folder', parentId: parentIdForDnD },
-    [DraggableTypes.FOLDER, DraggableTypes.PLAYLIST],
+    DraggableTypes.DISCOVERY_FOLDER,
+    { id: node.id, type: 'discoveryFolder', parentId: parentIdForDnD },
+    [DraggableTypes.DISCOVERY_FOLDER, DraggableTypes.DISCOVERY],
     async (item) => {
       try {
         if (item.id === node.id) return
 
         const sourceParentId = item.parentId ?? ''
 
-        if (item.type === 'playlist') {
-          await dataProvider.setPlaylistFolder({
-            playlistId: item.id,
+        if (item.type === 'discovery') {
+          await dataProvider.setDiscoveryFolder({
+            discoveryId: item.id,
             targetFolderId: node.id,
             sourceParentId,
           })
-        } else if (item.type === 'folder') {
-          await dataProvider.moveFolder({
+        } else if (item.type === 'discoveryFolder') {
+          await dataProvider.moveDiscoveryFolder({
             folderId: item.id,
             targetParentId: node.id,
             sourceParentId,
@@ -294,8 +300,8 @@ const FolderRow = memo(function FolderRow({
   )
 
   const childrenTyped = useMemo(() => ({
-    folders: (items || []).filter((i) => i.type === 'folder'),
-    playlists: (items || []).filter((i) => i.type === 'playlist'),
+    folders: (items || []).filter((i) => i.type === 'discoveryFolder'),
+    playlists: (items || []).filter((i) => i.type === 'discovery'),
   }), [items])
 
   return (
@@ -367,7 +373,7 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
     if (!rootDirty && rootCached) return
     try {
       await ensure('', async () => {
-        const res = await dataProvider.getList('folder', {
+        const res = await dataProvider.getList('discoveryFolder', {
           pagination: { page: 1, perPage: config.maxSidebarPlaylistFolders },
           sort: { field: 'name', order: 'ASC' },
           filter: { parent_id: parentFilterValue('') },
@@ -392,24 +398,24 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
 
       refresh()
     }
-    window.addEventListener('folder:changed', onChanged)
-    return () => window.removeEventListener('folder:changed', onChanged)
+    window.addEventListener('discoveryFolder:changed', onChanged)
+    return () => window.removeEventListener('discoveryFolder:changed', onChanged)
   }, [markDirty, refresh])
 
   const [, dropRef] = useDrop(() => ({
-    accept: [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
+    accept: [DraggableTypes.DISCOVERY, DraggableTypes.DISCOVERY_FOLDER],
     drop: async (item) => {
       try {
         const sourceParentId = item.parentId ?? ''
 
-        if (item.type === 'playlist') {
-          await dataProvider.setPlaylistFolder({
-            playlistId: item.id,
+        if (item.type === 'discovery') {
+          await dataProvider.setDiscoveryFolder({
+            discoveryId: item.id,
             targetFolderId: null,
             sourceParentId,
           })
-        } else if (item.type === 'folder') {
-          await dataProvider.moveFolder({
+        } else if (item.type === 'discoveryFolder') {
+          await dataProvider.moveDiscoveryFolder({
             folderId: item.id,
             targetParentId: null,
             sourceParentId,
@@ -429,8 +435,14 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
     },
   }), [dataProvider, notify, moveItem, markDirty, refresh])
 
-  const folders = useMemo(() => (rootItems || []).filter((i) => i.type === 'folder'), [rootItems])
-  const playlists = useMemo(() => (rootItems || []).filter((i) => i.type === 'playlist'), [rootItems])
+  const folders = useMemo(
+    () => (rootItems || []).filter((i) => i.type === 'discoveryFolder'),
+    [rootItems],
+  )
+  const playlists = useMemo(
+    () => (rootItems || []).filter((i) => i.type === 'discovery'),
+    [rootItems],
+  )
 
   return (
     <SubMenu
