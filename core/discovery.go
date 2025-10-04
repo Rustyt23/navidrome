@@ -33,6 +33,50 @@ func NewDiscovery(ds model.DataStore) Discovery {
 	return &discovery{ds: ds}
 }
 
+type discoveryTrackEntry struct {
+	display  string
+	absolute string
+}
+
+func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, error) {
+	entries := make([]discoveryTrackEntry, 0)
+	err := filepath.WalkDir(folder, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !model.IsAudioFile(path) {
+			return nil
+		}
+		absolute := filepath.Clean(path)
+		display := absolute
+		musicRoot := conf.Server.MusicFolder
+		if musicRoot != "" {
+			if absRoot, absErr := filepath.Abs(musicRoot); absErr == nil {
+				musicRoot = absRoot
+			}
+			if rel, relErr := filepath.Rel(musicRoot, absolute); relErr == nil && !strings.HasPrefix(rel, "..") {
+				display = rel
+			}
+		}
+		display = filepath.ToSlash(display)
+		entries = append(entries, discoveryTrackEntry{
+			display:  display,
+			absolute: absolute,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].display < entries[j].display
+	})
+	return entries, nil
+}
+
 func (d *discovery) List(ctx context.Context, refresh bool) (model.DiscoveryPlaylists, error) {
 	if refresh {
 		return d.Refresh(ctx)
@@ -131,66 +175,150 @@ func (d *discovery) Export(ctx context.Context, id string, w io.Writer) error {
 }
 
 func (d *discovery) collectTrackPaths(folder string) ([]string, error) {
-	var tracks []string
-	err := filepath.WalkDir(folder, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if !model.IsAudioFile(path) {
-			return nil
-		}
-		rel := path
-		if conf.Server.MusicFolder != "" {
-			if r, relErr := filepath.Rel(conf.Server.MusicFolder, path); relErr == nil && !strings.HasPrefix(r, "..") {
-				rel = r
-			}
-		}
-		rel = filepath.ToSlash(rel)
-		tracks = append(tracks, rel)
-		return nil
-	})
+	entries, err := d.collectTrackEntries(folder)
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(tracks)
+	tracks := make([]string, len(entries))
+	for i, entry := range entries {
+		tracks[i] = entry.display
+	}
 	return tracks, nil
 }
 
+func (d *discovery) libraryRoots(ctx context.Context) []string {
+	libraries, err := d.ds.Library(ctx).GetAll()
+	if err != nil {
+		log.Warn(ctx, "Failed to list libraries for discovery matching", err)
+		return nil
+	}
+	roots := make([]string, 0, len(libraries))
+	for _, lib := range libraries {
+		if lib.Path == "" {
+			continue
+		}
+		root := lib.Path
+		if abs, absErr := filepath.Abs(root); absErr == nil {
+			root = abs
+		}
+		roots = append(roots, filepath.Clean(root))
+	}
+	return roots
+}
+
+func (d *discovery) discoveryPathVariants(displayPath, absolutePath string, libraryRoots []string) []string {
+	seen := make(map[string]struct{}, len(libraryRoots)+2)
+	variants := make([]string, 0, len(libraryRoots)+2)
+	add := func(candidate string) {
+		if candidate == "" {
+			return
+		}
+		cleaned := filepath.Clean(candidate)
+		cleaned = filepath.ToSlash(cleaned)
+		if cleaned == "." {
+			return
+		}
+		if _, ok := seen[cleaned]; ok {
+			return
+		}
+		seen[cleaned] = struct{}{}
+		variants = append(variants, cleaned)
+	}
+
+	add(displayPath)
+	if absolutePath != "" {
+		add(absolutePath)
+	}
+	for _, root := range libraryRoots {
+		absRoot := root
+		if !filepath.IsAbs(absRoot) {
+			if resolved, err := filepath.Abs(absRoot); err == nil {
+				absRoot = resolved
+			}
+		}
+		if absolutePath == "" {
+			continue
+		}
+		rel, relErr := filepath.Rel(absRoot, absolutePath)
+		if relErr != nil {
+			continue
+		}
+		if strings.HasPrefix(rel, "..") {
+			continue
+		}
+		add(rel)
+	}
+	return variants
+}
+
 func (d *discovery) buildTracks(ctx context.Context, entry *model.DiscoveryPlaylist) (model.DiscoveryTracks, error) {
-	paths, err := d.collectTrackPaths(entry.FolderPath)
+	entries, err := d.collectTrackEntries(entry.FolderPath)
 	if err != nil {
 		return nil, err
 	}
-	if len(paths) == 0 {
+	if len(entries) == 0 {
 		return nil, nil
 	}
 	repo := d.ds.MediaFile(ctx)
-	mediaFiles, err := repo.FindByPaths(paths)
+	libraryRoots := d.libraryRoots(ctx)
+	variantByPath := make(map[string][]string, len(entries))
+	lookupSet := make(map[string]struct{}, len(entries)*2)
+	lookup := make([]string, 0, len(entries)*2)
+	for _, entryPath := range entries {
+		normalized := entryPath.display
+		variants := d.discoveryPathVariants(entryPath.display, entryPath.absolute, libraryRoots)
+		variantByPath[normalized] = variants
+		for _, candidate := range variants {
+			if _, ok := lookupSet[candidate]; ok {
+				continue
+			}
+			lookupSet[candidate] = struct{}{}
+			lookup = append(lookup, candidate)
+		}
+	}
+	mediaFiles, err := repo.FindByPaths(lookup)
 	if err != nil {
 		return nil, err
 	}
-	mfByPath := make(map[string]model.MediaFile, len(mediaFiles))
+	mfByPath := make(map[string]model.MediaFile, len(mediaFiles)*2)
 	for _, mf := range mediaFiles {
-		mfByPath[strings.ToLower(filepath.ToSlash(mf.Path))] = mf
+		key := strings.ToLower(filepath.ToSlash(filepath.Clean(mf.Path)))
+		mfByPath[key] = mf
+		if absPath := mf.AbsolutePath(); absPath != "" {
+			absKey := strings.ToLower(filepath.ToSlash(filepath.Clean(absPath)))
+			mfByPath[absKey] = mf
+		}
 	}
-	tracks := make(model.DiscoveryTracks, 0, len(paths))
-	for idx, path := range paths {
-		key := strings.ToLower(path)
-		mediaFile, ok := mfByPath[key]
-		if !ok {
+	tracks := make(model.DiscoveryTracks, 0, len(entries))
+	for idx, entryPath := range entries {
+		normalized := entryPath.display
+		variants := variantByPath[normalized]
+		var (
+			mediaFile model.MediaFile
+			found     bool
+		)
+		for _, candidate := range variants {
+			if mf, ok := mfByPath[strings.ToLower(candidate)]; ok {
+				mediaFile = mf
+				found = true
+				break
+			}
+		}
+		if !found {
+			fallback := normalized
+			if len(variants) > 0 {
+				fallback = variants[0]
+			}
 			mediaFile = model.MediaFile{
-				ID:      id.NewHash(entry.ID + path),
-				Path:    path,
-				Title:   filepath.Base(path),
+				ID:      id.NewHash(entry.ID + fallback),
+				Path:    fallback,
+				Title:   filepath.Base(fallback),
 				Missing: true,
 			}
 		}
 		trackID := mediaFile.ID
 		if trackID == "" {
-			trackID = id.NewHash(entry.ID + path + "#" + strconv.Itoa(idx))
+			trackID = id.NewHash(entry.ID + normalized + "#" + strconv.Itoa(idx))
 		}
 		tracks = append(tracks, model.DiscoveryTrack{
 			ID:          trackID,

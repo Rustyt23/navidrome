@@ -79,7 +79,6 @@ const DiscoveryShowLayout = (props) => {
               record={record}
             />
           }
-          filters={filters}
           discoveryId={record.id}
           pagination={
             <Pagination
