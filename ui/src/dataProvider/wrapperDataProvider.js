@@ -84,14 +84,71 @@ const handleUserLibraryAssociation = async (userId, libraryIds) => {
   }
 
   try {
-  await httpClient(`${REST_URL}/user/${userId}/library`, {
-    method: 'PUT',
-    body: JSON.stringify({ libraryIds }),
-  })
+    await httpClient(`${REST_URL}/user/${userId}/library`, {
+      method: 'PUT',
+      body: JSON.stringify({ libraryIds }),
+    })
   } catch (error) {
     console.error('Error setting user libraries:', error) //eslint-disable-line no-console
     throw error
   }
+}
+
+const sortDiscoveryRecords = (records, sort) => {
+  if (!sort?.field) return [...records]
+  const { field, order } = sort
+  const direction = order === 'DESC' ? -1 : 1
+  return [...records].sort((a, b) => {
+    const aValue = a?.[field]
+    const bValue = b?.[field]
+    if (aValue === undefined || aValue === null) {
+      return bValue === undefined || bValue === null ? 0 : -1 * direction
+    }
+    if (bValue === undefined || bValue === null) {
+      return 1 * direction
+    }
+    if (typeof aValue === 'number' && typeof bValue === 'number') {
+      return (aValue - bValue) * direction
+    }
+    if (typeof aValue === 'string' && typeof bValue === 'string') {
+      return aValue.localeCompare(bValue) * direction
+    }
+    const aText = `${aValue}`
+    const bText = `${bValue}`
+    const aNumber = Number(aText)
+    const bNumber = Number(bText)
+    if (!Number.isNaN(aNumber) && !Number.isNaN(bNumber)) {
+      return (aNumber - bNumber) * direction
+    }
+    return aText.localeCompare(bText) * direction
+  })
+}
+
+const applyDiscoveryFilter = (records, filter) => {
+  if (!filter?.q) return [...records]
+  const query = String(filter.q).trim().toLowerCase()
+  if (!query) return [...records]
+  return records.filter((record) =>
+    (record?.name || '').toLowerCase().includes(query)
+  )
+}
+
+const getDiscoveryList = async (params = {}) => {
+  const { pagination = {}, sort, filter } = params
+  const { json } = await httpClient(`${REST_URL}/discovery`)
+  const records = Array.isArray(json) ? json : []
+  const filtered = applyDiscoveryFilter(records, filter)
+  const sorted = sortDiscoveryRecords(filtered, sort)
+  const page = Math.max(1, pagination.page || 1)
+  const perPage = Math.max(1, pagination.perPage || (sorted.length || 1))
+  const start = (page - 1) * perPage
+  const paginated = sorted.slice(start, start + perPage)
+  return { data: paginated, total: sorted.length }
+}
+
+const getDiscoveryOne = async (id) => {
+  const { json } = await httpClient(`${REST_URL}/discovery/${id}`)
+  return { data: json }
 }
 
 // Enhanced user creation that handles library associations
@@ -142,10 +199,16 @@ const emitFoldersChanged = (detail) => {
 const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
+    if (resource === 'discovery') {
+      return getDiscoveryList(params)
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getList(r, p)
   },
   getOne: (resource, params) => {
+    if (resource === 'discovery') {
+      return getDiscoveryOne(params.id)
+    }
     const [r, p] = mapResource(resource, params)
     const response = dataProvider.getOne(r, p)
 
@@ -162,10 +225,19 @@ const wrapperDataProvider = {
     return response
   },
   getMany: (resource, params) => {
+    if (resource === 'discovery') {
+      const ids = params.ids || []
+      return Promise.all(ids.map((id) => getDiscoveryOne(id))).then((results) => ({
+        data: results.map((item) => item.data),
+      }))
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getMany(r, p)
   },
   getManyReference: (resource, params) => {
+    if (resource === 'discovery') {
+      return getDiscoveryList(params)
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getManyReference(r, p)
   },
@@ -282,6 +354,11 @@ const wrapperDataProvider = {
       }
       return { data: json }
     })
+  },
+  refreshDiscovery: () => {
+    return httpClient(`${REST_URL}/discovery/refresh`, {
+      method: 'POST',
+    }).then(({ json }) => ({ data: json }))
   },
 }
 

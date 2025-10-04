@@ -15,7 +15,7 @@ import { useHistory } from 'react-router-dom'
 import { useNotify, useTranslate } from 'react-admin'
 import SubMenu from './SubMenu'
 import httpClient from '../dataProvider/httpClient'
-import { REST_URL } from '../consts'
+import { M3U_MIME_TYPE, REST_URL } from '../consts'
 
 const useStyles = makeStyles((theme) => ({
   item: {
@@ -37,6 +37,7 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const history = useHistory()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
+  const [exportingId, setExportingId] = useState(null)
 
   const fetchDiscovery = useCallback(
     async (refresh = false) => {
@@ -67,8 +68,27 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
     history.push(`/discovery/${item.id}`)
   }
 
-  const handleExport = (item) => {
-    window.open(`${REST_URL}/discovery/${item.id}/export`, '_blank')
+  const handleExport = async (item) => {
+    if (!item?.id || exportingId === item.id) return
+    setExportingId(item.id)
+    try {
+      const res = await httpClient(`${REST_URL}/discovery/${item.id}/export`, {
+        headers: new Headers({ Accept: M3U_MIME_TYPE }),
+      })
+      const blob = new Blob([res.body], { type: M3U_MIME_TYPE })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${item.name || 'discovery'}.m3u`
+      document.body.appendChild(link)
+      link.click()
+      link.parentNode.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      notify('ra.page.error', 'warning')
+    } finally {
+      setExportingId(null)
+    }
   }
 
   const songCountLabel = (item) => {
@@ -114,7 +134,13 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
           </ListItemIcon>
           <ListItemText primary={item.name} secondary={songCountLabel(item)} />
           <ListItemSecondaryAction>
-            <IconButton edge="end" size="small" onClick={() => handleExport(item)} aria-label={translate('action.export')}>
+            <IconButton
+              edge="end"
+              size="small"
+              onClick={() => handleExport(item)}
+              aria-label={translate('action.export')}
+              disabled={exportingId === item.id}
+            >
               <CloudDownloadIcon fontSize="small" />
             </IconButton>
           </ListItemSecondaryAction>
