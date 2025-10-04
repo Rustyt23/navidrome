@@ -530,6 +530,8 @@
   },
   "menu": {
     "library": "Library",
+    "discovery": "Discovery",
+    "discovery_empty": "No discovery playlists available",
     "librarySelector": {
       "allLibraries": "All Libraries (%{count})",
       "multipleLibraries": "%{selected} of %{total} Libraries",
