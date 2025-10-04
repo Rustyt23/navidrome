@@ -1,37 +1,58 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Card, CardContent, CardHeader, CircularProgress, List, ListItem, ListItemText, Typography, makeStyles } from '@material-ui/core'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CircularProgress,
+  List,
+  ListItem,
+  ListItemText,
+  Typography,
+  makeStyles,
+} from '@material-ui/core'
 import RefreshIcon from '@material-ui/icons/Refresh'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
-import { Button, RaRecordContext, RaTitle, TopToolbar, useNotify, useTranslate } from 'react-admin'
+import { Button, RaTitle, TopToolbar, useNotify, useTranslate } from 'react-admin'
 import { useParams } from 'react-router-dom'
 import httpClient from '../dataProvider/httpClient'
 import { M3U_MIME_TYPE, REST_URL } from '../consts'
 import { Title } from '../common'
 
-const useStyles = makeStyles((theme) => ({
-  root: {
-    maxWidth: 960,
-    margin: '24px auto',
-  },
-  actionsToolbar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: theme.spacing(2),
-  },
-  list: {
-    backgroundColor: theme.palette.background.paper,
-    borderRadius: theme.shape.borderRadius,
-  },
-}))
+const useStyles = makeStyles(
+  (theme) => ({
+    root: {
+      maxWidth: 960,
+      margin: '24px auto',
+    },
+    toolbar: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      width: '100%',
+      marginBottom: theme.spacing(2),
+    },
+    list: {
+      backgroundColor: theme.palette.background.paper,
+      borderRadius: theme.shape.borderRadius,
+    },
+    actionsGroup: {
+      '& > *': {
+        marginRight: theme.spacing(1),
+      },
+      '& > *:last-child': {
+        marginRight: 0,
+      },
+    },
+  }),
+  { name: 'NDDiscoveryShow' },
+)
 
 const DiscoveryActions = ({ onRefresh, onExport, refreshing, exporting }) => {
   const translate = useTranslate()
   const classes = useStyles()
 
   return (
-    <TopToolbar className={classes.actionsToolbar}>
-      <div>
+    <TopToolbar className={classes.toolbar}>
+      <div className={classes.actionsGroup}>
         <Button
           onClick={onRefresh}
           label={translate('action.refresh', { _: translate('ra.action.refresh') })}
@@ -47,6 +68,7 @@ const DiscoveryActions = ({ onRefresh, onExport, refreshing, exporting }) => {
           <QueueMusicIcon />
         </Button>
       </div>
+      <div />
     </TopToolbar>
   )
 }
@@ -139,7 +161,7 @@ const DiscoveryShow = () => {
   }
 
   return (
-    <RaRecordContext.Provider value={record}>
+    <>
       {record && <RaTitle title={<Title subTitle={record.name} />} />}
       <Card className={classes.root}>
         <CardHeader title={record.name} subheader={playlistSubtitle} />
@@ -160,7 +182,7 @@ const DiscoveryShow = () => {
           </List>
         </CardContent>
       </Card>
-    </RaRecordContext.Provider>
+    </>
   )
 }
 
