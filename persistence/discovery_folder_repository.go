@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -195,28 +196,39 @@ func (r *discoveryFolderRepository) UpdateParent(id string, parentId *string) er
 		return rest.ErrPermissionDenied
 	}
 
-	if parentId == nil {
-		return r.Update(id, map[string]any{"parentId": nil}, "parentId")
+	if parentId != nil {
+		if *parentId == id {
+			return ErrInvalidRequest
+		}
+		isDesc, err := r.isDescendant(*parentId, id)
+		if err != nil {
+			return err
+		}
+		if isDesc {
+			return ErrInvalidRequest
+		}
 	}
 
-	if *parentId == id {
-		return fmt.Errorf("cannot move folder into itself")
-	}
-
-	var dst struct{ OwnerID string }
-	if err := r.queryOne(Select("owner_id").From("discovery_folder").Where(Eq{"id": *parentId}), &dst); err != nil {
+	f := &model.DiscoveryFolder{ID: id, OwnerID: src.OwnerID, Name: src.Name, ParentID: parentId}
+	if err := r.ensureUniqueName(f); err != nil {
 		return err
 	}
-	if !usr.IsAdmin && dst.OwnerID != usr.ID {
-		return rest.ErrPermissionDenied
-	}
 
-	return r.Update(id, map[string]any{"parentId": parentId}, "parentId")
+	upd := Update("discovery_folder").
+		Set("parent_id", parentId).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(upd)
+	return err
 }
 
 func (r *discoveryFolderRepository) selectFolder(options ...model.QueryOptions) SelectBuilder {
 	return r.newSelect(options...).Join("user on user.id = owner_id").
-		Columns(r.tableName+".*", "user.user_name as owner_name")
+		Columns(
+			r.tableName+".*",
+			"user.user_name as owner_name",
+			"'folder' as type",
+		)
 }
 
 func (r *discoveryFolderRepository) hasParentIDFilter(options ...model.QueryOptions) bool {
@@ -252,6 +264,84 @@ func (r *discoveryFolderRepository) findBy(sql Sqlizer) (*model.DiscoveryFolder,
 	f := &res[0].DiscoveryFolder
 	f.Type = "folder"
 	return f, nil
+}
+
+func (r *discoveryFolderRepository) Count(options ...rest.QueryOptions) (int64, error) {
+	return r.CountAll(r.parseRestOptions(r.ctx, options...))
+}
+
+func (r *discoveryFolderRepository) Read(id string) (interface{}, error) {
+	return r.Get(id)
+}
+
+func (r *discoveryFolderRepository) ReadAll(options ...rest.QueryOptions) (interface{}, error) {
+	return r.GetAll(r.parseRestOptions(r.ctx, options...))
+}
+
+func (r *discoveryFolderRepository) EntityName() string { return "discovery_folder" }
+
+func (r *discoveryFolderRepository) NewInstance() interface{} { return &model.DiscoveryFolder{} }
+
+func (r *discoveryFolderRepository) Save(entity interface{}) (string, error) {
+	f := entity.(*model.DiscoveryFolder)
+	f.OwnerID = loggedUser(r.ctx).ID
+	f.ID = ""
+	if err := r.Put(f); err != nil {
+		return "", err
+	}
+	return f.ID, nil
+}
+
+func (r *discoveryFolderRepository) Update(id string, entity interface{}, cols ...string) error {
+	usr := loggedUser(r.ctx)
+	current, err := r.Get(id)
+	if err != nil {
+		return err
+	}
+	if !usr.IsAdmin && current.OwnerID != usr.ID {
+		return rest.ErrPermissionDenied
+	}
+
+	f := entity.(*model.DiscoveryFolder)
+	if !usr.IsAdmin && f.OwnerID != "" && f.OwnerID != usr.ID {
+		return rest.ErrPermissionDenied
+	}
+	f.ID = id
+	if err := r.ensureUniqueName(f); err != nil {
+		return err
+	}
+	f.UpdatedAt = time.Now()
+	f.Type = "folder"
+	_, err = r.put(id, dbDiscoveryFolder{DiscoveryFolder: *f}, append(cols, "updatedAt")...)
+	if errors.Is(err, model.ErrNotFound) {
+		return rest.ErrNotFound
+	}
+	return err
+}
+
+func (r *discoveryFolderRepository) isDescendant(childID, ancestorID string) (bool, error) {
+	for {
+		var row struct {
+			ParentID *string `db:"parent_id"`
+		}
+		err := r.queryOne(
+			Select("parent_id").From("discovery_folder").Where(Eq{"id": childID}),
+			&row,
+		)
+		if errors.Is(err, model.ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if row.ParentID == nil {
+			return false, nil
+		}
+		if *row.ParentID == ancestorID {
+			return true, nil
+		}
+		childID = *row.ParentID
+	}
 }
 
 var _ model.DiscoveryFolderRepository = (*discoveryFolderRepository)(nil)
