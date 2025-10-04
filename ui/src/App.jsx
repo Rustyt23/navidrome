@@ -128,6 +128,7 @@ const Admin = (props) => {
           name="discoveryFolder"
           options={{ subMenu: 'discovery' }}
         />,
+        <Resource name="discoverySong" />,
         <Resource name="user" {...user} options={{ subMenu: 'settings' }} />,
         <Resource
           name="player"
