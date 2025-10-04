@@ -63,7 +63,10 @@ func (n *Router) routes() http.Handler {
 		n.addPlaylistRoute(r)
 		n.addPlaylistFolderRoute(r)
 		n.addPlaylistTrackRoute(r)
+		n.addDiscoveryRoute(r)
+		n.addDiscoveryTrackRoute(r)
 		n.addSongPlaylistsRoute(r)
+		n.addSongDiscoveriesRoute(r)
 		n.addQueueRoute(r)
 		n.addMissingFilesRoute(r)
 		n.addKeepAliveRoute(r)
@@ -203,9 +206,36 @@ func (n *Router) addPlaylistTrackRoute(r chi.Router) {
 	})
 }
 
+func (n *Router) addDiscoveryRoute(r chi.Router) {
+	constructor := func(ctx context.Context) rest.Repository {
+		return n.ds.Resource(ctx, model.Discovery{})
+	}
+
+	r.Route("/discovery", func(r chi.Router) {
+		r.Get("/", rest.GetAll(constructor))
+		r.Route("/{id}", func(r chi.Router) {
+			r.Use(server.URLParamsMiddleware)
+			r.Get("/", getDiscovery(n.ds))
+		})
+	})
+}
+
+func (n *Router) addDiscoveryTrackRoute(r chi.Router) {
+	r.Route("/discovery/{discoveryId}/tracks", func(r chi.Router) {
+		r.Use(server.URLParamsMiddleware)
+		r.Get("/", getDiscoveryTracks(n.ds))
+	})
+}
+
 func (n *Router) addSongPlaylistsRoute(r chi.Router) {
 	r.With(server.URLParamsMiddleware).Get("/song/{id}/playlists", func(w http.ResponseWriter, r *http.Request) {
 		getSongPlaylists(n.ds)(w, r)
+	})
+}
+
+func (n *Router) addSongDiscoveriesRoute(r chi.Router) {
+	r.With(server.URLParamsMiddleware).Get("/song/{id}/discoveries", func(w http.ResponseWriter, r *http.Request) {
+		getSongDiscoveries(n.ds)(w, r)
 	})
 }
 

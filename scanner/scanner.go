@@ -18,9 +18,10 @@ import (
 )
 
 type scannerImpl struct {
-	ds  model.DataStore
-	cw  artwork.CacheWarmer
-	pls core.Playlists
+	ds   model.DataStore
+	cw   artwork.CacheWarmer
+	pls  core.Playlists
+	disc core.Discoveries
 }
 
 // scanState holds the state of an in-progress scan, to be passed to the various phases
@@ -102,6 +103,9 @@ func (s *scannerImpl) scanAll(ctx context.Context, fullScan bool, progress chan<
 
 			// Phase 4: Import/update playlists
 			runPhase[*model.Folder](ctx, 4, createPhasePlaylists(ctx, &state, s.ds, s.pls, s.cw)),
+
+			// Phase 5: Sync discovery directories
+			func() error { return s.disc.Sync(ctx) },
 		),
 
 		// Final Steps (cannot be parallelized):

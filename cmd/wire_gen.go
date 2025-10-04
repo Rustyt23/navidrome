@@ -59,6 +59,7 @@ func CreateNativeAPIRouter(ctx context.Context) *nativeapi.Router {
 	dataStore := persistence.New(sqlDB)
 	share := core.NewShare(dataStore)
 	playlists := core.NewPlaylists(dataStore)
+	discoveries := core.NewDiscoveries(dataStore)
 	metricsMetrics := metrics.GetPrometheusInstance(dataStore)
 	manager := plugins.GetManager(dataStore, metricsMetrics)
 	insights := metrics.GetInstance(dataStore, manager)
@@ -69,7 +70,7 @@ func CreateNativeAPIRouter(ctx context.Context) *nativeapi.Router {
 	artworkArtwork := artwork.NewArtwork(dataStore, fileCache, fFmpeg, provider)
 	cacheWarmer := artwork.NewCacheWarmer(artworkArtwork, fileCache)
 	broker := events.GetBroker()
-	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, metricsMetrics)
+	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, discoveries, metricsMetrics)
 	watcher := scanner.GetWatcher(dataStore, scannerScanner)
 	library := core.NewLibrary(dataStore, scannerScanner, watcher, broker)
 	router := nativeapi.New(dataStore, share, playlists, insights, library)
@@ -94,7 +95,8 @@ func CreateSubsonicAPIRouter(ctx context.Context) *subsonic.Router {
 	cacheWarmer := artwork.NewCacheWarmer(artworkArtwork, fileCache)
 	broker := events.GetBroker()
 	playlists := core.NewPlaylists(dataStore)
-	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, metricsMetrics)
+	discoveries := core.NewDiscoveries(dataStore)
+	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, discoveries, metricsMetrics)
 	playTracker := scrobbler.GetPlayTracker(dataStore, broker, manager)
 	playbackServer := playback.GetInstance(dataStore)
 	router := subsonic.New(dataStore, artworkArtwork, mediaStreamer, archiver, players, provider, scannerScanner, broker, playlists, playTracker, share, playbackServer, metricsMetrics)
@@ -162,7 +164,8 @@ func CreateScanner(ctx context.Context) scanner.Scanner {
 	cacheWarmer := artwork.NewCacheWarmer(artworkArtwork, fileCache)
 	broker := events.GetBroker()
 	playlists := core.NewPlaylists(dataStore)
-	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, metricsMetrics)
+	discoveries := core.NewDiscoveries(dataStore)
+	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, discoveries, metricsMetrics)
 	return scannerScanner
 }
 
@@ -179,7 +182,8 @@ func CreateScanWatcher(ctx context.Context) scanner.Watcher {
 	cacheWarmer := artwork.NewCacheWarmer(artworkArtwork, fileCache)
 	broker := events.GetBroker()
 	playlists := core.NewPlaylists(dataStore)
-	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, metricsMetrics)
+	discoveries := core.NewDiscoveries(dataStore)
+	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, discoveries, metricsMetrics)
 	watcher := scanner.GetWatcher(dataStore, scannerScanner)
 	return watcher
 }

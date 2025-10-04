@@ -67,8 +67,9 @@ func runScanner(ctx context.Context) {
 	defer db.Db().Close()
 	ds := persistence.New(sqlDB)
 	pls := core.NewPlaylists(ds)
+	disc := core.NewDiscoveries(ds)
 
-	progress, err := scanner.CallScan(ctx, ds, pls, fullScan)
+	progress, err := scanner.CallScan(ctx, ds, pls, disc, fullScan)
 	if err != nil {
 		log.Fatal(ctx, "Failed to scan", err)
 	}

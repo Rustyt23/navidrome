@@ -11,13 +11,14 @@ import (
 )
 
 var Set = wire.NewSet(
-	NewMediaStreamer,
-	GetTranscodingCache,
-	NewArchiver,
-	NewPlayers,
-	NewShare,
-	NewPlaylists,
-	NewLibrary,
+        NewMediaStreamer,
+        GetTranscodingCache,
+        NewArchiver,
+        NewPlayers,
+        NewShare,
+        NewPlaylists,
+        NewDiscoveries,
+        NewLibrary,
 	agents.GetAgents,
 	external.NewProvider,
 	wire.Bind(new(external.Agents), new(*agents.Agents)),
