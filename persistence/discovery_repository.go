@@ -33,7 +33,7 @@ func (r *discoveryPlaylistRepository) Get(id string) (*model.DiscoveryPlaylist, 
 }
 
 func (r *discoveryPlaylistRepository) ReplaceAll(playlists model.DiscoveryPlaylists) error {
-	if _, err := r.db.Delete("discovery_playlists").Execute(); err != nil {
+	if _, err := r.db.NewQuery("delete from discovery_playlists").Execute(); err != nil {
 		return err
 	}
 	for _, pls := range playlists {
