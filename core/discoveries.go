@@ -222,7 +222,7 @@ func (d *discoveries) collectTracks(ctx context.Context, root string) (model.Dis
 			base := filepath.Base(absPath)
 			title = strings.TrimSuffix(base, filepath.Ext(base))
 		}
-		artist := md.String(model.TagArtist)
+               artist := md.String(model.TagTrackArtist)
 		album := md.String(model.TagAlbum)
 		size := int64(0)
 		if info.FileInfo != nil {
