@@ -46,7 +46,15 @@ const prepareLanguage = (lang) => {
   lang.resources.albumSong = lang.resources.song
   lang.resources.playlistTrack = lang.resources.song
   // Discovery tracks share the same data model as songs, so reuse those labels too
-  lang.resources.discoveryTrack = lang.resources.song
+  if (lang.resources.song) {
+    const discoveryFields = lang.resources.song.fields || {}
+    lang.resources.discoveryTrack = deepmerge({}, lang.resources.song)
+    lang.resources.discoveryTrack.fields = {
+      ...discoveryFields,
+      position:
+        discoveryFields.position || discoveryFields.trackNumber || '#',
+    }
+  }
   // ra.boolean.null should always be empty
   lang.ra.boolean.null = ''
   // Fallback to english translations
