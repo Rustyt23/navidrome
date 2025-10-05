@@ -3,6 +3,7 @@ package artwork
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"image"
 	"image/draw"
@@ -27,7 +28,13 @@ const tileSize = 600
 func newPlaylistArtworkReader(ctx context.Context, artwork *artwork, artID model.ArtworkID) (*playlistArtworkReader, error) {
 	pl, err := artwork.ds.Playlist(ctx).Get(artID.ID)
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		pl, err = discoveryPlaylistForArtwork(ctx, artwork.ds, artID.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	a := &playlistArtworkReader{
 		a:  artwork,
@@ -144,4 +151,39 @@ func rect(pos int) image.Rectangle {
 	r.Max.X = r.Min.X + tileSize/2
 	r.Max.Y = r.Min.Y + tileSize/2
 	return r
+}
+
+func discoveryPlaylistForArtwork(ctx context.Context, ds model.DataStore, id string) (*model.Playlist, error) {
+	entry, err := ds.DiscoveryPlaylist(ctx).Get(id)
+	if err != nil {
+		return nil, err
+	}
+	tracks, err := ds.DiscoveryTrack(ctx).GetByDiscovery(id)
+	if err != nil {
+		return nil, err
+	}
+	playlist := &model.Playlist{
+		ID:        entry.ID,
+		Name:      entry.Name,
+		UpdatedAt: entry.UpdatedAt,
+	}
+	playlistTracks := make(model.PlaylistTracks, 0, len(tracks))
+	for _, track := range tracks {
+		media := track.MediaFile
+		if media.ID == "" {
+			media.ID = track.ID
+		}
+		plt := model.PlaylistTrack{
+			ID:          track.ID,
+			MediaFileID: track.MediaFileID,
+			PlaylistID:  entry.ID,
+			MediaFile:   media,
+		}
+		if plt.MediaFileID == "" {
+			plt.MediaFileID = media.ID
+		}
+		playlistTracks = append(playlistTracks, plt)
+	}
+	playlist.SetTracks(playlistTracks)
+	return playlist, nil
 }

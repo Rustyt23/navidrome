@@ -23,6 +23,7 @@ type discoveryTrackRow struct {
 	Position    int       `db:"position"`
 	Missing     bool      `db:"missing"`
 	MediaFile   string    `db:"media_file"`
+	SourcePath  *string   `db:"source_path"`
 	CreatedAt   time.Time `db:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at"`
 }
@@ -53,6 +54,46 @@ func (r *discoveryTrackRepository) GetByDiscovery(discoveryID string) (model.Dis
 		}
 		if row.MediaFileID != nil {
 			track.MediaFileID = *row.MediaFileID
+		}
+		if row.SourcePath != nil {
+			track.SourcePath = *row.SourcePath
+		}
+		tracks = append(tracks, track)
+	}
+	return tracks, nil
+}
+
+func (r *discoveryTrackRepository) GetByIDs(discoveryID string, ids []string) (model.DiscoveryTracks, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []discoveryTrackRow
+	err := r.db.Select("*").From("discovery_tracks").Where(dbx.And(
+		dbx.HashExp{"discovery_id": discoveryID},
+		dbx.NewExp("id in {:ids*}", dbx.Params{"ids": ids}),
+	)).OrderBy("position asc").All(&rows)
+	if err != nil {
+		return nil, err
+	}
+	tracks := make(model.DiscoveryTracks, 0, len(rows))
+	for _, row := range rows {
+		var mediaFile model.MediaFile
+		if err := json.Unmarshal([]byte(row.MediaFile), &mediaFile); err != nil {
+			log.Warn(r.ctx, "Failed to unmarshal discovery track mediafile", "trackID", row.ID, err)
+			mediaFile = model.MediaFile{ID: row.ID, Path: row.Path, Missing: row.Missing}
+		}
+		track := model.DiscoveryTrack{
+			ID:          row.ID,
+			DiscoveryID: row.DiscoveryID,
+			MediaFileID: "",
+			Position:    row.Position,
+			MediaFile:   mediaFile,
+		}
+		if row.MediaFileID != nil {
+			track.MediaFileID = *row.MediaFileID
+		}
+		if row.SourcePath != nil {
+			track.SourcePath = *row.SourcePath
 		}
 		tracks = append(tracks, track)
 	}
@@ -86,6 +127,12 @@ func (r *discoveryTrackRepository) ReplaceForDiscovery(discoveryID string, track
 			"position":   track.Position,
 			"missing":    track.MediaFile.Missing,
 			"media_file": string(mediaPayload),
+			"source_path": func() interface{} {
+				if track.SourcePath == "" {
+					return nil
+				}
+				return track.SourcePath
+			}(),
 			"created_at": now,
 			"updated_at": now,
 		}

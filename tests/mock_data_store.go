@@ -33,6 +33,106 @@ type MockDataStore struct {
 	repoMu                  sync.Mutex
 }
 
+type MockDiscoveryPlaylistRepo struct {
+	Items map[string]model.DiscoveryPlaylist
+}
+
+func (r *MockDiscoveryPlaylistRepo) ensure() {
+	if r.Items == nil {
+		r.Items = make(map[string]model.DiscoveryPlaylist)
+	}
+}
+
+func (r *MockDiscoveryPlaylistRepo) GetAll(_ ...model.QueryOptions) (model.DiscoveryPlaylists, error) {
+	r.ensure()
+	playlists := make(model.DiscoveryPlaylists, 0, len(r.Items))
+	for _, entry := range r.Items {
+		playlists = append(playlists, entry)
+	}
+	return playlists, nil
+}
+
+func (r *MockDiscoveryPlaylistRepo) Get(id string) (*model.DiscoveryPlaylist, error) {
+	r.ensure()
+	entry, ok := r.Items[id]
+	if !ok {
+		return nil, model.ErrNotFound
+	}
+	copy := entry
+	return &copy, nil
+}
+
+func (r *MockDiscoveryPlaylistRepo) ReplaceAll(playlists model.DiscoveryPlaylists) error {
+	r.ensure()
+	r.Items = make(map[string]model.DiscoveryPlaylist, len(playlists))
+	for _, entry := range playlists {
+		r.Items[entry.ID] = entry
+	}
+	return nil
+}
+
+func (r *MockDiscoveryPlaylistRepo) Put(entry *model.DiscoveryPlaylist) error {
+	r.ensure()
+	if entry != nil {
+		r.Items[entry.ID] = *entry
+	}
+	return nil
+}
+
+func (r *MockDiscoveryPlaylistRepo) Delete(id string) error {
+	r.ensure()
+	delete(r.Items, id)
+	return nil
+}
+
+type MockDiscoveryTrackRepo struct {
+	Items map[string]model.DiscoveryTracks
+}
+
+func (r *MockDiscoveryTrackRepo) ensure() {
+	if r.Items == nil {
+		r.Items = make(map[string]model.DiscoveryTracks)
+	}
+}
+
+func (r *MockDiscoveryTrackRepo) GetByDiscovery(discoveryID string) (model.DiscoveryTracks, error) {
+	r.ensure()
+	tracks := r.Items[discoveryID]
+	if tracks == nil {
+		return model.DiscoveryTracks{}, nil
+	}
+	cloned := make(model.DiscoveryTracks, len(tracks))
+	copy(cloned, tracks)
+	return cloned, nil
+}
+
+func (r *MockDiscoveryTrackRepo) ReplaceForDiscovery(discoveryID string, tracks model.DiscoveryTracks) error {
+	r.ensure()
+	cloned := make(model.DiscoveryTracks, len(tracks))
+	copy(cloned, tracks)
+	r.Items[discoveryID] = cloned
+	return nil
+}
+
+func (r *MockDiscoveryTrackRepo) GetByIDs(discoveryID string, ids []string) (model.DiscoveryTracks, error) {
+	r.ensure()
+	existing := r.Items[discoveryID]
+	if existing == nil {
+		return model.DiscoveryTracks{}, nil
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	result := make(model.DiscoveryTracks, 0, len(ids))
+	for _, track := range existing {
+		if _, ok := wanted[track.ID]; ok {
+			result = append(result, track)
+		}
+	}
+	return result, nil
+}
+
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {
 	if db.MockedLibrary == nil {
 		if db.RealDS != nil {
@@ -128,9 +228,7 @@ func (db *MockDataStore) DiscoveryPlaylist(ctx context.Context) model.DiscoveryP
 		if db.RealDS != nil {
 			db.MockedDiscoveryPlaylist = db.RealDS.DiscoveryPlaylist(ctx)
 		} else {
-			db.MockedDiscoveryPlaylist = struct {
-				model.DiscoveryPlaylistRepository
-			}{}
+			db.MockedDiscoveryPlaylist = &MockDiscoveryPlaylistRepo{}
 		}
 	}
 	return db.MockedDiscoveryPlaylist
@@ -141,9 +239,7 @@ func (db *MockDataStore) DiscoveryTrack(ctx context.Context) model.DiscoveryTrac
 		if db.RealDS != nil {
 			db.MockedDiscoveryTrack = db.RealDS.DiscoveryTrack(ctx)
 		} else {
-			db.MockedDiscoveryTrack = struct {
-				model.DiscoveryTrackRepository
-			}{}
+			db.MockedDiscoveryTrack = &MockDiscoveryTrackRepo{}
 		}
 	}
 	return db.MockedDiscoveryTrack

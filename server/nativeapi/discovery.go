@@ -9,7 +9,9 @@ import (
 	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
+	"github.com/navidrome/navidrome/utils/req"
 )
 
 func (n *Router) addDiscoveryRoute(r chi.Router) {
@@ -21,6 +23,8 @@ func (n *Router) addDiscoveryRoute(r chi.Router) {
 			r.Get("/", n.getDiscovery())
 			r.Get("/tracks", n.getDiscoveryTracks())
 			r.Get("/export", n.exportDiscovery())
+			r.Delete("/tracks", n.deleteDiscoveryTracks())
+			r.Post("/publish", n.publishDiscovery())
 		})
 	})
 }
@@ -106,5 +110,43 @@ func (n *Router) exportDiscovery() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+	}
+}
+
+func (n *Router) deleteDiscoveryTracks() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p := req.Params(r)
+		id, _ := p.String(":id")
+		ids, _ := p.Strings("id")
+		if len(ids) == 0 {
+			writeDeleteManyResponse(w, r, ids)
+			return
+		}
+		if err := n.discovery.DeleteTracks(r.Context(), id, ids); err != nil {
+			if errors.Is(err, rest.ErrNotFound) || errors.Is(err, sql.ErrNoRows) || errors.Is(err, model.ErrNotFound) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			log.Error(r.Context(), "Error deleting discovery tracks", "id", id, "tracks", ids, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeDeleteManyResponse(w, r, ids)
+	}
+}
+
+func (n *Router) publishDiscovery() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := n.discovery.Publish(r.Context(), id); err != nil {
+			if errors.Is(err, rest.ErrNotFound) || errors.Is(err, sql.ErrNoRows) || errors.Is(err, model.ErrNotFound) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			log.Error(r.Context(), "Error publishing discovery playlist", "id", id, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

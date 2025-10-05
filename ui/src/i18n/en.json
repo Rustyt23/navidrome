@@ -248,10 +248,12 @@
         "updatedAt": "Updated at"
       },
       "actions": {
-        "refresh": "Refresh"
+        "refresh": "Refresh",
+        "publish": "Publish"
       },
       "messages": {
-        "refreshed": "Discovery folders refreshed"
+        "refreshed": "Discovery folders refreshed",
+        "published": "Discovery folder %{name} published to Sync folder"
       }
     },
     "radio": {

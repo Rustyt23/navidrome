@@ -51,3 +51,32 @@ func (r *discoveryPlaylistRepository) ReplaceAll(playlists model.DiscoveryPlayli
 	}
 	return nil
 }
+
+func (r *discoveryPlaylistRepository) Put(entry *model.DiscoveryPlaylist) error {
+	params := dbx.Params{
+		"name":        entry.Name,
+		"folder_path": entry.FolderPath,
+		"song_count":  entry.SongCount,
+		"updated_at":  entry.UpdatedAt,
+	}
+	res, err := r.db.Update("discovery_playlists", params, dbx.HashExp{"id": entry.ID}).Execute()
+	if err != nil {
+		return err
+	}
+	if res != nil {
+		if affected, affErr := res.RowsAffected(); affErr == nil && affected > 0 {
+			return nil
+		}
+	}
+	params["id"] = entry.ID
+	if _, err := r.db.Insert("discovery_playlists", params).Execute(); err != nil {
+		log.Error(r.ctx, "Error inserting discovery playlist", "name", entry.Name, err)
+		return err
+	}
+	return nil
+}
+
+func (r *discoveryPlaylistRepository) Delete(id string) error {
+	_, err := r.db.Delete("discovery_playlists", dbx.HashExp{"id": id}).Execute()
+	return err
+}

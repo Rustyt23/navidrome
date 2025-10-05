@@ -485,6 +485,11 @@ const wrapperDataProvider = {
       method: 'POST',
     }).then(({ json }) => ({ data: json }))
   },
+  publishDiscovery: (id) => {
+    return httpClient(`${REST_URL}/discovery/${id}/publish`, {
+      method: 'POST',
+    }).then(() => ({ data: { id } }))
+  },
 }
 
 export default wrapperDataProvider

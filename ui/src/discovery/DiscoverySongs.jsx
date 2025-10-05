@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo } from 'react'
 import {
+  BulkActionsToolbar,
   ListToolbar,
   NumberField,
   TextField,
@@ -28,6 +29,7 @@ import { AlbumLinkField } from '../song/AlbumLinkField'
 import { playTracks } from '../actions'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 import config from '../config'
+import DiscoverySongBulkActions from './DiscoverySongBulkActions'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -42,6 +44,10 @@ const useStyles = makeStyles(
       [theme.breakpoints.down('xs')]: {
         boxShadow: 'none',
       },
+    },
+    bulkActionsDisplayed: {
+      marginTop: -theme.spacing(8),
+      transition: theme.transitions.create('margin-top'),
     },
     actions: {
       zIndex: 2,
@@ -74,7 +80,7 @@ const useStyles = makeStyles(
 
 const DiscoverySongs = ({ actions, pagination, filters, discoveryId }) => {
   const listContext = useListContext()
-  const { data, ids, selectedIds, setPage } = listContext
+  const { data, ids, selectedIds, setPage, onUnselectItems } = listContext
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
@@ -170,8 +176,9 @@ const DiscoverySongs = ({ actions, pagination, filters, discoveryId }) => {
       ids,
       data,
       selectedIds,
+      onUnselectItems,
     })
-  }, [actions, ids, data, selectedIds])
+  }, [actions, ids, data, selectedIds, onUnselectItems])
 
   return (
     <>
@@ -181,11 +188,22 @@ const DiscoverySongs = ({ actions, pagination, filters, discoveryId }) => {
         actions={toolbarActions}
       />
       <div className={classes.main}>
-        <Card className={clsx(classes.content)} key={version}>
+        <Card
+          className={clsx(classes.content, {
+            [classes.bulkActionsDisplayed]: selectedIds.length > 0,
+          })}
+          key={version}
+        >
+          <BulkActionsToolbar>
+            <DiscoverySongBulkActions
+              discoveryId={discoveryId}
+              onUnselectItems={onUnselectItems}
+            />
+          </BulkActionsToolbar>
           <SongDatagrid
             rowClick={handleRowClick}
             {...listContext}
-            hasBulkActions={false}
+            hasBulkActions={true}
             contextAlwaysVisible={!isDesktop}
             classes={{ row: classes.row }}
           >

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useDispatch } from 'react-redux'
 import {
   Button,
@@ -7,6 +7,8 @@ import {
   useTranslate,
   useDataProvider,
   useNotify,
+  useRedirect,
+  useRefresh,
 } from 'react-admin'
 import { useMediaQuery, makeStyles } from '@material-ui/core'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
@@ -15,6 +17,7 @@ import CloudDownloadOutlinedIcon from '@material-ui/icons/CloudDownloadOutlined'
 import { RiPlayListAddFill, RiPlayList2Fill } from 'react-icons/ri'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import ShareIcon from '@material-ui/icons/Share'
+import PublishIcon from '@material-ui/icons/Publish'
 import {
   playNext,
   addTracks,
@@ -40,8 +43,11 @@ const DiscoveryActions = ({ className, ids, data, record, ...rest }) => {
   const classes = useStyles()
   const dataProvider = useDataProvider()
   const notify = useNotify()
+  const redirect = useRedirect()
+  const refresh = useRefresh()
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
+  const [publishing, setPublishing] = useState(false)
 
   const getAllSongsAndDispatch = React.useCallback(
     (action) => {
@@ -112,6 +118,28 @@ const DiscoveryActions = ({ className, ids, data, record, ...rest }) => {
       })
   }, [record, notify])
 
+  const handlePublish = React.useCallback(async () => {
+    if (publishing) {
+      return
+    }
+    setPublishing(true)
+    try {
+      await dataProvider.publishDiscovery(record.id)
+      notify('resources.discovery.messages.published', 'info', {
+        _: translate('resources.discovery.messages.published', {
+          name: record.name,
+        }),
+        name: record.name,
+      })
+      redirect('/discovery')
+      refresh()
+    } catch (error) {
+      notify('ra.page.error', 'warning')
+    } finally {
+      setPublishing(false)
+    }
+  }, [publishing, dataProvider, record, notify, translate, redirect, refresh])
+
   return (
     <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
       <div className={classes.toolbar}>
@@ -161,6 +189,13 @@ const DiscoveryActions = ({ className, ids, data, record, ...rest }) => {
             label={translate('resources.playlist.actions.export')}
           >
             <QueueMusicIcon />
+          </Button>
+          <Button
+            onClick={handlePublish}
+            label={translate('resources.discovery.actions.publish')}
+            disabled={publishing}
+          >
+            <PublishIcon />
           </Button>
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="discoveryTrack" />}</div>

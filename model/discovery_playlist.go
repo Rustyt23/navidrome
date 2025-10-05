@@ -17,22 +17,26 @@ type DiscoveryPlaylist struct {
 type DiscoveryPlaylists []DiscoveryPlaylist
 
 type DiscoveryTrack struct {
-        ID          string `json:"id"`
-        DiscoveryID string `json:"discoveryId"`
-        MediaFileID string `json:"mediaFileId"`
-        Position    int    `json:"position"`
-        MediaFile
+	ID          string `json:"id"`
+	DiscoveryID string `json:"discoveryId"`
+	MediaFileID string `json:"mediaFileId"`
+	Position    int    `json:"position"`
+	SourcePath  string `json:"sourcePath"`
+	MediaFile
 }
 
 type DiscoveryTracks []DiscoveryTrack
 
 type DiscoveryPlaylistRepository interface {
-        GetAll(options ...QueryOptions) (DiscoveryPlaylists, error)
-        Get(id string) (*DiscoveryPlaylist, error)
-        ReplaceAll(playlists DiscoveryPlaylists) error
+	GetAll(options ...QueryOptions) (DiscoveryPlaylists, error)
+	Get(id string) (*DiscoveryPlaylist, error)
+	ReplaceAll(playlists DiscoveryPlaylists) error
+	Put(entry *DiscoveryPlaylist) error
+	Delete(id string) error
 }
 
 type DiscoveryTrackRepository interface {
-        GetByDiscovery(discoveryID string) (DiscoveryTracks, error)
-        ReplaceForDiscovery(discoveryID string, tracks DiscoveryTracks) error
+	GetByDiscovery(discoveryID string) (DiscoveryTracks, error)
+	ReplaceForDiscovery(discoveryID string, tracks DiscoveryTracks) error
+	GetByIDs(discoveryID string, ids []string) (DiscoveryTracks, error)
 }
