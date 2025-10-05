@@ -127,7 +127,10 @@ const DiscoverySongs = ({ actions, pagination, discoveryId, searchTerm }) => {
           key={version}
         >
           <BulkActionsToolbar>
-            <DiscoverySongBulkActions onUnselectItems={onUnselectItems} />
+            <DiscoverySongBulkActions
+              discoveryId={discoveryId}
+              onUnselectItems={onUnselectItems}
+            />
           </BulkActionsToolbar>
           <SongDatagrid
             {...listContext}

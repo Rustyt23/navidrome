@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 
 type Discoveries interface {
 	Sync(ctx context.Context) error
+	Publish(ctx context.Context, discoveryID string) error
 }
 
 type discoveries struct {
@@ -91,6 +94,76 @@ func (d *discoveries) Sync(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (d *discoveries) Publish(ctx context.Context, discoveryID string) error {
+	repo := d.ds.Discovery(ctx)
+	disc, err := repo.GetWithTracks(discoveryID)
+	if err != nil {
+		return err
+	}
+	if conf.Server.SyncFolder == "" {
+		return fmt.Errorf("sync folder not configured")
+	}
+	if disc.Path == "" {
+		return fmt.Errorf("discovery path is empty")
+	}
+
+	srcPath, err := filepath.Abs(disc.Path)
+	if err != nil {
+		return err
+	}
+	if err := ensureDir(filepath.Dir(srcPath)); err != nil {
+		return err
+	}
+	if _, err := os.Stat(srcPath); err != nil {
+		return err
+	}
+
+	m3uName := disc.Name
+	if strings.TrimSpace(m3uName) == "" {
+		m3uName = filepath.Base(srcPath)
+	}
+	m3uName = sanitizeDiscoveryName(m3uName)
+	if err := writeDiscoveryM3U(filepath.Join(srcPath, m3uName+".m3u"), disc.Tracks); err != nil {
+		return err
+	}
+
+	syncRoot := conf.Server.SyncFolder
+	if abs, err := filepath.Abs(syncRoot); err == nil {
+		syncRoot = abs
+	}
+	if err := ensureDir(syncRoot); err != nil {
+		return err
+	}
+
+	rel := filepath.Base(srcPath)
+	if conf.Server.DiscoveryPath != "" {
+		if absRoot, err := filepath.Abs(conf.Server.DiscoveryPath); err == nil {
+			if r, err := filepath.Rel(absRoot, srcPath); err == nil && !strings.HasPrefix(r, "..") {
+				rel = r
+			}
+		}
+	}
+
+	destPath := filepath.Join(syncRoot, rel)
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(destPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	if err := os.Rename(srcPath, destPath); err != nil {
+		if copyErr := copyDiscoveryDir(srcPath, destPath); copyErr != nil {
+			return copyErr
+		}
+		if removeErr := os.RemoveAll(srcPath); removeErr != nil {
+			return removeErr
+		}
+	}
+
+	return d.Sync(ctx)
 }
 
 func (d *discoveries) importDirectory(ctx context.Context, repo model.DiscoveryRepository, current model.Discovery, absPath, name string) error {
@@ -222,7 +295,7 @@ func (d *discoveries) collectTracks(ctx context.Context, root string) (model.Dis
 			base := filepath.Base(absPath)
 			title = strings.TrimSuffix(base, filepath.Ext(base))
 		}
-               artist := md.String(model.TagTrackArtist)
+		artist := md.String(model.TagTrackArtist)
 		album := md.String(model.TagAlbum)
 		size := int64(0)
 		if info.FileInfo != nil {
@@ -253,4 +326,74 @@ func ensureDir(path string) error {
 		return fmt.Errorf("%s is not a directory", path)
 	}
 	return nil
+}
+
+func sanitizeDiscoveryName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "discovery"
+	}
+	replacer := strings.NewReplacer("/", "_", "\\", "_")
+	return replacer.Replace(name)
+}
+
+func writeDiscoveryM3U(path string, tracks model.DiscoveryTracks) error {
+	lines := make([]string, 0, len(tracks))
+	for _, track := range tracks {
+		title := strings.TrimSpace(track.Title)
+		if title == "" && track.Path != "" {
+			title = strings.TrimSuffix(filepath.Base(track.Path), filepath.Ext(track.Path))
+		}
+		artist := strings.TrimSpace(track.Artist)
+		ext := strings.ToLower(filepath.Ext(track.Path))
+		if ext == "" {
+			ext = ".mp3"
+		}
+		if artist != "" {
+			lines = append(lines, fmt.Sprintf("%s - %s%s", artist, title, ext))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s%s", title, ext))
+		}
+	}
+
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+}
+
+func copyDiscoveryDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return err
+		}
+		if err := out.Close(); err != nil {
+			return err
+		}
+		return nil
+	})
 }

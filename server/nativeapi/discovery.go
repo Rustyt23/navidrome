@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/deluan/rest"
@@ -11,6 +12,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/utils/req"
 )
 
 func getDiscovery(ds model.DataStore) http.HandlerFunc {
@@ -102,19 +104,55 @@ func publishDiscovery(ds model.DataStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		discID := chi.URLParam(r, "id")
-		repo := ds.Discovery(ctx)
-		if _, err := repo.Get(discID); err != nil {
-			if errors.Is(err, model.ErrNotFound) {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			http.Error(w, err.Error(), statusFor(err))
-			return
+		if discID == "" {
+			discID = chi.URLParam(r, "discoveryId")
 		}
-		if err := core.NewDiscoveries(ds).Sync(ctx); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		discoveries := core.NewDiscoveries(ds)
+		if err := discoveries.Publish(ctx, discID); err != nil {
+			switch {
+			case errors.Is(err, model.ErrNotFound):
+				http.Error(w, "not found", http.StatusNotFound)
+			case errors.Is(err, os.ErrNotExist):
+				http.Error(w, "not found", http.StatusNotFound)
+			default:
+				http.Error(w, err.Error(), statusFor(err))
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func deleteDiscoveryTracks(ds model.DataStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		params := req.Params(r)
+		discID, _ := params.String(":discoveryId")
+		if discID == "" {
+			discID = chi.URLParam(r, "discoveryId")
+		}
+		if discID == "" {
+			discID = chi.URLParam(r, "id")
+		}
+		ids, _ := params.Strings("id")
+		if len(ids) == 0 {
+			http.Error(w, "no tracks selected", http.StatusBadRequest)
+			return
+		}
+
+		err := ds.WithTxImmediate(func(tx model.DataStore) error {
+			repo := tx.Discovery(ctx).Tracks(discID)
+			return repo.Delete(ids...)
+		})
+		if len(ids) == 1 && errors.Is(err, model.ErrNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			log.Error(ctx, "Error deleting discovery tracks", "id", discID, "trackIds", ids, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeDeleteManyResponse(w, r, ids)
 	}
 }

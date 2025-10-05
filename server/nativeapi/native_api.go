@@ -218,6 +218,7 @@ func (n *Router) addDiscoveryRoute(r chi.Router) {
 			r.Get("/", getDiscovery(n.ds))
 			r.Post("/publish", publishDiscovery(n.ds))
 			r.Get("/tracks", getDiscoveryTracks(n.ds))
+			r.Delete("/tracks", deleteDiscoveryTracks(n.ds))
 		})
 	})
 }
