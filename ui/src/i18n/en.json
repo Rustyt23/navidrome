@@ -240,6 +240,20 @@
         "updatedAt": "Updated at"
       }
     },
+    "discovery": {
+      "name": "Discovery Folder |||| Discovery Folders",
+      "fields": {
+        "name": "Name",
+        "songCount": "Songs",
+        "updatedAt": "Updated at"
+      },
+      "actions": {
+        "refresh": "Refresh"
+      },
+      "messages": {
+        "refreshed": "Discovery folders refreshed"
+      }
+    },
     "radio": {
       "name": "Radio |||| Radios",
       "fields": {
@@ -530,6 +544,8 @@
   },
   "menu": {
     "library": "Library",
+    "discovery": "Discovery",
+    "discovery_empty": "No discovery playlists available",
     "librarySelector": {
       "allLibraries": "All Libraries (%{count})",
       "multipleLibraries": "%{selected} of %{total} Libraries",

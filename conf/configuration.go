@@ -52,6 +52,7 @@ type configOptions struct {
 	AutoImportPlaylists             bool
 	DefaultPlaylistPublicVisibility bool
 	PlaylistsPath                   string
+	DiscoveryPath                   string
 	SyncFolder                      string
 	SmartPlaylistRefreshDelay       time.Duration
 	AutoTranscodeDownload           bool
@@ -278,6 +279,14 @@ func Load(noConfigDump bool) {
 		}
 	}
 
+	if Server.DiscoveryPath != "" {
+		err = os.MkdirAll(Server.DiscoveryPath, os.ModePerm)
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "FATAL: Error creating discovery path:", err)
+			os.Exit(1)
+		}
+	}
+
 	Server.ConfigFile = viper.GetViper().ConfigFileUsed()
 	if Server.DbPath == "" {
 		Server.DbPath = filepath.Join(Server.DataFolder, consts.DefaultDbPath)
@@ -310,6 +319,7 @@ func Load(noConfigDump bool) {
 		validateScanSchedule,
 		validateBackupSchedule,
 		validatePlaylistsPath,
+		validateDiscoveryPath,
 		validatePurgeMissingOption,
 	)
 	if err != nil {
@@ -417,6 +427,23 @@ func validatePlaylistsPath() error {
 	return nil
 }
 
+func validateDiscoveryPath() error {
+	if Server.DiscoveryPath == "" {
+		return nil
+	}
+	info, err := os.Stat(Server.DiscoveryPath)
+	if err != nil {
+		log.Error("Invalid DiscoveryPath", "path", Server.DiscoveryPath, err)
+		return err
+	}
+	if !info.IsDir() {
+		err = fmt.Errorf("DiscoveryPath is not a directory: %s", Server.DiscoveryPath)
+		log.Error(err.Error())
+		return err
+	}
+	return nil
+}
+
 func validatePurgeMissingOption() error {
 	allowedValues := []string{consts.PurgeMissingNever, consts.PurgeMissingAlways, consts.PurgeMissingFull}
 	valid := false
@@ -520,7 +547,7 @@ func setViperDefaults() {
 	viper.SetDefault("enablefavourites", true)
 	viper.SetDefault("enablestarrating", true)
 	viper.SetDefault("enableuserediting", true)
-       viper.SetDefault("defaulttheme", "Music Matters")
+	viper.SetDefault("defaulttheme", "Music Matters")
 	viper.SetDefault("defaultlanguage", "")
 	viper.SetDefault("defaultuivolume", consts.DefaultUIVolume)
 	viper.SetDefault("enablereplaygain", true)
