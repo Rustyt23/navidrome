@@ -15,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/id"
+	"golang.org/x/text/unicode/norm"
 )
 
 type Discovery interface {
@@ -218,16 +219,20 @@ func (d *discovery) discoveryPathVariants(displayPath, absolutePath string, libr
 		if candidate == "" {
 			return
 		}
-		cleaned := filepath.Clean(candidate)
-		cleaned = filepath.ToSlash(cleaned)
+		cleaned := filepath.ToSlash(filepath.Clean(candidate))
 		if cleaned == "." {
 			return
 		}
-		if _, ok := seen[cleaned]; ok {
-			return
+		for _, normalized := range []string{cleaned, norm.NFC.String(cleaned), norm.NFD.String(cleaned)} {
+			if normalized == "." {
+				continue
+			}
+			if _, ok := seen[normalized]; ok {
+				continue
+			}
+			seen[normalized] = struct{}{}
+			variants = append(variants, normalized)
 		}
-		seen[cleaned] = struct{}{}
-		variants = append(variants, cleaned)
 	}
 
 	add(displayPath)
