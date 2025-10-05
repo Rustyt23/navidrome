@@ -116,7 +116,7 @@ const Admin = (props) => {
           show={PlaylistShow}
           edit={PlaylistEdit}
         />,
-        <Resource name="discovery" {...discovery} />,
+        <Resource name="discovery" {...discovery} options={{ subMenu: 'discovery' }} />,
         <Resource
           {...playlist_folder}
           name="folder"

@@ -8,7 +8,7 @@ import AlbumIcon from '@material-ui/icons/Album'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
-import PlaylistsSubMenu from './PlaylistsSubMenu'
+import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
 
@@ -58,7 +58,7 @@ const Menu = ({ dense = false }) => {
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
     menuAlbumList: true,
-    menuPlaylists: true,
+    menuDiscovery: true,
     menuSharedPlaylists: true,
   })
 
@@ -131,15 +131,10 @@ const Menu = ({ dense = false }) => {
       {config.devSidebarPlaylists && open ? (
         <>
           <Divider />
-          <PlaylistsSubMenu
-            state={state}
-            setState={setState}
-            sidebarIsOpen={open}
-            dense={dense}
-          />
+          <DiscoverySubMenu state={state} setState={setState} sidebarIsOpen={open} dense={dense} />
         </>
       ) : (
-        resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)
+        resources.filter(subItems('discovery')).map(renderResourceMenuItemLink)
       )}
     </div>
   )
