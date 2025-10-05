@@ -58,6 +58,10 @@ func (s *playlists) ensurePlaylistFolder(ctx context.Context, playlistPath strin
 		return nil, nil
 	}
 	dir := filepath.Dir(playlistPath)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
 	paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
 	for _, root := range paths {
 		root = strings.TrimSuffix(root, "**")
@@ -66,7 +70,7 @@ func (s *playlists) ensurePlaylistFolder(ctx context.Context, playlistPath strin
 		if err != nil {
 			continue
 		}
-		rel, err := filepath.Rel(absRoot, dir)
+		rel, err := filepath.Rel(absRoot, absDir)
 		if err != nil || strings.HasPrefix(rel, "..") {
 			continue
 		}

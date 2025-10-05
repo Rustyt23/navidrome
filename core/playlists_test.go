@@ -192,6 +192,37 @@ var _ = Describe("Playlists", func() {
 				Expect(ok).To(BeTrue())
 				Expect(saved.Name).To(Equal("rock"))
 			})
+
+			It("creates folders when playlists path is relative", func() {
+				DeferCleanup(configtest.SetupConfig())
+
+				root := GinkgoT().TempDir()
+				relRoot, err := filepath.Rel(".", root)
+				Expect(err).ToNot(HaveOccurred())
+
+				conf.Server.PlaylistsPath = filepath.Join(relRoot, "**")
+
+				pfRepo := tests.NewMockPlaylistFolderRepo()
+				ds.MockedPlaylistFolder = pfRepo
+				ps = NewPlaylists(ds)
+
+				nestedDir := filepath.Join(root, "nested")
+				Expect(os.MkdirAll(nestedDir, 0o755)).To(Succeed())
+				playlistFile := filepath.Join(nestedDir, "test.m3u")
+				Expect(os.WriteFile(playlistFile, []byte{}, 0o600)).To(Succeed())
+
+				lib := model.Library{ID: 1, Path: relRoot}
+				folder = model.NewFolder(lib, "nested")
+				folder.LibraryPath = relRoot
+
+				pls, err := ps.ImportFile(ctx, folder, "test.m3u")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pls.FolderID).ToNot(BeNil())
+
+				saved, ok := pfRepo.Folders[*pls.FolderID]
+				Expect(ok).To(BeTrue())
+				Expect(saved.Name).To(Equal("nested"))
+			})
 		})
 	})
 
