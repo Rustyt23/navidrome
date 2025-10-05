@@ -15,6 +15,7 @@ const DiscoveryListActions = ({ className, filters, ...rest }) => {
     <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
       {filters && cloneElement(filters, { context: 'button' })}
       <span className="ra-top-toolbar__label">{translate('resources.discovery.name')}</span>
+      <span style={{ flex: 1 }} />
       {isNotSmall && <ToggleFieldsMenu resource="discovery" />}
     </TopToolbar>
   )
