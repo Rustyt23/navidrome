@@ -76,17 +76,28 @@ func toAlbumArtworkIDs(albumIDs []string) []model.ArtworkID {
 }
 
 func (a *playlistArtworkReader) loadTiles(ctx context.Context) ([]image.Image, error) {
-	tracksRepo := a.a.ds.Playlist(ctx).Tracks(a.pl.ID, false)
-	albumIds, err := tracksRepo.GetAlbumIDs(model.QueryOptions{Max: 4, Sort: "random()"})
-	if err != nil {
-		log.Error(ctx, "Error getting album IDs for playlist", "id", a.pl.ID, "name", a.pl.Name, err)
-		return nil, err
+	var ids []model.ArtworkID
+
+	if tracksRepo := a.a.ds.Playlist(ctx).Tracks(a.pl.ID, false); tracksRepo != nil {
+		albumIds, err := tracksRepo.GetAlbumIDs(model.QueryOptions{Max: 4, Sort: "random()"})
+		if err != nil {
+			log.Error(ctx, "Error getting album IDs for playlist", "id", a.pl.ID, "name", a.pl.Name, err)
+		} else {
+			ids = toAlbumArtworkIDs(albumIds)
+		}
 	}
-	ids := toAlbumArtworkIDs(albumIds)
+
+	if len(ids) == 0 && len(a.pl.Tracks) > 0 {
+		ids = artworkIDsFromTracks(a.pl.Tracks)
+	}
+
+	if len(ids) == 0 {
+		return nil, errors.New("could not find any eligible cover")
+	}
 
 	var tiles []image.Image
 	for _, id := range ids {
-		r, _, err := fromAlbum(ctx, a.a, id)()
+		r, _, err := a.a.Get(ctx, id, 0, false)
 		if err == nil {
 			tile, err := a.createTile(ctx, r)
 			if err == nil {
@@ -151,6 +162,27 @@ func rect(pos int) image.Rectangle {
 	r.Max.X = r.Min.X + tileSize/2
 	r.Max.Y = r.Min.Y + tileSize/2
 	return r
+}
+
+func artworkIDsFromTracks(tracks model.PlaylistTracks) []model.ArtworkID {
+	unique := make([]model.ArtworkID, 0, 4)
+	seen := make(map[string]struct{}, len(tracks))
+	for _, track := range tracks {
+		artID := track.MediaFile.CoverArtID()
+		if artID.ID == "" {
+			continue
+		}
+		key := artID.Kind.String() + ":" + artID.ID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, artID)
+		if len(unique) == 4 {
+			break
+		}
+	}
+	return unique
 }
 
 func discoveryPlaylistForArtwork(ctx context.Context, ds model.DataStore, id string) (*model.Playlist, error) {
