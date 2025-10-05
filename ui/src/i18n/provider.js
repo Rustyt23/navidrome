@@ -51,8 +51,9 @@ const prepareLanguage = (lang) => {
     lang.resources.discoveryTrack = deepmerge({}, lang.resources.song)
     lang.resources.discoveryTrack.fields = {
       ...discoveryFields,
-      position:
-        discoveryFields.position || discoveryFields.trackNumber || '#',
+      // Always surface the track position column as the traditional "#" label
+      // to match the playlists grid regardless of other per-locale overrides.
+      position: '#',
     }
   }
   // ra.boolean.null should always be empty
