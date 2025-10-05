@@ -36,7 +36,6 @@ func NewDiscovery(ds model.DataStore) Discovery {
 type discoveryTrackEntry struct {
 	display  string
 	absolute string
-	resolved string
 }
 
 func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, error) {
@@ -52,9 +51,10 @@ func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, e
 			return nil
 		}
 		absolute := filepath.Clean(path)
-		resolved := absolute
-		if linkTarget, err := filepath.EvalSymlinks(absolute); err == nil && linkTarget != "" {
-			resolved = filepath.Clean(linkTarget)
+		if !filepath.IsAbs(absolute) {
+			if absPath, err := filepath.Abs(absolute); err == nil {
+				absolute = absPath
+			}
 		}
 		display := absolute
 		musicRoot := conf.Server.MusicFolder
@@ -70,7 +70,6 @@ func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, e
 		entries = append(entries, discoveryTrackEntry{
 			display:  display,
 			absolute: absolute,
-			resolved: resolved,
 		})
 		return nil
 	})
@@ -212,7 +211,7 @@ func (d *discovery) libraryRoots(ctx context.Context) []string {
 	return roots
 }
 
-func (d *discovery) discoveryPathVariants(displayPath, absolutePath, resolvedPath string, libraryRoots []string) []string {
+func (d *discovery) discoveryPathVariants(displayPath, absolutePath string, libraryRoots []string) []string {
 	seen := make(map[string]struct{}, len(libraryRoots)+2)
 	variants := make([]string, 0, len(libraryRoots)+2)
 	add := func(candidate string) {
@@ -235,13 +234,7 @@ func (d *discovery) discoveryPathVariants(displayPath, absolutePath, resolvedPat
 	if absolutePath != "" {
 		add(absolutePath)
 	}
-	if resolvedPath != "" {
-		add(resolvedPath)
-	}
-	basePath := resolvedPath
-	if basePath == "" {
-		basePath = absolutePath
-	}
+	basePath := absolutePath
 	for _, root := range libraryRoots {
 		absRoot := root
 		if !filepath.IsAbs(absRoot) {
@@ -279,7 +272,7 @@ func (d *discovery) buildTracks(ctx context.Context, entry *model.DiscoveryPlayl
 	lookup := make([]string, 0, len(entries)*2)
 	for _, entryPath := range entries {
 		normalized := entryPath.display
-		variants := d.discoveryPathVariants(entryPath.display, entryPath.absolute, entryPath.resolved, libraryRoots)
+		variants := d.discoveryPathVariants(entryPath.display, entryPath.absolute, libraryRoots)
 		variantByPath[normalized] = variants
 		for _, candidate := range variants {
 			if _, ok := lookupSet[candidate]; ok {
