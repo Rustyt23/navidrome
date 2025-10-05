@@ -17,6 +17,8 @@ type discoveryRepository struct {
 	sqlRepository
 }
 
+func ignoreDiscoveryFilter(string, any) Sqlizer { return nil }
+
 type dbDiscoveryTrack struct {
 	ID          int     `db:"id"`
 	DiscoveryID string  `db:"discovery_id"`
@@ -172,7 +174,10 @@ func (r *discoveryRepository) Tracks(discoveryID string) model.DiscoveryTrackRep
 	repo.db = r.db
 	repo.discoveryID = discoveryID
 	repo.discoveryRepo = r
-	repo.registerModel(&model.DiscoveryTrack{}, nil)
+	repo.registerModel(&model.DiscoveryTrack{}, map[string]filterFunc{
+		":discoveryid": ignoreDiscoveryFilter,
+		"discovery_id": ignoreDiscoveryFilter,
+	})
 	repo.tableName = "discovery_tracks"
 	return repo
 }
