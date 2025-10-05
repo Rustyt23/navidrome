@@ -315,18 +315,28 @@ func (d *discovery) loadMetadataForMissing(ctx context.Context, entry *model.Dis
 	pathToIndices := make(map[string][]int, len(missing))
 	paths := make([]string, 0, len(missing))
 	for idx, entryPath := range missing {
-		key := entryPath.absolute
-		if key == "" {
-			key = entryPath.display
+		raw := entryPath.absolute
+		if raw == "" {
+			raw = entryPath.display
 		}
-		if key == "" {
+		if raw == "" {
 			continue
 		}
-		key = filepath.Clean(key)
-		if _, ok := pathToIndices[key]; !ok {
-			paths = append(paths, key)
+		cleaned := filepath.Clean(raw)
+		rel := cleaned
+		if filepath.IsAbs(cleaned) {
+			if relPath, relErr := filepath.Rel(entry.FolderPath, cleaned); relErr == nil {
+				rel = filepath.Clean(relPath)
+			}
 		}
-		pathToIndices[key] = append(pathToIndices[key], idx)
+		rel = filepath.ToSlash(rel)
+		if rel == "." || strings.HasPrefix(rel, "../") || strings.HasPrefix(rel, "..\\") {
+			continue
+		}
+		if _, ok := pathToIndices[rel]; !ok {
+			paths = append(paths, rel)
+		}
+		pathToIndices[rel] = append(pathToIndices[rel], idx)
 	}
 	if len(paths) == 0 {
 		return nil, nil
@@ -336,33 +346,33 @@ func (d *discovery) loadMetadataForMissing(ctx context.Context, entry *model.Dis
 		return nil, err
 	}
 	resolved := make(map[int]model.MediaFile, len(missing))
-	for rawPath, indices := range pathToIndices {
-		info, ok := infoByPath[rawPath]
+	for relPath, indices := range pathToIndices {
+		info, ok := infoByPath[relPath]
 		if !ok {
-			if alt, altOk := infoByPath[filepath.ToSlash(rawPath)]; altOk {
+			if alt, altOk := infoByPath[filepath.ToSlash(relPath)]; altOk {
 				info = alt
 				ok = true
 			}
 		}
+		absolutePath := filepath.Clean(filepath.Join(entry.FolderPath, relPath))
 		if !ok {
-			if rel, relErr := filepath.Rel(entry.FolderPath, rawPath); relErr == nil {
-				rel = filepath.ToSlash(rel)
-				if relInfo, relOk := infoByPath[rel]; relOk {
-					info = relInfo
-					ok = true
-				}
+			// Some extractors may echo back OS-specific separators. Try the joined absolute path.
+			joined := filepath.ToSlash(absolutePath)
+			if altInfo, altOk := infoByPath[joined]; altOk {
+				info = altInfo
+				ok = true
 			}
 		}
 		if !ok {
 			continue
 		}
-		md := metadata.New(rawPath, info)
+		md := metadata.New(absolutePath, info)
 		mf := md.ToMediaFile(0, entry.ID)
 		if mf.ID == "" {
-			mf.ID = id.NewHash(entry.ID + rawPath)
+			mf.ID = id.NewHash(entry.ID + absolutePath)
 		}
 		mf.Missing = false
-		mf.LibraryPath = rawPath
+		mf.LibraryPath = absolutePath
 		for _, idx := range indices {
 			entryPath := missing[idx]
 			clone := mf
@@ -370,7 +380,10 @@ func (d *discovery) loadMetadataForMissing(ctx context.Context, entry *model.Dis
 				clone.Path = entryPath.display
 			}
 			if clone.Path == "" {
-				clone.Path = rawPath
+				clone.Path = entryPath.absolute
+			}
+			if clone.Path == "" {
+				clone.Path = absolutePath
 			}
 			if entryPath.absolute != "" {
 				clone.LibraryPath = entryPath.absolute
