@@ -40,6 +40,7 @@ func (t dbDiscoveryTrack) toModel() model.DiscoveryTrack {
 		Album:       t.Album,
 		Duration:    float32(t.Duration),
 		Size:        t.Size,
+		MediaFileID: model.DiscoveryStreamID(t.DiscoveryID, strconv.Itoa(t.ID)),
 	}
 }
 

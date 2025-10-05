@@ -1,6 +1,12 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
 
 type Discovery struct {
 	ID        string          `structs:"id" json:"id"`
@@ -63,6 +69,7 @@ type DiscoveryTrack struct {
 	Album       string  `json:"album"`
 	Duration    float32 `json:"duration"`
 	Size        int64   `json:"size"`
+	MediaFileID string  `json:"mediaFileId"`
 }
 
 type DiscoveryTracks []DiscoveryTrack
@@ -72,4 +79,63 @@ type DiscoveryTrackRepository interface {
 	GetAll(options ...QueryOptions) (DiscoveryTracks, error)
 	Delete(id ...string) error
 	DeleteAll() error
+}
+
+const discoveryStreamPrefix = "disc"
+
+func DiscoveryStreamID(discoveryID, trackID string) string {
+	if discoveryID == "" || trackID == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s:%s", discoveryStreamPrefix, discoveryID, trackID)
+}
+
+func ParseDiscoveryStreamID(value string) (string, string, bool) {
+	if !strings.HasPrefix(value, discoveryStreamPrefix+":") {
+		return "", "", false
+	}
+	parts := strings.SplitN(value, ":", 3)
+	if len(parts) != 3 || parts[1] == "" || parts[2] == "" {
+		return "", "", false
+	}
+	return parts[1], parts[2], true
+}
+
+func (t DiscoveryTrack) StreamID() string {
+	if t.MediaFileID != "" {
+		return t.MediaFileID
+	}
+	return DiscoveryStreamID(t.DiscoveryID, t.ID)
+}
+
+func (t DiscoveryTrack) ToMediaFile() (*MediaFile, error) {
+	if t.Path == "" {
+		return nil, fmt.Errorf("discovery track missing path")
+	}
+
+	info, err := os.Stat(t.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	suffix := strings.TrimPrefix(strings.ToLower(filepath.Ext(t.Path)), ".")
+	mf := &MediaFile{
+		ID:          t.StreamID(),
+		Path:        t.Path,
+		Title:       t.Title,
+		Artist:      t.Artist,
+		Album:       t.Album,
+		Duration:    t.Duration,
+		Size:        info.Size(),
+		Suffix:      suffix,
+		UpdatedAt:   info.ModTime(),
+		CreatedAt:   info.ModTime(),
+		BirthTime:   info.ModTime(),
+		Missing:     false,
+		LibraryPath: "",
+	}
+	if mf.ID == "" {
+		mf.ID = DiscoveryStreamID(t.DiscoveryID, t.ID)
+	}
+	return mf, nil
 }
