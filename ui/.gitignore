@@ -3,5 +3,7 @@ node_modules
 
 build/*
 !build/.gitkeep
+!build/3rdparty/
+!build/3rdparty/placeholder.txt
 /coverage/
 public/3rdparty/workbox

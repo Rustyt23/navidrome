@@ -43,13 +43,14 @@ type StatusInfo struct {
 }
 
 func New(rootCtx context.Context, ds model.DataStore, cw artwork.CacheWarmer, broker events.Broker,
-	pls core.Playlists, m metrics.Metrics) Scanner {
+	pls core.Playlists, disc core.Discoveries, m metrics.Metrics) Scanner {
 	c := &controller{
 		rootCtx: rootCtx,
 		ds:      ds,
 		cw:      cw,
 		broker:  broker,
 		pls:     pls,
+		disc:    disc,
 		metrics: m,
 	}
 	if !conf.Server.DevExternalScanner {
@@ -62,12 +63,12 @@ func (s *controller) getScanner() scanner {
 	if conf.Server.DevExternalScanner {
 		return &scannerExternal{}
 	}
-	return &scannerImpl{ds: s.ds, cw: s.cw, pls: s.pls}
+	return &scannerImpl{ds: s.ds, cw: s.cw, pls: s.pls, disc: s.disc}
 }
 
 // CallScan starts an in-process scan of the music library.
 // This is meant to be called from the command line (see cmd/scan.go).
-func CallScan(ctx context.Context, ds model.DataStore, pls core.Playlists, fullScan bool) (<-chan *ProgressInfo, error) {
+func CallScan(ctx context.Context, ds model.DataStore, pls core.Playlists, disc core.Discoveries, fullScan bool) (<-chan *ProgressInfo, error) {
 	release, err := lockScan(ctx)
 	if err != nil {
 		return nil, err
@@ -78,7 +79,7 @@ func CallScan(ctx context.Context, ds model.DataStore, pls core.Playlists, fullS
 	progress := make(chan *ProgressInfo, 100)
 	go func() {
 		defer close(progress)
-		scanner := &scannerImpl{ds: ds, cw: artwork.NoopCacheWarmer(), pls: pls}
+		scanner := &scannerImpl{ds: ds, cw: artwork.NoopCacheWarmer(), pls: pls, disc: disc}
 		scanner.scanAll(ctx, fullScan, progress)
 	}()
 	return progress, nil
@@ -110,6 +111,7 @@ type controller struct {
 	broker          events.Broker
 	metrics         metrics.Metrics
 	pls             core.Playlists
+	disc            core.Discoveries
 	limiter         *rate.Sometimes
 	count           atomic.Uint32
 	folderCount     atomic.Uint32

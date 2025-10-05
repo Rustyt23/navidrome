@@ -14,6 +14,10 @@ func GetEntityByID(ctx context.Context, ds DataStore, id string) (interface{}, e
 	if err == nil {
 		return al, nil
 	}
+	disc, err := ds.Discovery(ctx).Get(id)
+	if err == nil {
+		return disc, nil
+	}
 	pls, err := ds.Playlist(ctx).Get(id)
 	if err == nil {
 		return pls, nil

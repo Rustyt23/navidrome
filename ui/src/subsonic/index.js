@@ -73,7 +73,9 @@ const getCoverArtUrl = (record, size, square) => {
   }
 
   // TODO Move this logic to server
-  if (record.album) {
+  if (record.type === 'discovery') {
+    return baseUrl(url('getCoverArt', `dc-${record.id}`, options))
+  } else if (record.album) {
     return baseUrl(url('getCoverArt', 'mf-' + record.id, options))
   } else if (record.albumArtist) {
     return baseUrl(url('getCoverArt', 'al-' + record.id, options))
