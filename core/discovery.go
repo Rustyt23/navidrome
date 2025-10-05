@@ -36,6 +36,7 @@ func NewDiscovery(ds model.DataStore) Discovery {
 type discoveryTrackEntry struct {
 	display  string
 	absolute string
+	resolved string
 }
 
 func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, error) {
@@ -51,6 +52,10 @@ func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, e
 			return nil
 		}
 		absolute := filepath.Clean(path)
+		resolved := absolute
+		if linkTarget, err := filepath.EvalSymlinks(absolute); err == nil && linkTarget != "" {
+			resolved = filepath.Clean(linkTarget)
+		}
 		display := absolute
 		musicRoot := conf.Server.MusicFolder
 		if musicRoot != "" {
@@ -65,6 +70,7 @@ func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, e
 		entries = append(entries, discoveryTrackEntry{
 			display:  display,
 			absolute: absolute,
+			resolved: resolved,
 		})
 		return nil
 	})
@@ -206,7 +212,7 @@ func (d *discovery) libraryRoots(ctx context.Context) []string {
 	return roots
 }
 
-func (d *discovery) discoveryPathVariants(displayPath, absolutePath string, libraryRoots []string) []string {
+func (d *discovery) discoveryPathVariants(displayPath, absolutePath, resolvedPath string, libraryRoots []string) []string {
 	seen := make(map[string]struct{}, len(libraryRoots)+2)
 	variants := make([]string, 0, len(libraryRoots)+2)
 	add := func(candidate string) {
@@ -229,6 +235,13 @@ func (d *discovery) discoveryPathVariants(displayPath, absolutePath string, libr
 	if absolutePath != "" {
 		add(absolutePath)
 	}
+	if resolvedPath != "" {
+		add(resolvedPath)
+	}
+	basePath := resolvedPath
+	if basePath == "" {
+		basePath = absolutePath
+	}
 	for _, root := range libraryRoots {
 		absRoot := root
 		if !filepath.IsAbs(absRoot) {
@@ -236,10 +249,10 @@ func (d *discovery) discoveryPathVariants(displayPath, absolutePath string, libr
 				absRoot = resolved
 			}
 		}
-		if absolutePath == "" {
+		if basePath == "" {
 			continue
 		}
-		rel, relErr := filepath.Rel(absRoot, absolutePath)
+		rel, relErr := filepath.Rel(absRoot, basePath)
 		if relErr != nil {
 			continue
 		}
@@ -266,7 +279,7 @@ func (d *discovery) buildTracks(ctx context.Context, entry *model.DiscoveryPlayl
 	lookup := make([]string, 0, len(entries)*2)
 	for _, entryPath := range entries {
 		normalized := entryPath.display
-		variants := d.discoveryPathVariants(entryPath.display, entryPath.absolute, libraryRoots)
+		variants := d.discoveryPathVariants(entryPath.display, entryPath.absolute, entryPath.resolved, libraryRoots)
 		variantByPath[normalized] = variants
 		for _, candidate := range variants {
 			if _, ok := lookupSet[candidate]; ok {
