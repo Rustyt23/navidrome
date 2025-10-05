@@ -1,7 +1,27 @@
 import React, { useMemo } from 'react'
-import { List, Datagrid, TextField, NumberField, DateField } from 'react-admin'
+import {
+  Datagrid,
+  DateField,
+  Filter,
+  NumberField,
+  SearchInput,
+  TextField,
+} from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
-import { DurationField, useSelectedFields, useResourceRefresh } from '../common'
+import {
+  DurationField,
+  List,
+  SizeField,
+  useSelectedFields,
+  useResourceRefresh,
+} from '../common'
+import DiscoveryListActions from './DiscoveryListActions'
+
+const DiscoveryFilter = (props) => (
+  <Filter {...props} variant="outlined">
+    <SearchInput source="q" alwaysOn />
+  </Filter>
+)
 
 const DiscoveryList = (props) => {
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
@@ -13,9 +33,10 @@ const DiscoveryList = (props) => {
       ownerName: isDesktop && <TextField source="ownerName" />,
       songCount: !isXsmall && <NumberField source="songCount" />,
       duration: <DurationField source="duration" />,
+      size: isDesktop && <SizeField source="size" />, 
       updatedAt: isDesktop && <DateField source="updatedAt" showTime />, 
-      createdAt: <DateField source="createdAt" showTime />,
-      comment: <TextField source="comment" />,
+      createdAt: <DateField source="createdAt" showTime />, 
+      comment: <TextField source="comment" />, 
     }),
     [isDesktop, isXsmall],
   )
@@ -27,7 +48,13 @@ const DiscoveryList = (props) => {
   })
 
   return (
-    <List {...props} exporter={false} actions={false}>
+    <List
+      {...props}
+      exporter={false}
+      filters={<DiscoveryFilter />}
+      actions={<DiscoveryListActions />}
+      bulkActionButtons={false}
+    >
       <Datagrid rowClick="show">
         <TextField source="name" />
         {columns}

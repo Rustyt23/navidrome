@@ -1,59 +1,68 @@
-import React from 'react'
+import React, { useState, useCallback } from 'react'
 import {
-  Show,
-  SimpleShowLayout,
-  TextField,
-  NumberField,
-  DateField,
+  Filter,
+  Pagination,
   ReferenceManyField,
-  useShowController,
+  SearchInput,
   ShowContextProvider,
+  Title as RaTitle,
+  useShowContext,
+  useShowController,
 } from 'react-admin'
-import { Card, CardContent, Typography } from '@material-ui/core'
-import { DurationField, Title, useResourceRefresh } from '../common'
+import { Title, useResourceRefresh } from '../common'
+import PlaylistDetails from '../playlist/PlaylistDetails'
 import DiscoverySongs from './DiscoverySongs'
-
-const DiscoveryDetails = ({ record }) => {
-  useResourceRefresh('song')
-  if (!record) {
-    return null
-  }
-  return (
-    <Card>
-      <CardContent>
-        <Typography variant="h5">{record.name}</Typography>
-        <Typography variant="body2" color="textSecondary">
-          {record.comment}
-        </Typography>
-      </CardContent>
-    </Card>
-  )
-}
+import DiscoveryActions from './DiscoveryActions'
 
 const DiscoveryShowLayout = (props) => {
-  const { record } = props
+  const { loading, ...context } = useShowContext(props)
+  const { record } = context
+  const [searchTerm, setSearchTerm] = useState('')
+  useResourceRefresh('discovery')
+
+  const handleSearchChange = useCallback((event) => {
+    setSearchTerm(event.target.value)
+  }, [])
+
+  if (loading) {
+    return null
+  }
+
   return (
     <>
-      {record && <Title subTitle={record.name} />}
-      <DiscoveryDetails record={record} />
-      <SimpleShowLayout {...props}>
-        <TextField source="name" />
-        <TextField source="ownerName" />
-        <NumberField source="songCount" />
-        <DurationField source="duration" />
-        <DateField source="createdAt" showTime />
-        <DateField source="updatedAt" showTime />
-      </SimpleShowLayout>
+      {record && <RaTitle title={<Title subTitle={record.name} />} />}
+      {record && <PlaylistDetails {...context} />}
       {record && (
-        <ReferenceManyField
-          reference="discoveryTrack"
-          target="discovery_id"
-          sort={{ field: 'id', order: 'ASC' }}
-          perPage={100}
-          addLabel={false}
-        >
-          <DiscoverySongs discoveryId={record.id} />
-        </ReferenceManyField>
+        <>
+          <Filter variant="outlined">
+            <SearchInput
+              id="search"
+              source="q"
+              alwaysOn
+              value={searchTerm}
+              onChange={handleSearchChange}
+            />
+          </Filter>
+          <ReferenceManyField
+            {...context}
+            addLabel={false}
+            reference="discoveryTrack"
+            target="discovery_id"
+            sort={{ field: 'id', order: 'ASC' }}
+            perPage={50}
+            filter={{ discovery_id: props.id, q: searchTerm }}
+          >
+            <DiscoverySongs
+              discoveryId={record.id}
+              searchTerm={searchTerm}
+              title={<Title subTitle={record.name} />}
+              actions={<DiscoveryActions record={record} />}
+              pagination={
+                <Pagination rowsPerPageOptions={[25, 50, 100, 200]} perPage={50} />
+              }
+            />
+          </ReferenceManyField>
+        </>
       )}
     </>
   )
@@ -63,9 +72,7 @@ const DiscoveryShow = (props) => {
   const controllerProps = useShowController(props)
   return (
     <ShowContextProvider value={controllerProps}>
-      <Show {...props} component="div">
-        <DiscoveryShowLayout {...controllerProps} {...props} />
-      </Show>
+      <DiscoveryShowLayout {...props} {...controllerProps} />
     </ShowContextProvider>
   )
 }
