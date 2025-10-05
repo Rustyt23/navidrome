@@ -45,6 +45,12 @@ type discoveryTrackEntry struct {
 }
 
 func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, error) {
+	root := filepath.Clean(folder)
+	if !filepath.IsAbs(root) {
+		if absRoot, err := filepath.Abs(root); err == nil {
+			root = filepath.Clean(absRoot)
+		}
+	}
 	entries := make([]discoveryTrackEntry, 0)
 	err := filepath.WalkDir(folder, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -63,13 +69,21 @@ func (d *discovery) collectTrackEntries(folder string) ([]discoveryTrackEntry, e
 			}
 		}
 		display := absolute
-		musicRoot := conf.Server.MusicFolder
-		if musicRoot != "" {
-			if absRoot, absErr := filepath.Abs(musicRoot); absErr == nil {
-				musicRoot = absRoot
+		if relToFolder, relErr := filepath.Rel(root, absolute); relErr == nil {
+			relToFolder = filepath.Clean(relToFolder)
+			if relToFolder != "." && !strings.HasPrefix(relToFolder, "..") && !strings.HasPrefix(relToFolder, "..\\") {
+				display = relToFolder
 			}
-			if rel, relErr := filepath.Rel(musicRoot, absolute); relErr == nil && !strings.HasPrefix(rel, "..") {
-				display = rel
+		}
+		if display == absolute {
+			musicRoot := conf.Server.MusicFolder
+			if musicRoot != "" {
+				if absRoot, absErr := filepath.Abs(musicRoot); absErr == nil {
+					musicRoot = absRoot
+				}
+				if rel, relErr := filepath.Rel(musicRoot, absolute); relErr == nil && !strings.HasPrefix(rel, "..") {
+					display = rel
+				}
 			}
 		}
 		display = filepath.ToSlash(display)
@@ -364,7 +378,11 @@ func (d *discovery) loadMetadataForMissing(ctx context.Context, entry *model.Dis
 			mf.ID = id.NewHash(entry.ID + absolutePath)
 		}
 		mf.Missing = false
-		mf.LibraryPath = absolutePath
+		folderRoot := filepath.Clean(entry.FolderPath)
+		if folderRoot == "" {
+			folderRoot = filepath.Dir(absolutePath)
+		}
+		mf.LibraryPath = folderRoot
 		for _, idx := range indices {
 			entryPath := missing[idx]
 			clone := mf
@@ -377,8 +395,10 @@ func (d *discovery) loadMetadataForMissing(ctx context.Context, entry *model.Dis
 			if clone.Path == "" {
 				clone.Path = absolutePath
 			}
-			if entryPath.absolute != "" {
-				clone.LibraryPath = entryPath.absolute
+			if folderRoot != "" {
+				clone.LibraryPath = folderRoot
+			} else if entryPath.absolute != "" {
+				clone.LibraryPath = filepath.Dir(entryPath.absolute)
 			}
 			if clone.ID == "" {
 				clone.ID = id.NewHash(entry.ID + clone.Path)
@@ -448,10 +468,14 @@ func (d *discovery) scanTracks(ctx context.Context, ds model.DataStore, entry *m
 			if len(variants) > 0 {
 				fallback = variants[0]
 			}
+			libraryRoot := filepath.Clean(entry.FolderPath)
+			if libraryRoot == "" {
+				libraryRoot = filepath.Dir(entryPath.absolute)
+			}
 			mediaFile = model.MediaFile{
 				ID:          id.NewHash(entry.ID + fallback),
 				Path:        fallback,
-				LibraryPath: entryPath.absolute,
+				LibraryPath: libraryRoot,
 				Title:       filepath.Base(fallback),
 				Missing:     true,
 			}
