@@ -1,12 +1,12 @@
 package nativeapi
 
 import (
-        "net/http"
+	"net/http"
 
-        "github.com/deluan/rest"
-        "github.com/go-chi/chi/v5"
-        "github.com/navidrome/navidrome/log"
-        "github.com/navidrome/navidrome/model"
+	"github.com/deluan/rest"
+	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
 )
 
 func getDiscovery(ds model.DataStore) http.HandlerFunc {
@@ -25,12 +25,8 @@ func getDiscoveryTracks(ds model.DataStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		discID := chi.URLParam(r, "discoveryId")
 		repo := ds.Discovery(r.Context()).Tracks(discID)
-		tracks, err := repo.GetAll()
-		if err != nil {
-			http.Error(w, err.Error(), statusFor(err))
-			return
-		}
-		rest.RespondWithJSON(w, http.StatusOK, tracks)
+		controller := rest.Controller{Repository: repo}
+		controller.GetAll(w, r)
 	}
 }
 
