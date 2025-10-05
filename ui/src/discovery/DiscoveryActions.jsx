@@ -31,6 +31,11 @@ import PublishDiscoveryButton from './PublishDiscoveryButton'
 
 const useStyles = makeStyles({
   toolbar: { display: 'flex', justifyContent: 'space-between', width: '100%' },
+  columnPicker: {
+    marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+  },
 })
 
 const DiscoveryActions = ({ className, ids, data, record, ...rest }) => {
@@ -162,7 +167,9 @@ const DiscoveryActions = ({ className, ids, data, record, ...rest }) => {
           </Button>
           <PublishDiscoveryButton record={record} />
         </div>
-        <div>{isNotSmall && <ToggleFieldsMenu resource="discoveryTrack" />}</div>
+        <div className={classes.columnPicker}>
+          {isNotSmall && <ToggleFieldsMenu resource="discoveryTrack" />}
+        </div>
       </div>
     </TopToolbar>
   )
