@@ -15,7 +15,10 @@ import (
 
 func getDiscovery(ds model.DataStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "discoveryId")
+		if id == "" {
+			id = chi.URLParam(r, "id")
+		}
 		disc, err := ds.Discovery(r.Context()).GetWithTracks(id)
 		if err != nil {
 			http.Error(w, err.Error(), statusFor(err))
