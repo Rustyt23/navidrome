@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/storage"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/id"
+	"github.com/navidrome/navidrome/model/metadata"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -298,6 +300,90 @@ func (d *discovery) discoveryPathVariants(displayPath, absolutePath string, libr
 	return variants
 }
 
+func (d *discovery) loadMetadataForMissing(ctx context.Context, entry *model.DiscoveryPlaylist, missing map[int]discoveryTrackEntry) (map[int]model.MediaFile, error) {
+	if len(missing) == 0 {
+		return nil, nil
+	}
+	store, err := storage.For(entry.FolderPath)
+	if err != nil {
+		return nil, err
+	}
+	fs, err := store.FS()
+	if err != nil {
+		return nil, err
+	}
+	pathToIndices := make(map[string][]int, len(missing))
+	paths := make([]string, 0, len(missing))
+	for idx, entryPath := range missing {
+		key := entryPath.absolute
+		if key == "" {
+			key = entryPath.display
+		}
+		if key == "" {
+			continue
+		}
+		key = filepath.Clean(key)
+		if _, ok := pathToIndices[key]; !ok {
+			paths = append(paths, key)
+		}
+		pathToIndices[key] = append(pathToIndices[key], idx)
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	infoByPath, err := fs.ReadTags(paths...)
+	if err != nil {
+		return nil, err
+	}
+	resolved := make(map[int]model.MediaFile, len(missing))
+	for rawPath, indices := range pathToIndices {
+		info, ok := infoByPath[rawPath]
+		if !ok {
+			if alt, altOk := infoByPath[filepath.ToSlash(rawPath)]; altOk {
+				info = alt
+				ok = true
+			}
+		}
+		if !ok {
+			if rel, relErr := filepath.Rel(entry.FolderPath, rawPath); relErr == nil {
+				rel = filepath.ToSlash(rel)
+				if relInfo, relOk := infoByPath[rel]; relOk {
+					info = relInfo
+					ok = true
+				}
+			}
+		}
+		if !ok {
+			continue
+		}
+		md := metadata.New(rawPath, info)
+		mf := md.ToMediaFile(0, entry.ID)
+		if mf.ID == "" {
+			mf.ID = id.NewHash(entry.ID + rawPath)
+		}
+		mf.Missing = false
+		mf.LibraryPath = rawPath
+		for _, idx := range indices {
+			entryPath := missing[idx]
+			clone := mf
+			if entryPath.display != "" {
+				clone.Path = entryPath.display
+			}
+			if clone.Path == "" {
+				clone.Path = rawPath
+			}
+			if entryPath.absolute != "" {
+				clone.LibraryPath = entryPath.absolute
+			}
+			if clone.ID == "" {
+				clone.ID = id.NewHash(entry.ID + clone.Path)
+			}
+			resolved[idx] = clone
+		}
+	}
+	return resolved, nil
+}
+
 func (d *discovery) scanTracks(ctx context.Context, ds model.DataStore, entry *model.DiscoveryPlaylist) (model.DiscoveryTracks, error) {
 	entries, err := d.collectTrackEntries(entry.FolderPath)
 	if err != nil {
@@ -337,6 +423,7 @@ func (d *discovery) scanTracks(ctx context.Context, ds model.DataStore, entry *m
 		}
 	}
 	tracks := make(model.DiscoveryTracks, 0, len(entries))
+	missing := make(map[int]discoveryTrackEntry)
 	for idx, entryPath := range entries {
 		normalized := entryPath.display
 		variants := variantByPath[normalized]
@@ -357,11 +444,13 @@ func (d *discovery) scanTracks(ctx context.Context, ds model.DataStore, entry *m
 				fallback = variants[0]
 			}
 			mediaFile = model.MediaFile{
-				ID:      id.NewHash(entry.ID + fallback),
-				Path:    fallback,
-				Title:   filepath.Base(fallback),
-				Missing: true,
+				ID:          id.NewHash(entry.ID + fallback),
+				Path:        fallback,
+				LibraryPath: entryPath.absolute,
+				Title:       filepath.Base(fallback),
+				Missing:     true,
 			}
+			missing[idx] = entryPath
 		}
 		if mediaFile.Path == "" {
 			mediaFile.Path = normalized
@@ -377,6 +466,20 @@ func (d *discovery) scanTracks(ctx context.Context, ds model.DataStore, entry *m
 			Position:    idx + 1,
 			MediaFile:   mediaFile,
 		})
+	}
+	if len(missing) > 0 {
+		metadataByIndex, metaErr := d.loadMetadataForMissing(ctx, entry, missing)
+		if metaErr != nil {
+			log.Warn(ctx, "Discovery: Failed to extract metadata for tracks", metaErr)
+		}
+		for idx, mf := range metadataByIndex {
+			track := &tracks[idx]
+			track.MediaFile = mf
+			track.MediaFileID = mf.ID
+			if track.MediaFileID == "" {
+				track.MediaFileID = track.ID
+			}
+		}
 	}
 	return tracks, nil
 }
