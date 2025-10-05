@@ -231,6 +231,30 @@
         "noPlaylists": "No playlists available"
       }
     },
+    "discovery": {
+      "name": "Discovery |||| Discoveries",
+      "fields": {
+        "name": "Name",
+        "duration": "Duration",
+        "ownerName": "Owner",
+        "public": "Public",
+        "updatedAt": "Updated at",
+        "createdAt": "Date added",
+        "songCount": "Songs",
+        "comment": "Comment",
+        "size": "File size",
+        "path": "Folder"
+      },
+      "actions": {
+        "publish": "Publish"
+      },
+      "notifications": {
+        "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
+      },
+      "dialog": {
+        "publish_confirmation": "Are you sure you want to publish this discovery?"
+      }
+    },
     "folder": {
       "name": "Folder |||| Folders",
       "fields": {

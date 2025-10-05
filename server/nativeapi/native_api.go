@@ -212,6 +212,7 @@ func (n *Router) addDiscoveryRoute(r chi.Router) {
 
 	r.Route("/discovery", func(r chi.Router) {
 		r.Get("/", rest.GetAll(constructor))
+		r.With(server.URLParamsMiddleware).Get("/{discoveryId}", getDiscovery(n.ds))
 		r.Route("/{discoveryId}", func(r chi.Router) {
 			r.Use(server.URLParamsMiddleware)
 			r.Get("/", getDiscovery(n.ds))
