@@ -58,7 +58,7 @@ const Menu = ({ dense = false }) => {
 
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
-    menuAlbumList: true,
+    menuAlbumList: false,
     menuPlaylists: true,
     menuSharedPlaylists: true,
     menuDiscovery: true,

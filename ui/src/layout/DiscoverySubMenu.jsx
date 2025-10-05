@@ -23,6 +23,7 @@ const useStyles = makeStyles((theme) => ({
     paddingBottom: 1,
     '&:hover': { backgroundColor: theme.palette.action.hover },
   },
+  spacer: { width: 24 },
   icon: { minWidth: 28 },
   placeholder: { padding: theme.spacing(1, 2) },
   spinner: { marginLeft: theme.spacing(1) },
@@ -95,6 +96,7 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
           onClick={() => handleNavigate(item)}
           className={classes.item}
         >
+          <span className={classes.spacer} />
           <ListItemIcon className={classes.icon}>
             <QueueMusicIcon fontSize="small" />
           </ListItemIcon>
