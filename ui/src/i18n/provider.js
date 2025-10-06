@@ -45,6 +45,17 @@ const prepareLanguage = (lang) => {
   // Make "albumSong" and "playlistTrack" resource use the same translations as "song"
   lang.resources.albumSong = lang.resources.song
   lang.resources.playlistTrack = lang.resources.song
+  // Discovery tracks share the same data model as songs, so reuse those labels too
+  if (lang.resources.song) {
+    const discoveryFields = lang.resources.song.fields || {}
+    lang.resources.discoveryTrack = deepmerge({}, lang.resources.song)
+    lang.resources.discoveryTrack.fields = {
+      ...discoveryFields,
+      // Always surface the track position column as the traditional "#" label
+      // to match the playlists grid regardless of other per-locale overrides.
+      position: '#',
+    }
+  }
   // ra.boolean.null should always be empty
   lang.ra.boolean.null = ''
   // Fallback to english translations

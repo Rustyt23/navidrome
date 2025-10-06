@@ -8,27 +8,129 @@ import (
 )
 
 type MockDataStore struct {
-	RealDS               		model.DataStore
-	MockedLibrary        		model.LibraryRepository
-	MockedFolder         		model.FolderRepository
-	MockedGenre          		model.GenreRepository
-	MockedAlbum          		model.AlbumRepository
-	MockedArtist         		model.ArtistRepository
-	MockedMediaFile      		model.MediaFileRepository
-	MockedTag            		model.TagRepository
-	MockedUser           		model.UserRepository
-	MockedProperty       		model.PropertyRepository
-	MockedPlayer         		model.PlayerRepository
-	MockedPlaylist       		model.PlaylistRepository
-	MockedPlaylistFolder 		model.PlaylistFolderRepository
-	MockedPlayQueue      		model.PlayQueueRepository
-	MockedShare          		model.ShareRepository
-	MockedTranscoding    		model.TranscodingRepository
-	MockedUserProps      		model.UserPropsRepository
-	MockedScrobbleBuffer 		model.ScrobbleBufferRepository
-	MockedRadio          		model.RadioRepository
-	scrobbleBufferMu     		sync.Mutex
-	repoMu               		sync.Mutex
+	RealDS                  model.DataStore
+	MockedLibrary           model.LibraryRepository
+	MockedFolder            model.FolderRepository
+	MockedGenre             model.GenreRepository
+	MockedAlbum             model.AlbumRepository
+	MockedArtist            model.ArtistRepository
+	MockedMediaFile         model.MediaFileRepository
+	MockedTag               model.TagRepository
+	MockedUser              model.UserRepository
+	MockedProperty          model.PropertyRepository
+	MockedPlayer            model.PlayerRepository
+	MockedPlaylist          model.PlaylistRepository
+	MockedDiscoveryPlaylist model.DiscoveryPlaylistRepository
+	MockedDiscoveryTrack    model.DiscoveryTrackRepository
+	MockedPlaylistFolder    model.PlaylistFolderRepository
+	MockedPlayQueue         model.PlayQueueRepository
+	MockedShare             model.ShareRepository
+	MockedTranscoding       model.TranscodingRepository
+	MockedUserProps         model.UserPropsRepository
+	MockedScrobbleBuffer    model.ScrobbleBufferRepository
+	MockedRadio             model.RadioRepository
+	scrobbleBufferMu        sync.Mutex
+	repoMu                  sync.Mutex
+}
+
+type MockDiscoveryPlaylistRepo struct {
+	Items map[string]model.DiscoveryPlaylist
+}
+
+func (r *MockDiscoveryPlaylistRepo) ensure() {
+	if r.Items == nil {
+		r.Items = make(map[string]model.DiscoveryPlaylist)
+	}
+}
+
+func (r *MockDiscoveryPlaylistRepo) GetAll(_ ...model.QueryOptions) (model.DiscoveryPlaylists, error) {
+	r.ensure()
+	playlists := make(model.DiscoveryPlaylists, 0, len(r.Items))
+	for _, entry := range r.Items {
+		playlists = append(playlists, entry)
+	}
+	return playlists, nil
+}
+
+func (r *MockDiscoveryPlaylistRepo) Get(id string) (*model.DiscoveryPlaylist, error) {
+	r.ensure()
+	entry, ok := r.Items[id]
+	if !ok {
+		return nil, model.ErrNotFound
+	}
+	copy := entry
+	return &copy, nil
+}
+
+func (r *MockDiscoveryPlaylistRepo) ReplaceAll(playlists model.DiscoveryPlaylists) error {
+	r.ensure()
+	r.Items = make(map[string]model.DiscoveryPlaylist, len(playlists))
+	for _, entry := range playlists {
+		r.Items[entry.ID] = entry
+	}
+	return nil
+}
+
+func (r *MockDiscoveryPlaylistRepo) Put(entry *model.DiscoveryPlaylist) error {
+	r.ensure()
+	if entry != nil {
+		r.Items[entry.ID] = *entry
+	}
+	return nil
+}
+
+func (r *MockDiscoveryPlaylistRepo) Delete(id string) error {
+	r.ensure()
+	delete(r.Items, id)
+	return nil
+}
+
+type MockDiscoveryTrackRepo struct {
+	Items map[string]model.DiscoveryTracks
+}
+
+func (r *MockDiscoveryTrackRepo) ensure() {
+	if r.Items == nil {
+		r.Items = make(map[string]model.DiscoveryTracks)
+	}
+}
+
+func (r *MockDiscoveryTrackRepo) GetByDiscovery(discoveryID string) (model.DiscoveryTracks, error) {
+	r.ensure()
+	tracks := r.Items[discoveryID]
+	if tracks == nil {
+		return model.DiscoveryTracks{}, nil
+	}
+	cloned := make(model.DiscoveryTracks, len(tracks))
+	copy(cloned, tracks)
+	return cloned, nil
+}
+
+func (r *MockDiscoveryTrackRepo) ReplaceForDiscovery(discoveryID string, tracks model.DiscoveryTracks) error {
+	r.ensure()
+	cloned := make(model.DiscoveryTracks, len(tracks))
+	copy(cloned, tracks)
+	r.Items[discoveryID] = cloned
+	return nil
+}
+
+func (r *MockDiscoveryTrackRepo) GetByIDs(discoveryID string, ids []string) (model.DiscoveryTracks, error) {
+	r.ensure()
+	existing := r.Items[discoveryID]
+	if existing == nil {
+		return model.DiscoveryTracks{}, nil
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	result := make(model.DiscoveryTracks, 0, len(ids))
+	for _, track := range existing {
+		if _, ok := wanted[track.ID]; ok {
+			result = append(result, track)
+		}
+	}
+	return result, nil
 }
 
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {
@@ -119,6 +221,28 @@ func (db *MockDataStore) Playlist(ctx context.Context) model.PlaylistRepository 
 		}
 	}
 	return db.MockedPlaylist
+}
+
+func (db *MockDataStore) DiscoveryPlaylist(ctx context.Context) model.DiscoveryPlaylistRepository {
+	if db.MockedDiscoveryPlaylist == nil {
+		if db.RealDS != nil {
+			db.MockedDiscoveryPlaylist = db.RealDS.DiscoveryPlaylist(ctx)
+		} else {
+			db.MockedDiscoveryPlaylist = &MockDiscoveryPlaylistRepo{}
+		}
+	}
+	return db.MockedDiscoveryPlaylist
+}
+
+func (db *MockDataStore) DiscoveryTrack(ctx context.Context) model.DiscoveryTrackRepository {
+	if db.MockedDiscoveryTrack == nil {
+		if db.RealDS != nil {
+			db.MockedDiscoveryTrack = db.RealDS.DiscoveryTrack(ctx)
+		} else {
+			db.MockedDiscoveryTrack = &MockDiscoveryTrackRepo{}
+		}
+	}
+	return db.MockedDiscoveryTrack
 }
 
 func (db *MockDataStore) PlaylistFolder(ctx context.Context) model.PlaylistFolderRepository {

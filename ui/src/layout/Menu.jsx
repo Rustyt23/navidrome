@@ -9,6 +9,7 @@ import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
 import PlaylistsSubMenu from './PlaylistsSubMenu'
+import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
 
@@ -57,9 +58,10 @@ const Menu = ({ dense = false }) => {
 
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
-    menuAlbumList: true,
+    menuAlbumList: false,
     menuPlaylists: true,
     menuSharedPlaylists: true,
+    menuDiscovery: true,
   })
 
   const handleToggle = (menu) => {
@@ -131,6 +133,12 @@ const Menu = ({ dense = false }) => {
       {config.devSidebarPlaylists && open ? (
         <>
           <Divider />
+          <DiscoverySubMenu
+            state={state}
+            setState={setState}
+            sidebarIsOpen={open}
+            dense={dense}
+          />
           <PlaylistsSubMenu
             state={state}
             setState={setState}
@@ -139,7 +147,15 @@ const Menu = ({ dense = false }) => {
           />
         </>
       ) : (
-        resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)
+        <>
+          <DiscoverySubMenu
+            state={state}
+            setState={setState}
+            sidebarIsOpen={open}
+            dense={dense}
+          />
+          {resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)}
+        </>
       )}
     </div>
   )

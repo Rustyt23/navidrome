@@ -3,6 +3,7 @@ package artwork
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"image"
 	"image/draw"
@@ -27,7 +28,13 @@ const tileSize = 600
 func newPlaylistArtworkReader(ctx context.Context, artwork *artwork, artID model.ArtworkID) (*playlistArtworkReader, error) {
 	pl, err := artwork.ds.Playlist(ctx).Get(artID.ID)
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		pl, err = discoveryPlaylistForArtwork(ctx, artwork.ds, artID.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	a := &playlistArtworkReader{
 		a:  artwork,
@@ -69,17 +76,28 @@ func toAlbumArtworkIDs(albumIDs []string) []model.ArtworkID {
 }
 
 func (a *playlistArtworkReader) loadTiles(ctx context.Context) ([]image.Image, error) {
-	tracksRepo := a.a.ds.Playlist(ctx).Tracks(a.pl.ID, false)
-	albumIds, err := tracksRepo.GetAlbumIDs(model.QueryOptions{Max: 4, Sort: "random()"})
-	if err != nil {
-		log.Error(ctx, "Error getting album IDs for playlist", "id", a.pl.ID, "name", a.pl.Name, err)
-		return nil, err
+	var ids []model.ArtworkID
+
+	if tracksRepo := a.a.ds.Playlist(ctx).Tracks(a.pl.ID, false); tracksRepo != nil {
+		albumIds, err := tracksRepo.GetAlbumIDs(model.QueryOptions{Max: 4, Sort: "random()"})
+		if err != nil {
+			log.Error(ctx, "Error getting album IDs for playlist", "id", a.pl.ID, "name", a.pl.Name, err)
+		} else {
+			ids = toAlbumArtworkIDs(albumIds)
+		}
 	}
-	ids := toAlbumArtworkIDs(albumIds)
+
+	if len(ids) == 0 && len(a.pl.Tracks) > 0 {
+		ids = artworkIDsFromTracks(a.pl.Tracks)
+	}
+
+	if len(ids) == 0 {
+		return nil, errors.New("could not find any eligible cover")
+	}
 
 	var tiles []image.Image
 	for _, id := range ids {
-		r, _, err := fromAlbum(ctx, a.a, id)()
+		r, _, err := a.a.Get(ctx, id, 0, false)
 		if err == nil {
 			tile, err := a.createTile(ctx, r)
 			if err == nil {
@@ -144,4 +162,60 @@ func rect(pos int) image.Rectangle {
 	r.Max.X = r.Min.X + tileSize/2
 	r.Max.Y = r.Min.Y + tileSize/2
 	return r
+}
+
+func artworkIDsFromTracks(tracks model.PlaylistTracks) []model.ArtworkID {
+	unique := make([]model.ArtworkID, 0, 4)
+	seen := make(map[string]struct{}, len(tracks))
+	for _, track := range tracks {
+		artID := track.MediaFile.CoverArtID()
+		if artID.ID == "" {
+			continue
+		}
+		key := artID.Kind.String() + ":" + artID.ID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, artID)
+		if len(unique) == 4 {
+			break
+		}
+	}
+	return unique
+}
+
+func discoveryPlaylistForArtwork(ctx context.Context, ds model.DataStore, id string) (*model.Playlist, error) {
+	entry, err := ds.DiscoveryPlaylist(ctx).Get(id)
+	if err != nil {
+		return nil, err
+	}
+	tracks, err := ds.DiscoveryTrack(ctx).GetByDiscovery(id)
+	if err != nil {
+		return nil, err
+	}
+	playlist := &model.Playlist{
+		ID:        entry.ID,
+		Name:      entry.Name,
+		UpdatedAt: entry.UpdatedAt,
+	}
+	playlistTracks := make(model.PlaylistTracks, 0, len(tracks))
+	for _, track := range tracks {
+		media := track.MediaFile
+		if media.ID == "" {
+			media.ID = track.ID
+		}
+		plt := model.PlaylistTrack{
+			ID:          track.ID,
+			MediaFileID: track.MediaFileID,
+			PlaylistID:  entry.ID,
+			MediaFile:   media,
+		}
+		if plt.MediaFileID == "" {
+			plt.MediaFileID = media.ID
+		}
+		playlistTracks = append(playlistTracks, plt)
+	}
+	playlist.SetTracks(playlistTracks)
+	return playlist, nil
 }

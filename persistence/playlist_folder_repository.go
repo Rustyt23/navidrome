@@ -90,6 +90,7 @@ func (r *playlistFolderRepository) GetAll(options ...model.QueryOptions) (model.
 	out := make(model.PlaylistFolders, len(rows))
 	for i := range rows {
 		out[i] = &rows[i].PlaylistFolder
+		out[i].Type = "folder"
 	}
 	return out, nil
 }
@@ -106,6 +107,7 @@ func (r *playlistFolderRepository) GetAllByParent(options ...model.QueryOptions)
 	}
 	out := make(model.PlaylistFolders, 0, len(rows))
 	for i := range rows {
+		rows[i].PlaylistFolder.Type = "folder"
 		out = append(out, &rows[i].PlaylistFolder)
 	}
 	return out, nil
@@ -245,6 +247,7 @@ func (r *playlistFolderRepository) findBy(where Sqlizer) (*model.PlaylistFolder,
 	if len(rows) == 0 {
 		return nil, model.ErrNotFound
 	}
+	rows[0].PlaylistFolder.Type = "folder"
 	return &rows[0].PlaylistFolder, nil
 }
 

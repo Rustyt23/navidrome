@@ -59,6 +59,7 @@ func CreateNativeAPIRouter(ctx context.Context) *nativeapi.Router {
 	dataStore := persistence.New(sqlDB)
 	share := core.NewShare(dataStore)
 	playlists := core.NewPlaylists(dataStore)
+	discovery := core.NewDiscovery(dataStore)
 	metricsMetrics := metrics.GetPrometheusInstance(dataStore)
 	manager := plugins.GetManager(dataStore, metricsMetrics)
 	insights := metrics.GetInstance(dataStore, manager)
@@ -72,7 +73,7 @@ func CreateNativeAPIRouter(ctx context.Context) *nativeapi.Router {
 	scannerScanner := scanner.New(ctx, dataStore, cacheWarmer, broker, playlists, metricsMetrics)
 	watcher := scanner.GetWatcher(dataStore, scannerScanner)
 	library := core.NewLibrary(dataStore, scannerScanner, watcher, broker)
-	router := nativeapi.New(dataStore, share, playlists, insights, library)
+	router := nativeapi.New(dataStore, share, playlists, discovery, insights, library)
 	return router
 }
 
