@@ -32,6 +32,38 @@ func NewDiscoveryTrackRepository(ctx context.Context, db dbx.Builder) model.Disc
 	return &discoveryTrackRepository{ctx: ctx, db: db}
 }
 
+func (r *discoveryTrackRepository) rowToModel(row discoveryTrackRow) model.DiscoveryTrack {
+	var mediaFile model.MediaFile
+	if err := json.Unmarshal([]byte(row.MediaFile), &mediaFile); err != nil {
+		log.Warn(r.ctx, "Failed to unmarshal discovery track mediafile", "trackID", row.ID, err)
+		mediaFile = model.MediaFile{ID: row.ID, Path: row.Path, Missing: row.Missing}
+	}
+	track := model.DiscoveryTrack{
+		ID:          row.ID,
+		DiscoveryID: row.DiscoveryID,
+		MediaFileID: "",
+		Position:    row.Position,
+		MediaFile:   mediaFile,
+	}
+	if row.MediaFileID != nil {
+		track.MediaFileID = *row.MediaFileID
+	}
+	if row.SourcePath != nil {
+		track.SourcePath = *row.SourcePath
+	}
+	return track
+}
+
+func (r *discoveryTrackRepository) Get(id string) (*model.DiscoveryTrack, error) {
+	var row discoveryTrackRow
+	err := r.db.Select("*").From("discovery_tracks").Where(dbx.HashExp{"id": id}).One(&row)
+	if err != nil {
+		return nil, err
+	}
+	track := r.rowToModel(row)
+	return &track, nil
+}
+
 func (r *discoveryTrackRepository) GetByDiscovery(discoveryID string) (model.DiscoveryTracks, error) {
 	var rows []discoveryTrackRow
 	err := r.db.Select("*").From("discovery_tracks").Where(dbx.HashExp{"discovery_id": discoveryID}).OrderBy("position asc").All(&rows)
@@ -40,24 +72,7 @@ func (r *discoveryTrackRepository) GetByDiscovery(discoveryID string) (model.Dis
 	}
 	tracks := make(model.DiscoveryTracks, 0, len(rows))
 	for _, row := range rows {
-		var mediaFile model.MediaFile
-		if err := json.Unmarshal([]byte(row.MediaFile), &mediaFile); err != nil {
-			log.Warn(r.ctx, "Failed to unmarshal discovery track mediafile", "trackID", row.ID, err)
-			mediaFile = model.MediaFile{ID: row.ID, Path: row.Path, Missing: row.Missing}
-		}
-		track := model.DiscoveryTrack{
-			ID:          row.ID,
-			DiscoveryID: row.DiscoveryID,
-			MediaFileID: "",
-			Position:    row.Position,
-			MediaFile:   mediaFile,
-		}
-		if row.MediaFileID != nil {
-			track.MediaFileID = *row.MediaFileID
-		}
-		if row.SourcePath != nil {
-			track.SourcePath = *row.SourcePath
-		}
+		track := r.rowToModel(row)
 		tracks = append(tracks, track)
 	}
 	return tracks, nil
@@ -77,24 +92,7 @@ func (r *discoveryTrackRepository) GetByIDs(discoveryID string, ids []string) (m
 	}
 	tracks := make(model.DiscoveryTracks, 0, len(rows))
 	for _, row := range rows {
-		var mediaFile model.MediaFile
-		if err := json.Unmarshal([]byte(row.MediaFile), &mediaFile); err != nil {
-			log.Warn(r.ctx, "Failed to unmarshal discovery track mediafile", "trackID", row.ID, err)
-			mediaFile = model.MediaFile{ID: row.ID, Path: row.Path, Missing: row.Missing}
-		}
-		track := model.DiscoveryTrack{
-			ID:          row.ID,
-			DiscoveryID: row.DiscoveryID,
-			MediaFileID: "",
-			Position:    row.Position,
-			MediaFile:   mediaFile,
-		}
-		if row.MediaFileID != nil {
-			track.MediaFileID = *row.MediaFileID
-		}
-		if row.SourcePath != nil {
-			track.SourcePath = *row.SourcePath
-		}
+		track := r.rowToModel(row)
 		tracks = append(tracks, track)
 	}
 	return tracks, nil

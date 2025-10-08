@@ -36,6 +36,7 @@ type DiscoveryPlaylistRepository interface {
 }
 
 type DiscoveryTrackRepository interface {
+	Get(id string) (*DiscoveryTrack, error)
 	GetByDiscovery(discoveryID string) (DiscoveryTracks, error)
 	ReplaceForDiscovery(discoveryID string, tracks DiscoveryTracks) error
 	GetByIDs(discoveryID string, ids []string) (DiscoveryTracks, error)

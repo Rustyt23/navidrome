@@ -2,10 +2,14 @@ package core
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,11 +54,22 @@ func (j *streamJob) Key() string {
 
 func (ms *mediaStreamer) NewStream(ctx context.Context, id string, reqFormat string, reqBitRate int, reqOffset int) (*Stream, error) {
 	mf, err := ms.ds.MediaFile(ctx).Get(id)
-	if err != nil {
+	if err == nil {
+		return ms.DoStream(ctx, mf, reqFormat, reqBitRate, reqOffset)
+	}
+	if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 
-	return ms.DoStream(ctx, mf, reqFormat, reqBitRate, reqOffset)
+	track, trackErr := ms.ds.DiscoveryTrack(ctx).Get(id)
+	if trackErr != nil {
+		return nil, trackErr
+	}
+	discoveryMF, buildErr := mediaFileFromDiscoveryTrack(track)
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	return ms.DoStream(ctx, discoveryMF, reqFormat, reqBitRate, reqOffset)
 }
 
 func (ms *mediaStreamer) DoStream(ctx context.Context, mf *model.MediaFile, reqFormat string, reqBitRate int, reqOffset int) (*Stream, error) {
@@ -128,6 +143,61 @@ func (s *Stream) Name() string        { return s.mf.Title + "." + s.format }
 func (s *Stream) ModTime() time.Time  { return s.mf.UpdatedAt }
 func (s *Stream) EstimatedContentLength() int {
 	return int(s.mf.Duration * float32(s.bitRate) / 8 * 1024)
+}
+
+func mediaFileFromDiscoveryTrack(track *model.DiscoveryTrack) (*model.MediaFile, error) {
+	mf := track.MediaFile
+	if mf.ID == "" {
+		mf.ID = track.ID
+	}
+	abs := track.SourcePath
+	if abs == "" {
+		if filepath.IsAbs(mf.Path) {
+			abs = mf.Path
+		} else if mf.LibraryPath != "" && mf.Path != "" {
+			abs = filepath.Join(mf.LibraryPath, mf.Path)
+		}
+	}
+	if abs == "" && mf.Path != "" && mf.LibraryPath != "" {
+		abs = filepath.Join(mf.LibraryPath, mf.Path)
+	}
+	if abs == "" {
+		return nil, model.ErrNotFound
+	}
+	abs = filepath.Clean(abs)
+
+	libraryPath := mf.LibraryPath
+	relPath := mf.Path
+
+	if libraryPath == "" || !filepath.IsAbs(libraryPath) {
+		libraryPath = filepath.Dir(abs)
+	} else {
+		rel, err := filepath.Rel(libraryPath, abs)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			libraryPath = filepath.Dir(abs)
+			relPath = filepath.Base(abs)
+		} else if relPath == "" || filepath.IsAbs(relPath) {
+			relPath = filepath.ToSlash(rel)
+		}
+	}
+
+	if relPath == "" {
+		relPath = filepath.Base(abs)
+	}
+	if filepath.IsAbs(relPath) {
+		relPath = filepath.Base(abs)
+	}
+
+	mf.LibraryPath = filepath.Clean(libraryPath)
+	mf.Path = filepath.ToSlash(relPath)
+	mf.Missing = false
+	if mf.UpdatedAt.IsZero() {
+		mf.UpdatedAt = time.Now().UTC()
+	}
+	if mf.Title == "" {
+		mf.Title = filepath.Base(abs)
+	}
+	return &mf, nil
 }
 
 // TODO This function deserves some love (refactoring)

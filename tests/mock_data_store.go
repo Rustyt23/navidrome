@@ -95,6 +95,19 @@ func (r *MockDiscoveryTrackRepo) ensure() {
 	}
 }
 
+func (r *MockDiscoveryTrackRepo) Get(id string) (*model.DiscoveryTrack, error) {
+	r.ensure()
+	for _, tracks := range r.Items {
+		for _, track := range tracks {
+			if track.ID == id {
+				cloned := track
+				return &cloned, nil
+			}
+		}
+	}
+	return nil, model.ErrNotFound
+}
+
 func (r *MockDiscoveryTrackRepo) GetByDiscovery(discoveryID string) (model.DiscoveryTracks, error) {
 	r.ensure()
 	tracks := r.Items[discoveryID]
