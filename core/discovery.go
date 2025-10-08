@@ -484,13 +484,21 @@ func (d *discovery) scanTracks(ctx context.Context, ds model.DataStore, entry *m
 		if mediaFile.Path == "" {
 			mediaFile.Path = normalized
 		}
-		uniqueKey := normalized
-		count := occurrences[normalized]
-		occurrences[normalized] = count + 1
-		if count > 0 {
-			uniqueKey = fmt.Sprintf("%s#%d", normalized, count+1)
+		canonical := entryPath.absolute
+		if canonical == "" {
+			canonical = normalized
 		}
-		trackID := id.NewHash(entry.ID + "#" + uniqueKey)
+		canonical = filepath.ToSlash(filepath.Clean(canonical))
+		if canonical == "." || canonical == "" {
+			canonical = fmt.Sprintf("%s@%d", normalized, idx+1)
+		}
+		count := occurrences[canonical]
+		occurrences[canonical] = count + 1
+		uniqueKey := canonical
+		if count > 0 {
+			uniqueKey = fmt.Sprintf("%s#%d", canonical, count+1)
+		}
+		trackID := id.NewHash(entry.ID, "#", uniqueKey)
 		tracks = append(tracks, model.DiscoveryTrack{
 			ID:          trackID,
 			DiscoveryID: entry.ID,
