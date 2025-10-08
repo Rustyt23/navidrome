@@ -279,6 +279,9 @@ func Load(noConfigDump bool) {
 		}
 	}
 
+	if Server.DiscoveryPath == "" && !viper.IsSet("discoverypath") {
+		Server.DiscoveryPath = filepath.Join(Server.DataFolder, "discovery")
+	}
 	if Server.DiscoveryPath != "" {
 		err = os.MkdirAll(Server.DiscoveryPath, os.ModePerm)
 		if err != nil {
