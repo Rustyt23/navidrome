@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -449,6 +448,7 @@ func (d *discovery) scanTracks(ctx context.Context, ds model.DataStore, entry *m
 	}
 	tracks := make(model.DiscoveryTracks, 0, len(entries))
 	missing := make(map[int]discoveryTrackEntry)
+	occurrences := make(map[string]int, len(entries))
 	for idx, entryPath := range entries {
 		normalized := entryPath.display
 		variants := variantByPath[normalized]
@@ -484,10 +484,13 @@ func (d *discovery) scanTracks(ctx context.Context, ds model.DataStore, entry *m
 		if mediaFile.Path == "" {
 			mediaFile.Path = normalized
 		}
-		trackID := mediaFile.ID
-		if trackID == "" {
-			trackID = id.NewHash(entry.ID + normalized + "#" + strconv.Itoa(idx))
+		uniqueKey := normalized
+		count := occurrences[normalized]
+		occurrences[normalized] = count + 1
+		if count > 0 {
+			uniqueKey = fmt.Sprintf("%s#%d", normalized, count+1)
 		}
+		trackID := id.NewHash(entry.ID + "#" + uniqueKey)
 		tracks = append(tracks, model.DiscoveryTrack{
 			ID:          trackID,
 			DiscoveryID: entry.ID,
