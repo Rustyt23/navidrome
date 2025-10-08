@@ -225,8 +225,6 @@ func (d *discovery) Export(ctx context.Context, id string, w io.Writer) error {
 	}
 	names := d.canonicalFilenames(tracks)
 	builder := &strings.Builder{}
-	builder.WriteString("#EXTM3U\n")
-	builder.WriteString("#PLAYLIST:" + entry.Name + "\n")
 	for _, name := range names {
 		builder.WriteString(name)
 		builder.WriteString("\n")
@@ -694,8 +692,6 @@ func (d *discovery) Publish(ctx context.Context, id string) error {
 		return err
 	}
 	builder := &strings.Builder{}
-	builder.WriteString("#EXTM3U\n")
-	builder.WriteString("#PLAYLIST:" + entry.Name + "\n")
 	for _, name := range names {
 		builder.WriteString(name)
 		builder.WriteString("\n")
