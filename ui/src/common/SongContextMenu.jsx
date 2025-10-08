@@ -10,7 +10,6 @@ import {
 import { IconButton, Menu, MenuItem } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import MoreVertIcon from '@material-ui/icons/MoreVert'
-import { MdQuestionMark } from 'react-icons/md'
 import clsx from 'clsx'
 import {
   playNext,
@@ -33,20 +32,14 @@ const useStyles = makeStyles({
   },
 })
 
-const MoreButton = ({ record, onClick, info }) => {
-  const handleClick = record.missing
-    ? (e) => {
-        info.action(record)
-        e.stopPropagation()
-      }
-    : onClick
+const MoreButton = ({ record, onClick }) => {
+  if (!record || record.missing) {
+    return null
+  }
+
   return (
-    <IconButton onClick={handleClick} size={'small'}>
-      {record?.missing ? (
-        <MdQuestionMark fontSize={'large'} />
-      ) : (
-        <MoreVertIcon fontSize={'small'} />
-      )}
+    <IconButton onClick={onClick} size={'small'}>
+      <MoreVertIcon fontSize={'small'} />
     </IconButton>
   )
 }
@@ -226,7 +219,7 @@ export const SongContextMenu = ({
         resource={resource}
         visible={config.enableFavourites && showLove && present}
       />
-      <MoreButton record={record} onClick={handleClick} info={options.info} />
+      <MoreButton record={record} onClick={handleClick} />
       <Menu
         id={'menu' + record.id}
         anchorEl={anchorEl}

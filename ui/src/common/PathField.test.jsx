@@ -83,4 +83,17 @@ describe('PathField', () => {
     // Assert
     expect(container.textContent).toBe('C:\\data\\music\\song.mp3')
   })
+
+  it('renders blank when track is missing', () => {
+    usePermissions.mockReturnValue({ permissions: 'admin' })
+    useRecordContext.mockReturnValue({
+      missing: true,
+      path: 'music/song.mp3',
+      libraryPath: '/data/media',
+    })
+
+    const { container } = render(<PathField />)
+
+    expect(container.textContent).toBe('')
+  })
 })

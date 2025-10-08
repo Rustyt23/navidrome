@@ -6,15 +6,23 @@ import config from '../config'
 export const PathField = (props) => {
   const record = useRecordContext(props)
   const { permissions } = usePermissions()
-  let path = permissions === 'admin' ? record.libraryPath : ''
 
-  if (path && path.endsWith(config.separator)) {
-    path = `${path}${record.path}`
-  } else {
-    path = path ? `${path}${config.separator}${record.path}` : record.path
+  if (!record || record.missing || !record.path) {
+    return <span></span>
   }
 
-  return <span>{path}</span>
+  const basePath = permissions === 'admin' ? record.libraryPath : ''
+
+  if (!basePath) {
+    return <span>{record.path}</span>
+  }
+
+  const separator = config.separator
+  const normalizedBasePath = basePath.endsWith(separator)
+    ? basePath
+    : `${basePath}${separator}`
+
+  return <span>{`${normalizedBasePath}${record.path}`}</span>
 }
 
 PathField.propTypes = {

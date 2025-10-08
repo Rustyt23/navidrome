@@ -104,4 +104,20 @@ describe('SongContextMenu', () => {
     )
     expect(mockOnClick).not.toHaveBeenCalled()
   })
+
+  it('renders no menu button when record is missing', () => {
+    render(
+      <TestContext>
+        <SongContextMenu
+          record={{ id: 'song1', size: 1, missing: true }}
+          resource="song"
+        />
+      </TestContext>,
+    )
+
+    const buttons = screen.queryAllByRole('button')
+    const enabledButtons = buttons.filter((button) => !button.disabled)
+
+    expect(enabledButtons).toHaveLength(0)
+  })
 })
