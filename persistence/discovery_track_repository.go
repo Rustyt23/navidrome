@@ -2,7 +2,9 @@ package persistence
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/navidrome/navidrome/log"
@@ -40,25 +42,7 @@ func (r *discoveryTrackRepository) GetByDiscovery(discoveryID string) (model.Dis
 	}
 	tracks := make(model.DiscoveryTracks, 0, len(rows))
 	for _, row := range rows {
-		var mediaFile model.MediaFile
-		if err := json.Unmarshal([]byte(row.MediaFile), &mediaFile); err != nil {
-			log.Warn(r.ctx, "Failed to unmarshal discovery track mediafile", "trackID", row.ID, err)
-			mediaFile = model.MediaFile{ID: row.ID, Path: row.Path, Missing: row.Missing}
-		}
-		track := model.DiscoveryTrack{
-			ID:          row.ID,
-			DiscoveryID: row.DiscoveryID,
-			MediaFileID: "",
-			Position:    row.Position,
-			MediaFile:   mediaFile,
-		}
-		if row.MediaFileID != nil {
-			track.MediaFileID = *row.MediaFileID
-		}
-		if row.SourcePath != nil {
-			track.SourcePath = *row.SourcePath
-		}
-		tracks = append(tracks, track)
+		tracks = append(tracks, r.rowToModel(row))
 	}
 	return tracks, nil
 }
@@ -77,25 +61,7 @@ func (r *discoveryTrackRepository) GetByIDs(discoveryID string, ids []string) (m
 	}
 	tracks := make(model.DiscoveryTracks, 0, len(rows))
 	for _, row := range rows {
-		var mediaFile model.MediaFile
-		if err := json.Unmarshal([]byte(row.MediaFile), &mediaFile); err != nil {
-			log.Warn(r.ctx, "Failed to unmarshal discovery track mediafile", "trackID", row.ID, err)
-			mediaFile = model.MediaFile{ID: row.ID, Path: row.Path, Missing: row.Missing}
-		}
-		track := model.DiscoveryTrack{
-			ID:          row.ID,
-			DiscoveryID: row.DiscoveryID,
-			MediaFileID: "",
-			Position:    row.Position,
-			MediaFile:   mediaFile,
-		}
-		if row.MediaFileID != nil {
-			track.MediaFileID = *row.MediaFileID
-		}
-		if row.SourcePath != nil {
-			track.SourcePath = *row.SourcePath
-		}
-		tracks = append(tracks, track)
+		tracks = append(tracks, r.rowToModel(row))
 	}
 	return tracks, nil
 }
@@ -142,4 +108,39 @@ func (r *discoveryTrackRepository) ReplaceForDiscovery(discoveryID string, track
 		}
 	}
 	return nil
+}
+
+func (r *discoveryTrackRepository) Get(id string) (*model.DiscoveryTrack, error) {
+	var row discoveryTrackRow
+	err := r.db.Select("*").From("discovery_tracks").Where(dbx.HashExp{"id": id}).One(&row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, model.ErrNotFound
+		}
+		return nil, err
+	}
+	track := r.rowToModel(row)
+	return &track, nil
+}
+
+func (r *discoveryTrackRepository) rowToModel(row discoveryTrackRow) model.DiscoveryTrack {
+	var mediaFile model.MediaFile
+	if err := json.Unmarshal([]byte(row.MediaFile), &mediaFile); err != nil {
+		log.Warn(r.ctx, "Failed to unmarshal discovery track mediafile", "trackID", row.ID, err)
+		mediaFile = model.MediaFile{ID: row.ID, Path: row.Path, Missing: row.Missing}
+	}
+	track := model.DiscoveryTrack{
+		ID:          row.ID,
+		DiscoveryID: row.DiscoveryID,
+		MediaFileID: "",
+		Position:    row.Position,
+		MediaFile:   mediaFile,
+	}
+	if row.MediaFileID != nil {
+		track.MediaFileID = *row.MediaFileID
+	}
+	if row.SourcePath != nil {
+		track.SourcePath = *row.SourcePath
+	}
+	return track
 }

@@ -133,6 +133,19 @@ func (r *MockDiscoveryTrackRepo) GetByIDs(discoveryID string, ids []string) (mod
 	return result, nil
 }
 
+func (r *MockDiscoveryTrackRepo) Get(id string) (*model.DiscoveryTrack, error) {
+	r.ensure()
+	for _, tracks := range r.Items {
+		for _, track := range tracks {
+			if track.ID == id {
+				copy := track
+				return &copy, nil
+			}
+		}
+	}
+	return nil, model.ErrNotFound
+}
+
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {
 	if db.MockedLibrary == nil {
 		if db.RealDS != nil {

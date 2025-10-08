@@ -39,4 +39,5 @@ type DiscoveryTrackRepository interface {
 	GetByDiscovery(discoveryID string) (DiscoveryTracks, error)
 	ReplaceForDiscovery(discoveryID string, tracks DiscoveryTracks) error
 	GetByIDs(discoveryID string, ids []string) (DiscoveryTracks, error)
+	Get(id string) (*DiscoveryTrack, error)
 }

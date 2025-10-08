@@ -29,6 +29,19 @@ var _ = Describe("MediaStreamer", func() {
 		ds.MediaFile(ctx).(*tests.MockMediaFileRepo).SetData(model.MediaFiles{
 			{ID: "123", Path: "tests/fixtures/test.mp3", Suffix: "mp3", BitRate: 128, Duration: 257.0},
 		})
+		Expect(ds.DiscoveryTrack(ctx).ReplaceForDiscovery("disc1", model.DiscoveryTracks{
+			{
+				ID:          "disc-track-1",
+				DiscoveryID: "disc1",
+				MediaFile: model.MediaFile{
+					ID:       "disc-track-1",
+					Path:     "tests/fixtures/test.mp3",
+					Suffix:   "mp3",
+					BitRate:  128,
+					Duration: 257.0,
+				},
+			},
+		})).To(Succeed())
 		testCache := core.NewTranscodingCache()
 		Eventually(func() bool { return testCache.Available(context.TODO()) }).Should(BeTrue())
 		streamer = core.NewMediaStreamer(ds, ffmpeg, testCache)
@@ -69,6 +82,12 @@ var _ = Describe("MediaStreamer", func() {
 			s, err = streamer.NewStream(ctx, "123", "mp3", 32, 0)
 			Expect(err).To(BeNil())
 			Expect(s.Seekable()).To(BeTrue())
+		})
+		It("streams tracks stored only in discovery", func() {
+			s, err := streamer.NewStream(ctx, "disc-track-1", "raw", 0, 0)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(s.Seekable()).To(BeTrue())
+			Expect(s.ContentType()).To(Equal("audio/mpeg"))
 		})
 	})
 })

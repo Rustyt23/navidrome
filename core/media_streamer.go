@@ -2,10 +2,13 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,11 +53,58 @@ func (j *streamJob) Key() string {
 
 func (ms *mediaStreamer) NewStream(ctx context.Context, id string, reqFormat string, reqBitRate int, reqOffset int) (*Stream, error) {
 	mf, err := ms.ds.MediaFile(ctx).Get(id)
-	if err != nil {
+	if err == nil {
+		return ms.DoStream(ctx, mf, reqFormat, reqBitRate, reqOffset)
+	}
+	if !errors.Is(err, model.ErrNotFound) {
 		return nil, err
 	}
 
-	return ms.DoStream(ctx, mf, reqFormat, reqBitRate, reqOffset)
+	track, trackErr := ms.ds.DiscoveryTrack(ctx).Get(id)
+	if trackErr != nil {
+		return nil, trackErr
+	}
+
+	if track.MediaFileID != "" && track.MediaFileID != id {
+		if mf, mfErr := ms.ds.MediaFile(ctx).Get(track.MediaFileID); mfErr == nil {
+			return ms.DoStream(ctx, mf, reqFormat, reqBitRate, reqOffset)
+		} else if !errors.Is(mfErr, model.ErrNotFound) {
+			return nil, mfErr
+		}
+	}
+
+	mediaFile := track.MediaFile
+	if mediaFile.ID == "" {
+		mediaFile.ID = id
+	}
+	if track.SourcePath != "" {
+		absSource := track.SourcePath
+		if !filepath.IsAbs(absSource) && mediaFile.LibraryPath != "" {
+			absSource = filepath.Join(mediaFile.LibraryPath, absSource)
+		}
+		absSource = filepath.Clean(absSource)
+		if filepath.IsAbs(absSource) && filepath.Clean(mediaFile.AbsolutePath()) != absSource {
+			mediaFile.LibraryPath = filepath.Dir(absSource)
+			mediaFile.Path = filepath.Base(absSource)
+		}
+		if mediaFile.Suffix == "" {
+			if ext := filepath.Ext(absSource); ext != "" {
+				mediaFile.Suffix = strings.TrimPrefix(ext, ".")
+			}
+		}
+	} else {
+		if mediaFile.LibraryPath == "" && filepath.IsAbs(mediaFile.Path) {
+			mediaFile.LibraryPath = filepath.Dir(mediaFile.Path)
+			mediaFile.Path = filepath.Base(mediaFile.Path)
+		}
+		if mediaFile.Suffix == "" {
+			if ext := filepath.Ext(mediaFile.Path); ext != "" {
+				mediaFile.Suffix = strings.TrimPrefix(ext, ".")
+			}
+		}
+	}
+
+	return ms.DoStream(ctx, &mediaFile, reqFormat, reqBitRate, reqOffset)
 }
 
 func (ms *mediaStreamer) DoStream(ctx context.Context, mf *model.MediaFile, reqFormat string, reqBitRate int, reqOffset int) (*Stream, error) {
