@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo } from 'react'
 import {
   BulkActionsToolbar,
   ListToolbar,
-  TextField,
   NumberField,
+  TextField,
   useDataProvider,
   useNotify,
   useVersion,
@@ -147,9 +147,39 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
     [playlistId, reorder, ids],
   )
 
+  const renderTrackNumber = useCallback(
+    (record) => {
+      if (!record) {
+        return ''
+      }
+
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return record.trackNumber ?? ''
+      }
+
+      const recordId = record.id ?? record?.mediaFileId
+      const index = ids.findIndex((id) => String(id) === String(recordId))
+
+      if (index === -1) {
+        return record.trackNumber ?? ''
+      }
+
+      return index + 1
+    },
+    [ids],
+  )
+
   const toggleableFields = useMemo(() => {
     return {
-      trackNumber: isDesktop && <TextField source="id" label={'#'} />,
+      trackNumber:
+        isDesktop && (
+          <FunctionField
+            source="trackNumber"
+            label={'#'}
+            sortable={false}
+            render={renderTrackNumber}
+          />
+        ),
       title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop && <AlbumLinkField source="album" />,
       artist: isDesktop && <ArtistLinkField source="artist" />,
@@ -188,7 +218,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
         />
       ),
     }
-  }, [isDesktop, classes.draggable, classes.ratingField])
+  }, [isDesktop, classes.draggable, classes.ratingField, renderTrackNumber])
 
   const columns = useSelectedFields({
     resource: 'playlistTrack',
