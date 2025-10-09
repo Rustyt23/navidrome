@@ -49,6 +49,23 @@ func (j *streamJob) Key() string {
 }
 
 func (ms *mediaStreamer) NewStream(ctx context.Context, id string, reqFormat string, reqBitRate int, reqOffset int) (*Stream, error) {
+	if discID, trackID, ok := model.ParseDiscoveryStreamID(id); ok {
+		repo := ms.ds.Discovery(ctx).Tracks(discID)
+		entry, err := repo.Read(trackID)
+		if err != nil {
+			return nil, err
+		}
+		track, ok := entry.(model.DiscoveryTrack)
+		if !ok {
+			return nil, fmt.Errorf("unexpected discovery track type %T", entry)
+		}
+		mf, err := track.ToMediaFile()
+		if err != nil {
+			return nil, err
+		}
+		return ms.DoStream(ctx, mf, reqFormat, reqBitRate, reqOffset)
+	}
+
 	mf, err := ms.ds.MediaFile(ctx).Get(id)
 	if err != nil {
 		return nil, err

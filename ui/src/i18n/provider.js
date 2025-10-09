@@ -45,6 +45,10 @@ const prepareLanguage = (lang) => {
   // Make "albumSong" and "playlistTrack" resource use the same translations as "song"
   lang.resources.albumSong = lang.resources.song
   lang.resources.playlistTrack = lang.resources.song
+  lang.resources.discoveryTrack = lang.resources.song
+  if (lang.resources.playlist) {
+    lang.resources.discovery = lang.resources.playlist
+  }
   // ra.boolean.null should always be empty
   lang.ra.boolean.null = ''
   // Fallback to english translations

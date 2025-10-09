@@ -52,6 +52,7 @@ type configOptions struct {
 	AutoImportPlaylists             bool
 	DefaultPlaylistPublicVisibility bool
 	PlaylistsPath                   string
+	DiscoveryPath                   string
 	SyncFolder                      string
 	SmartPlaylistRefreshDelay       time.Duration
 	AutoTranscodeDownload           bool
@@ -310,6 +311,7 @@ func Load(noConfigDump bool) {
 		validateScanSchedule,
 		validateBackupSchedule,
 		validatePlaylistsPath,
+		validateDiscoveryPath,
 		validatePurgeMissingOption,
 	)
 	if err != nil {
@@ -417,6 +419,19 @@ func validatePlaylistsPath() error {
 	return nil
 }
 
+func validateDiscoveryPath() error {
+	if Server.DiscoveryPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(Server.DiscoveryPath); err != nil {
+		if !os.IsNotExist(err) {
+			log.Error("Invalid DiscoveryPath", "path", Server.DiscoveryPath, err)
+			return err
+		}
+	}
+	return nil
+}
+
 func validatePurgeMissingOption() error {
 	allowedValues := []string{consts.PurgeMissingNever, consts.PurgeMissingAlways, consts.PurgeMissingFull}
 	valid := false
@@ -498,6 +513,7 @@ func setViperDefaults() {
 	viper.SetDefault("autoimportplaylists", true)
 	viper.SetDefault("defaultplaylistpublicvisibility", false)
 	viper.SetDefault("playlistspath", "")
+	viper.SetDefault("discoverypath", "")
 	viper.SetDefault("smartPlaylistRefreshDelay", 5*time.Second)
 	viper.SetDefault("enabledownloads", true)
 	viper.SetDefault("enableexternalservices", true)
@@ -520,7 +536,7 @@ func setViperDefaults() {
 	viper.SetDefault("enablefavourites", true)
 	viper.SetDefault("enablestarrating", true)
 	viper.SetDefault("enableuserediting", true)
-       viper.SetDefault("defaulttheme", "Music Matters")
+	viper.SetDefault("defaulttheme", "Music Matters")
 	viper.SetDefault("defaultlanguage", "")
 	viper.SetDefault("defaultuivolume", consts.DefaultUIVolume)
 	viper.SetDefault("enablereplaygain", true)
