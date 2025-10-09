@@ -62,9 +62,9 @@ const useStyles = makeStyles((theme) => ({
     '& .MuiBadge-badge': {
       minWidth: theme.spacing(2),
       height: theme.spacing(2),
-      borderRadius: '50%',
+      borderRadius: theme.spacing(1),
       fontSize: '0.65rem',
-      padding: 0,
+      padding: theme.spacing(0, 0.5),
       top: theme.spacing(0.5),
       right: theme.spacing(0.5),
     },
@@ -159,6 +159,7 @@ const MissingTracksPanel = () => {
       <Tooltip title={translate('notifications.missingTracks')}>
         <Badge
           badgeContent={totalCount}
+          max={9999}
           color="secondary"
           invisible={totalCount === 0}
           className={classes.notificationBadge}
@@ -212,7 +213,7 @@ const MissingTracksPanel = () => {
                       <CircularProgress size={20} />
                     ) : (
                       <ListItemText
-                        primary={translate('ra.action.load_more')}
+                        primary={translate('ra.action.load_more', { _: 'Load More…' })}
                         primaryTypographyProps={{ align: 'center' }}
                       />
                     )}
