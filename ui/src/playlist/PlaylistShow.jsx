@@ -37,8 +37,13 @@ const PlaylistShowLayout = (props) => {
   const [searchTerm, setSearchTerm] = useState('')
 
   // Handle search change
-  const handleSearchChange = useCallback((event) => {
-    setSearchTerm(event.target.value)
+  const handleSearchChange = useCallback((eventOrValue) => {
+    const value =
+      typeof eventOrValue === 'string'
+        ? eventOrValue
+        : eventOrValue?.target?.value ?? ''
+
+    setSearchTerm(value)
   }, [])
 
   return (
