@@ -15,3 +15,10 @@ code {
 .rc-slider {
   z-index: 78;
 }
+
+@media (max-width: 768px) {
+  .row--playing-mobile {
+    background: var(--accent-10);
+    outline: 1px solid var(--accent);
+  }
+}

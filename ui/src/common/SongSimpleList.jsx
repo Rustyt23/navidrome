@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useCallback, useMemo } from 'react'
 import PropTypes from 'prop-types'
 import List from '@material-ui/core/List'
 import ListItem from '@material-ui/core/ListItem'
@@ -8,8 +8,9 @@ import ListItemText from '@material-ui/core/ListItemText'
 import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
-import { setTrack } from '../actions'
-import { useDispatch } from 'react-redux'
+import clsx from 'clsx'
+import { useDispatch, useSelector } from 'react-redux'
+import { playTracks, setTrack } from '../actions'
 import config from '../config'
 
 const useStyles = makeStyles(
@@ -64,15 +65,76 @@ export const SongSimpleList = ({
   ...rest
 }) => {
   const dispatch = useDispatch()
+  const currentTrackId = useSelector(
+    (state) => state?.player?.current?.trackId,
+  )
+  const isMobile = useMemo(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) {
+      return false
+    }
+    return window.matchMedia('(max-width: 768px)').matches
+  }, [])
   const classes = useStyles({ classes: classesOverride })
+  const getTrackId = useCallback(
+    (song) => song?.mediaFileId || song?.id,
+    [],
+  )
+
+  const handlePlay = useCallback(
+    (songId) => () => {
+      const record = data?.[songId]
+      if (!record) {
+        return
+      }
+
+      if (isMobile && Array.isArray(ids) && ids.length > 0) {
+        const visibleSongs = ids
+          .map((id) => data?.[id])
+          .filter((song) => Boolean(song) && !song?.missing)
+
+        if (visibleSongs.length > 0) {
+          const startIndex = visibleSongs.findIndex(
+            (song) => getTrackId(song) === getTrackId(record),
+          )
+          if (startIndex === -1) {
+            dispatch(setTrack(record))
+            return
+          }
+          const queue = visibleSongs.reduce((acc, song, idx) => {
+            acc[idx] = song
+            return acc
+          }, {})
+          dispatch(playTracks(queue, undefined, String(startIndex)))
+          return
+        }
+      }
+
+      dispatch(setTrack(record))
+    },
+    [data, dispatch, getTrackId, ids, isMobile],
+  )
+
+  const isCurrentSong = useCallback(
+    (song) => {
+      const trackId = getTrackId(song)
+      return Boolean(trackId) && trackId === currentTrackId
+    },
+    [currentTrackId, getTrackId],
+  )
   return (
     (loading || total > 0) && (
       <List className={className} {...sanitizeListRestProps(rest)}>
         {ids.map(
           (id) =>
             data[id] && (
-              <span key={id} onClick={() => dispatch(setTrack(data[id]))}>
-                <ListItem className={classes.listItem} button={true}>
+              <span key={id} onClick={handlePlay(id)}>
+                <ListItem
+                  className={clsx(
+                    classes.listItem,
+                    isMobile && isCurrentSong(data[id]) && 'row--playing-mobile',
+                  )}
+                  button={true}
+                >
                   <ListItemText
                     primary={
                       <div className={classes.title}>{data[id].title}</div>
