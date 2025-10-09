@@ -181,7 +181,9 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
       await httpClient(`${REST_URL}/discovery/sync`, { method: 'POST' })
       const data = await fetchDiscoveryList()
       setDiscoveries(data)
-      notify('resources.discovery.notifications.synced', 'info')
+      notify('resources.discovery.notifications.synced', 'info', {
+        _: 'Discovery folders scanned.',
+      })
     } catch (error) {
       notify('ra.page.error', 'warning')
     } finally {
