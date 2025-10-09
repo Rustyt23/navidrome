@@ -82,19 +82,7 @@ func exportDiscovery(ds model.DataStore) http.HandlerFunc {
 		disposition := fmt.Sprintf("attachment; filename=\"%s.m3u\"", disc.Name)
 		w.Header().Set("Content-Disposition", disposition)
 
-		var builder strings.Builder
-		builder.WriteString("#EXTM3U\n")
-		for _, track := range disc.Tracks {
-			title := track.Title
-			if track.Artist != "" {
-				title = fmt.Sprintf("%s - %s", track.Artist, track.Title)
-			}
-			builder.WriteString(fmt.Sprintf("#EXTINF:%d,%s\n", int(track.Duration+0.5), title))
-			builder.WriteString(track.Path)
-			builder.WriteString("\n")
-		}
-
-		if _, err := w.Write([]byte(builder.String())); err != nil {
+		if _, err := w.Write([]byte(disc.ToM3U8())); err != nil {
 			log.Error(ctx, "Error exporting discovery", "id", discID, err)
 		}
 	}

@@ -125,7 +125,7 @@ func (d *discoveries) Publish(ctx context.Context, discoveryID string) error {
 		m3uName = filepath.Base(srcPath)
 	}
 	m3uName = sanitizeDiscoveryName(m3uName)
-	if err := writeDiscoveryM3U(filepath.Join(srcPath, m3uName+".m3u"), disc.Tracks); err != nil {
+	if err := writeDiscoveryM3U(filepath.Join(srcPath, m3uName+".m3u"), disc); err != nil {
 		return err
 	}
 
@@ -337,26 +337,8 @@ func sanitizeDiscoveryName(name string) string {
 	return replacer.Replace(name)
 }
 
-func writeDiscoveryM3U(path string, tracks model.DiscoveryTracks) error {
-	lines := make([]string, 0, len(tracks))
-	for _, track := range tracks {
-		title := strings.TrimSpace(track.Title)
-		if title == "" && track.Path != "" {
-			title = strings.TrimSuffix(filepath.Base(track.Path), filepath.Ext(track.Path))
-		}
-		artist := strings.TrimSpace(track.Artist)
-		ext := strings.ToLower(filepath.Ext(track.Path))
-		if ext == "" {
-			ext = ".mp3"
-		}
-		if artist != "" {
-			lines = append(lines, fmt.Sprintf("%s - %s%s", artist, title, ext))
-		} else {
-			lines = append(lines, fmt.Sprintf("%s%s", title, ext))
-		}
-	}
-
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+func writeDiscoveryM3U(path string, disc *model.Discovery) error {
+	return os.WriteFile(path, []byte(disc.ToM3U8()), 0o644)
 }
 
 func copyDiscoveryDir(src, dst string) error {

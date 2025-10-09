@@ -74,6 +74,36 @@ type DiscoveryTrack struct {
 
 type DiscoveryTracks []DiscoveryTrack
 
+func (tracks DiscoveryTracks) MediaFiles() MediaFiles {
+	files := make(MediaFiles, 0, len(tracks))
+	for _, track := range tracks {
+		mf := MediaFile{
+			ID:       track.MediaFileID,
+			Path:     track.Path,
+			Title:    track.Title,
+			Artist:   track.Artist,
+			Album:    track.Album,
+			Duration: track.Duration,
+			Size:     track.Size,
+		}
+		if mf.ID == "" {
+			mf.ID = track.StreamID()
+		}
+		if track.Path != "" {
+			mf.Suffix = strings.TrimPrefix(strings.ToLower(filepath.Ext(track.Path)), ".")
+		}
+		files = append(files, mf)
+	}
+	return files
+}
+
+func (d *Discovery) ToM3U8() string {
+	if d == nil {
+		return ""
+	}
+	return d.Tracks.MediaFiles().ToM3U8(d.Name, true)
+}
+
 type DiscoveryTrackRepository interface {
 	ResourceRepository
 	GetAll(options ...QueryOptions) (DiscoveryTracks, error)
