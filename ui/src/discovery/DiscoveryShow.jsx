@@ -20,8 +20,13 @@ const DiscoveryShowLayout = (props) => {
   const [searchTerm, setSearchTerm] = useState('')
   useResourceRefresh('discovery')
 
-  const handleSearchChange = useCallback((event) => {
-    setSearchTerm(event.target.value)
+  const handleSearchChange = useCallback((eventOrValue) => {
+    const value =
+      typeof eventOrValue === 'string'
+        ? eventOrValue
+        : eventOrValue?.target?.value ?? ''
+
+    setSearchTerm(value)
   }, [])
 
   if (loading) {
