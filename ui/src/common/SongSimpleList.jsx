@@ -8,19 +8,31 @@ import ListItemText from '@material-ui/core/ListItemText'
 import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
-import clsx from 'clsx'
 import { useDispatch, useSelector } from 'react-redux'
 import { playTracks, setTrack } from '../actions'
 import config from '../config'
 
 const useStyles = makeStyles(
-  {
+  (theme) => ({
     link: {
       textDecoration: 'none',
       color: 'inherit',
     },
     listItem: {
       padding: '10px',
+    },
+    currentRowMobile: {
+      backgroundColor: theme.palette.action.hover,
+      '& $title, & $secondary, & $artist, & $timeStamp': {
+        color: 'var(--accent)',
+      },
+      '& svg': {
+        fill: 'var(--accent)',
+        color: 'var(--accent)',
+      },
+      '& $rightIcon': {
+        visibility: 'visible',
+      },
     },
     title: {
       paddingRight: '10px',
@@ -47,7 +59,7 @@ const useStyles = makeStyles(
     rightIcon: {
       top: '26px',
     },
-  },
+  }),
   { name: 'RaSongSimpleList' },
 )
 
@@ -129,10 +141,11 @@ export const SongSimpleList = ({
             data[id] && (
               <span key={id} onClick={handlePlay(id)}>
                 <ListItem
-                  className={clsx(
-                    classes.listItem,
-                    isMobile && isCurrentSong(data[id]) && 'row--playing-mobile',
-                  )}
+                  className={classes.listItem}
+                  classes={{
+                    selected: classes.currentRowMobile,
+                  }}
+                  selected={isMobile && isCurrentSong(data[id])}
                   button={true}
                 >
                   <ListItemText
