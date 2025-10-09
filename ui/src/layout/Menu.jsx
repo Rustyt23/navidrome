@@ -133,14 +133,14 @@ const Menu = ({ dense = false }) => {
       {config.devSidebarPlaylists && open ? (
         <>
           <Divider />
-          <PlaylistsSubMenu
+          <DiscoverySubMenu
             state={state}
             setState={setState}
             sidebarIsOpen={open}
             dense={dense}
           />
           <Divider />
-          <DiscoverySubMenu
+          <PlaylistsSubMenu
             state={state}
             setState={setState}
             sidebarIsOpen={open}
@@ -149,8 +149,8 @@ const Menu = ({ dense = false }) => {
         </>
       ) : (
         <>
-          {resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)}
           {resources.filter(subItems('discovery')).map(renderResourceMenuItemLink)}
+          {resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)}
         </>
       )}
     </div>

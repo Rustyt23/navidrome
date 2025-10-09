@@ -123,6 +123,19 @@ func publishDiscovery(ds model.DataStore) http.HandlerFunc {
 	}
 }
 
+func syncDiscoveries(ds model.DataStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		discoveries := core.NewDiscoveries(ds)
+		if err := discoveries.Sync(ctx); err != nil {
+			log.Error(ctx, "Error syncing discoveries", err)
+			http.Error(w, err.Error(), statusFor(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func deleteDiscoveryTracks(ds model.DataStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

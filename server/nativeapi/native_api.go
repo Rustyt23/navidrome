@@ -67,8 +67,8 @@ func (n *Router) routes() http.Handler {
 		n.addSongPlaylistsRoute(r)
 		n.addSongDiscoveriesRoute(r)
 		n.addQueueRoute(r)
-                n.addMissingFilesRoute(r)
-                n.addNotificationsRoute(r)
+		n.addMissingFilesRoute(r)
+		n.addNotificationsRoute(r)
 		n.addKeepAliveRoute(r)
 		n.addInsightsRoute(r)
 
@@ -213,6 +213,7 @@ func (n *Router) addDiscoveryRoute(r chi.Router) {
 
 	r.Route("/discovery", func(r chi.Router) {
 		r.Get("/", rest.GetAll(constructor))
+		r.Post("/sync", syncDiscoveries(n.ds))
 		r.With(server.URLParamsMiddleware).Get("/{discoveryId}", getDiscovery(n.ds))
 		r.Route("/{discoveryId}", func(r chi.Router) {
 			r.Use(server.URLParamsMiddleware)

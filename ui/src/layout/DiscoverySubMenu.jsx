@@ -16,9 +16,13 @@ import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import ExploreIcon from '@material-ui/icons/Explore'
 import FolderIcon from '@material-ui/icons/Folder'
+import RefreshIcon from '@material-ui/icons/Refresh'
 import SubMenu from './SubMenu'
 import config from '../config'
 import { useTheme } from '@material-ui/core/styles'
+import { REST_URL } from '../consts'
+import httpClient from '../dataProvider/httpClient'
+import { baseUrl } from '../utils/urls'
 
 const useStyles = makeStyles((theme) => ({
   listItem: {
@@ -33,6 +37,8 @@ const useStyles = makeStyles((theme) => ({
   listItemIcon: { minWidth: 28 },
   spinner: { margin: theme.spacing(1, 0, 1, 1) },
   active: { fontWeight: theme.typography.fontWeightMedium },
+  spacer: { width: 24, flexShrink: 0 },
+  toggleButton: { padding: 4, marginRight: 4 },
 }))
 
 const normalisePathSegments = (path) =>
@@ -124,18 +130,24 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const [loading, setLoading] = useState(false)
   const [openMap, setOpenMap] = useState({})
 
+  const fetchDiscoveryList = useCallback(async () => {
+    const res = await dataProvider.getList('discovery', {
+      pagination: { page: 1, perPage: config.maxSidebarPlaylists },
+      sort: { field: 'name', order: 'ASC' },
+      filter: {},
+    })
+    return res?.data || []
+  }, [dataProvider])
+
   useEffect(() => {
     let cancelled = false
-    const fetchDiscoveries = async () => {
+
+    const load = async () => {
       setLoading(true)
       try {
-        const res = await dataProvider.getList('discovery', {
-          pagination: { page: 1, perPage: config.maxSidebarPlaylists },
-          sort: { field: 'name', order: 'ASC' },
-          filter: {},
-        })
+        const data = await fetchDiscoveryList()
         if (!cancelled) {
-          setDiscoveries(res?.data || [])
+          setDiscoveries(data)
         }
       } catch {
         if (!cancelled) {
@@ -148,11 +160,35 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
       }
     }
 
-    fetchDiscoveries()
+    load()
     return () => {
       cancelled = true
     }
-  }, [dataProvider, notify])
+  }, [fetchDiscoveryList, notify])
+
+  const navigateToDiscovery = useCallback(() => {
+    if (typeof window !== 'undefined' && window.location) {
+      const target = baseUrl('#/discovery')
+      window.location.assign(target)
+    } else {
+      history.push('/discovery')
+    }
+  }, [history])
+
+  const handleRefresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      await httpClient(`${REST_URL}/discovery/sync`, { method: 'POST' })
+      const data = await fetchDiscoveryList()
+      setDiscoveries(data)
+      notify('resources.discovery.notifications.synced', 'info')
+    } catch (error) {
+      notify('ra.page.error', 'warning')
+    } finally {
+      setLoading(false)
+      navigateToDiscovery()
+    }
+  }, [fetchDiscoveryList, navigateToDiscovery, notify])
 
   const childrenMap = useMemo(() => buildTree(discoveries), [discoveries])
 
@@ -174,8 +210,9 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
         key={disc.id}
         onClick={() => history.push(`/discovery/${disc.id}/show`)}
         className={classes.listItem}
-        style={{ paddingLeft: theme.spacing(2) + depth * theme.spacing(2) }}
+        style={{ paddingLeft: theme.spacing(3) + depth * theme.spacing(2) }}
       >
+        <span className={classes.spacer} />
         <ListItemIcon className={classes.listItemIcon}>
           <ExploreIcon fontSize="small" />
         </ListItemIcon>
@@ -211,9 +248,9 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
             button
             onClick={toggle}
             className={classes.listItem}
-            style={{ paddingLeft: theme.spacing(2) + depth * theme.spacing(2) }}
+            style={{ paddingLeft: theme.spacing(3) + depth * theme.spacing(2) }}
           >
-            <IconButton size="small" onClick={toggle}>
+            <IconButton size="small" onClick={toggle} className={classes.toggleButton}>
               {open ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
             </IconButton>
             <ListItemIcon className={classes.listItemIcon}>
@@ -247,6 +284,8 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
       name="menu.discovery"
       icon={<ExploreIcon />}
       dense={dense}
+      actionIcon={<RefreshIcon fontSize="small" />}
+      onAction={handleRefresh}
     >
       <List disablePadding>
         {loading ? (
