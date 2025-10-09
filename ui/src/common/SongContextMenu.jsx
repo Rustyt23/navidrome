@@ -33,7 +33,10 @@ const useStyles = makeStyles({
   },
 })
 
-const MoreButton = ({ record, onClick, info }) => {
+const MoreButton = ({ record, onClick, info, showMissingInfo }) => {
+  if (record?.missing && !showMissingInfo) {
+    return null
+  }
   const handleClick = record.missing
     ? (e) => {
         info.action(record)
@@ -57,6 +60,7 @@ export const SongContextMenu = ({
   showLove,
   onAddToPlaylist,
   className,
+  showMissingInfo,
 }) => {
   const classes = useStyles()
   const dispatch = useDispatch()
@@ -226,7 +230,12 @@ export const SongContextMenu = ({
         resource={resource}
         visible={config.enableFavourites && showLove && present}
       />
-      <MoreButton record={record} onClick={handleClick} info={options.info} />
+      <MoreButton
+        record={record}
+        onClick={handleClick}
+        info={options.info}
+        showMissingInfo={showMissingInfo}
+      />
       <Menu
         id={'menu' + record.id}
         anchorEl={anchorEl}
@@ -285,6 +294,7 @@ SongContextMenu.propTypes = {
   record: PropTypes.object.isRequired,
   onAddToPlaylist: PropTypes.func,
   showLove: PropTypes.bool,
+  showMissingInfo: PropTypes.bool,
 }
 
 SongContextMenu.defaultProps = {
@@ -293,4 +303,5 @@ SongContextMenu.defaultProps = {
   resource: 'song',
   showLove: true,
   addLabel: true,
+  showMissingInfo: true,
 }

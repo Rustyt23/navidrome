@@ -26,7 +26,6 @@ import {
   useResourceRefresh,
   DateField,
   ArtistLinkField,
-  PathField,
   RatingField,
 } from '../common'
 import { AlbumLinkField } from '../song/AlbumLinkField'
@@ -34,6 +33,8 @@ import { playTracks } from '../actions'
 import PlaylistSongBulkActions from './PlaylistSongBulkActions'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 import config from '../config'
+import PlaylistTrackNumberField from './PlaylistTrackNumberField'
+import PlaylistPathField from './PlaylistPathField'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -149,7 +150,10 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
 
   const toggleableFields = useMemo(() => {
     return {
-      trackNumber: isDesktop && <TextField source="id" label={'#'} />,
+      trackNumber:
+        isDesktop && (
+          <PlaylistTrackNumberField source="id" label={'#'} />
+        ),
       title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop && <AlbumLinkField source="album" />,
       artist: isDesktop && <ArtistLinkField source="artist" />,
@@ -178,7 +182,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
       bpm: isDesktop && <NumberField source="bpm" />,
       genre: <TextField source="genre" />,
       comment: <TextField source="comment" />,
-      path: <PathField source="path" />,
+      path: <PlaylistPathField source="path" />, 
       rating: config.enableStarRating && (
         <RatingField
           source="rating"
@@ -268,6 +272,7 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
                 onAddToPlaylist={onAddToPlaylist}
                 showLove={true}
                 className={classes.contextMenu}
+                showMissingInfo={false}
               />
             </SongDatagrid>
           </ReorderableList>
