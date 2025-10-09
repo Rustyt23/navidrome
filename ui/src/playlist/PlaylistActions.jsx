@@ -12,6 +12,7 @@ import { useMediaQuery, makeStyles } from '@material-ui/core'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import ShuffleIcon from '@material-ui/icons/Shuffle'
 import CloudDownloadOutlinedIcon from '@material-ui/icons/CloudDownloadOutlined'
+import FilterNoneIcon from '@material-ui/icons/FilterNone'
 import { RiPlayListAddFill, RiPlayList2Fill } from 'react-icons/ri'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import ShareIcon from '@material-ui/icons/Share'
@@ -36,7 +37,15 @@ const useStyles = makeStyles({
   toolbar: { display: 'flex', justifyContent: 'space-between', width: '100%' },
 })
 
-const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
+const PlaylistActions = ({
+  className,
+  ids,
+  data,
+  record,
+  showDuplicatesOnly,
+  onToggleDuplicates,
+  ...rest
+}) => {
   const dispatch = useDispatch()
   const translate = useTranslate()
   const classes = useStyles()
@@ -162,6 +171,15 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
           >
             <QueueMusicIcon />
           </Button>
+          <Button
+            onClick={onToggleDuplicates}
+            label={translate('resources.playlist.actions.duplicates')}
+            color={showDuplicatesOnly ? 'primary' : 'default'}
+            variant={showDuplicatesOnly ? 'contained' : 'text'}
+            aria-pressed={showDuplicatesOnly}
+          >
+            <FilterNoneIcon />
+          </Button>
           <PublishPlaylistButton record={record} />
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="playlistTrack" />}</div>
@@ -173,12 +191,16 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
 PlaylistActions.propTypes = {
   record: PropTypes.object.isRequired,
   selectedIds: PropTypes.arrayOf(PropTypes.number),
+  showDuplicatesOnly: PropTypes.bool,
+  onToggleDuplicates: PropTypes.func,
 }
 
 PlaylistActions.defaultProps = {
   record: {},
   selectedIds: [],
   onUnselectItems: () => null,
+  showDuplicatesOnly: false,
+  onToggleDuplicates: () => null,
 }
 
 export default PlaylistActions

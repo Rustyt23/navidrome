@@ -9,6 +9,7 @@ import {
   useVersion,
   useListContext,
   FunctionField,
+  ListContextProvider,
 } from 'react-admin'
 import clsx from 'clsx'
 import { useDispatch } from 'react-redux'
@@ -94,10 +95,22 @@ const ReorderableList = ({ readOnly, children, ...rest }) => {
   return <ReactDragListView {...rest}>{children}</ReactDragListView>
 }
 
-const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
+const PlaylistSongs = ({
+  playlistId,
+  readOnly,
+  actions,
+  showDuplicatesOnly,
+  ...props
+}) => {
   const listContext = useListContext()
-  const { data, ids, selectedIds, onUnselectItems, refetch, setPage } =
-    listContext
+  const {
+    data: contextData = {},
+    ids: contextIds = [],
+    selectedIds: contextSelectedIds = [],
+    onUnselectItems,
+    refetch,
+    setPage,
+  } = listContext
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
@@ -105,6 +118,90 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
   const notify = useNotify()
   const version = useVersion()
   useResourceRefresh('song', 'playlist')
+
+  const duplicateIds = useMemo(() => {
+    if (!showDuplicatesOnly) {
+      return new Set()
+    }
+
+    const seen = new Map()
+    const duplicates = new Set()
+
+    const normalize = (value) =>
+      typeof value === 'string' ? value.trim().toLowerCase() : ''
+
+    contextIds.forEach((id) => {
+      const track = contextData[id]
+      if (!track) {
+        return
+      }
+
+      const keys = []
+      const title = normalize(track.title)
+      const artist = normalize(track.artist)
+      const path = normalize(track.path)
+
+      if (title && artist) {
+        keys.push(`title:${title}|artist:${artist}`)
+      }
+      if (title && !artist) {
+        keys.push(`title:${title}`)
+      }
+      if (path) {
+        keys.push(`path:${path}`)
+      }
+
+      keys.forEach((key) => {
+        if (!seen.has(key)) {
+          seen.set(key, [])
+        }
+        const list = seen.get(key)
+        list.push(id)
+        if (list.length > 1) {
+          list.forEach((duplicateId) => duplicates.add(duplicateId))
+        }
+      })
+    })
+
+    return duplicates
+  }, [contextIds, contextData, showDuplicatesOnly])
+
+  const ids = useMemo(() => {
+    if (!showDuplicatesOnly) {
+      return contextIds
+    }
+    return contextIds.filter((id) => duplicateIds.has(id))
+  }, [contextIds, duplicateIds, showDuplicatesOnly])
+
+  const data = useMemo(() => {
+    if (!showDuplicatesOnly) {
+      return contextData
+    }
+
+    return ids.reduce((acc, id) => {
+      if (contextData[id]) {
+        acc[id] = contextData[id]
+      }
+      return acc
+    }, {})
+  }, [contextData, ids, showDuplicatesOnly])
+
+  const displayedIdSet = useMemo(() => new Set(ids), [ids])
+
+  const selectedIds = useMemo(
+    () => contextSelectedIds.filter((id) => displayedIdSet.has(id)),
+    [contextSelectedIds, displayedIdSet],
+  )
+
+  const filteredListContext = useMemo(
+    () => ({
+      ...listContext,
+      ids,
+      data,
+      selectedIds,
+    }),
+    [data, ids, listContext, selectedIds],
+  )
 
   useEffect(() => {
     setPage(1)
@@ -231,48 +328,50 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
 
   return (
     <>
-      <ListToolbar
-        classes={{ toolbar: classes.toolbar }}
-        filters={props.filters}
-        actions={actions}
-      />
-      <div className={classes.main}>
-        <Card
-          className={clsx(classes.content, {
-            [classes.bulkActionsDisplayed]: selectedIds.length > 0,
-          })}
-          key={version}
-        >
-          <BulkActionsToolbar>
-            <PlaylistSongBulkActions
-              playlistId={playlistId}
-              onUnselectItems={onUnselectItems}
-              readOnly={readOnly}
-            />
-          </BulkActionsToolbar>
-          <ReorderableList
-            readOnly={readOnly}
-            onDragEnd={handleDragEnd}
-            nodeSelector={'tr'}
-            handleSelector={'.draggable'}
+      <ListContextProvider value={filteredListContext}>
+        <ListToolbar
+          classes={{ toolbar: classes.toolbar }}
+          filters={props.filters}
+          actions={actions}
+        />
+        <div className={classes.main}>
+          <Card
+            className={clsx(classes.content, {
+              [classes.bulkActionsDisplayed]: selectedIds.length > 0,
+            })}
+            key={version}
           >
-            <SongDatagrid
-              rowClick={handleRowClick}
-              {...listContext}
-              hasBulkActions={!readOnly}
-              contextAlwaysVisible={!isDesktop}
-              classes={{ row: classes.row }}
-            >
-              {columns}
-              <SongContextMenu
-                onAddToPlaylist={onAddToPlaylist}
-                showLove={true}
-                className={classes.contextMenu}
+            <BulkActionsToolbar>
+              <PlaylistSongBulkActions
+                playlistId={playlistId}
+                onUnselectItems={onUnselectItems}
+                readOnly={readOnly}
               />
-            </SongDatagrid>
-          </ReorderableList>
-        </Card>
-      </div>
+            </BulkActionsToolbar>
+            <ReorderableList
+              readOnly={readOnly}
+              onDragEnd={handleDragEnd}
+              nodeSelector={'tr'}
+              handleSelector={'.draggable'}
+            >
+              <SongDatagrid
+                rowClick={handleRowClick}
+                {...filteredListContext}
+                hasBulkActions={!readOnly}
+                contextAlwaysVisible={!isDesktop}
+                classes={{ row: classes.row }}
+              >
+                {columns}
+                <SongContextMenu
+                  onAddToPlaylist={onAddToPlaylist}
+                  showLove={true}
+                  className={classes.contextMenu}
+                />
+              </SongDatagrid>
+            </ReorderableList>
+          </Card>
+        </div>
+      </ListContextProvider>
       <ExpandInfoDialog content={<SongInfo />} />
       {React.cloneElement(props.pagination, listContext)}
     </>
