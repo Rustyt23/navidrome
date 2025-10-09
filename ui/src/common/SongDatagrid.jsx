@@ -233,31 +233,40 @@ const SongDatagridBody = ({
   ...rest
 }) => {
   const dispatch = useDispatch()
-  const { ids, data } = rest
+  const { ids, data, filterValues, ...bodyProps } = rest
+
+  const filteredIds = useMemo(() => {
+    if (!ids) {
+      return ids
+    }
+
+    if (filterValues?.missing === true) {
+      return ids
+    }
+
+    return ids.filter((id) => data[id] && !data[id].missing)
+  }, [ids, data, filterValues])
 
   const playSubset = useCallback(
     (discNumber) => {
-      let idsToPlay = []
+      let idsToPlay = filteredIds || []
       if (discNumber !== undefined) {
-        idsToPlay = ids.filter((id) => data[id].discNumber === discNumber)
+        idsToPlay = idsToPlay.filter(
+          (id) => data[id].discNumber === discNumber,
+        )
       }
-      dispatch(
-        playTracks(
-          data,
-          idsToPlay?.filter((id) => !data[id].missing),
-        ),
-      )
+      dispatch(playTracks(data, idsToPlay))
     },
-    [dispatch, data, ids],
+    [dispatch, data, filteredIds],
   )
 
   const firstTracksOfDiscs = useMemo(() => {
-    if (!ids) {
+    if (!filteredIds) {
       return new Set()
     }
     let foundSubtitle = false
     const set = new Set(
-      ids
+      filteredIds
         .filter((i) => data[i])
         .reduce((acc, id) => {
           const last = acc && acc[acc.length - 1]
@@ -275,11 +284,13 @@ const SongDatagridBody = ({
       set.clear()
     }
     return set
-  }, [ids, data, showDiscSubtitles])
+  }, [filteredIds, data, showDiscSubtitles])
 
   return (
     <PureDatagridBody
-      {...rest}
+      {...bodyProps}
+      ids={filteredIds || []}
+      data={data}
       row={
         <SongDatagridRow
           firstTracksOfDiscs={firstTracksOfDiscs}
