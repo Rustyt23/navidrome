@@ -171,16 +171,16 @@ const PlaylistActions = ({
           >
             <QueueMusicIcon />
           </Button>
+          <PublishPlaylistButton record={record} />
           <Button
             onClick={onToggleDuplicates}
             label={translate('resources.playlist.actions.duplicates')}
-            color={showDuplicatesOnly ? 'primary' : 'default'}
+            color={'secondary'}
             variant={showDuplicatesOnly ? 'contained' : 'text'}
             aria-pressed={showDuplicatesOnly}
           >
             <FilterNoneIcon />
           </Button>
-          <PublishPlaylistButton record={record} />
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="playlistTrack" />}</div>
       </div>
