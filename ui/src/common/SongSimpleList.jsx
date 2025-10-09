@@ -9,11 +9,12 @@ import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
 import { setTrack } from '../actions'
-import { useDispatch } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
+import clsx from 'clsx'
 import config from '../config'
 
 const useStyles = makeStyles(
-  {
+  (theme) => ({
     link: {
       textDecoration: 'none',
       color: 'inherit',
@@ -46,7 +47,24 @@ const useStyles = makeStyles(
     rightIcon: {
       top: '26px',
     },
-  },
+    currentListItem: {
+      backgroundColor: theme.palette.action.hover,
+      '& $title, & $secondary, & $artist': {
+        color: '#ff007f',
+      },
+      '& $timeStamp': {
+        color: '#ff007f',
+        opacity: 1,
+      },
+      '& svg': {
+        fill: '#ff007f',
+        color: '#ff007f',
+      },
+      '& .MuiRating-iconFilled, & .MuiRating-iconHover': {
+        color: '#ff007f',
+      },
+    },
+  }),
   { name: 'RaSongSimpleList' },
 )
 
@@ -61,18 +79,49 @@ export const SongSimpleList = ({
   onToggleItem,
   selectedIds,
   total,
+  onItemClick,
+  highlightCurrentTrack,
   ...rest
 }) => {
   const dispatch = useDispatch()
+  const currentTrack = useSelector((state) => state?.player?.current || {})
   const classes = useStyles({ classes: classesOverride })
+  const highlight = Boolean(highlightCurrentTrack)
   return (
     (loading || total > 0) && (
       <List className={className} {...sanitizeListRestProps(rest)}>
         {ids.map(
           (id) =>
             data[id] && (
-              <span key={id} onClick={() => dispatch(setTrack(data[id]))}>
-                <ListItem className={classes.listItem} button={true}>
+              <span
+                key={id}
+                onClick={() =>
+                  onItemClick
+                    ? onItemClick({
+                        id,
+                        record: data[id],
+                        data,
+                        ids,
+                      })
+                    : dispatch(setTrack(data[id]))
+                }
+              >
+                <ListItem
+                  className={clsx(
+                    classes.listItem,
+                    highlight &&
+                      currentTrack?.trackId != null &&
+                      (currentTrack.trackId?.toString() === id?.toString() ||
+                        (data[id]?.id &&
+                          currentTrack.trackId?.toString() ===
+                            data[id]?.id?.toString()) ||
+                        (data[id]?.mediaFileId &&
+                          currentTrack.trackId?.toString() ===
+                            data[id]?.mediaFileId?.toString())) &&
+                      classes.currentListItem,
+                  )}
+                  button={true}
+                >
                   <ListItemText
                     primary={
                       <div className={classes.title}>{data[id].title}</div>
@@ -124,9 +173,12 @@ SongSimpleList.propTypes = {
   ids: PropTypes.array,
   onToggleItem: PropTypes.func,
   selectedIds: PropTypes.arrayOf(PropTypes.any).isRequired,
+  onItemClick: PropTypes.func,
+  highlightCurrentTrack: PropTypes.bool,
 }
 
 SongSimpleList.defaultProps = {
   hasBulkActions: false,
   selectedIds: [],
+  highlightCurrentTrack: false,
 }

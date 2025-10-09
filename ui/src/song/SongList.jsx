@@ -31,7 +31,7 @@ import {
 import { useSelector, useDispatch } from 'react-redux'
 import { makeStyles } from '@material-ui/core/styles'
 import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
-import { playTracks } from '../actions'
+import { playTracks, setTrack } from '../actions'
 import { SongListActions } from './SongListActions'
 import { AlbumLinkField } from './AlbumLinkField'
 import { SongBulkActions, QualityInfo, useSelectedFields } from '../common'
@@ -135,42 +135,100 @@ const SongList = (props) => {
   const dispatch = useDispatch()
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
+  const isMobileLayout = useMediaQuery('(max-width:768px)')
   useResourceRefresh('song')
 
   const songs = useSelector((state) => state.admin.resources.song)
 
-  const handleRowClick = useCallback((id, basePath, record) => {
-      // Convert songs.data to an array if it's an object
-      const songsArray = Array.isArray(songs.data) ? songs.data : Object.values(songs.data);
-
-      if (songsArray.length > 0 && Array.isArray(songs.list?.ids)) {
-        // Filter songs to include only those whose IDs exist in songs.list.ids
-        const filteredSongs = songsArray.filter(song => songs.list.ids.includes(song.id));
-
-        // Find the index of the selected song
-        const index = filteredSongs.findIndex(song => song.id === record.id);
-
-        if (index !== -1) {
-          // Rearrange array to start from the selected song
-          const orderedSongs = [
-            ...filteredSongs.slice(index),
-            ...filteredSongs.slice(0, index)
-          ];
-
-          // Convert the array into an object where key = song.id, value = song
-          // const updatedSongs = Object.fromEntries(orderedSongs.map(song => [song.id, song]));
-
-          // Convert array to an object with index-based keys, updating the song id as well
-          const updatedSongs = Object.fromEntries(
-            orderedSongs.map((song, idx) => 
-               [idx, song] // Setting both the key and `id` inside each song
-            )
-          );
-
-          dispatch(playTracks(updatedSongs,0));
+  const normalizedSongsData = useMemo(() => {
+    if (!songs?.data) {
+      return undefined
+    }
+    if (Array.isArray(songs.data)) {
+      return songs.data.reduce((acc, song) => {
+        if (song?.id !== undefined) {
+          acc[song.id] = song
         }
+        return acc
+      }, {})
+    }
+    return songs.data
+  }, [songs?.data])
+
+  const queueIds = useMemo(() => {
+    if (Array.isArray(songs?.list?.ids) && songs.list.ids.length) {
+      return songs.list.ids
+    }
+    if (normalizedSongsData) {
+      return Object.keys(normalizedSongsData)
+    }
+    return []
+  }, [songs?.list?.ids, normalizedSongsData])
+
+  const findMatchingKey = useCallback(
+    (record, fallback) => {
+      if (!record) {
+        return fallback ?? queueIds[0]
       }
-    }, [dispatch, songs.data, songs.list?.ids]);
+      const recordId = record.id != null ? record.id.toString() : undefined
+      const mediaId =
+        record.mediaFileId != null ? record.mediaFileId.toString() : undefined
+      const matchRecord =
+        recordId &&
+        queueIds.find((itemId) => itemId?.toString() === recordId)
+      if (matchRecord !== undefined) {
+        return matchRecord
+      }
+      const matchMedia =
+        mediaId && queueIds.find((itemId) => itemId?.toString() === mediaId)
+      if (matchMedia !== undefined) {
+        return matchMedia
+      }
+      return fallback ?? recordId ?? mediaId ?? queueIds[0]
+    },
+    [queueIds],
+  )
+
+  const queuePlayback = useCallback(
+    (selectedKey, record) => {
+      if (!normalizedSongsData || !queueIds.length) {
+        if (record) {
+          dispatch(setTrack(record))
+        }
+        return
+      }
+
+      const selectedKeyStr = selectedKey != null ? selectedKey.toString() : undefined
+      const matchKey =
+        (selectedKeyStr
+          ? queueIds.find((itemId) => itemId?.toString() === selectedKeyStr)
+          : undefined) ?? findMatchingKey(record, queueIds[0])
+
+      if (matchKey == null) {
+        if (record) {
+          dispatch(setTrack(record))
+        }
+        return
+      }
+
+      dispatch(playTracks(normalizedSongsData, queueIds, matchKey))
+    },
+    [dispatch, normalizedSongsData, queueIds, findMatchingKey],
+  )
+
+  const handleRowClick = useCallback(
+    (id, basePath, record) => {
+      queuePlayback(id, record)
+    },
+    [queuePlayback],
+  )
+
+  const handleMobileItemClick = useCallback(
+    ({ id: itemId, record }) => {
+      queuePlayback(itemId, record)
+    },
+    [queuePlayback],
+  )
 
   const toggleableFields = useMemo(() => {
     return {
@@ -246,7 +304,10 @@ const SongList = (props) => {
         perPage={isXsmall ? 50 : 50}
       >
         {isXsmall ? (
-          <SongSimpleList />
+          <SongSimpleList
+            onItemClick={isMobileLayout ? handleMobileItemClick : undefined}
+            highlightCurrentTrack={isMobileLayout}
+          />
         ) : (
           <SongDatagrid
             rowClick={handleRowClick}
