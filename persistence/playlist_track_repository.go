@@ -365,7 +365,7 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 		}
 
 		missingCount++
-		id := fmt.Sprintf("missing-%d", missingCount)
+		id := fmt.Sprintf("%d", missingCount)
 		title := strings.TrimSuffix(filepath.Base(display), filepath.Ext(display))
 		if title == "" {
 			title = display
