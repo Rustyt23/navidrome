@@ -57,10 +57,12 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[2].ID).To(Equal("5"))
 		})
 
-		It("includes missing playlist entries when filtering duplicates", func() {
+		It("includes only duplicate missing playlist entries when filtering duplicates", func() {
 			playlist.Sync = true
 			playlist.Path = filepath.Join(GinkgoT().TempDir(), "duplicates_missing.m3u")
-			Expect(os.WriteFile(playlist.Path, []byte("ghost-track.mp3\n"), 0o600)).To(Succeed())
+			Expect(os.WriteFile(playlist.Path, []byte("ghost-track.mp3\n"+
+				"ghost-track.mp3\n"+
+				"phantom.mp3\n"), 0o600)).To(Succeed())
 			Expect(playlistRepo.Put(&playlist)).To(Succeed())
 
 			repo := playlistRepo.Tracks(playlist.ID, true)
@@ -79,6 +81,9 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[2].ID).To(Equal("5"))
 			Expect(tracks[3].Missing).To(BeTrue())
 			Expect(tracks[3].Path).To(Equal("ghost-track.mp3"))
+			for _, track := range tracks {
+				Expect(track.Path).ToNot(Equal("phantom.mp3"))
+			}
 		})
 	})
 })

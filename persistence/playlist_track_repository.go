@@ -226,9 +226,9 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 				return duplicates, nil
 			}
 
-			missing := filterMissingPlaylistTracks(merged)
-			if len(missing) > 0 {
-				duplicates = append(duplicates, missing...)
+			missingDuplicates := filterDuplicateMissingPlaylistTracks(merged)
+			if len(missingDuplicates) > 0 {
+				duplicates = append(duplicates, missingDuplicates...)
 			}
 		}
 
@@ -314,6 +314,22 @@ func filterDuplicatePlaylistTracks(tracks model.PlaylistTracks) model.PlaylistTr
 	}
 
 	return duplicates
+}
+
+func filterDuplicateMissingPlaylistTracks(tracks model.PlaylistTracks) model.PlaylistTracks {
+	duplicates := filterDuplicatePlaylistTracks(tracks)
+	if len(duplicates) == 0 {
+		return duplicates
+	}
+
+	missing := make(model.PlaylistTracks, 0, len(duplicates))
+	for _, track := range duplicates {
+		if track.Missing {
+			missing = append(missing, track)
+		}
+	}
+
+	return missing
 }
 
 func filterMissingPlaylistTracks(tracks model.PlaylistTracks) model.PlaylistTracks {
