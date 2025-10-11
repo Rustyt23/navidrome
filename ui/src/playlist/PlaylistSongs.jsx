@@ -106,7 +106,10 @@ const PlaylistTrackIndexField = (props) => {
           return ''
         }
 
-        const index = ids.indexOf(record.id)
+        const recordId = record.id
+        const index = ids.findIndex(
+          (candidate) => String(candidate) === String(recordId),
+        )
 
         if (index === -1) {
           return ''
