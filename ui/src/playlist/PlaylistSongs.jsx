@@ -100,7 +100,6 @@ const PlaylistSongs = ({
   readOnly,
   actions,
   showDuplicatesOnly,
-  searchTerm = '',
   ...props
 }) => {
   const listContext = useListContext()
@@ -112,7 +111,8 @@ const PlaylistSongs = ({
     refetch,
     setPage: setContextPage,
   } = listContext
-  const listVersion = listContext.version ?? 0
+  const ids = contextIds
+  const data = contextData
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
@@ -120,261 +120,35 @@ const PlaylistSongs = ({
   const notify = useNotify()
   const version = useVersion()
   useResourceRefresh('song', 'playlist')
-  const searchValue = useMemo(
-    () => (typeof searchTerm === 'string' ? searchTerm.trim() : ''),
-    [searchTerm],
-  )
-  const fullDataCache = React.useRef({})
-  const [fullDataset, setFullDataset] = React.useState({
-    playlistId: null,
-    search: '',
-    ids: [],
-    data: {},
-    version: null,
-    loading: false,
-    ready: false,
-  })
-  const noopSetPage = useCallback(() => {}, [])
+
+  const prevShowDuplicates = React.useRef(showDuplicatesOnly)
 
   useEffect(() => {
-    if (!showDuplicatesOnly || !playlistId) {
-      return
+    if (prevShowDuplicates.current !== showDuplicatesOnly) {
+      refetch()
     }
+    prevShowDuplicates.current = showDuplicatesOnly
+  }, [showDuplicatesOnly, refetch])
 
-    const cacheKey = `${playlistId}::${searchValue}`
-    const cached = fullDataCache.current[cacheKey]
+  useEffect(() => {
+    setContextPage(1)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [playlistId, showDuplicatesOnly, setContextPage])
 
-    if (cached && cached.version === listVersion) {
-      setFullDataset({
-        playlistId,
-        search: searchValue,
-        ids: cached.ids,
-        data: cached.data,
-        version: cached.version,
-        loading: false,
-        ready: true,
-      })
-      return
-    }
-
-    let isActive = true
-
-    setFullDataset({
-      playlistId,
-      search: searchValue,
-      ids: [],
-      data: {},
-      version: listVersion,
-      loading: true,
-      ready: false,
-    })
-
-    dataProvider
-      .getList('playlistTrack', {
-        pagination: { page: 1, perPage: 0 },
-        sort: { field: 'id', order: 'ASC' },
-        filter: {
-          playlist_id: playlistId,
-          ...(searchValue ? { q: searchValue } : {}),
-        },
-      })
-      .then(({ data }) => {
-        if (!isActive) {
-          return
-        }
-
-        const mappedData = data.reduce((acc, track) => {
-          acc[track.id] = track
-          return acc
-        }, {})
-        const ids = data.map((track) => track.id)
-        const entry = { ids, data: mappedData, version: listVersion }
-
-        fullDataCache.current[cacheKey] = entry
-
-        setFullDataset({
-          playlistId,
-          search: searchValue,
-          ids,
-          data: mappedData,
-          version: listVersion,
-          loading: false,
-          ready: true,
-        })
-      })
-      .catch(() => {
-        if (!isActive) {
-          return
-        }
-
-        notify('ra.page.error', 'warning')
-
-        setFullDataset({
-          playlistId,
-          search: searchValue,
-          ids: [],
-          data: {},
-          version: listVersion,
-          loading: false,
-          ready: true,
-        })
-      })
-
-    return () => {
-      isActive = false
-    }
-  }, [
-    showDuplicatesOnly,
-    playlistId,
-    searchValue,
-    dataProvider,
-    notify,
-    listVersion,
-  ])
-
-  const usingFullData =
-    showDuplicatesOnly &&
-    fullDataset.ready &&
-    fullDataset.playlistId === playlistId &&
-    fullDataset.search === searchValue
-
-  const duplicateIds = useMemo(() => {
-    if (!showDuplicatesOnly || !usingFullData) {
-      return []
-    }
-
-    const normalizeMeta = (value) => {
-      if (typeof value !== 'string') {
-        return ''
-      }
-      const normalized = value.trim().toLowerCase()
-      if (
-        !normalized ||
-        normalized === 'unknown' ||
-        normalized === 'unknown artist' ||
-        normalized === 'unknown artists'
-      ) {
-        return ''
-      }
-      return normalized
-    }
-
-    const normalizePath = (value) =>
-      typeof value === 'string' ? value.trim().toLowerCase() : ''
-
-    const seen = new Map()
-    const duplicates = []
-
-    fullDataset.ids.forEach((id) => {
-      const track = fullDataset.data[id]
-      if (!track) {
-        return
-      }
-
-      const title = normalizeMeta(track.title)
-      const artist = normalizeMeta(track.artist)
-      const path = normalizePath(track.path)
-
-      let key = null
-      if (title || artist) {
-        key = `meta:${title}|${artist}`
-      } else if (path) {
-        key = `path:${path}`
-      }
-
-      if (!key) {
-        return
-      }
-
-      if (!seen.has(key)) {
-        seen.set(key, [])
-      }
-
-      const list = seen.get(key)
-      list.push(id)
-      if (list.length > 1) {
-        duplicates.push(id)
-      }
-    })
-
-    return duplicates
-  }, [showDuplicatesOnly, usingFullData, fullDataset.ids, fullDataset.data])
-
-  const ids = useMemo(() => {
-    if (!showDuplicatesOnly) {
-      return contextIds
-    }
-
-    return duplicateIds
-  }, [contextIds, duplicateIds, showDuplicatesOnly])
-
-  const data = useMemo(() => {
-    if (!showDuplicatesOnly) {
-      return contextData
-    }
-
-    if (!usingFullData) {
-      return {}
-    }
-
-    return duplicateIds.reduce((acc, id) => {
-      const track = fullDataset.data[id]
-      if (track) {
-        acc[id] = track
-      }
-      return acc
-    }, {})
-  }, [
-    contextData,
-    duplicateIds,
-    fullDataset.data,
-    showDuplicatesOnly,
-    usingFullData,
-  ])
-
-  const displayedIdSet = useMemo(() => new Set(ids), [ids])
+  const displayedIdSet = useMemo(() => new Set(contextIds), [contextIds])
 
   const selectedIds = useMemo(
     () => contextSelectedIds.filter((id) => displayedIdSet.has(id)),
     [contextSelectedIds, displayedIdSet],
   )
 
-  const duplicateLoading =
-    showDuplicatesOnly && (!usingFullData || fullDataset.loading)
-
   const filteredListContext = useMemo(
     () => ({
       ...listContext,
-      ids,
-      data,
       selectedIds,
-      total: showDuplicatesOnly ? ids.length : listContext.total,
-      page: showDuplicatesOnly ? 1 : listContext.page,
-      perPage: showDuplicatesOnly
-        ? ids.length > 0
-          ? ids.length
-          : listContext.perPage
-        : listContext.perPage,
-      loading: showDuplicatesOnly ? duplicateLoading : listContext.loading,
-      loaded: showDuplicatesOnly ? usingFullData : listContext.loaded,
-      setPage: showDuplicatesOnly ? noopSetPage : listContext.setPage,
     }),
-    [
-      data,
-      duplicateLoading,
-      ids,
-      listContext,
-      noopSetPage,
-      selectedIds,
-      showDuplicatesOnly,
-      usingFullData,
-    ],
+    [listContext, selectedIds],
   )
-
-  useEffect(() => {
-    setContextPage(1)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [playlistId, setContextPage])
 
   const onAddToPlaylist = useCallback(
     (pls) => {
@@ -516,7 +290,7 @@ const PlaylistSongs = ({
                 readOnly={readOnly}
               />
             </BulkActionsToolbar>
-            {showDuplicatesOnly && duplicateLoading && <LinearProgress />}
+            {showDuplicatesOnly && listContext.loading && <LinearProgress />}
             <ReorderableList
               readOnly={readOnly}
               onDragEnd={handleDragEnd}

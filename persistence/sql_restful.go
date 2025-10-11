@@ -121,6 +121,10 @@ func substringFilter(field string, value any) Sqlizer {
 	return filters
 }
 
+func ignoreFilter(string, any) Sqlizer {
+	return nil
+}
+
 func idFilter(tableName string) func(string, any) Sqlizer {
 	return func(field string, value any) Sqlizer { return Eq{tableName + ".id": value} }
 }
