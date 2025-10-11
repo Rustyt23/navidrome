@@ -94,6 +94,30 @@ const ReorderableList = ({ readOnly, children, ...rest }) => {
   return <ReactDragListView {...rest}>{children}</ReactDragListView>
 }
 
+const PlaylistTrackIndexField = (props) => {
+  const { ids = [] } = useListContext()
+
+  return (
+    <FunctionField
+      {...props}
+      sortable={false}
+      render={(record) => {
+        if (!record) {
+          return ''
+        }
+
+        const index = ids.indexOf(record.id)
+
+        if (index === -1) {
+          return ''
+        }
+
+        return index + 1
+      }}
+    />
+  )
+}
+
 const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
   const listContext = useListContext()
   const { data, ids, selectedIds, onUnselectItems, refetch, setPage } =
@@ -149,7 +173,8 @@ const PlaylistSongs = ({ playlistId, readOnly, actions, ...props }) => {
 
   const toggleableFields = useMemo(() => {
     return {
-      trackNumber: isDesktop && <TextField source="id" label={'#'} />,
+      trackNumber:
+        isDesktop && <PlaylistTrackIndexField label={'#'} />, 
       title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop && <AlbumLinkField source="album" />,
       artist: isDesktop && <ArtistLinkField source="artist" />,
