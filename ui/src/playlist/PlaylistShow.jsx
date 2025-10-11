@@ -90,7 +90,7 @@ const PlaylistShowLayout = (props) => {
               }
               resource={'playlistTrack'}
               exporter={false}
-              pagination={<Pagination rowsPerPageOptions={[25, 50, 100, 200]}
+              pagination={<Pagination rowsPerPageOptions={[50, 100, 200, 500]}
               perPage={50}
                 />}
               searchTerm={searchTerm} // Pass search term to child
