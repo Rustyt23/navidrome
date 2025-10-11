@@ -205,26 +205,38 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		return nil, err
 	}
 
+	searchTerm := ""
 	duplicatesOnly := false
 	if restOpts.Filters != nil {
+		if v, ok := restOpts.Filters["q"].(string); ok {
+			searchTerm = strings.TrimSpace(strings.ToLower(v))
+		}
 		if v, ok := restOpts.Filters["duplicatesOnly"]; ok {
 			duplicatesOnly = parseBoolFilter(v)
 		}
 	}
 
 	if duplicatesOnly {
-		return filterDuplicatePlaylistTracks(tracks), nil
+		duplicates := filterDuplicatePlaylistTracks(tracks)
+
+		if r.playlist != nil && r.playlist.Sync && r.playlist.Path != "" {
+			merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm)
+			if err != nil {
+				log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
+				return duplicates, nil
+			}
+
+			missing := filterMissingPlaylistTracks(merged)
+			if len(missing) > 0 {
+				duplicates = append(duplicates, missing...)
+			}
+		}
+
+		return duplicates, nil
 	}
 
 	if r.playlist == nil || !r.playlist.Sync || r.playlist.Path == "" {
 		return tracks, nil
-	}
-
-	searchTerm := ""
-	if restOpts.Filters != nil {
-		if v, ok := restOpts.Filters["q"].(string); ok {
-			searchTerm = strings.TrimSpace(strings.ToLower(v))
-		}
 	}
 
 	merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm)
@@ -302,6 +314,20 @@ func filterDuplicatePlaylistTracks(tracks model.PlaylistTracks) model.PlaylistTr
 	}
 
 	return duplicates
+}
+
+func filterMissingPlaylistTracks(tracks model.PlaylistTracks) model.PlaylistTracks {
+	if len(tracks) == 0 {
+		return tracks
+	}
+
+	missing := make(model.PlaylistTracks, 0)
+	for _, track := range tracks {
+		if track.Missing {
+			missing = append(missing, track)
+		}
+	}
+	return missing
 }
 
 func (r *playlistTrackRepository) EntityName() string {

@@ -2,6 +2,8 @@ package persistence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/log"
@@ -53,6 +55,30 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[0].ID).To(Equal("2"))
 			Expect(tracks[1].ID).To(Equal("4"))
 			Expect(tracks[2].ID).To(Equal("5"))
+		})
+
+		It("includes missing playlist entries when filtering duplicates", func() {
+			playlist.Sync = true
+			playlist.Path = filepath.Join(GinkgoT().TempDir(), "duplicates_missing.m3u")
+			Expect(os.WriteFile(playlist.Path, []byte("ghost-track.mp3\n"), 0o600)).To(Succeed())
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			result, err := repo.ReadAll(rest.QueryOptions{
+				Filters: map[string]interface{}{"duplicatesOnly": true},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+
+			Expect(tracks).To(HaveLen(4))
+			Expect(tracks[0].ID).To(Equal("2"))
+			Expect(tracks[1].ID).To(Equal("4"))
+			Expect(tracks[2].ID).To(Equal("5"))
+			Expect(tracks[3].Missing).To(BeTrue())
+			Expect(tracks[3].Path).To(Equal("ghost-track.mp3"))
 		})
 	})
 })
