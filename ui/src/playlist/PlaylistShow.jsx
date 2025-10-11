@@ -38,8 +38,13 @@ const PlaylistShowLayout = (props) => {
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false)
 
   // Handle search change
-  const handleSearchChange = useCallback((event) => {
-    setSearchTerm(event.target.value)
+  const handleSearchChange = useCallback((eventOrValue) => {
+    const value =
+      typeof eventOrValue === 'string'
+        ? eventOrValue
+        : eventOrValue?.target?.value ?? ''
+
+    setSearchTerm(value)
   }, [])
 
   const handleToggleDuplicates = useCallback(() => {
