@@ -35,11 +35,20 @@ const PlaylistShowLayout = (props) => {
 
   // Store search query in state to prevent losing focus
   const [searchTerm, setSearchTerm] = useState('')
+  const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false)
 
   // Handle search change
   const handleSearchChange = useCallback((event) => {
     setSearchTerm(event.target.value)
   }, [])
+
+  const handleToggleDuplicates = useCallback(() => {
+    setShowDuplicatesOnly((prev) => !prev)
+  }, [])
+
+  React.useEffect(() => {
+    setShowDuplicatesOnly(false)
+  }, [record?.id])
 
   return (
     <>
@@ -75,6 +84,8 @@ const PlaylistShowLayout = (props) => {
                 <PlaylistActions
                   className={classes.playlistActions}
                   record={record}
+                  showDuplicatesOnly={showDuplicatesOnly}
+                  onToggleDuplicates={handleToggleDuplicates}
                 />
               }
               resource={'playlistTrack'}
@@ -83,6 +94,7 @@ const PlaylistShowLayout = (props) => {
               perPage={50}
                 />}
               searchTerm={searchTerm} // Pass search term to child
+              showDuplicatesOnly={showDuplicatesOnly}
             />
           </ReferenceManyField>
         </>
