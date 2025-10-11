@@ -412,9 +412,28 @@ const PlaylistSongs = ({
     [playlistId, reorder, ids],
   )
 
+  const renderTrackIndex = useCallback(
+    (record) => {
+      if (!record) {
+        return ''
+      }
+
+      const index = ids.indexOf(record.id)
+      if (index === -1) {
+        return ''
+      }
+
+      return index + 1
+    },
+    [ids],
+  )
+
   const toggleableFields = useMemo(() => {
     return {
-      trackNumber: isDesktop && <TextField source="id" label={'#'} />,
+      trackNumber:
+        isDesktop && (
+          <FunctionField label={'#'} render={renderTrackIndex} sortable={false} />
+        ),
       title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop && <AlbumLinkField source="album" />,
       artist: isDesktop && <ArtistLinkField source="artist" />,
@@ -453,7 +472,7 @@ const PlaylistSongs = ({
         />
       ),
     }
-  }, [isDesktop, classes.draggable, classes.ratingField])
+  }, [isDesktop, classes.draggable, classes.ratingField, renderTrackIndex])
 
   const columns = useSelectedFields({
     resource: 'playlistTrack',

@@ -48,6 +48,37 @@ func (t dbPlaylistTracks) toModels() model.PlaylistTracks {
 	})
 }
 
+func playlistTrackQueryFilter(_ string, value any) Sqlizer {
+	term, ok := value.(string)
+	if !ok {
+		return nil
+	}
+
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return nil
+	}
+
+	conditions := Or{}
+
+	if filter := fullTextFilter("f")("q", term); filter != nil {
+		conditions = append(conditions, filter)
+	}
+
+	conditions = append(
+		conditions,
+		substringFilter("f.title", term),
+		substringFilter("f.artist", term),
+		substringFilter("f.album", term),
+	)
+
+	if len(conditions) == 0 {
+		return nil
+	}
+
+	return conditions
+}
+
 func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool) model.PlaylistTrackRepository {
 	p := &playlistTrackRepository{}
 	p.playlistRepo = r
@@ -58,7 +89,7 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 	p.registerModel(&model.PlaylistTrack{}, map[string]filterFunc{
 		"missing":    booleanFilter,
 		"library_id": libraryIdFilter,
-		"q":          fullTextFilter("f"),
+		"q":          playlistTrackQueryFilter,
 	})
 	p.setSortMappings(
 		map[string]string{
