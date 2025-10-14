@@ -11,6 +11,7 @@ import (
 	"github.com/navidrome/navidrome/model/request"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/pocketbase/dbx"
 )
 
 var _ = Describe("PlaylistTrackRepository", func() {
@@ -122,6 +123,51 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			for _, track := range tracks {
 				Expect(track.Missing).To(BeFalse())
 			}
+		})
+
+		It("finds tracks when substring matches metadata even if full_text is stale", func() {
+			originalID := playlist.ID
+			if originalID != "" {
+				Expect(playlistRepo.Delete(originalID)).To(Succeed())
+			}
+
+			mediaRepo := NewMediaFileRepository(ctx, GetDBXBuilder())
+			track := mf(model.MediaFile{
+				ID:          "2001",
+				Title:       "Bonita Applebum (Sir Piers and Si Ashton's Curious House Mix)",
+				ArtistID:    songDayInALife.ArtistID,
+				Artist:      "A Tribe Called Quest, Sir Piers",
+				AlbumID:     songDayInALife.AlbumID,
+				Album:       songDayInALife.Album,
+				Path:        p("/playlist/bonita.mp3"),
+				AlbumArtist: songDayInALife.AlbumArtist,
+			})
+			Expect(mediaRepo.Put(&track)).To(Succeed())
+			DeferCleanup(func() {
+				_ = mediaRepo.Delete(track.ID)
+			})
+
+			playlist = model.Playlist{Name: "Substring Fallback", OwnerID: "userid", OwnerName: "userid"}
+			playlist.AddMediaFilesByID([]string{track.ID})
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+
+			_, err := GetDBXBuilder().Update("media_file", dbx.Params{
+				"full_text": "a and applebum bonita curious house mix piers quest si sir tribe",
+			}, dbx.HashExp{"id": track.ID}).Execute()
+			Expect(err).ToNot(HaveOccurred())
+
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			result, err := repo.ReadAll(rest.QueryOptions{
+				Filters: map[string]interface{}{"q": "to"},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(1))
+			Expect(tracks[0].MediaFileID).To(Equal(track.ID))
+			Expect(tracks[0].Missing).To(BeFalse())
 		})
 	})
 })

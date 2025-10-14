@@ -49,6 +49,45 @@ func (t dbPlaylistTracks) toModels() model.PlaylistTracks {
 	})
 }
 
+func playlistTrackQueryFilter() filterFunc {
+	base := fullTextFilter("f")
+	fallbackFields := []string{
+		"f.title",
+		"f.album",
+		"f.artist",
+		"f.album_artist",
+		"f.path",
+	}
+	return func(field string, value any) Sqlizer {
+		raw, ok := value.(string)
+		if !ok {
+			return nil
+		}
+		q := strings.TrimSpace(strings.ToLower(raw))
+		if q == "" {
+			return nil
+		}
+
+		conditions := make([]Sqlizer, 0, 2)
+		if cond := base(field, q); cond != nil {
+			conditions = append(conditions, cond)
+		}
+
+		fallback := make(Or, 0, len(fallbackFields))
+		for _, column := range fallbackFields {
+			fallback = append(fallback, substringFilter(column, q))
+		}
+		if len(fallback) > 0 {
+			conditions = append(conditions, fallback)
+		}
+
+		if len(conditions) == 0 {
+			return nil
+		}
+		return Or(conditions)
+	}
+}
+
 func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool) model.PlaylistTrackRepository {
 	p := &playlistTrackRepository{}
 	p.playlistRepo = r
@@ -59,7 +98,7 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 	p.registerModel(&model.PlaylistTrack{}, map[string]filterFunc{
 		"missing":        booleanFilter,
 		"library_id":     libraryIdFilter,
-		"q":              fullTextFilter("f"),
+		"q":              playlistTrackQueryFilter(),
 		"duplicatesonly": ignoreFilter,
 	})
 	p.setSortMappings(
