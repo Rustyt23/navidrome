@@ -235,6 +235,10 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		return duplicates, nil
 	}
 
+	if searchTerm != "" {
+		return tracks, nil
+	}
+
 	if r.playlist == nil || !r.playlist.Sync || r.playlist.Path == "" {
 		return tracks, nil
 	}

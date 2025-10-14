@@ -86,4 +86,42 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			}
 		})
 	})
+
+	Describe("search filter", func() {
+		var playlist model.Playlist
+
+		BeforeEach(func() {
+			playlist = model.Playlist{
+				Name:      "Search Filter",
+				OwnerID:   "userid",
+				OwnerName: "userid",
+				Sync:      true,
+			}
+			playlist.AddMediaFilesByID([]string{songDayInALife.ID})
+			playlist.Path = filepath.Join(GinkgoT().TempDir(), "search_filter.m3u")
+			Expect(os.WriteFile(playlist.Path, []byte(songDayInALife.Path+"\n"), 0o600)).To(Succeed())
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			if playlist.ID != "" {
+				Expect(playlistRepo.Delete(playlist.ID)).To(Succeed())
+			}
+		})
+
+		It("does not mark synced tracks as missing when filtering by q", func() {
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			result, err := repo.ReadAll(rest.QueryOptions{
+				Filters: map[string]interface{}{"q": "ru"},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			for _, track := range tracks {
+				Expect(track.Missing).To(BeFalse())
+			}
+		})
+	})
 })
