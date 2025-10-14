@@ -79,7 +79,11 @@ const PlaylistShowLayout = (props) => {
             target="playlist_id"
             sort={{ field: 'id', order: 'ASC' }}
             perPage={50}
-            filter={{ playlist_id: props.id, q: searchTerm }} // Pass searchTerm as a filter
+            filter={{
+              playlist_id: props.id,
+              q: searchTerm,
+              ...(showDuplicatesOnly ? { duplicatesOnly: true } : {}),
+            }} // Pass searchTerm as a filter
           >
             <PlaylistSongs
               {...props}
