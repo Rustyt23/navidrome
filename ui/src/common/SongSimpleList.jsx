@@ -91,6 +91,14 @@ export const SongSimpleList = ({
     (song) => song?.mediaFileId || song?.id,
     [],
   )
+  const visibleSongs = useMemo(() => {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return []
+    }
+    return ids
+      .map((id) => data?.[id])
+      .filter((song) => Boolean(song) && !song?.missing)
+  }, [data, ids])
 
   const handlePlay = useCallback(
     (songId) => () => {
@@ -99,31 +107,25 @@ export const SongSimpleList = ({
         return
       }
 
-      if (isMobile && Array.isArray(ids) && ids.length > 0) {
-        const visibleSongs = ids
-          .map((id) => data?.[id])
-          .filter((song) => Boolean(song) && !song?.missing)
-
-        if (visibleSongs.length > 0) {
-          const startIndex = visibleSongs.findIndex(
-            (song) => getTrackId(song) === getTrackId(record),
-          )
-          if (startIndex === -1) {
-            dispatch(setTrack(record))
-            return
-          }
-          const queue = visibleSongs.reduce((acc, song, idx) => {
-            acc[idx] = song
-            return acc
-          }, {})
-          dispatch(playTracks(queue, undefined, String(startIndex)))
+      if (visibleSongs.length > 0) {
+        const startIndex = visibleSongs.findIndex(
+          (song) => getTrackId(song) === getTrackId(record),
+        )
+        if (startIndex === -1) {
+          dispatch(setTrack(record))
           return
         }
+        const queue = visibleSongs.reduce((acc, song, idx) => {
+          acc[idx] = song
+          return acc
+        }, {})
+        dispatch(playTracks(queue, undefined, String(startIndex)))
+        return
       }
 
       dispatch(setTrack(record))
     },
-    [data, dispatch, getTrackId, ids, isMobile],
+    [data, dispatch, getTrackId, visibleSongs],
   )
 
   const isCurrentSong = useCallback(
