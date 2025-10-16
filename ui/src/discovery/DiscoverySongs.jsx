@@ -99,19 +99,12 @@ const DiscoverySongs = ({ actions, pagination, discoveryId, searchTerm }) => {
 
   const handleRowClick = useCallback(
     (id) => {
-      if (!ids || ids.length === 0) {
-        dispatch(playTracks(data, ids, id))
-        return
+      if (!data) {
+        return false
       }
 
-      const startIndex = ids.indexOf(id)
-      if (startIndex === -1) {
-        dispatch(playTracks(data, ids, id))
-        return
-      }
-
-      const orderedIds = [...ids.slice(startIndex), ...ids.slice(0, startIndex)]
-      dispatch(playTracks(data, orderedIds, id))
+      dispatch(playTracks(data, ids, id))
+      return false
     },
     [dispatch, data, ids],
   )

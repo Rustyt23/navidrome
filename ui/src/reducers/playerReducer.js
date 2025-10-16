@@ -90,14 +90,46 @@ const mapToAudioLists = (item) => {
 
 const reduceClearQueue = () => ({ ...initialState, clear: true })
 
-const reducePlayTracks = (state, { data, id }) => {
+const reducePlayTracks = (state, { data, id, orderedIds }) => {
+  const keys = Array.isArray(orderedIds) && orderedIds.length > 0
+    ? orderedIds
+    : Object.keys(data)
+
+  const targetId = id !== undefined && id !== null ? String(id) : undefined
   let playIndex = 0
-  const queue = Object.keys(data).map((key, idx) => {
-    if (key === id) {
-      playIndex = idx
+  let hasPlayIndex = false
+  const queue = []
+
+  keys.forEach((key) => {
+    const keyStr = String(key)
+    const item = data[keyStr] ?? data[key]
+
+    if (!item) {
+      return
     }
-    return mapToAudioLists(data[key])
+
+    const currentIndex = queue.length
+    if (!hasPlayIndex && targetId) {
+      const recordId = item?.mediaFileId ?? item?.id
+      if (keyStr === targetId || String(recordId) === targetId) {
+        playIndex = currentIndex
+        hasPlayIndex = true
+      }
+    }
+
+    queue.push(mapToAudioLists(item))
   })
+
+  if (!hasPlayIndex && targetId) {
+    const fallbackIndex = queue.findIndex((item) => {
+      const recordId = item?.song?.mediaFileId ?? item?.song?.id
+      return String(recordId) === targetId
+    })
+    if (fallbackIndex >= 0) {
+      playIndex = fallbackIndex
+    }
+  }
+
   return {
     ...state,
     queue,
