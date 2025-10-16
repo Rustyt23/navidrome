@@ -169,5 +169,35 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[0].MediaFileID).To(Equal(track.ID))
 			Expect(tracks[0].Missing).To(BeFalse())
 		})
+
+		It("matches synced entries that only specify filenames", func() {
+			originalID := playlist.ID
+			if originalID != "" {
+				Expect(playlistRepo.Delete(originalID)).To(Succeed())
+			}
+
+			playlist = model.Playlist{
+				Name:      "Filename Entries",
+				OwnerID:   "userid",
+				OwnerName: "userid",
+				Sync:      true,
+			}
+			playlist.AddMediaFilesByID([]string{songDayInALife.ID})
+			playlist.Path = filepath.Join(GinkgoT().TempDir(), "filename_entries.m3u")
+
+			Expect(os.WriteFile(playlist.Path, []byte(filepath.Base(songDayInALife.Path)+"\n"), 0o600)).To(Succeed())
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			result, err := repo.ReadAll(rest.QueryOptions{})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(1))
+			Expect(tracks[0].MediaFileID).To(Equal(songDayInALife.ID))
+			Expect(tracks[0].Missing).To(BeFalse())
+		})
 	})
 })

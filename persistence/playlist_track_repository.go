@@ -489,11 +489,15 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	for idx, t := range tracks {
 		rel := filepath.ToSlash(t.Path)
 		key := normalizePlaylistPath(rel)
-		normalized[key] = append(normalized[key], idx)
+		if key != "" {
+			normalized[key] = append(normalized[key], idx)
+		}
 		if t.LibraryPath != "" && t.Path != "" {
 			abs := filepath.ToSlash(filepath.Join(t.LibraryPath, t.Path))
 			absKey := normalizePlaylistPath(abs)
-			normalized[absKey] = append(normalized[absKey], idx)
+			if absKey != "" {
+				normalized[absKey] = append(normalized[absKey], idx)
+			}
 		}
 	}
 
@@ -504,23 +508,33 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	for _, entry := range entries {
 		display := filepath.ToSlash(entry)
 		normalizedEntry := normalizePlaylistPath(display)
-		matchIdx, ok := popTrackIndex(normalizedEntry, normalized)
-		if !ok {
+
+		var matched bool
+		if matchIdx, ok := popTrackIndex(normalizedEntry, normalized); ok {
+			matched = consumePlaylistTrack(matchIdx, tracks, used, &result, normalized)
+			if matched {
+				continue
+			}
+		}
+
+		if normalizedEntry != "" {
+			var fallbackIdx int
+			var fallbackFound bool
 			for key := range normalized {
-				if strings.HasSuffix(normalizedEntry, key) {
-					if idx, matched := popTrackIndex(key, normalized); matched {
-						matchIdx = idx
-						ok = true
+				if strings.HasSuffix(normalizedEntry, key) || strings.HasSuffix(key, normalizedEntry) {
+					if idx, ok := popTrackIndex(key, normalized); ok {
+						fallbackIdx = idx
+						fallbackFound = true
 						break
 					}
 				}
 			}
-		}
-
-		if ok && matchIdx >= 0 && matchIdx < len(tracks) && !used[matchIdx] {
-			result = append(result, tracks[matchIdx])
-			used[matchIdx] = true
-			continue
+			if fallbackFound {
+				matched = consumePlaylistTrack(fallbackIdx, tracks, used, &result, normalized)
+				if matched {
+					continue
+				}
+			}
 		}
 
 		if searchTerm != "" {
@@ -562,6 +576,45 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	}
 
 	return result, nil
+}
+
+func consumePlaylistTrack(idx int, tracks model.PlaylistTracks, used []bool, result *model.PlaylistTracks, indexes map[string][]int) bool {
+	if idx < 0 || idx >= len(tracks) {
+		return false
+	}
+	if used[idx] {
+		removeTrackFromIndexes(idx, indexes)
+		return false
+	}
+
+	*result = append(*result, tracks[idx])
+	used[idx] = true
+	removeTrackFromIndexes(idx, indexes)
+	return true
+}
+
+func removeTrackFromIndexes(idx int, indexes map[string][]int) {
+	if idx < 0 {
+		return
+	}
+	for key, list := range indexes {
+		updated := make([]int, 0, len(list))
+		removed := false
+		for _, v := range list {
+			if v == idx {
+				removed = true
+				continue
+			}
+			updated = append(updated, v)
+		}
+		if removed {
+			if len(updated) == 0 {
+				delete(indexes, key)
+			} else {
+				indexes[key] = updated
+			}
+		}
+	}
 }
 
 func readPlaylistEntries(path string) ([]string, error) {
