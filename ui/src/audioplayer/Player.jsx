@@ -28,7 +28,7 @@ import { sendNotification } from '../utils'
 import subsonic from '../subsonic'
 import locale from './locale'
 import { keyMap } from '../hotkeys'
-import keyHandlers from './keyHandlers'
+import usePlayerKeyboard from './usePlayerKeyboard'
 import { calculateGain } from '../utils/calculateReplayGain'
 
 const buildNotificationBody = (song) => {
@@ -329,10 +329,7 @@ const Player = () => {
     document.title = 'MusicMatters'
   }
 
-  const handlers = useMemo(
-    () => keyHandlers(audioInstance, playerState),
-    [audioInstance, playerState],
-  )
+  const handlers = usePlayerKeyboard(audioInstance, playerState)
 
   useEffect(() => {
     if (isMobilePlayer && audioInstance) {
