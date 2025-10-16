@@ -90,18 +90,14 @@ const mapToAudioLists = (item) => {
 
 const reduceClearQueue = () => ({ ...initialState, clear: true })
 
-const reducePlayTracks = (state, { data, id }) => {
-  let playIndex = 0
-  const queue = Object.keys(data).map((key, idx) => {
-    if (key === id) {
-      playIndex = idx
-    }
+const reducePlayTracks = (state, { data }) => {
+  const queue = Object.keys(data).map((key) => {
     return mapToAudioLists(data[key])
   })
   return {
     ...state,
     queue,
-    playIndex,
+    playIndex: 0,
     clear: true,
   }
 }
