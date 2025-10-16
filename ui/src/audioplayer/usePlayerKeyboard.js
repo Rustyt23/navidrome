@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import keyHandlers from './keyHandlers'
 
 const usePlayerKeyboard = (audioInstance, playerState) => {
@@ -6,6 +6,68 @@ const usePlayerKeyboard = (audioInstance, playerState) => {
     () => keyHandlers(audioInstance, playerState),
     [audioInstance, playerState],
   )
+
+  const hasPrevTrack = useCallback(() => {
+    const queue = playerState?.queue || []
+    if (!queue.length) {
+      return false
+    }
+
+    const currentUuid = playerState?.current?.uuid
+    if (!currentUuid) {
+      return false
+    }
+
+    const currentIndex = queue.findIndex((item) => item.uuid === currentUuid)
+    return currentIndex > 0
+  }, [playerState])
+
+  const runPrevSong = useCallback(
+    (event) => {
+      const handler = handlers?.PREV_SONG
+      if (typeof handler !== 'function') {
+        return
+      }
+
+      if (
+        !event?.metaKey &&
+        hasPrevTrack() &&
+        audioInstance &&
+        typeof audioInstance.currentTime === 'number'
+      ) {
+        try {
+          audioInstance.currentTime = 0
+        } catch (err) {
+          // Ignore failures when resetting the current time (e.g. if metadata
+          // is not yet available)
+        }
+      }
+
+      handler(event)
+    },
+    [audioInstance, handlers, hasPrevTrack],
+  )
+
+  const runNextSong = useCallback(
+    (event) => {
+      const handler = handlers?.NEXT_SONG
+      if (typeof handler === 'function') {
+        handler(event)
+      }
+    },
+    [handlers],
+  )
+
+  const prevHandlerRef = useRef(runPrevSong)
+  const nextHandlerRef = useRef(runNextSong)
+
+  useEffect(() => {
+    prevHandlerRef.current = runPrevSong
+  }, [runPrevSong])
+
+  useEffect(() => {
+    nextHandlerRef.current = runNextSong
+  }, [runNextSong])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -20,11 +82,11 @@ const usePlayerKeyboard = (audioInstance, playerState) => {
       event.preventDefault()
       event.stopPropagation()
 
-      const handlerKey = event.key === 'ArrowLeft' ? 'PREV_SONG' : 'NEXT_SONG'
-      const handler = handlers?.[handlerKey]
+      const ref = event.key === 'ArrowLeft' ? prevHandlerRef : nextHandlerRef
+      const callback = ref.current
 
-      if (typeof handler === 'function') {
-        handler(event)
+      if (typeof callback === 'function') {
+        callback(event)
       }
     }
 
@@ -33,7 +95,7 @@ const usePlayerKeyboard = (audioInstance, playerState) => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
-  }, [handlers])
+  }, [])
 
   return handlers
 }
