@@ -7,45 +7,14 @@ const usePlayerKeyboard = (audioInstance, playerState) => {
     [audioInstance, playerState],
   )
 
-  const hasPrevTrack = useCallback(() => {
-    const queue = playerState?.queue || []
-    if (!queue.length) {
-      return false
-    }
-
-    const currentUuid = playerState?.current?.uuid
-    if (!currentUuid) {
-      return false
-    }
-
-    const currentIndex = queue.findIndex((item) => item.uuid === currentUuid)
-    return currentIndex > 0
-  }, [playerState])
-
   const runPrevSong = useCallback(
     (event) => {
       const handler = handlers?.PREV_SONG
-      if (typeof handler !== 'function') {
-        return
+      if (typeof handler === 'function') {
+        handler(event)
       }
-
-      if (
-        !event?.metaKey &&
-        hasPrevTrack() &&
-        audioInstance &&
-        typeof audioInstance.currentTime === 'number'
-      ) {
-        try {
-          audioInstance.currentTime = 0
-        } catch (err) {
-          // Ignore failures when resetting the current time (e.g. if metadata
-          // is not yet available)
-        }
-      }
-
-      handler(event)
     },
-    [audioInstance, handlers, hasPrevTrack],
+    [handlers],
   )
 
   const runNextSong = useCallback(
