@@ -139,38 +139,38 @@ const SongList = (props) => {
 
   const songs = useSelector((state) => state.admin.resources.song)
 
-  const handleRowClick = useCallback((id, basePath, record) => {
-      // Convert songs.data to an array if it's an object
-      const songsArray = Array.isArray(songs.data) ? songs.data : Object.values(songs.data);
+  const handleRowClick = useCallback(
+    (id, basePath, record) => {
+      const ids = songs.list?.ids
+      const data = songs.data
 
-      if (songsArray.length > 0 && Array.isArray(songs.list?.ids)) {
-        // Filter songs to include only those whose IDs exist in songs.list.ids
-        const filteredSongs = songsArray.filter(song => songs.list.ids.includes(song.id));
-
-        // Find the index of the selected song
-        const index = filteredSongs.findIndex(song => song.id === record.id);
-
-        if (index !== -1) {
-          // Rearrange array to start from the selected song
-          const orderedSongs = [
-            ...filteredSongs.slice(index),
-            ...filteredSongs.slice(0, index)
-          ];
-
-          // Convert the array into an object where key = song.id, value = song
-          // const updatedSongs = Object.fromEntries(orderedSongs.map(song => [song.id, song]));
-
-          // Convert array to an object with index-based keys, updating the song id as well
-          const updatedSongs = Object.fromEntries(
-            orderedSongs.map((song, idx) => 
-               [idx, song] // Setting both the key and `id` inside each song
-            )
-          );
-
-          dispatch(playTracks(updatedSongs,0));
-        }
+      if (!Array.isArray(ids) || !data) {
+        return
       }
-    }, [dispatch, songs.data, songs.list?.ids]);
+
+      const visibleSongs = ids
+        .map((songId) => data?.[songId])
+        .filter((song) => Boolean(song) && !song?.missing)
+
+      if (visibleSongs.length === 0) {
+        return
+      }
+
+      const startIndex = visibleSongs.findIndex((song) => song.id === record.id)
+
+      if (startIndex === -1) {
+        return
+      }
+
+      const queue = visibleSongs.reduce((acc, song, idx) => {
+        acc[idx] = song
+        return acc
+      }, {})
+
+      dispatch(playTracks(queue, undefined, String(startIndex)))
+    },
+    [dispatch, songs],
+  )
 
   const toggleableFields = useMemo(() => {
     return {
