@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -29,9 +30,27 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		entries := []missingTrackNotification{}
+		total := 0
+
+		limit := 200
+		if limitParam := r.URL.Query().Get("limit"); limitParam != "" {
+			if parsed, err := strconv.Atoi(limitParam); err == nil && parsed > 0 {
+				if parsed > 500 {
+					parsed = 500
+				}
+				limit = parsed
+			}
+		}
+
+		offset := 0
+		if offsetParam := r.URL.Query().Get("offset"); offsetParam != "" {
+			if parsed, err := strconv.Atoi(offsetParam); err == nil && parsed >= 0 {
+				offset = parsed
+			}
+		}
 
 		if conf.Server.DataFolder == "" {
-			writeMissingTrackResponse(w, entries, ctx)
+			writeMissingTrackResponse(w, entries, total, ctx)
 			return
 		}
 
@@ -41,7 +60,7 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 		db, err := sql.Open("sqlite3", dsn)
 		if err != nil {
 			log.Warn(ctx, "Unable to open missing tracks database", "path", dbFile, "err", err)
-			writeMissingTrackResponse(w, entries, ctx)
+			writeMissingTrackResponse(w, entries, total, ctx)
 			return
 		}
 		defer db.Close()
@@ -50,10 +69,20 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 			log.Debug(ctx, "Unable to enable WAL for missing tracks database", "path", dbFile, "err", err)
 		}
 
-		rows, err := db.QueryContext(ctx, `SELECT track_path FROM missing_playlist_tracks ORDER BY created_at DESC LIMIT 200`)
+		err = db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT track_path) FROM missing_playlist_tracks`).Scan(&total)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such table") {
-				writeMissingTrackResponse(w, entries, ctx)
+				writeMissingTrackResponse(w, entries, total, ctx)
+				return
+			}
+			log.Warn(ctx, "Unable to count missing tracks notifications", "path", dbFile, "err", err)
+			total = 0
+		}
+
+		rows, err := db.QueryContext(ctx, `SELECT track_path FROM missing_playlist_tracks GROUP BY track_path ORDER BY MAX(created_at) DESC LIMIT ? OFFSET ?`, limit, offset)
+		if err != nil {
+			if strings.Contains(err.Error(), "no such table") {
+				writeMissingTrackResponse(w, entries, total, ctx)
 				return
 			}
 			log.Error(ctx, "Unable to query missing tracks notifications", "path", dbFile, "err", err)
@@ -91,12 +120,15 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 			}
 		}
 
-		writeMissingTrackResponse(w, entries, ctx)
+		writeMissingTrackResponse(w, entries, total, ctx)
 	}
 }
 
-func writeMissingTrackResponse(w http.ResponseWriter, entries []missingTrackNotification, ctx context.Context) {
+func writeMissingTrackResponse(w http.ResponseWriter, entries []missingTrackNotification, total int, ctx context.Context) {
 	w.Header().Set("Content-Type", "application/json")
+	if total >= 0 {
+		w.Header().Set("X-Total-Count", strconv.Itoa(total))
+	}
 	if err := json.NewEncoder(w).Encode(entries); err != nil {
 		log.Error(ctx, "Unable to encode missing track notifications", err)
 	}

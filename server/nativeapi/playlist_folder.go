@@ -1,6 +1,7 @@
 package nativeapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,13 +19,41 @@ func ListFoldersAndPlaylists(ds model.DataStore) http.HandlerFunc {
 		ctx := r.Context()
 		opts := parseQueryOptions(r)
 
-		folders, err := ds.PlaylistFolder(ctx).GetAllByParent(opts.FolderOpts)
+		searching := opts.Search != ""
+
+		if searching {
+			descendants, err := collectDescendantFolderIDs(ctx, ds.PlaylistFolder(ctx), opts.Parent)
+			if err != nil {
+				http.Error(w, err.Error(), statusFor(err))
+				return
+			}
+
+			opts.FolderOpts.Filters = appendFilter(opts.FolderOpts.Filters, folderIDsCondition(descendants))
+			opts.PlaylistOpts.Filters = appendFilter(opts.PlaylistOpts.Filters, playlistFoldersCondition(descendants, opts.Parent))
+		}
+
+		folderRepo := ds.PlaylistFolder(ctx)
+		var (
+			folders model.PlaylistFolders
+			err     error
+		)
+		if searching {
+			folders, err = folderRepo.GetAll(opts.FolderOpts)
+		} else {
+			folders, err = folderRepo.GetAllByParent(opts.FolderOpts)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), statusFor(err))
 			return
 		}
 
-		playlists, err := ds.Playlist(ctx).GetAllByPlaylistFolder(opts.PlaylistOpts)
+		playlistRepo := ds.Playlist(ctx)
+		var playlists model.Playlists
+		if searching {
+			playlists, err = playlistRepo.GetAll(opts.PlaylistOpts)
+		} else {
+			playlists, err = playlistRepo.GetAllByPlaylistFolder(opts.PlaylistOpts)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), statusFor(err))
 			return
@@ -147,19 +176,30 @@ type DualQueryOptions struct {
 	PlaylistOpts model.QueryOptions
 	Offset       int
 	Max          int
+	Search       string
+	Parent       *string
 }
 
 func parseQueryOptions(r *http.Request) DualQueryOptions {
 	q := r.URL.Query()
 
 	base := model.QueryOptions{Order: "ASC", Filters: And{}}
-	out := DualQueryOptions{Offset: 0, Max: 100}
+	folderOpts, playlistOpts := base, base
+	folderOpts.Filters = And{}
+	playlistOpts.Filters = And{}
+
+	out := DualQueryOptions{Offset: 0, Max: 100, Parent: nil}
 
 	if sortField := q.Get("_sort"); sortField != "" {
 		base.Sort = sortField
+		folderOpts.Sort = sortField
+		playlistOpts.Sort = sortField
 	}
 	if order := q.Get("_order"); order != "" {
-		base.Order = strings.ToUpper(order)
+		upper := strings.ToUpper(order)
+		base.Order = upper
+		folderOpts.Order = upper
+		playlistOpts.Order = upper
 	}
 	if start, err := strconv.Atoi(q.Get("_start")); err == nil {
 		out.Offset = start
@@ -168,40 +208,61 @@ func parseQueryOptions(r *http.Request) DualQueryOptions {
 		out.Max = end - out.Offset
 	}
 
-	folderOpts, playlistOpts := base, base
-
-	if search := strings.TrimSpace(q.Get("q")); search != "" {
-		folderOpts.Filters = append(folderOpts.Filters.(And), playlistFolderFilter("q", search))
-		playlistOpts.Filters = append(playlistOpts.Filters.(And), playlistFilter("q", search))
+	search := strings.TrimSpace(q.Get("q"))
+	out.Search = search
+	if search != "" {
+		folderOpts.Filters = appendFilter(folderOpts.Filters, playlistFolderFilter("q", search))
+		playlistOpts.Filters = appendFilter(playlistOpts.Filters, playlistFilter("q", search))
 	}
 
 	if raw, present := q["parent_id"]; present {
-		v := ""
 		if len(raw) > 0 {
-			v = raw[0]
-		}
-		if v == "" || strings.EqualFold(v, "null") {
-			folderOpts.Filters = append(folderOpts.Filters.(And), Eq{"parent_id": nil})
-			playlistOpts.Filters = append(playlistOpts.Filters.(And), Eq{"folder_id": nil})
-		} else {
-			folderOpts.Filters = append(folderOpts.Filters.(And), Eq{"parent_id": v})
-			playlistOpts.Filters = append(playlistOpts.Filters.(And), Eq{"folder_id": v})
+			v := strings.TrimSpace(raw[0])
+			if v != "" && !strings.EqualFold(v, "null") {
+				parent := v
+				out.Parent = &parent
+			}
 		}
 	}
 
-	if owner := strings.TrimSpace(q.Get("owner_id")); owner != "" {
-		folderOpts.Filters = append(folderOpts.Filters.(And), Eq{"owner_id": owner})
-		playlistOpts.Filters = append(playlistOpts.Filters.(And), Eq{"owner_id": owner})
+	if search == "" {
+		folderOpts.Filters = appendFilter(folderOpts.Filters, parentCondition(out.Parent))
+		playlistOpts.Filters = appendFilter(playlistOpts.Filters, playlistParentCondition(out.Parent))
 	}
+
+	if owner := strings.TrimSpace(q.Get("owner_id")); owner != "" {
+		folderOpts.Filters = appendFilter(folderOpts.Filters, Eq{"owner_id": owner})
+		playlistOpts.Filters = appendFilter(playlistOpts.Filters, Eq{"owner_id": owner})
+	}
+
+	folderOpts.Sort = base.Sort
+	folderOpts.Order = base.Order
+	playlistOpts.Sort = base.Sort
+	playlistOpts.Order = base.Order
 
 	out.FolderOpts, out.PlaylistOpts = folderOpts, playlistOpts
 	return out
 }
 
 func playlistFilter(_ string, value interface{}) Sqlizer {
+	songMatch := Or{
+		substringFilter("mf.title", value),
+		substringFilter("mf.artist", value),
+		substringFilter("mf.album", value),
+	}
+
+	sub := Select("1").
+		From("playlist_tracks pt").
+		Join("media_file mf on mf.id = pt.media_file_id").
+		Where(And{
+			Expr("pt.playlist_id = playlist.id"),
+			songMatch,
+		})
+
 	return Or{
 		substringFilter("playlist.name", value),
 		substringFilter("playlist.comment", value),
+		Expr("exists (?)", sub),
 	}
 }
 
@@ -216,4 +277,112 @@ func substringFilter(field string, value any) Sqlizer {
 		filters = append(filters, Like{field: "%" + part + "%"})
 	}
 	return filters
+}
+
+func appendFilter(base Sqlizer, extra Sqlizer) Sqlizer {
+	if extra == nil {
+		return base
+	}
+	if base == nil {
+		return extra
+	}
+	if and, ok := base.(And); ok {
+		return append(and, extra)
+	}
+	return And{base, extra}
+}
+
+func parentCondition(parent *string) Sqlizer {
+	if parent == nil {
+		return Eq{"parent_id": nil}
+	}
+	return Eq{"parent_id": *parent}
+}
+
+func playlistParentCondition(parent *string) Sqlizer {
+	if parent == nil {
+		return Eq{"folder_id": nil}
+	}
+	return Eq{"folder_id": *parent}
+}
+
+func folderIDsCondition(ids []string) Sqlizer {
+	if len(ids) == 0 {
+		return Eq{"1": 0}
+	}
+	return Eq{"playlist_folder.id": uniqueStrings(ids)}
+}
+
+func playlistFoldersCondition(ids []string, parent *string) Sqlizer {
+	allowed := uniqueStrings(ids)
+	if parent != nil {
+		allowed = appendIfMissing(allowed, *parent)
+	}
+	if len(allowed) == 0 {
+		if parent == nil {
+			return Eq{"folder_id": nil}
+		}
+		return Eq{"1": 0}
+	}
+	filter := Eq{"folder_id": allowed}
+	if parent == nil {
+		return Or{
+			filter,
+			Eq{"folder_id": nil},
+		}
+	}
+	return filter
+}
+
+func appendIfMissing(values []string, value string) []string {
+	for _, v := range values {
+		if v == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func collectDescendantFolderIDs(ctx context.Context, repo model.PlaylistFolderRepository, parent *string) ([]string, error) {
+	queue := []*string{parent}
+	result := make([]string, 0)
+	visited := make(map[string]struct{})
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		opts := model.QueryOptions{Filters: parentCondition(current)}
+		children, err := repo.GetAllByParent(opts)
+		if err != nil {
+			return nil, err
+		}
+		for _, child := range children {
+			if _, ok := visited[child.ID]; ok {
+				continue
+			}
+			visited[child.ID] = struct{}{}
+			result = append(result, child.ID)
+			childID := child.ID
+			queue = append(queue, &childID)
+		}
+	}
+
+	return result, nil
 }

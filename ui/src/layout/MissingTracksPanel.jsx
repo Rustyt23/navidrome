@@ -1,7 +1,9 @@
 import React, { useCallback, useState } from 'react'
 import {
+  Badge,
   Card,
   CardContent,
+  CircularProgress,
   IconButton,
   List,
   ListItem,
@@ -9,12 +11,13 @@ import {
   Popover,
   Tooltip,
   Typography,
-  CircularProgress,
   makeStyles,
 } from '@material-ui/core'
 import { MdOutlineNotifications } from 'react-icons/md'
 import { useTranslate, useNotify } from 'react-admin'
 import { httpClient } from '../dataProvider'
+
+const PAGE_SIZE = 100
 
 const useStyles = makeStyles((theme) => ({
   button: (props) => ({
@@ -39,7 +42,8 @@ const useStyles = makeStyles((theme) => ({
   },
   header: {
     padding: theme.spacing(0, 1.5, 1),
-    fontWeight: theme.typography.fontWeightMedium,
+    fontWeight: theme.typography.fontWeightBold,
+    color: theme.palette.info.main,
   },
   empty: {
     padding: theme.spacing(1, 2),
@@ -50,6 +54,21 @@ const useStyles = makeStyles((theme) => ({
     justifyContent: 'center',
     padding: theme.spacing(2),
   },
+  loadMoreItem: {
+    display: 'flex',
+    justifyContent: 'center',
+  },
+  notificationBadge: {
+    '& .MuiBadge-badge': {
+      minWidth: theme.spacing(2),
+      height: theme.spacing(2),
+      borderRadius: theme.spacing(1),
+      fontSize: '0.65rem',
+      padding: theme.spacing(0, 0.5),
+      top: theme.spacing(0.5),
+      right: theme.spacing(0.5),
+    },
+  },
 }))
 
 const MissingTracksPanel = () => {
@@ -58,30 +77,56 @@ const MissingTracksPanel = () => {
   const [anchorEl, setAnchorEl] = useState(null)
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [totalCount, setTotalCount] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [nextOffset, setNextOffset] = useState(0)
 
   const open = Boolean(anchorEl)
   const classes = useStyles({ open })
 
-  const fetchEntries = useCallback(() => {
-    setLoading(true)
-    httpClient('/api/notifications/missing-tracks')
-      .then(({ json }) => {
-        const list = Array.isArray(json) ? json : []
-        setEntries(list)
+  const fetchEntries = useCallback(
+    (offset = 0, append = false) => {
+      const setLoadingState = append ? setLoadingMore : setLoading
+      setLoadingState(true)
+      const params = new URLSearchParams({
+        limit: PAGE_SIZE.toString(),
+        offset: Math.max(offset, 0).toString(),
       })
-      .catch((error) => {
-        notify('ra.notification.http_error', 'warning', {
-          messageArgs: { error: error.message || 'Unknown error' },
+      httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
+        .then(({ json, headers }) => {
+          const list = Array.isArray(json) ? json : []
+          const totalHeader = headers && headers.get ? headers.get('X-Total-Count') : null
+          const parsedTotal = totalHeader ? parseInt(totalHeader, 10) : NaN
+          setEntries((prev) => {
+            const nextEntries = append ? [...prev, ...list] : list
+            const totalValue = Number.isNaN(parsedTotal) ? nextEntries.length : parsedTotal
+            setTotalCount(totalValue)
+            setNextOffset(nextEntries.length)
+            setHasMore(nextEntries.length < totalValue && list.length > 0)
+            return nextEntries
+          })
         })
-        setEntries([])
-      })
-      .finally(() => setLoading(false))
-  }, [notify])
+        .catch((error) => {
+          notify('ra.notification.http_error', 'warning', {
+            messageArgs: { error: error.message || 'Unknown error' },
+          })
+          if (!append) {
+            setEntries([])
+            setTotalCount(0)
+            setNextOffset(0)
+            setHasMore(false)
+          }
+        })
+        .finally(() => setLoadingState(false))
+    },
+    [notify],
+  )
 
   const handleOpen = useCallback(
     (event) => {
       setAnchorEl(event.currentTarget)
-      fetchEntries()
+      fetchEntries(0, false)
     },
     [fetchEntries],
   )
@@ -89,6 +134,10 @@ const MissingTracksPanel = () => {
   const handleClose = useCallback(() => {
     setAnchorEl(null)
   }, [])
+
+  const handleLoadMore = useCallback(() => {
+    fetchEntries(nextOffset, true)
+  }, [fetchEntries, nextOffset])
   const getEntryLabel = useCallback(
     (entry) => {
       if (!entry) {
@@ -108,14 +157,22 @@ const MissingTracksPanel = () => {
   return (
     <div>
       <Tooltip title={translate('notifications.missingTracks')}>
-        <IconButton
-          className={classes.button}
-          onClick={handleOpen}
-          aria-label={translate('notifications.missingTracks')}
-          aria-haspopup="true"
+        <Badge
+          badgeContent={totalCount}
+          max={9999}
+          color="secondary"
+          invisible={totalCount === 0}
+          className={classes.notificationBadge}
         >
-          <MdOutlineNotifications size={20} />
-        </IconButton>
+          <IconButton
+            className={classes.button}
+            onClick={handleOpen}
+            aria-label={translate('notifications.missingTracks')}
+            aria-haspopup="true"
+          >
+            <MdOutlineNotifications size={20} />
+          </IconButton>
+        </Badge>
       </Tooltip>
       <Popover
         id="panel-missing-tracks"
@@ -145,6 +202,23 @@ const MissingTracksPanel = () => {
                     <ListItemText primary={getEntryLabel(entry)} />
                   </ListItem>
                 ))}
+                {hasMore && (
+                  <ListItem
+                    button
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                    className={classes.loadMoreItem}
+                  >
+                    {loadingMore ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      <ListItemText
+                        primary={translate('ra.action.load_more', { _: 'Load More…' })}
+                        primaryTypographyProps={{ align: 'center' }}
+                      />
+                    )}
+                  </ListItem>
+                )}
               </List>
             )}
           </CardContent>
