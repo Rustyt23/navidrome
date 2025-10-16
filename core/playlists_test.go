@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -74,6 +75,37 @@ var _ = Describe("Playlists", func() {
 				pls, err := ps.ImportFile(ctx, folder, "cr-ended.m3u")
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pls.Tracks).To(HaveLen(2))
+			})
+
+			It("records missing tracks in a separate database", func() {
+				DeferCleanup(configtest.SetupConfig())
+
+				dataDir := GinkgoT().TempDir()
+				conf.Server.DataFolder = dataDir
+
+				playlistName := "missing-log.m3u"
+				playlistPath := filepath.Join(folder.AbsolutePath(), playlistName)
+				Expect(os.WriteFile(playlistPath, []byte("missing-track.mp3\n"), 0644)).To(Succeed())
+				DeferCleanup(func() { _ = os.Remove(playlistPath) })
+
+				dbPath := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
+				_ = os.Remove(dbPath)
+
+				_, err := ps.ImportFile(ctx, folder, playlistName)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(dbPath).To(BeAnExistingFile())
+
+				dsn := "file:" + filepath.ToSlash(dbPath) + "?_journal_mode=WAL"
+				db, err := sql.Open("sqlite3", dsn)
+				Expect(err).ToNot(HaveOccurred())
+				defer db.Close()
+
+				row := db.QueryRow(`SELECT playlist_id, track_path FROM missing_playlist_tracks LIMIT 1`)
+				var playlistID, trackPath string
+				Expect(row.Scan(&playlistID, &trackPath)).To(Succeed())
+				Expect(playlistID).To(Equal(playlistPath))
+				Expect(trackPath).To(Equal("missing-track.mp3"))
 			})
 
 			It("locates tracks from music library when playlist lives in playlists folder", func() {
