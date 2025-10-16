@@ -139,38 +139,20 @@ const SongList = (props) => {
 
   const songs = useSelector((state) => state.admin.resources.song)
 
-  const handleRowClick = useCallback((id, basePath, record) => {
-      // Convert songs.data to an array if it's an object
-      const songsArray = Array.isArray(songs.data) ? songs.data : Object.values(songs.data);
+  const handleRowClick = useCallback(
+    () => {
+      if (Array.isArray(songs.list?.ids) && songs.data) {
+        const visibleSongs = songs.list.ids
+          .map((songId) => songs.data[songId])
+          .filter(Boolean)
 
-      if (songsArray.length > 0 && Array.isArray(songs.list?.ids)) {
-        // Filter songs to include only those whose IDs exist in songs.list.ids
-        const filteredSongs = songsArray.filter(song => songs.list.ids.includes(song.id));
-
-        // Find the index of the selected song
-        const index = filteredSongs.findIndex(song => song.id === record.id);
-
-        if (index !== -1) {
-          // Rearrange array to start from the selected song
-          const orderedSongs = [
-            ...filteredSongs.slice(index),
-            ...filteredSongs.slice(0, index)
-          ];
-
-          // Convert the array into an object where key = song.id, value = song
-          // const updatedSongs = Object.fromEntries(orderedSongs.map(song => [song.id, song]));
-
-          // Convert array to an object with index-based keys, updating the song id as well
-          const updatedSongs = Object.fromEntries(
-            orderedSongs.map((song, idx) => 
-               [idx, song] // Setting both the key and `id` inside each song
-            )
-          );
-
-          dispatch(playTracks(updatedSongs,0));
+        if (visibleSongs.length > 0) {
+          dispatch(playTracks(visibleSongs, undefined, 0))
         }
       }
-    }, [dispatch, songs.data, songs.list?.ids]);
+    },
+    [dispatch, songs.data, songs.list?.ids],
+  )
 
   const toggleableFields = useMemo(() => {
     return {
