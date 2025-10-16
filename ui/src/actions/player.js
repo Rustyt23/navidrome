@@ -72,7 +72,7 @@ export const playTracks = (data, ids, selectedId) => {
   const firstId = Object.keys(songs)[0]
   return {
     type: PLAYER_PLAY_TRACKS,
-    id: firstId,
+    id: selectedId || firstId,
     data: songs,
   }
 }

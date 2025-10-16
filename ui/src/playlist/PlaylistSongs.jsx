@@ -245,28 +245,14 @@ const PlaylistSongs = ({
     ],
   })
 
-  const handleRowClick = useCallback(
-    (id) => {
-      if (!ids || ids.length === 0) {
-        dispatch(playTracks(data, ids, id))
-        return
-      }
+  const handleRowClick = useCallback(() => {
+    if (Array.isArray(ids) && ids.length > 0) {
+      dispatch(playTracks(data, ids))
+      return
+    }
 
-      const startIndex = ids.indexOf(id)
-      if (startIndex === -1) {
-        dispatch(playTracks(data, ids, id))
-        return
-      }
-
-      const orderedIds = [
-        ...ids.slice(startIndex),
-        ...ids.slice(0, startIndex),
-      ]
-
-      dispatch(playTracks(data, orderedIds, id))
-    },
-    [dispatch, data, ids],
-  )
+    dispatch(playTracks(data))
+  }, [dispatch, data, ids])
 
   return (
     <>
