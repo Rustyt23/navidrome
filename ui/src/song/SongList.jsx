@@ -10,6 +10,7 @@ import {
   useTranslate,
   NullableBooleanInput,
   usePermissions,
+  useListContext,
 } from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
 import FavoriteIcon from '@material-ui/icons/Favorite'
@@ -28,7 +29,7 @@ import {
   ArtistLinkField,
   PathField,
 } from '../common'
-import { useSelector, useDispatch } from 'react-redux'
+import { useDispatch } from 'react-redux'
 import { makeStyles } from '@material-ui/core/styles'
 import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
 import { playTracks } from '../actions'
@@ -130,47 +131,50 @@ const SongFilter = (props) => {
   )
 }
 
-const SongList = (props) => {
-  const classes = useStyles()
+const SongListQueueDatagrid = ({ children, ...props }) => {
   const dispatch = useDispatch()
-  const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
-  const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
-  useResourceRefresh('song')
+  const { ids, data } = useListContext()
 
-  const songs = useSelector((state) => state.admin.resources.song)
+  const playableIds = useMemo(() => {
+    if (!data) {
+      return []
+    }
+
+    const sourceIds = Array.isArray(ids) ? ids : Object.keys(data)
+
+    return sourceIds.filter((songId) => {
+      const song = data[songId]
+      return song && !song.missing
+    })
+  }, [ids, data])
 
   const handleRowClick = useCallback(
     (id, basePath, record) => {
-      const ids = songs.list?.ids
-      const data = songs.data
-
-      if (!Array.isArray(ids) || !data) {
+      if (!record || playableIds.length === 0) {
         return
       }
 
-      const visibleSongs = ids
-        .map((songId) => data?.[songId])
-        .filter((song) => Boolean(song) && !song?.missing)
+      const selectedId =
+        playableIds.find((songId) => String(songId) === String(record.id)) ??
+        playableIds[0]
 
-      if (visibleSongs.length === 0) {
-        return
-      }
-
-      const startIndex = visibleSongs.findIndex((song) => song.id === record.id)
-
-      if (startIndex === -1) {
-        return
-      }
-
-      const queue = visibleSongs.reduce((acc, song, idx) => {
-        acc[idx] = song
-        return acc
-      }, {})
-
-      dispatch(playTracks(queue, undefined, String(startIndex)))
+      dispatch(playTracks(data, playableIds, selectedId))
     },
-    [dispatch, songs],
+    [dispatch, data, playableIds],
   )
+
+  return (
+    <SongDatagrid {...props} rowClick={handleRowClick}>
+      {children}
+    </SongDatagrid>
+  )
+}
+
+const SongList = (props) => {
+  const classes = useStyles()
+  const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
+  const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
+  useResourceRefresh('song')
 
   const toggleableFields = useMemo(() => {
     return {
@@ -248,8 +252,7 @@ const SongList = (props) => {
         {isXsmall ? (
           <SongSimpleList />
         ) : (
-          <SongDatagrid
-            rowClick={handleRowClick}
+          <SongListQueueDatagrid
             contextAlwaysVisible={!isDesktop}
             classes={{ row: classes.row }}
           >
@@ -269,7 +272,7 @@ const SongList = (props) => {
                 )
               }
             />
-          </SongDatagrid>
+          </SongListQueueDatagrid>
         )}
       </List>
       <ExpandInfoDialog content={<SongInfo />} />
