@@ -29,6 +29,7 @@ import subsonic from '../subsonic'
 import locale from './locale'
 import { keyMap } from '../hotkeys'
 import keyHandlers from './keyHandlers'
+import usePlayerKeyboard from './usePlayerKeyboard'
 import { calculateGain } from '../utils/calculateReplayGain'
 
 const buildNotificationBody = (song) => {
@@ -333,6 +334,8 @@ const Player = () => {
     () => keyHandlers(audioInstance, playerState),
     [audioInstance, playerState],
   )
+
+  usePlayerKeyboard(handlers)
 
   useEffect(() => {
     if (isMobilePlayer && audioInstance) {
