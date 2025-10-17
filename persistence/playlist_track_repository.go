@@ -366,17 +366,43 @@ func comparePlaylistSortValues(av, bv any) int {
 }
 
 func normalizePlaylistSortField(field string) string {
-	field = strings.TrimSpace(strings.ToLower(field))
+	normalized := sanitizePlaylistSortField(field)
+	if normalized == "" || normalized == "id" {
+		return ""
+	}
+
+	if _, ok := playlistTrackSortExtractors[normalized]; ok {
+		return normalized
+	}
+
+	for key := range playlistTrackSortExtractors {
+		if strings.Contains(normalized, key) {
+			return key
+		}
+	}
+
+	return ""
+}
+
+func sanitizePlaylistSortField(field string) string {
 	if field == "" {
 		return ""
 	}
 
-	field = strings.TrimPrefix(field, "playlist_tracks.")
-	field = strings.TrimPrefix(field, "f.")
-	field = strings.ReplaceAll(field, ".", "_")
-	field = strings.ReplaceAll(field, "_", "")
+	lower := strings.ToLower(strings.TrimSpace(field))
+	var b strings.Builder
+	b.Grow(len(lower))
 
-	return field
+	for _, r := range lower {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		}
+	}
+
+	return b.String()
 }
 
 var playlistTrackSortExtractors = map[string]func(model.PlaylistTrack) any{
