@@ -177,7 +177,7 @@ func (r *playlistRepository) GetWithTracks(id string, refreshSmartPlaylist, incl
 		return nil, err
 	}
 	if includeMissing && pls.Sync && pls.Path != "" {
-		if merged, mergeErr := mergePlaylistTracksWithMissing(r.ctx, tracks, pls, ""); mergeErr == nil {
+		if merged, mergeErr := mergePlaylistTracksWithMissing(r.ctx, tracks, pls, "", true); mergeErr == nil {
 			tracks = merged
 		} else {
 			log.Warn(r.ctx, "Error resolving missing tracks for playlist", "playlistId", pls.ID, mergeErr)

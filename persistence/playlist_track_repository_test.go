@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/log"
@@ -206,6 +207,7 @@ var _ = Describe("PlaylistTrackRepository", func() {
 				repo            model.PlaylistTrackRepository
 				mediaRepo       model.MediaFileRepository
 				cleanupTrackIDs []string
+				seededTracks    []model.MediaFile
 			)
 
 			beforePlaylist := func() {
@@ -227,6 +229,7 @@ var _ = Describe("PlaylistTrackRepository", func() {
 						Genre:                "Rock",
 						Comment:              "Zulu",
 						TrackNumber:          3,
+						Path:                 p("/playlist/gamma.mp3"),
 					}),
 					mf(model.MediaFile{
 						ID:                   "9902",
@@ -244,6 +247,7 @@ var _ = Describe("PlaylistTrackRepository", func() {
 						Genre:                "Blues",
 						Comment:              "Alpha",
 						TrackNumber:          1,
+						Path:                 p("/playlist/alpha.mp3"),
 					}),
 					mf(model.MediaFile{
 						ID:                   "9903",
@@ -261,9 +265,11 @@ var _ = Describe("PlaylistTrackRepository", func() {
 						Genre:                "Classical",
 						Comment:              "Mid",
 						TrackNumber:          2,
+						Path:                 p("/playlist/beta.mp3"),
 					}),
 				}
 
+				seededTracks = append([]model.MediaFile(nil), tracks...)
 				cleanupTrackIDs = make([]string, len(tracks))
 				for i := range tracks {
 					track := tracks[i]
@@ -285,6 +291,7 @@ var _ = Describe("PlaylistTrackRepository", func() {
 					Expect(mediaRepo.Delete(id)).To(Succeed())
 				}
 				cleanupTrackIDs = nil
+				seededTracks = nil
 			})
 
 			It("sorts by artist metadata", func() {
@@ -340,6 +347,34 @@ var _ = Describe("PlaylistTrackRepository", func() {
 				Expect(ok).To(BeTrue())
 				Expect(tracks).To(HaveLen(3))
 				Expect([]string{tracks[0].Title, tracks[1].Title, tracks[2].Title}).To(Equal([]string{"Alpha Track", "Beta Track", "Gamma Track"}))
+			})
+
+			It("sorts synced playlists when missing entries are merged", func() {
+				beforePlaylist()
+
+				playlist.Sync = true
+				playlist.Path = filepath.Join(GinkgoT().TempDir(), "sorted_sync.m3u")
+				contents := strings.Join([]string{
+					seededTracks[0].Path,
+					"ghost-track.mp3",
+					seededTracks[2].Path,
+					seededTracks[1].Path,
+				}, "\n")
+				Expect(os.WriteFile(playlist.Path, []byte(contents), 0o600)).To(Succeed())
+				playlist.Tracks = nil
+				Expect(playlistRepo.Put(&playlist)).To(Succeed())
+
+				repo = playlistRepo.Tracks(playlist.ID, true)
+
+				result, err := repo.ReadAll(rest.QueryOptions{Sort: "artist", Order: "ASC"})
+				Expect(err).ToNot(HaveOccurred())
+
+				tracks, ok := result.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				Expect(tracks).To(HaveLen(4))
+				Expect([]string{tracks[0].Title, tracks[1].Title, tracks[2].Title}).To(Equal([]string{"Alpha Track", "Beta Track", "Gamma Track"}))
+				Expect(tracks[3].Missing).To(BeTrue())
+				Expect(tracks[3].Path).To(Equal("ghost-track.mp3"))
 			})
 		})
 	})

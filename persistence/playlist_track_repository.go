@@ -308,6 +308,8 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		return nil, err
 	}
 
+	preservePlaylistOrder := opt.Sort == ""
+
 	searchTerm := ""
 	duplicatesOnly := false
 	if restOpts.Filters != nil {
@@ -323,7 +325,7 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		duplicates := filterDuplicatePlaylistTracks(tracks)
 
 		if r.playlist != nil && r.playlist.Sync && r.playlist.Path != "" {
-			merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm)
+			merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm, preservePlaylistOrder)
 			if err != nil {
 				log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
 				return duplicates, nil
@@ -346,7 +348,7 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		return tracks, nil
 	}
 
-	merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm)
+	merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm, preservePlaylistOrder)
 	if err != nil {
 		log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
 		return tracks, nil
@@ -540,7 +542,7 @@ func (r *playlistTrackRepository) AddDiscs(discs []model.DiscID) (int, error) {
 	return r.addMediaFileIds(clauses)
 }
 
-func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTracks, pls *model.Playlist, searchTerm string) (model.PlaylistTracks, error) {
+func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTracks, pls *model.Playlist, searchTerm string, preservePlaylistOrder bool) (model.PlaylistTracks, error) {
 	entries, err := readPlaylistEntries(pls.Path)
 	if err != nil {
 		return nil, err
@@ -566,7 +568,11 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	}
 
 	used := make([]bool, len(tracks))
-	result := make(model.PlaylistTracks, 0, len(entries))
+	var result model.PlaylistTracks
+	if preservePlaylistOrder {
+		result = make(model.PlaylistTracks, 0, len(entries))
+	}
+	missing := make(model.PlaylistTracks, 0)
 	missingCount := 0
 
 	for _, entry := range entries {
@@ -575,7 +581,11 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 
 		var matched bool
 		if matchIdx, ok := popTrackIndex(normalizedEntry, normalized); ok {
-			matched = consumePlaylistTrack(matchIdx, tracks, used, &result, normalized)
+			if preservePlaylistOrder {
+				matched = consumePlaylistTrack(matchIdx, tracks, used, &result, normalized)
+			} else {
+				matched = consumePlaylistTrack(matchIdx, tracks, used, nil, normalized)
+			}
 			if matched {
 				continue
 			}
@@ -594,7 +604,11 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 				}
 			}
 			if fallbackFound {
-				matched = consumePlaylistTrack(fallbackIdx, tracks, used, &result, normalized)
+				if preservePlaylistOrder {
+					matched = consumePlaylistTrack(fallbackIdx, tracks, used, &result, normalized)
+				} else {
+					matched = consumePlaylistTrack(fallbackIdx, tracks, used, nil, normalized)
+				}
 				if matched {
 					continue
 				}
@@ -629,17 +643,27 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 				Suffix:  suffix,
 			},
 		}
-		result = append(result, placeholder)
-	}
-
-	for idx, t := range tracks {
-		if used[idx] {
-			continue
+		if preservePlaylistOrder {
+			result = append(result, placeholder)
+		} else {
+			missing = append(missing, placeholder)
 		}
-		result = append(result, t)
 	}
 
-	return result, nil
+	if preservePlaylistOrder {
+		for idx, t := range tracks {
+			if used[idx] {
+				continue
+			}
+			result = append(result, t)
+		}
+		return result, nil
+	}
+
+	merged := make(model.PlaylistTracks, 0, len(tracks)+len(missing))
+	merged = append(merged, tracks...)
+	merged = append(merged, missing...)
+	return merged, nil
 }
 
 func consumePlaylistTrack(idx int, tracks model.PlaylistTracks, used []bool, result *model.PlaylistTracks, indexes map[string][]int) bool {
@@ -651,7 +675,9 @@ func consumePlaylistTrack(idx int, tracks model.PlaylistTracks, used []bool, res
 		return false
 	}
 
-	*result = append(*result, tracks[idx])
+	if result != nil {
+		*result = append(*result, tracks[idx])
+	}
 	used[idx] = true
 	removeTrackFromIndexes(idx, indexes)
 	return true
