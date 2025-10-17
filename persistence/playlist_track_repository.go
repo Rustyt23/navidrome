@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -271,6 +272,7 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 			}
 		}
 
+		sortPlaylistTracks(duplicates, opt.Sort, opt.Order)
 		return duplicates, nil
 	}
 
@@ -287,6 +289,7 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
 		return tracks, nil
 	}
+	sortPlaylistTracks(merged, opt.Sort, opt.Order)
 	return merged, nil
 }
 
@@ -576,6 +579,139 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	}
 
 	return result, nil
+}
+
+type playlistSortField struct {
+	name string
+	desc bool
+}
+
+func sortPlaylistTracks(tracks model.PlaylistTracks, sortExpr, order string) {
+	if len(tracks) < 2 {
+		return
+	}
+
+	fields := parsePlaylistSortFields(sortExpr, order)
+	if len(fields) == 0 {
+		return
+	}
+
+	sort.SliceStable(tracks, func(i, j int) bool {
+		for _, field := range fields {
+			cmp := comparePlaylistField(tracks[i], tracks[j], field.name)
+			if cmp == 0 {
+				continue
+			}
+			if field.desc {
+				return cmp > 0
+			}
+			return cmp < 0
+		}
+		// Fallback to playlist order for stability
+		cmp := comparePlaylistField(tracks[i], tracks[j], "playlist_tracks.id")
+		lastField := fields[len(fields)-1]
+		if lastField.desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func parsePlaylistSortFields(sortExpr, defaultOrder string) []playlistSortField {
+	sortExpr = strings.TrimSpace(sortExpr)
+	if sortExpr == "" {
+		return nil
+	}
+
+	defaultDesc := strings.EqualFold(defaultOrder, "desc")
+	rawFields := strings.Split(sortExpr, ",")
+	fields := make([]playlistSortField, 0, len(rawFields))
+	for _, raw := range rawFields {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+
+		parts := strings.Fields(raw)
+		field := parts[0]
+		desc := defaultDesc
+		if len(parts) > 1 {
+			if strings.EqualFold(parts[1], "desc") {
+				desc = true
+			} else if strings.EqualFold(parts[1], "asc") {
+				desc = false
+			}
+		}
+
+		fields = append(fields, playlistSortField{name: field, desc: desc})
+	}
+	return fields
+}
+
+func comparePlaylistField(a, b model.PlaylistTrack, field string) int {
+	switch field {
+	case "playlist_tracks.id":
+		return cmpInts(parsePlaylistID(a.ID), parsePlaylistID(b.ID))
+	case "order_title":
+		return cmpStrings(orderValue(a.OrderTitle, a.Title), orderValue(b.OrderTitle, b.Title))
+	case "order_artist_name":
+		return cmpStrings(orderValue(a.OrderArtistName, a.Artist), orderValue(b.OrderArtistName, b.Artist))
+	case "order_album_artist_name":
+		return cmpStrings(orderValue(a.OrderAlbumArtistName, a.AlbumArtist), orderValue(b.OrderAlbumArtistName, b.AlbumArtist))
+	case "order_album_name":
+		return cmpStrings(orderValue(a.OrderAlbumName, a.Album), orderValue(b.OrderAlbumName, b.Album))
+	case "duration":
+		return cmpFloats(float64(a.Duration), float64(b.Duration))
+	case "year":
+		return cmpInts(a.Year, b.Year)
+	case "bpm":
+		return cmpInts(a.BPM, b.BPM)
+	case "channels":
+		return cmpInts(a.Channels, b.Channels)
+	default:
+		return 0
+	}
+}
+
+func orderValue(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
+}
+
+func parsePlaylistID(id string) int {
+	value, err := strconv.Atoi(id)
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func cmpInts(a, b int) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func cmpFloats(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func cmpStrings(a, b string) int {
+	return strings.Compare(a, b)
 }
 
 func consumePlaylistTrack(idx int, tracks model.PlaylistTracks, used []bool, result *model.PlaylistTracks, indexes map[string][]int) bool {
