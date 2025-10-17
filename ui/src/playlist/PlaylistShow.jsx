@@ -113,6 +113,7 @@ const PlaylistShowLayout = (props) => {
                 />}
               searchTerm={searchTerm} // Pass search term to child
               showDuplicatesOnly={showDuplicatesOnly}
+              sort={sort}
               onSortChange={handleSortChange}
             />
           </ReferenceManyField>

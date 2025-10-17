@@ -101,6 +101,7 @@ const PlaylistSongs = ({
   actions,
   showDuplicatesOnly,
   onSortChange,
+  sort: currentSortProp,
   ...props
 }) => {
   const listContext = useListContext()
@@ -143,7 +144,6 @@ const PlaylistSongs = ({
     filterValues = {},
     currentSort: contextCurrentSort,
     total: contextTotal,
-    setSort: contextSetSort,
   } = listContext
 
   const handleSelect = useCallback(
@@ -218,41 +218,52 @@ const PlaylistSongs = ({
     ],
   )
 
-  const handleSetSort = useCallback(
-    (sort, order) => {
-      if (typeof contextSetSort === 'function') {
-        contextSetSort(sort, order)
-      }
-
-      if (!onSortChange) {
-        return
-      }
-
-      let nextOrder = order
-      if (typeof nextOrder === 'undefined') {
-        if (contextCurrentSort?.field === sort) {
-          nextOrder = contextCurrentSort.order === 'ASC' ? 'DESC' : 'ASC'
-        } else {
-          nextOrder = 'ASC'
-        }
-      }
-
-      if (sort) {
-        onSortChange({ field: sort, order: nextOrder })
-      }
-    },
-    [contextSetSort, onSortChange, contextCurrentSort],
-  )
-
   const filteredListContext = useMemo(
     () => ({
       ...listContext,
       selectedIds,
       onSelect: handleSelect,
-      setSort: handleSetSort,
     }),
-    [listContext, selectedIds, handleSelect, handleSetSort],
+    [listContext, selectedIds, handleSelect],
   )
+
+  const normalizedContextSort = useMemo(() => {
+    if (!contextCurrentSort?.field) {
+      return null
+    }
+
+    return {
+      field: contextCurrentSort.field,
+      order: (contextCurrentSort.order || 'ASC').toUpperCase(),
+    }
+  }, [contextCurrentSort])
+
+  const normalizedPropSort = useMemo(() => {
+    if (!currentSortProp?.field) {
+      return null
+    }
+
+    return {
+      field: currentSortProp.field,
+      order: (currentSortProp.order || 'ASC').toUpperCase(),
+    }
+  }, [currentSortProp])
+
+  useEffect(() => {
+    if (!onSortChange || !normalizedContextSort) {
+      return
+    }
+
+    if (
+      normalizedPropSort &&
+      normalizedPropSort.field === normalizedContextSort.field &&
+      normalizedPropSort.order === normalizedContextSort.order
+    ) {
+      return
+    }
+
+    onSortChange(normalizedContextSort)
+  }, [normalizedContextSort, normalizedPropSort, onSortChange])
 
   const onAddToPlaylist = useCallback(
     (pls) => {
