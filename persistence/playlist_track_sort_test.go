@@ -16,6 +16,7 @@ func TestNormalizePlaylistSortField(t *testing.T) {
 		{name: "with prefix", input: "playlist_tracks.created_at", expected: "createdat"},
 		{name: "prefer sort tags expression", input: "(coalesce(nullif(f.sort_title,''),f.order_title) collate nocase)", expected: "ordertitle"},
 		{name: "multiple columns", input: "order_album_name, order_album_artist_name", expected: "orderalbumname"},
+		{name: "multiple with overlap", input: "order_title, order_artist_name", expected: "ordertitle"},
 		{name: "desc order", input: "f.order_artist_name desc", expected: "orderartistname"},
 		{name: "unknown", input: "playlist_tracks.rowid", expected: ""},
 	}

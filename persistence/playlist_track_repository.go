@@ -357,9 +357,25 @@ func comparePlaylistSortValues(av, bv any) int {
 	case float64:
 		return cmp.Compare(a, bv.(float64))
 	case time.Time:
-		return cmp.Compare(a, bv.(time.Time))
+		b := bv.(time.Time)
+		switch {
+		case a.Before(b):
+			return -1
+		case a.After(b):
+			return 1
+		default:
+			return 0
+		}
 	case bool:
-		return cmp.Compare(a, bv.(bool))
+		b := bv.(bool)
+		switch {
+		case a == b:
+			return 0
+		case !a && b:
+			return -1
+		default:
+			return 1
+		}
 	default:
 		return strings.Compare(strings.ToLower(fmt.Sprint(av)), strings.ToLower(fmt.Sprint(bv)))
 	}
@@ -375,10 +391,32 @@ func normalizePlaylistSortField(field string) string {
 		return normalized
 	}
 
-	for key := range playlistTrackSortExtractors {
-		if strings.Contains(normalized, key) {
-			return key
+	for _, token := range splitPlaylistSortFieldTokens(field) {
+		tokenNormalized := sanitizePlaylistSortField(token)
+		if tokenNormalized == "" {
+			continue
 		}
+		if _, ok := playlistTrackSortExtractors[tokenNormalized]; ok {
+			return tokenNormalized
+		}
+	}
+
+	bestKey := ""
+	bestPos := len(normalized) + 1
+	for key := range playlistTrackSortExtractors {
+		pos := strings.Index(normalized, key)
+		if pos == -1 {
+			continue
+		}
+
+		if pos < bestPos || (pos == bestPos && len(key) > len(bestKey)) {
+			bestKey = key
+			bestPos = pos
+		}
+	}
+
+	if bestKey != "" {
+		return bestKey
 	}
 
 	return ""
@@ -403,6 +441,32 @@ func sanitizePlaylistSortField(field string) string {
 	}
 
 	return b.String()
+}
+
+func splitPlaylistSortFieldTokens(field string) []string {
+	if field == "" {
+		return nil
+	}
+
+	lower := strings.ToLower(field)
+	tokens := strings.FieldsFunc(lower, func(r rune) bool {
+		switch r {
+		case ' ', '\t', '\n', '\r', ',', '(', ')', '+', '-', '*', '/', '"':
+			return true
+		}
+		return false
+	})
+
+	cleaned := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		trimmed := strings.Trim(token, "'")
+		if idx := strings.LastIndex(trimmed, "."); idx != -1 {
+			trimmed = trimmed[idx+1:]
+		}
+		cleaned = append(cleaned, trimmed)
+	}
+
+	return cleaned
 }
 
 var playlistTrackSortExtractors = map[string]func(model.PlaylistTrack) any{
