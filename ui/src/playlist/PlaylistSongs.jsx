@@ -135,19 +135,94 @@ const PlaylistSongs = ({
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [playlistId, showDuplicatesOnly, setContextPage])
 
-  const displayedIdSet = useMemo(() => new Set(contextIds), [contextIds])
+  const selectedIds = contextSelectedIds
 
-  const selectedIds = useMemo(
-    () => contextSelectedIds.filter((id) => displayedIdSet.has(id)),
-    [contextSelectedIds, displayedIdSet],
+  const {
+    onSelect: contextOnSelect,
+    filterValues = {},
+    currentSort,
+    total: contextTotal,
+  } = listContext
+
+  const handleSelect = useCallback(
+    (idsToSelect) => {
+      if (!contextOnSelect) {
+        return
+      }
+
+      if (!Array.isArray(idsToSelect)) {
+        contextOnSelect(idsToSelect)
+        return
+      }
+
+      const pageIds = ids || []
+      const newlyAddedIds = idsToSelect.filter(
+        (id) => !selectedIds.includes(id),
+      )
+
+      const isSelectingCurrentPage =
+        newlyAddedIds.length > 0 &&
+        newlyAddedIds.every((id) => pageIds.includes(id))
+
+      const shouldLoadAllIds =
+        isSelectingCurrentPage &&
+        typeof contextTotal === 'number' &&
+        contextTotal > idsToSelect.length
+
+      if (shouldLoadAllIds) {
+        const filter = { ...filterValues, playlist_id: playlistId }
+        const sort =
+          currentSort && currentSort.field
+            ? currentSort
+            : { field: 'id', order: 'ASC' }
+
+        dataProvider
+          .getList('playlistTrack', {
+            filter,
+            pagination: {
+              page: 1,
+              perPage:
+                contextTotal && contextTotal > 0
+                  ? contextTotal
+                  : idsToSelect.length,
+            },
+            sort: sort,
+          })
+          .then(({ data: records }) => {
+            const preservedIds = idsToSelect.filter(
+              (id) => !pageIds.includes(id),
+            )
+            const allIds = records.map((record) => record.id)
+            contextOnSelect([...new Set([...preservedIds, ...allIds])])
+          })
+          .catch(() => {
+            contextOnSelect(idsToSelect)
+          })
+
+        return
+      }
+
+      contextOnSelect(idsToSelect)
+    },
+    [
+      contextOnSelect,
+      ids,
+      selectedIds,
+      contextTotal,
+      filterValues,
+      playlistId,
+      currentSort,
+      dataProvider,
+    ],
   )
 
   const filteredListContext = useMemo(
     () => ({
       ...listContext,
       selectedIds,
+      onSelect: handleSelect,
     }),
-    [listContext, selectedIds],
+    [listContext, selectedIds, handleSelect],
   )
 
   const onAddToPlaylist = useCallback(
