@@ -199,5 +199,148 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[0].MediaFileID).To(Equal(songDayInALife.ID))
 			Expect(tracks[0].Missing).To(BeFalse())
 		})
+
+		Describe("sorting", func() {
+			var (
+				playlist        model.Playlist
+				repo            model.PlaylistTrackRepository
+				mediaRepo       model.MediaFileRepository
+				cleanupTrackIDs []string
+			)
+
+			beforePlaylist := func() {
+				mediaRepo = NewMediaFileRepository(ctx, GetDBXBuilder())
+				tracks := []model.MediaFile{
+					mf(model.MediaFile{
+						ID:                   "9901",
+						Title:                "Gamma Track",
+						OrderTitle:           "gamma track",
+						ArtistID:             songComeTogether.ArtistID,
+						Artist:               "Artist C",
+						OrderArtistName:      "artist c",
+						AlbumID:              songComeTogether.AlbumID,
+						Album:                "Album C",
+						OrderAlbumName:       "album c",
+						AlbumArtist:          "Album Artist C",
+						OrderAlbumArtistName: "album artist c",
+						Duration:             300,
+						Genre:                "Rock",
+						Comment:              "Zulu",
+						TrackNumber:          3,
+					}),
+					mf(model.MediaFile{
+						ID:                   "9902",
+						Title:                "Alpha Track",
+						OrderTitle:           "alpha track",
+						ArtistID:             songComeTogether.ArtistID,
+						Artist:               "Artist A",
+						OrderArtistName:      "artist a",
+						AlbumID:              songComeTogether.AlbumID,
+						Album:                "Album A",
+						OrderAlbumName:       "album a",
+						AlbumArtist:          "Album Artist A",
+						OrderAlbumArtistName: "album artist a",
+						Duration:             120,
+						Genre:                "Blues",
+						Comment:              "Alpha",
+						TrackNumber:          1,
+					}),
+					mf(model.MediaFile{
+						ID:                   "9903",
+						Title:                "Beta Track",
+						OrderTitle:           "beta track",
+						ArtistID:             songComeTogether.ArtistID,
+						Artist:               "Artist B",
+						OrderArtistName:      "artist b",
+						AlbumID:              songComeTogether.AlbumID,
+						Album:                "Album B",
+						OrderAlbumName:       "album b",
+						AlbumArtist:          "Album Artist B",
+						OrderAlbumArtistName: "album artist b",
+						Duration:             210,
+						Genre:                "Classical",
+						Comment:              "Mid",
+						TrackNumber:          2,
+					}),
+				}
+
+				cleanupTrackIDs = make([]string, len(tracks))
+				for i := range tracks {
+					track := tracks[i]
+					cleanupTrackIDs[i] = track.ID
+					Expect(mediaRepo.Put(&track)).To(Succeed())
+				}
+
+				playlist = model.Playlist{Name: "Sort Playlist", OwnerID: "userid", OwnerName: "userid"}
+				playlist.AddMediaFilesByID(cleanupTrackIDs)
+				Expect(playlistRepo.Put(&playlist)).To(Succeed())
+				repo = playlistRepo.Tracks(playlist.ID, true)
+			}
+
+			AfterEach(func() {
+				if playlist.ID != "" {
+					Expect(playlistRepo.Delete(playlist.ID)).To(Succeed())
+				}
+				for _, id := range cleanupTrackIDs {
+					Expect(mediaRepo.Delete(id)).To(Succeed())
+				}
+				cleanupTrackIDs = nil
+			})
+
+			It("sorts by artist metadata", func() {
+				beforePlaylist()
+				result, err := repo.ReadAll(rest.QueryOptions{Sort: "artist", Order: "ASC"})
+				Expect(err).ToNot(HaveOccurred())
+
+				tracks, ok := result.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				Expect(tracks).To(HaveLen(3))
+				Expect([]string{tracks[0].Title, tracks[1].Title, tracks[2].Title}).To(Equal([]string{"Alpha Track", "Beta Track", "Gamma Track"}))
+			})
+
+			It("sorts by duration", func() {
+				beforePlaylist()
+				result, err := repo.ReadAll(rest.QueryOptions{Sort: "duration", Order: "ASC"})
+				Expect(err).ToNot(HaveOccurred())
+
+				tracks, ok := result.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				Expect(tracks).To(HaveLen(3))
+				Expect([]string{tracks[0].Title, tracks[1].Title, tracks[2].Title}).To(Equal([]string{"Alpha Track", "Beta Track", "Gamma Track"}))
+			})
+
+			It("sorts by genre", func() {
+				beforePlaylist()
+				result, err := repo.ReadAll(rest.QueryOptions{Sort: "genre", Order: "ASC"})
+				Expect(err).ToNot(HaveOccurred())
+
+				tracks, ok := result.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				Expect(tracks).To(HaveLen(3))
+				Expect([]string{tracks[0].Title, tracks[1].Title, tracks[2].Title}).To(Equal([]string{"Alpha Track", "Beta Track", "Gamma Track"}))
+			})
+
+			It("sorts by comment", func() {
+				beforePlaylist()
+				result, err := repo.ReadAll(rest.QueryOptions{Sort: "comment", Order: "ASC"})
+				Expect(err).ToNot(HaveOccurred())
+
+				tracks, ok := result.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				Expect(tracks).To(HaveLen(3))
+				Expect([]string{tracks[0].Title, tracks[1].Title, tracks[2].Title}).To(Equal([]string{"Alpha Track", "Beta Track", "Gamma Track"}))
+			})
+
+			It("sorts by title", func() {
+				beforePlaylist()
+				result, err := repo.ReadAll(rest.QueryOptions{Sort: "title", Order: "ASC"})
+				Expect(err).ToNot(HaveOccurred())
+
+				tracks, ok := result.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				Expect(tracks).To(HaveLen(3))
+				Expect([]string{tracks[0].Title, tracks[1].Title, tracks[2].Title}).To(Equal([]string{"Alpha Track", "Beta Track", "Gamma Track"}))
+			})
+		})
 	})
 })

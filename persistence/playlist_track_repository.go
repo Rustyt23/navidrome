@@ -88,6 +88,64 @@ func playlistTrackQueryFilter() filterFunc {
 	}
 }
 
+var playlistTrackMediaFileSorts = map[string]struct{}{
+	"order_artist_name":       {},
+	"order_album_artist_name": {},
+	"order_album_name":        {},
+	"order_title":             {},
+	"duration":                {},
+	"year":                    {},
+	"bpm":                     {},
+	"channels":                {},
+	"genre":                   {},
+	"comment":                 {},
+	"track_number":            {},
+}
+
+func qualifyPlaylistTrackSort(sort string) string {
+	if sort == "" {
+		return sort
+	}
+
+	parts := strings.Split(sort, ",")
+	for i, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+
+		field := trimmed
+		if idx := strings.IndexFunc(field, func(r rune) bool { return r == ' ' || r == '\t' }); idx != -1 {
+			field = field[:idx]
+		}
+
+		if strings.Contains(field, ".") || strings.Contains(field, "(") {
+			parts[i] = trimmed
+			continue
+		}
+
+		if _, ok := playlistTrackMediaFileSorts[field]; ok {
+			parts[i] = strings.Replace(trimmed, field, "f."+field, 1)
+		} else {
+			parts[i] = trimmed
+		}
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func (r *playlistTrackRepository) newSelect(options ...model.QueryOptions) SelectBuilder {
+	if len(options) > 0 {
+		qualified := make([]model.QueryOptions, len(options))
+		for i, opt := range options {
+			opt.Sort = qualifyPlaylistTrackSort(opt.Sort)
+			qualified[i] = opt
+		}
+		return r.sqlRepository.newSelect(qualified...)
+	}
+	return r.sqlRepository.newSelect(options...)
+}
+
 func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool) model.PlaylistTrackRepository {
 	p := &playlistTrackRepository{}
 	p.playlistRepo = r
@@ -103,16 +161,22 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 	})
 	p.setSortMappings(
 		map[string]string{
-			"id":           "playlist_tracks.id",
-			"artist":       "order_artist_name",
-			"album_artist": "order_album_artist_name",
-			"album":        "order_album_name, order_album_artist_name",
-			"title":        "order_title",
-			// To make sure these fields will be whitelisted
-			"duration": "duration",
-			"year":     "year",
-			"bpm":      "bpm",
-			"channels": "channels",
+			"id":                      "playlist_tracks.id",
+			"artist":                  "order_artist_name",
+			"album_artist":            "order_album_artist_name",
+			"album":                   "order_album_name, order_album_artist_name",
+			"title":                   "order_title",
+			"duration":                "duration",
+			"year":                    "year",
+			"bpm":                     "bpm",
+			"channels":                "channels",
+			"genre":                   "genre",
+			"comment":                 "comment",
+			"track_number":            "track_number",
+			"order_artist_name":       "order_artist_name",
+			"order_album_artist_name": "order_album_artist_name",
+			"order_album_name":        "order_album_name",
+			"order_title":             "order_title",
 		},
 		"f") // TODO I don't like this solution, but I won't change it now as it's not the focus of BFR.
 
