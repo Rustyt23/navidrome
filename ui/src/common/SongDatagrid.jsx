@@ -233,7 +233,31 @@ const SongDatagridBody = ({
   ...rest
 }) => {
   const dispatch = useDispatch()
-  const { ids, data } = rest
+  const { ids: rawIds = [], data, ...bodyProps } = rest
+
+  const ids = useMemo(() => {
+    if (!rawIds) {
+      return []
+    }
+
+    const seen = new Set()
+    const regular = []
+    const missing = []
+
+    rawIds.forEach((id) => {
+      if (seen.has(id) || !data?.[id]) {
+        return
+      }
+      seen.add(id)
+      if (data[id].missing) {
+        missing.push(id)
+      } else {
+        regular.push(id)
+      }
+    })
+
+    return [...regular, ...missing]
+  }, [rawIds, data])
 
   const playSubset = useCallback(
     (discNumber) => {
@@ -279,7 +303,9 @@ const SongDatagridBody = ({
 
   return (
     <PureDatagridBody
-      {...rest}
+      {...bodyProps}
+      ids={ids}
+      data={data}
       row={
         <SongDatagridRow
           firstTracksOfDiscs={firstTracksOfDiscs}
