@@ -263,13 +263,21 @@ const PlaylistSongs = ({
 
   const toggleableFields = useMemo(() => {
     return {
-      trackNumber: isDesktop && <TextField source="id" label={'#'} />,
+      trackNumber:
+        isDesktop && (
+          <NumberField source="trackNumber" label={'#'} sortBy="trackNumber" />
+        ),
       title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop && <AlbumLinkField source="album" />,
-      artist: isDesktop && <ArtistLinkField source="artist" />,
+      artist:
+        isDesktop && <ArtistLinkField source="artist" sortBy="artist" />, 
       albumArtist: isDesktop && <ArtistLinkField source="albumArtist" />,
       duration: (
-        <DurationField source="duration" className={classes.draggable} />
+        <DurationField
+          source="duration"
+          sortBy="duration"
+          className={classes.draggable}
+        />
       ),
       year: isDesktop && (
         <FunctionField
@@ -290,8 +298,8 @@ const PlaylistSongs = ({
       quality: isDesktop && <QualityInfo source="quality" sortable={false} />,
       channels: isDesktop && <NumberField source="channels" />,
       bpm: isDesktop && <NumberField source="bpm" />,
-      genre: <TextField source="genre" />,
-      comment: <TextField source="comment" />,
+      genre: <TextField source="genre" sortBy="genre" />,
+      comment: <TextField source="comment" sortBy="comment" />,
       path: <PathField source="path" />,
       rating: config.enableStarRating && (
         <RatingField
