@@ -36,6 +36,7 @@ const PlaylistShowLayout = (props) => {
   // Store search query in state to prevent losing focus
   const [searchTerm, setSearchTerm] = useState('')
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false)
+  const [sort, setSort] = useState({ field: 'title', order: 'ASC' })
 
   // Handle search change
   const handleSearchChange = useCallback((eventOrValue) => {
@@ -53,7 +54,15 @@ const PlaylistShowLayout = (props) => {
 
   React.useEffect(() => {
     setShowDuplicatesOnly(false)
+    setSort({ field: 'title', order: 'ASC' })
   }, [record?.id])
+
+  const handleSortChange = useCallback((nextSort) => {
+    if (!nextSort) {
+      return
+    }
+    setSort(nextSort)
+  }, [])
 
   return (
     <>
@@ -77,7 +86,7 @@ const PlaylistShowLayout = (props) => {
             addLabel={false}
             reference="playlistTrack"
             target="playlist_id"
-            sort={{ field: 'id', order: 'ASC' }}
+            sort={sort}
             perPage={50}
             filter={{
               playlist_id: props.id,
@@ -104,6 +113,7 @@ const PlaylistShowLayout = (props) => {
                 />}
               searchTerm={searchTerm} // Pass search term to child
               showDuplicatesOnly={showDuplicatesOnly}
+              onSortChange={handleSortChange}
             />
           </ReferenceManyField>
         </>

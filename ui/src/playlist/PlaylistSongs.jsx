@@ -100,6 +100,7 @@ const PlaylistSongs = ({
   readOnly,
   actions,
   showDuplicatesOnly,
+  onSortChange,
   ...props
 }) => {
   const listContext = useListContext()
@@ -140,8 +141,9 @@ const PlaylistSongs = ({
   const {
     onSelect: contextOnSelect,
     filterValues = {},
-    currentSort,
+    currentSort: contextCurrentSort,
     total: contextTotal,
+    setSort: contextSetSort,
   } = listContext
 
   const handleSelect = useCallback(
@@ -172,8 +174,8 @@ const PlaylistSongs = ({
       if (shouldLoadAllIds) {
         const filter = { ...filterValues, playlist_id: playlistId }
         const sort =
-          currentSort && currentSort.field
-            ? currentSort
+          contextCurrentSort && contextCurrentSort.field
+            ? contextCurrentSort
             : { field: 'id', order: 'ASC' }
 
         dataProvider
@@ -211,9 +213,35 @@ const PlaylistSongs = ({
       contextTotal,
       filterValues,
       playlistId,
-      currentSort,
+      contextCurrentSort,
       dataProvider,
     ],
+  )
+
+  const handleSetSort = useCallback(
+    (sort, order) => {
+      if (typeof contextSetSort === 'function') {
+        contextSetSort(sort, order)
+      }
+
+      if (!onSortChange) {
+        return
+      }
+
+      let nextOrder = order
+      if (typeof nextOrder === 'undefined') {
+        if (contextCurrentSort?.field === sort) {
+          nextOrder = contextCurrentSort.order === 'ASC' ? 'DESC' : 'ASC'
+        } else {
+          nextOrder = 'ASC'
+        }
+      }
+
+      if (sort) {
+        onSortChange({ field: sort, order: nextOrder })
+      }
+    },
+    [contextSetSort, onSortChange, contextCurrentSort],
   )
 
   const filteredListContext = useMemo(
@@ -221,8 +249,9 @@ const PlaylistSongs = ({
       ...listContext,
       selectedIds,
       onSelect: handleSelect,
+      setSort: handleSetSort,
     }),
-    [listContext, selectedIds, handleSelect],
+    [listContext, selectedIds, handleSelect, handleSetSort],
   )
 
   const onAddToPlaylist = useCallback(
