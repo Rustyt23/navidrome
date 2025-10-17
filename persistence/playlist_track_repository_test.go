@@ -200,4 +200,147 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[0].Missing).To(BeFalse())
 		})
 	})
+
+	Describe("sorting", func() {
+		var (
+			playlist      model.Playlist
+			mediaRepo     model.MediaFileRepository
+			createdTracks []model.MediaFile
+			repo          model.PlaylistTrackRepository
+		)
+
+		BeforeEach(func() {
+			mediaRepo = NewMediaFileRepository(ctx, GetDBXBuilder())
+			createdTracks = []model.MediaFile{
+				mf(model.MediaFile{
+					ID:              "9101",
+					Title:           "Sort Song Gamma",
+					ArtistID:        "3",
+					Artist:          "Gamma Artist",
+					OrderArtistName: "gamma artist",
+					AlbumID:         "101",
+					Album:           "Sgt Peppers",
+					TrackNumber:     3,
+					Genre:           "Jazz",
+					Comment:         "Charlie",
+					Duration:        240,
+					Path:            p("/sort/gamma.mp3"),
+				}),
+				mf(model.MediaFile{
+					ID:              "9102",
+					Title:           "Sort Song Alpha",
+					ArtistID:        "3",
+					Artist:          "Alpha Artist",
+					OrderArtistName: "alpha artist",
+					AlbumID:         "101",
+					Album:           "Sgt Peppers",
+					TrackNumber:     1,
+					Genre:           "Blues",
+					Comment:         "Alpha",
+					Duration:        120,
+					Path:            p("/sort/alpha.mp3"),
+				}),
+				mf(model.MediaFile{
+					ID:              "9103",
+					Title:           "Sort Song Beta",
+					ArtistID:        "3",
+					Artist:          "Beta Artist",
+					OrderArtistName: "beta artist",
+					AlbumID:         "101",
+					Album:           "Sgt Peppers",
+					TrackNumber:     2,
+					Genre:           "Rock",
+					Comment:         "Bravo",
+					Duration:        180,
+					Path:            p("/sort/beta.mp3"),
+				}),
+			}
+
+			for i := range createdTracks {
+				track := createdTracks[i]
+				Expect(mediaRepo.Put(&track)).To(Succeed())
+				createdTracks[i] = track
+			}
+
+			playlist = model.Playlist{Name: "Sorting", OwnerID: "userid", OwnerName: "userid"}
+			playlist.AddMediaFilesByID([]string{createdTracks[0].ID, createdTracks[1].ID, createdTracks[2].ID})
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+
+			repo = playlistRepo.Tracks(playlist.ID, true)
+		})
+
+		AfterEach(func() {
+			if playlist.ID != "" {
+				Expect(playlistRepo.Delete(playlist.ID)).To(Succeed())
+			}
+			for _, track := range createdTracks {
+				Expect(mediaRepo.Delete(track.ID)).To(Succeed())
+			}
+		})
+
+		It("sorts playlist tracks by key metadata fields", func() {
+			cases := []struct {
+				field   string
+				asc     []string
+				message string
+			}{
+				{
+					field:   "artist",
+					asc:     []string{"9102", "9103", "9101"},
+					message: "artist",
+				},
+				{
+					field:   "trackNumber",
+					asc:     []string{"9102", "9103", "9101"},
+					message: "track number",
+				},
+				{
+					field:   "genre",
+					asc:     []string{"9102", "9101", "9103"},
+					message: "genre",
+				},
+				{
+					field:   "comment",
+					asc:     []string{"9102", "9103", "9101"},
+					message: "comment",
+				},
+				{
+					field:   "duration",
+					asc:     []string{"9102", "9103", "9101"},
+					message: "duration",
+				},
+			}
+
+			for _, tc := range cases {
+				tc := tc
+				resultAsc, err := repo.ReadAll(rest.QueryOptions{Sort: tc.field, Order: "ASC"})
+				Expect(err).ToNot(HaveOccurred())
+				ascTracks, ok := resultAsc.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				Expect(extractMediaFileIDs(ascTracks)).To(Equal(tc.asc), "ascending sort by %s", tc.message)
+
+				resultDesc, err := repo.ReadAll(rest.QueryOptions{Sort: tc.field, Order: "DESC"})
+				Expect(err).ToNot(HaveOccurred())
+				descTracks, ok := resultDesc.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				Expect(extractMediaFileIDs(descTracks)).To(Equal(reverseStrings(tc.asc)), "descending sort by %s", tc.message)
+			}
+		})
+	})
 })
+
+func extractMediaFileIDs(tracks model.PlaylistTracks) []string {
+	ids := make([]string, len(tracks))
+	for i, track := range tracks {
+		ids[i] = track.MediaFileID
+	}
+	return ids
+}
+
+func reverseStrings(values []string) []string {
+	reversed := make([]string, len(values))
+	for i := range values {
+		reversed[i] = values[len(values)-1-i]
+	}
+	return reversed
+}

@@ -109,10 +109,13 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 			"album":        "order_album_name, order_album_artist_name",
 			"title":        "order_title",
 			// To make sure these fields will be whitelisted
-			"duration": "duration",
-			"year":     "year",
-			"bpm":      "bpm",
-			"channels": "channels",
+			"duration":     "f.duration",
+			"year":         "year",
+			"bpm":          "bpm",
+			"channels":     "channels",
+			"track_number": "f.track_number",
+			"genre":        "f.genre",
+			"comment":      "f.comment",
 		},
 		"f") // TODO I don't like this solution, but I won't change it now as it's not the focus of BFR.
 
