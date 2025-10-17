@@ -135,12 +135,7 @@ const PlaylistSongs = ({
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [playlistId, showDuplicatesOnly, setContextPage])
 
-  const displayedIdSet = useMemo(() => new Set(contextIds), [contextIds])
-
-  const selectedIds = useMemo(
-    () => contextSelectedIds.filter((id) => displayedIdSet.has(id)),
-    [contextSelectedIds, displayedIdSet],
-  )
+  const selectedIds = contextSelectedIds
 
   const filteredListContext = useMemo(
     () => ({
