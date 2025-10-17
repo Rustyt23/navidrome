@@ -88,6 +88,66 @@ var _ = Describe("PlaylistTrackRepository", func() {
 		})
 	})
 
+	Describe("missing entries", func() {
+		var playlist model.Playlist
+
+		BeforeEach(func() {
+			playlist = model.Playlist{
+				Name:      "Missing Entries",
+				OwnerID:   "userid",
+				OwnerName: "userid",
+				Sync:      true,
+			}
+			playlist.Path = filepath.Join(GinkgoT().TempDir(), "missing_entries.m3u")
+			Expect(os.WriteFile(playlist.Path, []byte("ghost-track.mp3\n"), 0o600)).To(Succeed())
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			if playlist.ID != "" {
+				Expect(playlistRepo.Delete(playlist.ID)).To(Succeed())
+			}
+		})
+
+		It("uses stable ids for missing playlist tracks across queries", func() {
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			fetch := func(opts rest.QueryOptions) model.PlaylistTracks {
+				result, err := repo.ReadAll(opts)
+				Expect(err).ToNot(HaveOccurred())
+
+				tracks, ok := result.(model.PlaylistTracks)
+				Expect(ok).To(BeTrue())
+				return tracks
+			}
+
+			first := fetch(rest.QueryOptions{})
+			second := fetch(rest.QueryOptions{Sort: "title", Order: "DESC"})
+			third := fetch(rest.QueryOptions{Sort: "title", Order: "ASC"})
+
+			missingIDs := func(tracks model.PlaylistTracks) []string {
+				ids := make([]string, 0)
+				for _, track := range tracks {
+					if track.Missing {
+						ids = append(ids, track.ID)
+					}
+				}
+				return ids
+			}
+
+			firstMissing := missingIDs(first)
+			secondMissing := missingIDs(second)
+			thirdMissing := missingIDs(third)
+
+			Expect(firstMissing).To(HaveLen(1))
+			Expect(secondMissing).To(HaveLen(1))
+			Expect(thirdMissing).To(HaveLen(1))
+			Expect(firstMissing[0]).To(HavePrefix("missing:"))
+			Expect(secondMissing[0]).To(Equal(firstMissing[0]))
+			Expect(thirdMissing[0]).To(Equal(firstMissing[0]))
+		})
+	})
+
 	Describe("search filter", func() {
 		var playlist model.Playlist
 

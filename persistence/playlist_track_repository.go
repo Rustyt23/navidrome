@@ -3,6 +3,7 @@ package persistence
 import (
 	"bufio"
 	"context"
+	"crypto/sha1"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -546,7 +547,7 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 		}
 
 		missingCount++
-		id := fmt.Sprintf("%d", missingCount)
+		id := buildMissingTrackID(pls.ID, normalizedEntry, missingCount)
 		title := strings.TrimSuffix(filepath.Base(display), filepath.Ext(display))
 		if title == "" {
 			title = display
@@ -650,6 +651,15 @@ func readPlaylistEntries(path string) ([]string, error) {
 
 func normalizePlaylistPath(path string) string {
 	return strings.ToLower(norm.NFC.String(path))
+}
+
+func buildMissingTrackID(playlistID, entry string, counter int) string {
+	normalized := normalizePlaylistPath(entry)
+	if normalized != "" {
+		sum := sha1.Sum([]byte(playlistID + ":" + normalized))
+		return fmt.Sprintf("missing:%x", sum)
+	}
+	return fmt.Sprintf("missing:%s:%d", playlistID, counter)
 }
 
 func popTrackIndex(key string, indexes map[string][]int) (int, bool) {
