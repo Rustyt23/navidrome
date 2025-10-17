@@ -2,14 +2,17 @@ package persistence
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
@@ -287,7 +290,159 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
 		return tracks, nil
 	}
+	applyPlaylistTrackSort(merged, opt.Sort, opt.Order)
 	return merged, nil
+}
+
+func applyPlaylistTrackSort(tracks model.PlaylistTracks, sortField, sortOrder string) {
+	normalized := normalizePlaylistSortField(sortField)
+	if normalized == "" || normalized == "id" {
+		return
+	}
+
+	descending := strings.EqualFold(sortOrder, "desc")
+
+	slices.SortStableFunc(tracks, func(a, b model.PlaylistTrack) int {
+		if a.Missing != b.Missing {
+			if a.Missing {
+				return 1
+			}
+			return -1
+		}
+
+		cmpResult := comparePlaylistTracksByField(normalized, a, b)
+		if cmpResult == 0 {
+			cmpResult = cmp.Compare(a.ID, b.ID)
+		}
+
+		if descending {
+			cmpResult = -cmpResult
+		}
+
+		return cmpResult
+	})
+}
+
+func comparePlaylistTracksByField(field string, a, b model.PlaylistTrack) int {
+	getter, ok := playlistTrackSortExtractors[field]
+	if !ok {
+		return 0
+	}
+
+	av := getter(a)
+	bv := getter(b)
+	result := comparePlaylistSortValues(av, bv)
+
+	if result == 0 {
+		switch field {
+		case "album":
+			return comparePlaylistTracksByField("albumartist", a, b)
+		}
+	}
+
+	return result
+}
+
+func comparePlaylistSortValues(av, bv any) int {
+	switch a := av.(type) {
+	case string:
+		b := bv.(string)
+		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+	case int:
+		return cmp.Compare(a, bv.(int))
+	case int64:
+		return cmp.Compare(a, bv.(int64))
+	case float32:
+		return cmp.Compare(float64(a), float64(bv.(float32)))
+	case float64:
+		return cmp.Compare(a, bv.(float64))
+	case time.Time:
+		return cmp.Compare(a, bv.(time.Time))
+	case bool:
+		return cmp.Compare(a, bv.(bool))
+	default:
+		return strings.Compare(strings.ToLower(fmt.Sprint(av)), strings.ToLower(fmt.Sprint(bv)))
+	}
+}
+
+func normalizePlaylistSortField(field string) string {
+	field = strings.TrimSpace(strings.ToLower(field))
+	if field == "" {
+		return ""
+	}
+
+	field = strings.TrimPrefix(field, "playlist_tracks.")
+	field = strings.TrimPrefix(field, "f.")
+	field = strings.ReplaceAll(field, ".", "_")
+	field = strings.ReplaceAll(field, "_", "")
+
+	return field
+}
+
+var playlistTrackSortExtractors = map[string]func(model.PlaylistTrack) any{
+	"album": func(t model.PlaylistTrack) any {
+		return t.Album
+	},
+	"albumartist": func(t model.PlaylistTrack) any {
+		return t.AlbumArtist
+	},
+	"orderalbumartistname": func(t model.PlaylistTrack) any {
+		return t.OrderAlbumArtistName
+	},
+	"orderalbumname": func(t model.PlaylistTrack) any {
+		return t.OrderAlbumName
+	},
+	"artist": func(t model.PlaylistTrack) any {
+		return t.Artist
+	},
+	"orderartistname": func(t model.PlaylistTrack) any {
+		return t.OrderArtistName
+	},
+	"title": func(t model.PlaylistTrack) any {
+		return t.Title
+	},
+	"ordertitle": func(t model.PlaylistTrack) any {
+		return t.OrderTitle
+	},
+	"duration": func(t model.PlaylistTrack) any {
+		return float64(t.Duration)
+	},
+	"year": func(t model.PlaylistTrack) any {
+		return t.Year
+	},
+	"bpm": func(t model.PlaylistTrack) any {
+		return t.BPM
+	},
+	"channels": func(t model.PlaylistTrack) any {
+		return t.Channels
+	},
+	"playcount": func(t model.PlaylistTrack) any {
+		return t.PlayCount
+	},
+	"playdate": func(t model.PlaylistTrack) any {
+		if t.PlayDate != nil {
+			return *t.PlayDate
+		}
+		return time.Time{}
+	},
+	"createdat": func(t model.PlaylistTrack) any {
+		return t.CreatedAt
+	},
+	"comment": func(t model.PlaylistTrack) any {
+		return t.Comment
+	},
+	"path": func(t model.PlaylistTrack) any {
+		return t.Path
+	},
+	"genre": func(t model.PlaylistTrack) any {
+		return t.Genre
+	},
+	"rating": func(t model.PlaylistTrack) any {
+		return t.Rating
+	},
+	"tracknumber": func(t model.PlaylistTrack) any {
+		return t.TrackNumber
+	},
 }
 
 func parseBoolFilter(value interface{}) bool {
