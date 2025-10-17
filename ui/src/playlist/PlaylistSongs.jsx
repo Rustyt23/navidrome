@@ -111,8 +111,35 @@ const PlaylistSongs = ({
     refetch,
     setPage: setContextPage,
   } = listContext
-  const ids = contextIds
   const data = contextData
+  const sanitizedIds = useMemo(() => {
+    if (!contextIds || contextIds.length === 0) {
+      return contextIds
+    }
+
+    const seen = new Set()
+    const present = []
+    const missing = []
+
+    contextIds.forEach((id) => {
+      if (seen.has(id)) {
+        return
+      }
+      seen.add(id)
+
+      const record = contextData?.[id]
+      if (record?.missing) {
+        missing.push(id)
+        return
+      }
+
+      present.push(id)
+    })
+
+    return [...present, ...missing]
+  }, [contextIds, contextData])
+
+  const ids = sanitizedIds
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
@@ -219,10 +246,12 @@ const PlaylistSongs = ({
   const filteredListContext = useMemo(
     () => ({
       ...listContext,
+      ids,
+      total: ids?.length ?? listContext.total,
       selectedIds,
       onSelect: handleSelect,
     }),
-    [listContext, selectedIds, handleSelect],
+    [listContext, ids, selectedIds, handleSelect],
   )
 
   const onAddToPlaylist = useCallback(
