@@ -505,6 +505,20 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	result := make(model.PlaylistTracks, 0, len(entries))
 	missingCount := 0
 
+	seen := make(map[string]bool, len(tracks))
+	markSeen := func(path string) {
+		normalizedPath := normalizePlaylistPath(filepath.ToSlash(path))
+		if normalizedPath != "" {
+			seen[normalizedPath] = true
+		}
+	}
+	for _, t := range tracks {
+		markSeen(t.Path)
+		if t.LibraryPath != "" && t.Path != "" {
+			markSeen(filepath.Join(t.LibraryPath, t.Path))
+		}
+	}
+
 	for _, entry := range entries {
 		display := filepath.ToSlash(entry)
 		normalizedEntry := normalizePlaylistPath(display)
@@ -541,6 +555,13 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 			lowerDisplay := strings.ToLower(display)
 			base := strings.ToLower(filepath.Base(display))
 			if !strings.Contains(lowerDisplay, searchTerm) && !strings.Contains(base, searchTerm) {
+				continue
+			}
+		}
+
+		normalizedDisplay := normalizedEntry
+		if normalizedDisplay != "" {
+			if seen[normalizedDisplay] {
 				continue
 			}
 		}
