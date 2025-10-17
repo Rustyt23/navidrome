@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -369,6 +370,22 @@ func (r *mediaFileRepository) ReadAll(options ...rest.QueryOptions) (interface{}
 
 func (r *mediaFileRepository) EntityName() string {
 	return "mediafile"
+}
+
+func (r *mediaFileRepository) parseRestOptions(ctx context.Context, options ...rest.QueryOptions) model.QueryOptions {
+	qo := r.sqlRepository.parseRestOptions(ctx, options...)
+
+	const missingSort = "media_file.missing asc"
+	if qo.Sort == "" {
+		qo.Sort = missingSort
+		return qo
+	}
+
+	if !strings.Contains(qo.Sort, "missing") {
+		qo.Sort = missingSort + ", " + qo.Sort
+	}
+
+	return qo
 }
 
 func (r *mediaFileRepository) NewInstance() interface{} {

@@ -148,12 +148,22 @@ func (r sqlRepository) buildSortOrder(sort, order string) string {
 		f := strings.FieldsFunc(p, splitFunc(' '))
 		newField := make([]string, 1, len(f))
 		newField[0] = f[0]
+
+		forceAsc := strings.Contains(f[0], "missing")
 		if len(f) == 1 {
-			newField = append(newField, order)
-		} else {
-			if f[1] == "asc" {
-				newField = append(newField, order)
+			if forceAsc {
+				newField = append(newField, "asc")
 			} else {
+				newField = append(newField, order)
+			}
+		} else {
+			dir := strings.ToLower(f[1])
+			switch {
+			case forceAsc:
+				newField = append(newField, "asc")
+			case dir == "asc":
+				newField = append(newField, order)
+			default:
 				newField = append(newField, reverseOrder)
 			}
 		}
