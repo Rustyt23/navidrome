@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   BulkActionsToolbar,
   ListToolbar,
@@ -144,6 +144,12 @@ const PlaylistSongs = ({
     total: contextTotal,
   } = listContext
 
+  const [loadedRecords, setLoadedRecords] = useState({})
+
+  useEffect(() => {
+    setLoadedRecords({})
+  }, [playlistId])
+  
   const handleSelect = useCallback(
     (idsToSelect) => {
       if (!contextOnSelect) {
@@ -164,8 +170,14 @@ const PlaylistSongs = ({
         newlyAddedIds.length > 0 &&
         newlyAddedIds.every((id) => pageIds.includes(id))
 
+      const isSelectingEntirePage =
+        Array.isArray(pageIds) &&
+        pageIds.length > 0 &&
+        pageIds.every((id) => idsToSelect.includes(id))
+
       const shouldLoadAllIds =
         isSelectingCurrentPage &&
+        isSelectingEntirePage &&
         typeof contextTotal === 'number' &&
         contextTotal > idsToSelect.length
 
@@ -189,6 +201,12 @@ const PlaylistSongs = ({
             sort: sort,
           })
           .then(({ data: records }) => {
+            const recordsById = records.reduce((acc, record) => {
+              acc[record.id] = record
+              return acc
+            }, {})
+            setLoadedRecords((prev) => ({ ...prev, ...recordsById }))
+
             const preservedIds = idsToSelect.filter(
               (id) => !pageIds.includes(id),
             )
@@ -219,10 +237,12 @@ const PlaylistSongs = ({
   const filteredListContext = useMemo(
     () => ({
       ...listContext,
+      data: { ...contextData, ...loadedRecords },
       selectedIds,
       onSelect: handleSelect,
     }),
-    [listContext, selectedIds, handleSelect],
+    [listContext, selectedIds, handleSelect, contextData, loadedRecords],
+
   )
 
   const onAddToPlaylist = useCallback(
