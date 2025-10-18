@@ -149,7 +149,7 @@ const PlaylistSongs = ({
   useEffect(() => {
     setLoadedRecords({})
   }, [playlistId])
-
+  
   const handleSelect = useCallback(
     (idsToSelect) => {
       if (!contextOnSelect) {
@@ -206,6 +206,7 @@ const PlaylistSongs = ({
               return acc
             }, {})
             setLoadedRecords((prev) => ({ ...prev, ...recordsById }))
+
             const preservedIds = idsToSelect.filter(
               (id) => !pageIds.includes(id),
             )
@@ -241,6 +242,7 @@ const PlaylistSongs = ({
       onSelect: handleSelect,
     }),
     [listContext, selectedIds, handleSelect, contextData, loadedRecords],
+
   )
 
   const onAddToPlaylist = useCallback(

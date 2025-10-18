@@ -199,7 +199,13 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     >
       <span className={classes.spacer} />
       <ListItemIcon className={classes.listItemIcon}><RiPlayListFill /></ListItemIcon>
-      <ListItemText primary={<Typography variant="body2" noWrap className={classes.text}>{pls.name}</Typography>} />
+      <ListItemText
+        primary={(
+          <Typography variant="body2" noWrap className={classes.text} title={pls.name}>
+            {pls.name}
+          </Typography>
+        )}
+      />
     </ListItem>
   )
 })
@@ -311,7 +317,13 @@ const FolderRow = memo(function FolderRow({
           {open ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
         </IconButton>
         <ListItemIcon className={classes.listItemIcon}><RiFolder3Fill /></ListItemIcon>
-        <ListItemText primary={<Typography variant="body2" noWrap className={classes.text}>{node.name}</Typography>} />
+        <ListItemText
+          primary={(
+            <Typography variant="body2" noWrap className={classes.text} title={node.name}>
+              {node.name}
+            </Typography>
+          )}
+        />
         {loading && <CircularProgress size={14} className={classes.spinner} />}
       </ListItem>
 
