@@ -324,17 +324,24 @@ func recordMissingPlaylistTrack(ctx context.Context, playlistPath, trackPath str
 
 	_, err = db.Exec(`
 CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        playlist_id TEXT,
-        track_path TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+playlist_id TEXT,
+track_path TEXT,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`)
 	if err != nil {
 		log.Debug(ctx, "Unable to ensure missing tracks table", "path", dbFile, "err", err)
 		return
 	}
 
-	if _, err := db.Exec(`INSERT INTO missing_playlist_tracks (playlist_id, track_path) VALUES (?, ?)`, playlistPath, trackPath); err != nil {
+	if _, err := db.Exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS idx_missing_playlist_tracks_playlist_track
+ON missing_playlist_tracks(playlist_id, track_path)`); err != nil {
+		log.Debug(ctx, "Unable to ensure missing tracks index", "path", dbFile, "err", err)
+		return
+	}
+
+	if _, err := db.Exec(`INSERT OR IGNORE INTO missing_playlist_tracks (playlist_id, track_path) VALUES (?, ?)`, playlistPath, trackPath); err != nil {
 		log.Debug(ctx, "Unable to record missing track", "path", dbFile, "err", err)
 	}
 }

@@ -108,6 +108,32 @@ var _ = Describe("Playlists", func() {
 				Expect(trackPath).To(Equal("missing-track.mp3"))
 			})
 
+			It("avoids duplicating missing tracks for the same playlist entry", func() {
+				DeferCleanup(configtest.SetupConfig())
+
+				dataDir := GinkgoT().TempDir()
+				conf.Server.DataFolder = dataDir
+
+				dbPath := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
+				_ = os.Remove(dbPath)
+
+				playlistPath := filepath.Join(folder.AbsolutePath(), "missing-log.m3u")
+				trackPath := "missing-track.mp3"
+
+				recordMissingPlaylistTrack(ctx, playlistPath, trackPath)
+				recordMissingPlaylistTrack(ctx, playlistPath, trackPath)
+
+				dsn := "file:" + filepath.ToSlash(dbPath) + "?_journal_mode=WAL"
+				db, err := sql.Open("sqlite3", dsn)
+				Expect(err).ToNot(HaveOccurred())
+				defer db.Close()
+
+				row := db.QueryRow(`SELECT COUNT(*) FROM missing_playlist_tracks WHERE playlist_id = ? AND track_path = ?`, playlistPath, trackPath)
+				var count int
+				Expect(row.Scan(&count)).To(Succeed())
+				Expect(count).To(Equal(1))
+			})
+
 			It("locates tracks from music library when playlist lives in playlists folder", func() {
 				DeferCleanup(configtest.SetupConfig())
 
