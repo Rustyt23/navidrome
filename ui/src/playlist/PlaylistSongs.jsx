@@ -170,8 +170,14 @@ const PlaylistSongs = ({
         newlyAddedIds.length > 0 &&
         newlyAddedIds.every((id) => pageIds.includes(id))
 
+      const isSelectingEntirePage =
+        Array.isArray(pageIds) &&
+        pageIds.length > 0 &&
+        pageIds.every((id) => idsToSelect.includes(id))
+
       const shouldLoadAllIds =
         isSelectingCurrentPage &&
+        isSelectingEntirePage &&
         typeof contextTotal === 'number' &&
         contextTotal > idsToSelect.length
 
