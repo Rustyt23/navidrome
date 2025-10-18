@@ -341,7 +341,9 @@ ON missing_playlist_tracks(playlist_id, track_path)`); err != nil {
 		return
 	}
 
-	if _, err := db.Exec(`INSERT OR IGNORE INTO missing_playlist_tracks (playlist_id, track_path) VALUES (?, ?)`, playlistPath, trackPath); err != nil {
+	if _, err := db.Exec(`INSERT INTO missing_playlist_tracks (playlist_id, track_path)
+VALUES (?, ?)
+ON CONFLICT(playlist_id, track_path) DO UPDATE SET created_at = CURRENT_TIMESTAMP`, playlistPath, trackPath); err != nil {
 		log.Debug(ctx, "Unable to record missing track", "path", dbFile, "err", err)
 	}
 }

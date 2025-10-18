@@ -108,7 +108,7 @@ var _ = Describe("Playlists", func() {
 				Expect(trackPath).To(Equal("missing-track.mp3"))
 			})
 
-			It("avoids duplicating missing tracks for the same playlist entry", func() {
+			It("upserts missing tracks while refreshing their timestamp", func() {
 				DeferCleanup(configtest.SetupConfig())
 
 				dataDir := GinkgoT().TempDir()
@@ -121,17 +121,33 @@ var _ = Describe("Playlists", func() {
 				trackPath := "missing-track.mp3"
 
 				recordMissingPlaylistTrack(ctx, playlistPath, trackPath)
-				recordMissingPlaylistTrack(ctx, playlistPath, trackPath)
 
 				dsn := "file:" + filepath.ToSlash(dbPath) + "?_journal_mode=WAL"
 				db, err := sql.Open("sqlite3", dsn)
 				Expect(err).ToNot(HaveOccurred())
+
+				row := db.QueryRow(`SELECT strftime('%s', created_at) FROM missing_playlist_tracks WHERE playlist_id = ? AND track_path = ?`, playlistPath, trackPath)
+				var initialTimestamp int64
+				Expect(row.Scan(&initialTimestamp)).To(Succeed())
+				Expect(db.Close()).To(Succeed())
+
+				time.Sleep(1100 * time.Millisecond)
+
+				recordMissingPlaylistTrack(ctx, playlistPath, trackPath)
+
+				db, err = sql.Open("sqlite3", dsn)
+				Expect(err).ToNot(HaveOccurred())
 				defer db.Close()
 
-				row := db.QueryRow(`SELECT COUNT(*) FROM missing_playlist_tracks WHERE playlist_id = ? AND track_path = ?`, playlistPath, trackPath)
+				row = db.QueryRow(`SELECT COUNT(*) FROM missing_playlist_tracks WHERE playlist_id = ? AND track_path = ?`, playlistPath, trackPath)
 				var count int
 				Expect(row.Scan(&count)).To(Succeed())
 				Expect(count).To(Equal(1))
+
+				row = db.QueryRow(`SELECT strftime('%s', created_at) FROM missing_playlist_tracks WHERE playlist_id = ? AND track_path = ?`, playlistPath, trackPath)
+				var updatedTimestamp int64
+				Expect(row.Scan(&updatedTimestamp)).To(Succeed())
+				Expect(updatedTimestamp).To(BeNumerically(">", initialTimestamp))
 			})
 
 			It("locates tracks from music library when playlist lives in playlists folder", func() {

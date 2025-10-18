@@ -26,6 +26,7 @@ vi.mock('react-admin', async (importOriginal) => {
     useTranslate: () => (x) => x,
     useSelector: redux.useSelector,
     useDispatch: redux.useDispatch,
+    useNotify: () => vi.fn(),
     Link: ({ to, children, onClick, ...props }) => (
       <a
         href={to}
@@ -142,7 +143,7 @@ describe('<NowPlayingPanel />', () => {
   })
 
   it('handles entries without player name', async () => {
-    subsonic.getNowPlaying.mockResolvedValueOnce({
+    subsonic.getNowPlaying.mockResolvedValue({
       json: {
         'subsonic-response': {
           status: 'ok',
@@ -182,7 +183,7 @@ describe('<NowPlayingPanel />', () => {
   })
 
   it('shows empty message when no entries', async () => {
-    subsonic.getNowPlaying.mockResolvedValueOnce({
+    subsonic.getNowPlaying.mockResolvedValue({
       json: {
         'subsonic-response': { status: 'ok', nowPlaying: { entry: [] } },
       },
