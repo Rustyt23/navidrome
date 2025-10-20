@@ -130,10 +130,18 @@ const PlaylistSongs = ({
     prevShowDuplicates.current = showDuplicatesOnly
   }, [showDuplicatesOnly, refetch])
 
+  const setPageRef = React.useRef(setContextPage)
+
   useEffect(() => {
-    setContextPage(1)
+    setPageRef.current = setContextPage
+  }, [setContextPage])
+
+  useEffect(() => {
+    if (setPageRef.current) {
+      setPageRef.current(1)
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [playlistId, showDuplicatesOnly, setContextPage])
+  }, [playlistId, showDuplicatesOnly])
 
   const selectedIds = contextSelectedIds
 
