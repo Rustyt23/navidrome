@@ -575,6 +575,22 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	missing := make(model.PlaylistTracks, 0)
 	missingCount := 0
 
+	seen := make(map[string]bool, len(tracks))
+	for _, t := range tracks {
+		rel := filepath.ToSlash(t.Path)
+		key := normalizePlaylistPath(rel)
+		if key != "" {
+			seen[key] = true
+		}
+		if t.LibraryPath != "" && t.Path != "" {
+			abs := filepath.ToSlash(filepath.Join(t.LibraryPath, t.Path))
+			absKey := normalizePlaylistPath(abs)
+			if absKey != "" {
+				seen[absKey] = true
+			}
+		}
+	}
+
 	for _, entry := range entries {
 		display := filepath.ToSlash(entry)
 		normalizedEntry := normalizePlaylistPath(display)
@@ -623,6 +639,15 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 			}
 		}
 
+		normalizedDisplay := normalizedEntry
+		if normalizedDisplay == "" {
+			normalizedDisplay = normalizePlaylistPath(display)
+		}
+		alreadySeen := normalizedDisplay != "" && seen[normalizedDisplay]
+		if alreadySeen && !preservePlaylistOrder {
+			continue
+		}
+
 		missingCount++
 		id := fmt.Sprintf("%d", missingCount)
 		title := strings.TrimSuffix(filepath.Base(display), filepath.Ext(display))
@@ -647,6 +672,9 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 			result = append(result, placeholder)
 		} else {
 			missing = append(missing, placeholder)
+		}
+		if normalizedDisplay != "" {
+			seen[normalizedDisplay] = true
 		}
 	}
 
