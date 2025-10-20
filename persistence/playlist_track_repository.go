@@ -632,7 +632,7 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 		}
 
 		missingCount++
-		id := fmt.Sprintf("%d", missingCount)
+		id := fmt.Sprintf("missing:%d", missingCount)
 
 		placeholder := newMissingPlaceholder(pls, id, display)
 		if preservePlaylistOrder {
