@@ -325,13 +325,11 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		duplicates := filterDuplicatePlaylistTracks(tracks)
 
 		if r.playlist != nil && r.playlist.Sync && r.playlist.Path != "" {
-			merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm, preservePlaylistOrder)
+			missingDuplicates, err := collectDuplicateMissingPlaylistTracks(r.ctx, tracks, r.playlist, searchTerm)
 			if err != nil {
 				log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
 				return duplicates, nil
 			}
-
-			missingDuplicates := filterDuplicateMissingPlaylistTracks(merged)
 			if len(missingDuplicates) > 0 {
 				duplicates = append(duplicates, missingDuplicates...)
 			}
@@ -551,21 +549,7 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 		return tracks, nil
 	}
 
-	normalized := make(map[string][]int, len(tracks))
-	for idx, t := range tracks {
-		rel := filepath.ToSlash(t.Path)
-		key := normalizePlaylistPath(rel)
-		if key != "" {
-			normalized[key] = append(normalized[key], idx)
-		}
-		if t.LibraryPath != "" && t.Path != "" {
-			abs := filepath.ToSlash(filepath.Join(t.LibraryPath, t.Path))
-			absKey := normalizePlaylistPath(abs)
-			if absKey != "" {
-				normalized[absKey] = append(normalized[absKey], idx)
-			}
-		}
-	}
+	normalized := buildPlaylistTrackIndexes(tracks)
 
 	used := make([]bool, len(tracks))
 	var result model.PlaylistTracks
@@ -576,18 +560,18 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	missingCount := 0
 
 	seen := make(map[string]bool, len(tracks))
-	for _, t := range tracks {
-		rel := filepath.ToSlash(t.Path)
-		key := normalizePlaylistPath(rel)
-		if key != "" {
-			seen[key] = true
+	recordSeen := func(path string) {
+		normalizedPath := normalizePlaylistPath(filepath.ToSlash(path))
+		if normalizedPath != "" {
+			seen[normalizedPath] = true
 		}
+	}
+
+	for _, t := range tracks {
+		recordSeen(t.Path)
 		if t.LibraryPath != "" && t.Path != "" {
-			abs := filepath.ToSlash(filepath.Join(t.LibraryPath, t.Path))
-			absKey := normalizePlaylistPath(abs)
-			if absKey != "" {
-				seen[absKey] = true
-			}
+			abs := filepath.Join(t.LibraryPath, t.Path)
+			recordSeen(abs)
 		}
 	}
 
@@ -643,31 +627,14 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 		if normalizedDisplay == "" {
 			normalizedDisplay = normalizePlaylistPath(display)
 		}
-		alreadySeen := normalizedDisplay != "" && seen[normalizedDisplay]
-		if alreadySeen && !preservePlaylistOrder {
+		if normalizedDisplay != "" && seen[normalizedDisplay] {
 			continue
 		}
 
 		missingCount++
 		id := fmt.Sprintf("%d", missingCount)
-		title := strings.TrimSuffix(filepath.Base(display), filepath.Ext(display))
-		if title == "" {
-			title = display
-		}
-		suffix := strings.TrimPrefix(strings.ToLower(filepath.Ext(display)), ".")
 
-		placeholder := model.PlaylistTrack{
-			ID:          id,
-			MediaFileID: id,
-			PlaylistID:  pls.ID,
-			MediaFile: model.MediaFile{
-				ID:      id,
-				Title:   title,
-				Path:    display,
-				Missing: true,
-				Suffix:  suffix,
-			},
-		}
+		placeholder := newMissingPlaceholder(pls, id, display)
 		if preservePlaylistOrder {
 			result = append(result, placeholder)
 		} else {
@@ -692,6 +659,129 @@ func mergePlaylistTracksWithMissing(ctx context.Context, tracks model.PlaylistTr
 	merged = append(merged, tracks...)
 	merged = append(merged, missing...)
 	return merged, nil
+}
+
+func buildPlaylistTrackIndexes(tracks model.PlaylistTracks) map[string][]int {
+	normalized := make(map[string][]int, len(tracks))
+	for idx, t := range tracks {
+		rel := filepath.ToSlash(t.Path)
+		key := normalizePlaylistPath(rel)
+		if key != "" {
+			normalized[key] = append(normalized[key], idx)
+		}
+		if t.LibraryPath != "" && t.Path != "" {
+			abs := filepath.ToSlash(filepath.Join(t.LibraryPath, t.Path))
+			absKey := normalizePlaylistPath(abs)
+			if absKey != "" {
+				normalized[absKey] = append(normalized[absKey], idx)
+			}
+		}
+	}
+	return normalized
+}
+
+func collectDuplicateMissingPlaylistTracks(ctx context.Context, tracks model.PlaylistTracks, pls *model.Playlist, searchTerm string) (model.PlaylistTracks, error) {
+	entries, err := readPlaylistEntries(pls.Path)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	normalized := buildPlaylistTrackIndexes(tracks)
+	used := make([]bool, len(tracks))
+	duplicates := make(model.PlaylistTracks, 0)
+	missingCounts := make(map[string]int)
+	missingCount := 0
+
+	for _, entry := range entries {
+		display := filepath.ToSlash(entry)
+		normalizedEntry := normalizePlaylistPath(display)
+
+		matched := false
+		if matchIdx, ok := popTrackIndex(normalizedEntry, normalized); ok {
+			matched = consumePlaylistTrack(matchIdx, tracks, used, nil, normalized)
+			if matched {
+				continue
+			}
+		}
+
+		if normalizedEntry != "" {
+			var fallbackIdx int
+			var fallbackFound bool
+			for key := range normalized {
+				if strings.HasSuffix(normalizedEntry, key) || strings.HasSuffix(key, normalizedEntry) {
+					if idx, ok := popTrackIndex(key, normalized); ok {
+						fallbackIdx = idx
+						fallbackFound = true
+						break
+					}
+				}
+			}
+			if fallbackFound {
+				matched = consumePlaylistTrack(fallbackIdx, tracks, used, nil, normalized)
+				if matched {
+					continue
+				}
+			}
+		}
+
+		if searchTerm != "" {
+			lowerDisplay := strings.ToLower(display)
+			base := strings.ToLower(filepath.Base(display))
+			if !strings.Contains(lowerDisplay, searchTerm) && !strings.Contains(base, searchTerm) {
+				continue
+			}
+		}
+
+		normalizedDisplay := normalizedEntry
+		if normalizedDisplay == "" {
+			normalizedDisplay = normalizePlaylistPath(display)
+		}
+		if normalizedDisplay == "" {
+			continue
+		}
+
+		missingCounts[normalizedDisplay]++
+		if missingCounts[normalizedDisplay] == 1 {
+			continue
+		}
+
+		missingCount++
+		id := fmt.Sprintf("missing:%d", missingCount)
+		placeholder := newMissingPlaceholder(pls, id, display)
+		duplicates = append(duplicates, placeholder)
+	}
+
+	return duplicates, nil
+}
+
+func newMissingPlaceholder(pls *model.Playlist, id, display string) model.PlaylistTrack {
+	normalizedDisplay := filepath.ToSlash(display)
+	title := strings.TrimSuffix(filepath.Base(normalizedDisplay), filepath.Ext(normalizedDisplay))
+	if title == "" {
+		title = normalizedDisplay
+	}
+	suffix := strings.TrimPrefix(strings.ToLower(filepath.Ext(normalizedDisplay)), ".")
+
+	playlistID := ""
+	if pls != nil {
+		playlistID = pls.ID
+	}
+
+	return model.PlaylistTrack{
+		ID:          id,
+		MediaFileID: id,
+		PlaylistID:  playlistID,
+		MediaFile: model.MediaFile{
+			ID:      id,
+			Title:   title,
+			Path:    normalizedDisplay,
+			Missing: true,
+			Suffix:  suffix,
+		},
+	}
 }
 
 func consumePlaylistTrack(idx int, tracks model.PlaylistTracks, used []bool, result *model.PlaylistTracks, indexes map[string][]int) bool {
