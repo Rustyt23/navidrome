@@ -131,12 +131,27 @@ const PlaylistSongs = ({
   }, [showDuplicatesOnly, refetch])
 
   const setPageRef = React.useRef(setContextPage)
+  const resetDepsRef = React.useRef({
+    playlistId,
+    showDuplicatesOnly,
+  })
 
   useEffect(() => {
     setPageRef.current = setContextPage
   }, [setContextPage])
 
   useEffect(() => {
+    const previous = resetDepsRef.current
+    const playlistChanged = previous.playlistId !== playlistId
+    const duplicatesChanged =
+      previous.showDuplicatesOnly !== showDuplicatesOnly
+
+    if (!playlistChanged && !duplicatesChanged) {
+      return
+    }
+
+    resetDepsRef.current = { playlistId, showDuplicatesOnly }
+
     if (setPageRef.current) {
       setPageRef.current(1)
     }
