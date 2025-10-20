@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/log"
@@ -198,6 +199,64 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks).To(HaveLen(1))
 			Expect(tracks[0].MediaFileID).To(Equal(songDayInALife.ID))
 			Expect(tracks[0].Missing).To(BeFalse())
+		})
+	})
+
+	Describe("sorting", func() {
+		var playlist model.Playlist
+
+		BeforeEach(func() {
+			playlist = model.Playlist{
+				Name:      "Sorting Respect",
+				OwnerID:   "userid",
+				OwnerName: "userid",
+				Sync:      true,
+			}
+			playlist.AddMediaFilesByID([]string{songRadioactivity.ID, songAntenna.ID, songDayInALife.ID})
+			playlist.Path = filepath.Join(GinkgoT().TempDir(), "sorting_respect.m3u")
+			contents := strings.Join([]string{
+				songRadioactivity.Path,
+				songAntenna.Path,
+				songDayInALife.Path,
+			}, "\n")
+			Expect(os.WriteFile(playlist.Path, []byte(contents), 0o600)).To(Succeed())
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+
+			updates := []struct {
+				id    string
+				title string
+			}{
+				{songRadioactivity.ID, songRadioactivity.Title},
+				{songAntenna.ID, songAntenna.Title},
+				{songDayInALife.ID, songDayInALife.Title},
+			}
+			for _, upd := range updates {
+				_, err := GetDBXBuilder().Update("media_file", dbx.Params{
+					"order_title": strings.ToLower(upd.title),
+				}, dbx.HashExp{"id": upd.id}).Execute()
+				Expect(err).ToNot(HaveOccurred())
+			}
+		})
+
+		AfterEach(func() {
+			if playlist.ID != "" {
+				Expect(playlistRepo.Delete(playlist.ID)).To(Succeed())
+			}
+		})
+
+		It("respects explicit sort order for synced playlists", func() {
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			result, err := repo.ReadAll(rest.QueryOptions{Sort: "title", Order: "ASC"})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(3))
+
+			Expect(tracks[0].Title).To(Equal("A Day In A Life"))
+			Expect(tracks[1].Title).To(Equal("Antenna"))
+			Expect(tracks[2].Title).To(Equal("Radioactivity"))
 		})
 	})
 })
