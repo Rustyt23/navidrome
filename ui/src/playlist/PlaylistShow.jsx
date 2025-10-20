@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import {
   ReferenceManyField,
   ShowContextProvider,
@@ -55,6 +55,25 @@ const PlaylistShowLayout = (props) => {
     setShowDuplicatesOnly(false)
   }, [record?.id])
 
+  const referenceSort = useMemo(
+    () => ({ field: 'id', order: 'ASC' }),
+    [],
+  )
+
+  const referenceFilter = useMemo(
+    () => ({
+      playlist_id: props.id,
+      q: searchTerm,
+      ...(showDuplicatesOnly ? { duplicatesOnly: true } : {}),
+    }),
+    [props.id, searchTerm, showDuplicatesOnly],
+  )
+
+  const pagination = useMemo(
+    () => <Pagination rowsPerPageOptions={[50, 100, 200, 500]} perPage={50} />,
+    [],
+  )
+
   return (
     <>
       {record && <RaTitle title={<Title subTitle={record.name} />} />}
@@ -77,13 +96,9 @@ const PlaylistShowLayout = (props) => {
             addLabel={false}
             reference="playlistTrack"
             target="playlist_id"
-            sort={{ field: 'id', order: 'ASC' }}
+            sort={referenceSort}
             perPage={50}
-            filter={{
-              playlist_id: props.id,
-              q: searchTerm,
-              ...(showDuplicatesOnly ? { duplicatesOnly: true } : {}),
-            }} // Pass searchTerm as a filter
+            filter={referenceFilter} // Pass searchTerm as a filter
           >
             <PlaylistSongs
               {...props}
@@ -99,9 +114,7 @@ const PlaylistShowLayout = (props) => {
               }
               resource={'playlistTrack'}
               exporter={false}
-              pagination={<Pagination rowsPerPageOptions={[50, 100, 200, 500]}
-              perPage={50}
-                />}
+              pagination={pagination}
               searchTerm={searchTerm} // Pass search term to child
               showDuplicatesOnly={showDuplicatesOnly}
             />
