@@ -7,25 +7,10 @@ import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
 import VolumeOffIcon from '@material-ui/icons/VolumeOff'
 import DescriptionIcon from '@material-ui/icons/Description'
 import GetAppIcon from '@material-ui/icons/GetApp'
+import { Link as RouterLink, useParams } from 'react-router-dom'
+import { retailDeviceDetails } from './deviceData'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
-
-const RETAIL_PLAYER_DATA = {
-  title: 'ThompsonChicago_Lobby',
-  status: [
-    { key: 'connected', icon: LinkIcon, intent: 'success', label: 'Connected' },
-    { key: 'time', label: '16:40' },
-    { key: 'signal', icon: SignalWifi4BarIcon, intent: 'success', label: 'Signal' },
-    { key: 'muted', icon: VolumeOffIcon, intent: 'danger', label: 'Muted' },
-  ],
-  schedules: [
-    { key: 'early', label: 'ThompsonChicago_LobbyEarly', disabled: false },
-    { key: 'late', label: 'ThompsonChicago_LobbyLate', disabled: true },
-    { key: 'mid', label: 'ThompsonChicago_LobbyMid', disabled: true },
-  ],
-  nowPlaying: 'The Kids | Dog Trainer',
-  volume: 75,
-}
 
 const useStyles = makeStyles((theme) => {
   const successMain =
@@ -210,27 +195,99 @@ const useStyles = makeStyles((theme) => {
     sliderRail: {
       backgroundColor: theme.palette.action.disabled,
     },
+    notFoundWrapper: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(2),
+      padding: theme.spacing(5),
+      maxWidth: 720,
+      width: '100%',
+      margin: '0 auto',
+      [theme.breakpoints.down('sm')]: {
+        padding: theme.spacing(3),
+      },
+    },
+    notFoundTitle: {
+      fontWeight: theme.typography.fontWeightBold,
+      fontSize: theme.typography.pxToRem(36),
+    },
+    notFoundMessage: {
+      color: theme.palette.text.secondary,
+      fontSize: theme.typography.pxToRem(18),
+    },
+    backLink: {
+      color:
+        (theme.palette.primary && theme.palette.primary.main) ||
+        theme.palette.text.primary,
+      fontWeight: theme.typography.fontWeightMedium,
+      textDecoration: 'none',
+    },
+    controlIconSuccess: {
+      color: successMain,
+    },
   }
 })
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
+  const { deviceId } = useParams()
+  const device = (deviceId && retailDeviceDetails[deviceId]) || null
+
+  if (!device) {
+    return (
+      <div className={classes.notFoundWrapper}>
+        <Title title="Retail Player" />
+        <Typography component="h1" className={classes.notFoundTitle}>
+          Device not found
+        </Typography>
+        <Typography className={classes.notFoundMessage}>
+          The device you are looking for is unavailable. Choose a device from the list to
+          continue.
+        </Typography>
+        <RouterLink to="/retailplayer/devices" className={classes.backLink}>
+          ← Back to devices
+        </RouterLink>
+      </div>
+    )
+  }
+
+  const statusItems = [
+    {
+      key: 'connected',
+      icon: LinkIcon,
+      intent: device.isConnected ? 'success' : 'danger',
+      label: 'Connected',
+    },
+    { key: 'time', label: device.time, labelForAria: 'Time' },
+    {
+      key: 'signal',
+      icon: SignalWifi4BarIcon,
+      intent: device.hasSignal ? 'success' : 'danger',
+      label: 'Signal',
+    },
+    {
+      key: 'muted',
+      icon: VolumeOffIcon,
+      intent: device.isMuted ? 'danger' : 'success',
+      label: device.isMuted ? 'Muted' : 'Audio Enabled',
+    },
+  ]
 
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
       <header className={classes.header}>
         <Typography component="h1" className={classes.title}>
-          {RETAIL_PLAYER_DATA.title}
+          {device.name}
         </Typography>
         <div className={classes.statusGroup}>
-          {RETAIL_PLAYER_DATA.status.map((statusItem) => {
+          {statusItems.map((statusItem) => {
             if (statusItem.key === 'time') {
               return (
                 <span
                   key={statusItem.key}
                   className={classes.timePill}
-                  aria-label="Time"
+                  aria-label={statusItem.labelForAria || 'Time'}
                 >
                   {statusItem.label}
                 </span>
@@ -258,31 +315,31 @@ const RetailPlayerDashboard = () => {
       </header>
 
       <section className={classes.list} aria-label="Available schedules">
-        {RETAIL_PLAYER_DATA.schedules.map((schedule, index) => {
+        {device.schedules.map((schedule, index) => {
           return (
             <div
               key={schedule.key}
               className={combineClasses(
                 classes.listItem,
-                schedule.disabled
+                schedule.isDisabled
                   ? classes.listItemDisabled
-                  : index === 0
+                  : schedule.isActive || (!schedule.isDisabled && index === 0)
                   ? classes.listItemActive
                   : null,
               )}
-              aria-disabled={schedule.disabled}
+              aria-disabled={Boolean(schedule.isDisabled)}
             >
               <DescriptionIcon
                 className={combineClasses(
                   classes.listIcon,
-                  schedule.disabled ? classes.listIconDisabled : null,
+                  schedule.isDisabled ? classes.listIconDisabled : null,
                 )}
                 aria-hidden="true"
               />
               <Typography
                 className={combineClasses(
                   classes.listText,
-                  schedule.disabled ? classes.listTextDisabled : null,
+                  schedule.isDisabled ? classes.listTextDisabled : null,
                 )}
               >
                 {schedule.label}
@@ -293,13 +350,16 @@ const RetailPlayerDashboard = () => {
       </section>
 
       <Typography component="h2" className={classes.nowPlaying}>
-        {RETAIL_PLAYER_DATA.nowPlaying}
+        {device.nowPlaying}
       </Typography>
 
       <section className={classes.controls}>
         <span
-          className={`${classes.controlIcon} ${classes.controlIconMuted}`}
-          aria-label="Muted"
+          className={combineClasses(
+            classes.controlIcon,
+            device.isMuted ? classes.controlIconMuted : classes.controlIconSuccess,
+          )}
+          aria-label={device.isMuted ? 'Muted' : 'Audio Enabled'}
           role="img"
         >
           <VolumeOffIcon fontSize="inherit" />
@@ -313,7 +373,7 @@ const RetailPlayerDashboard = () => {
               thumb: classes.sliderThumb,
               rail: classes.sliderRail,
             }}
-            defaultValue={RETAIL_PLAYER_DATA.volume}
+            defaultValue={device.volume}
             aria-label="Volume"
           />
         </div>
