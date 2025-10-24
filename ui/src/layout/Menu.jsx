@@ -109,6 +109,18 @@ const Menu = ({ dense = false }) => {
   const subItems = (subMenu) => (resource) =>
     resource.hasList && resource.options && resource.options.subMenu === subMenu
 
+  const renderRetailPlayerMenuItemLink = () => (
+    <MenuItemLink
+      key="retailplayer"
+      to="/retailplayer"
+      activeClassName={classes.active}
+      primaryText="Retail Player"
+      sidebarIsOpen={open}
+      dense={dense}
+      exact
+    />
+  )
+
   return (
     <div
       className={clsx(classes.root, {
@@ -132,6 +144,7 @@ const Menu = ({ dense = false }) => {
       {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
       {config.devSidebarPlaylists && open ? (
         <>
+          {renderRetailPlayerMenuItemLink()}
           <Divider />
           <DiscoverySubMenu
             state={state}
@@ -149,6 +162,7 @@ const Menu = ({ dense = false }) => {
         </>
       ) : (
         <>
+          {renderRetailPlayerMenuItemLink()}
           {resources.filter(subItems('discovery')).map(renderResourceMenuItemLink)}
           {resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)}
         </>
