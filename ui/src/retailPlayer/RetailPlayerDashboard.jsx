@@ -1,258 +1,202 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React from 'react'
 import {
-  Card,
-  CardActions,
-  CardContent,
+  Box,
+  Divider,
   Grid,
-  IconButton,
-  MenuItem,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
   Typography,
 } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import { Title } from 'react-admin'
-import Select from '@material-ui/core/Select'
 import Slider from '@material-ui/core/Slider'
 import FiberManualRecordIcon from '@material-ui/icons/FiberManualRecord'
-import PlayArrowIcon from '@material-ui/icons/PlayArrow'
-import PauseIcon from '@material-ui/icons/Pause'
-import SkipNextIcon from '@material-ui/icons/SkipNext'
-import SkipPreviousIcon from '@material-ui/icons/SkipPrevious'
+import SignalCellularAltIcon from '@material-ui/icons/SignalCellularAlt'
+import WifiIcon from '@material-ui/icons/Wifi'
+import BatteryFullIcon from '@material-ui/icons/BatteryFull'
+import MicOffIcon from '@material-ui/icons/MicOff'
+import GetAppIcon from '@material-ui/icons/GetApp'
 
 const useStyles = makeStyles((theme) => ({
   root: {
-    marginTop: theme.spacing(2),
-  },
-  card: {
-    height: '100%',
+    padding: theme.spacing(4),
+    backgroundColor: theme.palette.background.default,
+    color: theme.palette.text.primary,
+    minHeight: '100vh',
   },
   header: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: theme.spacing(1),
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing(4),
   },
-  status: {
+  headerTitle: {
+    fontSize: '1.75rem',
+    fontWeight: 600,
+  },
+  headerIcons: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(1),
-    color: theme.palette.text.secondary,
-  },
-  statusIconOnline: {
+    gap: theme.spacing(1.5),
     color: theme.palette.success.main,
   },
-  statusIconOffline: {
-    color: theme.palette.action.disabled,
+  headerIcon: {
+    fontSize: '1.75rem',
   },
-  controls: {
+  content: {
+    marginTop: theme.spacing(2),
+  },
+  channelList: {
+    backgroundColor: theme.palette.background.paper,
+    borderRadius: theme.shape.borderRadius,
+    paddingTop: theme.spacing(1),
+    paddingBottom: theme.spacing(1),
+  },
+  listItem: {
+    paddingTop: theme.spacing(1),
+    paddingBottom: theme.spacing(1),
+  },
+  listItemIcon: {
+    minWidth: theme.spacing(4),
+  },
+  channelIcon: {
+    fontSize: '0.75rem',
+    color: theme.palette.text.secondary,
+  },
+  listItemText: {
+    '& .MuiTypography-root': {
+      fontSize: '0.95rem',
+    },
+  },
+  playerPanel: {
+    backgroundColor: theme.palette.background.paper,
+    borderRadius: theme.shape.borderRadius,
+    padding: theme.spacing(4),
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(3),
+    height: '100%',
+  },
+  playerHeader: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(1),
-    width: '100%',
+    gap: theme.spacing(3),
   },
-  channelSelect: {
-    minWidth: 160,
+  playerStatusIcon: {
+    fontSize: '4rem',
+    color: theme.palette.error.main,
+  },
+  trackInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(0.5),
+  },
+  trackTitle: {
+    fontSize: '1.5rem',
+    fontWeight: 500,
+  },
+  trackSubtitle: {
+    fontSize: '0.9rem',
+    color: theme.palette.text.secondary,
+  },
+  volumeSection: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(2),
+  },
+  volumeLabel: {
+    textTransform: 'lowercase',
+    fontSize: '0.95rem',
+    color: theme.palette.text.secondary,
+  },
+  sliderRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(2),
   },
   slider: {
     flex: 1,
-    marginLeft: theme.spacing(2),
-    marginRight: theme.spacing(2),
+  },
+  sliderValue: {
+    minWidth: 32,
+    textAlign: 'right',
+    fontWeight: 600,
+  },
+  downloadIcon: {
+    alignSelf: 'flex-end',
+    fontSize: '3rem',
+    color: theme.palette.info.main,
   },
 }))
 
-const createMockService = () => {
-  const channels = [
-    { id: 'channel-1', name: 'Main Floor' },
-    { id: 'channel-2', name: 'Outdoor Patio' },
-    { id: 'channel-3', name: 'Seasonal Playlist' },
-    { id: 'channel-4', name: 'Announcements' },
-  ]
-
-  const devices = [
-    {
-      id: 'device-1',
-      name: 'Lobby Speaker',
-      online: true,
-      channelId: channels[0].id,
-      volume: 65,
-    },
-    {
-      id: 'device-2',
-      name: 'Warehouse Receiver',
-      online: false,
-      channelId: channels[1].id,
-      volume: 30,
-    },
-  ]
-
-  return {
-    getDevices: () => Promise.resolve(devices.map((device) => ({ ...device }))),
-    getChannels: () => Promise.resolve(channels.map((channel) => ({ ...channel }))),
-    setDeviceChannel: (deviceId, channelId) => {
-      console.log(`[RetailPlayer] setDeviceChannel`, { deviceId, channelId })
-    },
-    setDeviceVolume: (deviceId, volume) => {
-      console.log(`[RetailPlayer] setDeviceVolume`, { deviceId, volume })
-    },
-    controlPlayback: (deviceId, action) => {
-      console.log(`[RetailPlayer] controlPlayback`, { deviceId, action })
-    },
-  }
-}
-
-const mockService = createMockService()
+const channelNames = [
+  'ThompsonChicago_LobbyEarly',
+  'ThompsonChicago_LobbyLate',
+  'ThompsonChicago_LobbyMid',
+]
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
-  const [devices, setDevices] = useState([])
-  const [channels, setChannels] = useState([])
+  const volumeValue = 40
 
-  useEffect(() => {
-    let isMounted = true
-    const loadData = async () => {
-      const [deviceList, channelList] = await Promise.all([
-        mockService.getDevices(),
-        mockService.getChannels(),
-      ])
-      if (isMounted) {
-        setDevices(deviceList)
-        setChannels(channelList)
-      }
-    }
-    loadData()
-    return () => {
-      isMounted = false
-    }
-  }, [])
-
-  const channelMap = useMemo(
-    () =>
-      channels.reduce((acc, channel) => {
-        acc[channel.id] = channel
-        return acc
-      }, {}),
-    [channels],
-  )
-
-  const handleChannelChange = (deviceId) => (event) => {
-    const channelId = event.target.value
-    setDevices((prevDevices) =>
-      prevDevices.map((device) =>
-        device.id === deviceId ? { ...device, channelId } : device,
-      ),
-    )
-    mockService.setDeviceChannel(deviceId, channelId)
-  }
-
-  const handleVolumeChange = (deviceId) => (event, value) => {
-    const volume = Array.isArray(value) ? value[0] : value
-    setDevices((prevDevices) =>
-      prevDevices.map((device) =>
-        device.id === deviceId ? { ...device, volume } : device,
-      ),
-    )
-    mockService.setDeviceVolume(deviceId, volume)
-  }
-
-  const handlePlayback = (deviceId, action) => () => {
-    mockService.controlPlayback(deviceId, action)
-  }
-
-  const renderDevice = (device) => {
-    const isOnline = device.online
-    const nowPlaying = channelMap[device.channelId]?.name || '—'
-    return (
-      <Grid item xs={12} md={6} key={device.id}>
-        <Card className={classes.card}>
-          <CardContent>
-            <div className={classes.header}>
-              <Typography variant="h6">{device.name}</Typography>
-              <div className={classes.status}>
-                <FiberManualRecordIcon
-                  fontSize="small"
-                  className={
-                    isOnline ? classes.statusIconOnline : classes.statusIconOffline
-                  }
-                />
-                <Typography variant="body2">
-                  {isOnline ? 'Online' : 'Offline'}
+  return (
+    <Box className={classes.root}>
+      <Title title="Retail Player" />
+      <div className={classes.header}>
+        <Typography className={classes.headerTitle}>
+          ThompsonChicago_Lobby
+        </Typography>
+        <div className={classes.headerIcons}>
+          <SignalCellularAltIcon className={classes.headerIcon} />
+          <WifiIcon className={classes.headerIcon} />
+          <BatteryFullIcon className={classes.headerIcon} />
+        </div>
+      </div>
+      <Grid container spacing={4} className={classes.content}>
+        <Grid item xs={12} md={4}>
+          <List disablePadding className={classes.channelList}>
+            {channelNames.map((name) => (
+              <ListItem key={name} className={classes.listItem}>
+                <ListItemIcon className={classes.listItemIcon}>
+                  <FiberManualRecordIcon className={classes.channelIcon} />
+                </ListItemIcon>
+                <ListItemText primary={name} className={classes.listItemText} />
+              </ListItem>
+            ))}
+          </List>
+        </Grid>
+        <Grid item xs={12} md={8}>
+          <Box className={classes.playerPanel}>
+            <div className={classes.playerHeader}>
+              <MicOffIcon className={classes.playerStatusIcon} />
+              <div className={classes.trackInfo}>
+                <Typography className={classes.trackTitle}>
+                  The Kids | Dog Trainer
                 </Typography>
               </div>
             </div>
-            <Typography variant="subtitle2" color="textSecondary">
-              Now Playing
-            </Typography>
-            <Typography variant="body1" gutterBottom>
-              {nowPlaying}
-            </Typography>
-            <div className={classes.controls}>
-              <Select
-                value={device.channelId}
-                onChange={handleChannelChange(device.id)}
-                className={classes.channelSelect}
-                disabled={!isOnline}
-                variant="outlined"
-              >
-                {channels.map((channel) => (
-                  <MenuItem value={channel.id} key={channel.id}>
-                    {channel.name}
-                  </MenuItem>
-                ))}
-              </Select>
-              <Slider
-                value={device.volume}
-                onChange={handleVolumeChange(device.id)}
-                aria-labelledby={`${device.id}-volume`}
-                step={1}
-                min={0}
-                max={100}
-                className={classes.slider}
-                disabled={!isOnline}
-              />
-              <Typography variant="body2">{device.volume}</Typography>
+            <Divider />
+            <div className={classes.volumeSection}>
+              <Typography className={classes.volumeLabel}>volume</Typography>
+              <div className={classes.sliderRow}>
+                <Slider
+                  value={volumeValue}
+                  disabled
+                  className={classes.slider}
+                  aria-label="volume"
+                />
+                <Typography className={classes.sliderValue}>
+                  {volumeValue}
+                </Typography>
+              </div>
             </div>
-          </CardContent>
-          <CardActions>
-            <IconButton
-              aria-label="previous"
-              onClick={handlePlayback(device.id, 'previous')}
-              disabled={!isOnline}
-            >
-              <SkipPreviousIcon />
-            </IconButton>
-            <IconButton
-              aria-label="play"
-              onClick={handlePlayback(device.id, 'play')}
-              disabled={!isOnline}
-            >
-              <PlayArrowIcon />
-            </IconButton>
-            <IconButton
-              aria-label="pause"
-              onClick={handlePlayback(device.id, 'pause')}
-              disabled={!isOnline}
-            >
-              <PauseIcon />
-            </IconButton>
-            <IconButton
-              aria-label="next"
-              onClick={handlePlayback(device.id, 'next')}
-              disabled={!isOnline}
-            >
-              <SkipNextIcon />
-            </IconButton>
-          </CardActions>
-        </Card>
+            <GetAppIcon className={classes.downloadIcon} />
+          </Box>
+        </Grid>
       </Grid>
-    )
-  }
-
-  return (
-    <div className={classes.root}>
-      <Title title="Retail Player" />
-      <Grid container spacing={2}>
-        {devices.map(renderDevice)}
-      </Grid>
-    </div>
+    </Box>
   )
 }
 
