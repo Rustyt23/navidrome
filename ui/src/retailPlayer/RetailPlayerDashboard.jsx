@@ -1,257 +1,266 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import {
-  Card,
-  CardActions,
-  CardContent,
-  Grid,
-  IconButton,
-  MenuItem,
-  Typography,
-} from '@material-ui/core'
+import React from 'react'
 import { makeStyles } from '@material-ui/core/styles'
+import { Slider, Typography } from '@material-ui/core'
 import { Title } from 'react-admin'
-import Select from '@material-ui/core/Select'
-import Slider from '@material-ui/core/Slider'
-import FiberManualRecordIcon from '@material-ui/icons/FiberManualRecord'
-import PlayArrowIcon from '@material-ui/icons/PlayArrow'
-import PauseIcon from '@material-ui/icons/Pause'
-import SkipNextIcon from '@material-ui/icons/SkipNext'
-import SkipPreviousIcon from '@material-ui/icons/SkipPrevious'
+import LinkIcon from '@material-ui/icons/Link'
+import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
+import VolumeOffIcon from '@material-ui/icons/VolumeOff'
+import DescriptionIcon from '@material-ui/icons/Description'
+import GetAppIcon from '@material-ui/icons/GetApp'
 
-const useStyles = makeStyles((theme) => ({
-  root: {
-    marginTop: theme.spacing(2),
-  },
-  card: {
-    height: '100%',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing(1),
-  },
-  status: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1),
-    color: theme.palette.text.secondary,
-  },
-  statusIconOnline: {
-    color: theme.palette.success.main,
-  },
-  statusIconOffline: {
-    color: theme.palette.action.disabled,
-  },
-  controls: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1),
-    width: '100%',
-  },
-  channelSelect: {
-    minWidth: 160,
-  },
-  slider: {
-    flex: 1,
-    marginLeft: theme.spacing(2),
-    marginRight: theme.spacing(2),
-  },
-}))
-
-const createMockService = () => {
-  const channels = [
-    { id: 'channel-1', name: 'Main Floor' },
-    { id: 'channel-2', name: 'Outdoor Patio' },
-    { id: 'channel-3', name: 'Seasonal Playlist' },
-    { id: 'channel-4', name: 'Announcements' },
-  ]
-
-  const devices = [
-    {
-      id: 'device-1',
-      name: 'Lobby Speaker',
-      online: true,
-      channelId: channels[0].id,
-      volume: 65,
-    },
-    {
-      id: 'device-2',
-      name: 'Warehouse Receiver',
-      online: false,
-      channelId: channels[1].id,
-      volume: 30,
-    },
-  ]
+const useStyles = makeStyles((theme) => {
+  const successMain =
+    (theme.palette.success && theme.palette.success.main) ||
+    (theme.palette.secondary && theme.palette.secondary.main) ||
+    theme.palette.primary.main
+  const successContrast =
+    (theme.palette.success && theme.palette.success.contrastText) ||
+    theme.palette.getContrastText(successMain)
+  const dangerMain =
+    (theme.palette.error && theme.palette.error.main) ||
+    (theme.palette.secondary && theme.palette.secondary.main) ||
+    theme.palette.primary.main
+  const accentMain =
+    (theme.palette.primary && theme.palette.primary.main) ||
+    (theme.palette.secondary && theme.palette.secondary.main) ||
+    theme.palette.text.primary
+  const sliderMain =
+    (theme.palette.secondary && theme.palette.secondary.main) || theme.palette.primary.main
 
   return {
-    getDevices: () => Promise.resolve(devices.map((device) => ({ ...device }))),
-    getChannels: () => Promise.resolve(channels.map((channel) => ({ ...channel }))),
-    setDeviceChannel: (deviceId, channelId) => {
-      console.log(`[RetailPlayer] setDeviceChannel`, { deviceId, channelId })
+    root: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(4),
+      padding: theme.spacing(4),
+      [theme.breakpoints.down('sm')]: {
+        padding: theme.spacing(2),
+        gap: theme.spacing(3),
+      },
     },
-    setDeviceVolume: (deviceId, volume) => {
-      console.log(`[RetailPlayer] setDeviceVolume`, { deviceId, volume })
+    header: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: theme.spacing(2),
+      flexWrap: 'wrap',
     },
-    controlPlayback: (deviceId, action) => {
-      console.log(`[RetailPlayer] controlPlayback`, { deviceId, action })
+    title: {
+      fontWeight: theme.typography.fontWeightBold,
+      fontSize: theme.typography.pxToRem(48),
+      [theme.breakpoints.down('md')]: {
+        fontSize: theme.typography.pxToRem(36),
+      },
+      [theme.breakpoints.down('sm')]: {
+        fontSize: theme.typography.pxToRem(28),
+      },
+    },
+    statusGroup: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(2),
+      flexWrap: 'wrap',
+    },
+    statusIcon: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: theme.typography.pxToRem(32),
+      '& svg': {
+        fontSize: 'inherit',
+      },
+    },
+    statusIconSuccess: {
+      color: successMain,
+    },
+    statusIconDanger: {
+      color: dangerMain,
+    },
+    timePill: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: `${theme.spacing(0.5)}px ${theme.spacing(2)}px`,
+      borderRadius: theme.shape.borderRadius * 2,
+      backgroundColor: successMain,
+      color: successContrast,
+      fontWeight: theme.typography.fontWeightMedium,
+      fontSize: theme.typography.pxToRem(18),
+    },
+    list: {
+      borderRadius: theme.shape.borderRadius,
+      backgroundColor: theme.palette.background.paper,
+      overflow: 'hidden',
+      border: `1px solid ${theme.palette.divider}`,
+    },
+    listItem: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(2),
+      padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
+      borderBottom: `1px solid ${theme.palette.divider}`,
+      '&:last-child': {
+        borderBottom: 'none',
+      },
+    },
+    listIcon: {
+      color: theme.palette.text.secondary,
+      fontSize: theme.typography.pxToRem(24),
+    },
+    listText: {
+      fontSize: theme.typography.pxToRem(20),
+      fontWeight: theme.typography.fontWeightMedium,
+    },
+    listTextDisabled: {
+      color: theme.palette.text.disabled,
+    },
+    nowPlaying: {
+      fontSize: theme.typography.pxToRem(40),
+      fontWeight: theme.typography.fontWeightBold,
+      [theme.breakpoints.down('md')]: {
+        fontSize: theme.typography.pxToRem(32),
+      },
+      [theme.breakpoints.down('sm')]: {
+        fontSize: theme.typography.pxToRem(26),
+      },
+    },
+    controls: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(4),
+      flexWrap: 'wrap',
+    },
+    controlIcon: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: theme.typography.pxToRem(64),
+    },
+    controlIconMuted: {
+      color: dangerMain,
+    },
+    controlIconDownload: {
+      color: accentMain,
+    },
+    volumeControl: {
+      display: 'flex',
+      flexDirection: 'column',
+      flex: 1,
+      minWidth: 240,
+      gap: theme.spacing(1),
+    },
+    volumeLabel: {
+      textTransform: 'lowercase',
+      fontSize: theme.typography.pxToRem(16),
+      color: theme.palette.text.secondary,
+    },
+    slider: {
+      color: sliderMain,
+    },
+    sliderTrack: {
+      backgroundColor: sliderMain,
+    },
+    sliderThumb: {
+      backgroundColor: sliderMain,
+    },
+    sliderRail: {
+      backgroundColor: theme.palette.action.disabled,
     },
   }
-}
-
-const mockService = createMockService()
+})
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
-  const [devices, setDevices] = useState([])
-  const [channels, setChannels] = useState([])
-
-  useEffect(() => {
-    let isMounted = true
-    const loadData = async () => {
-      const [deviceList, channelList] = await Promise.all([
-        mockService.getDevices(),
-        mockService.getChannels(),
-      ])
-      if (isMounted) {
-        setDevices(deviceList)
-        setChannels(channelList)
-      }
-    }
-    loadData()
-    return () => {
-      isMounted = false
-    }
-  }, [])
-
-  const channelMap = useMemo(
-    () =>
-      channels.reduce((acc, channel) => {
-        acc[channel.id] = channel
-        return acc
-      }, {}),
-    [channels],
-  )
-
-  const handleChannelChange = (deviceId) => (event) => {
-    const channelId = event.target.value
-    setDevices((prevDevices) =>
-      prevDevices.map((device) =>
-        device.id === deviceId ? { ...device, channelId } : device,
-      ),
-    )
-    mockService.setDeviceChannel(deviceId, channelId)
-  }
-
-  const handleVolumeChange = (deviceId) => (event, value) => {
-    const volume = Array.isArray(value) ? value[0] : value
-    setDevices((prevDevices) =>
-      prevDevices.map((device) =>
-        device.id === deviceId ? { ...device, volume } : device,
-      ),
-    )
-    mockService.setDeviceVolume(deviceId, volume)
-  }
-
-  const handlePlayback = (deviceId, action) => () => {
-    mockService.controlPlayback(deviceId, action)
-  }
-
-  const renderDevice = (device) => {
-    const isOnline = device.online
-    const nowPlaying = channelMap[device.channelId]?.name || '—'
-    return (
-      <Grid item xs={12} md={6} key={device.id}>
-        <Card className={classes.card}>
-          <CardContent>
-            <div className={classes.header}>
-              <Typography variant="h6">{device.name}</Typography>
-              <div className={classes.status}>
-                <FiberManualRecordIcon
-                  fontSize="small"
-                  className={
-                    isOnline ? classes.statusIconOnline : classes.statusIconOffline
-                  }
-                />
-                <Typography variant="body2">
-                  {isOnline ? 'Online' : 'Offline'}
-                </Typography>
-              </div>
-            </div>
-            <Typography variant="subtitle2" color="textSecondary">
-              Now Playing
-            </Typography>
-            <Typography variant="body1" gutterBottom>
-              {nowPlaying}
-            </Typography>
-            <div className={classes.controls}>
-              <Select
-                value={device.channelId}
-                onChange={handleChannelChange(device.id)}
-                className={classes.channelSelect}
-                disabled={!isOnline}
-                variant="outlined"
-              >
-                {channels.map((channel) => (
-                  <MenuItem value={channel.id} key={channel.id}>
-                    {channel.name}
-                  </MenuItem>
-                ))}
-              </Select>
-              <Slider
-                value={device.volume}
-                onChange={handleVolumeChange(device.id)}
-                aria-labelledby={`${device.id}-volume`}
-                step={1}
-                min={0}
-                max={100}
-                className={classes.slider}
-                disabled={!isOnline}
-              />
-              <Typography variant="body2">{device.volume}</Typography>
-            </div>
-          </CardContent>
-          <CardActions>
-            <IconButton
-              aria-label="previous"
-              onClick={handlePlayback(device.id, 'previous')}
-              disabled={!isOnline}
-            >
-              <SkipPreviousIcon />
-            </IconButton>
-            <IconButton
-              aria-label="play"
-              onClick={handlePlayback(device.id, 'play')}
-              disabled={!isOnline}
-            >
-              <PlayArrowIcon />
-            </IconButton>
-            <IconButton
-              aria-label="pause"
-              onClick={handlePlayback(device.id, 'pause')}
-              disabled={!isOnline}
-            >
-              <PauseIcon />
-            </IconButton>
-            <IconButton
-              aria-label="next"
-              onClick={handlePlayback(device.id, 'next')}
-              disabled={!isOnline}
-            >
-              <SkipNextIcon />
-            </IconButton>
-          </CardActions>
-        </Card>
-      </Grid>
-    )
-  }
 
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
-      <Grid container spacing={2}>
-        {devices.map(renderDevice)}
-      </Grid>
+      <header className={classes.header}>
+        <Typography component="h1" className={classes.title}>
+          ThompsonChicago_Lobby
+        </Typography>
+        <div className={classes.statusGroup}>
+          <span
+            className={`${classes.statusIcon} ${classes.statusIconSuccess}`}
+            aria-label="Connected"
+            role="img"
+          >
+            <LinkIcon fontSize="inherit" />
+          </span>
+          <span className={classes.timePill} aria-label="Time">
+            16:40
+          </span>
+          <span
+            className={`${classes.statusIcon} ${classes.statusIconSuccess}`}
+            aria-label="Signal"
+            role="img"
+          >
+            <SignalWifi4BarIcon fontSize="inherit" />
+          </span>
+          <span
+            className={`${classes.statusIcon} ${classes.statusIconDanger}`}
+            aria-label="Muted"
+            role="img"
+          >
+            <VolumeOffIcon fontSize="inherit" />
+          </span>
+        </div>
+      </header>
+
+      <section className={classes.list} aria-label="Available schedules">
+        <div className={classes.listItem}>
+          <DescriptionIcon className={classes.listIcon} aria-hidden="true" />
+          <Typography className={classes.listText}>
+            ThompsonChicago_LobbyEarly
+          </Typography>
+        </div>
+        <div className={classes.listItem}>
+          <DescriptionIcon className={classes.listIcon} aria-hidden="true" />
+          <Typography className={`${classes.listText} ${classes.listTextDisabled}`}>
+            ThompsonChicago_LobbyLate
+          </Typography>
+        </div>
+        <div className={classes.listItem}>
+          <DescriptionIcon className={classes.listIcon} aria-hidden="true" />
+          <Typography className={`${classes.listText} ${classes.listTextDisabled}`}>
+            ThompsonChicago_LobbyMid
+          </Typography>
+        </div>
+      </section>
+
+      <Typography component="h2" className={classes.nowPlaying}>
+        The Kids | Dog Trainer
+      </Typography>
+
+      <section className={classes.controls}>
+        <span
+          className={`${classes.controlIcon} ${classes.controlIconMuted}`}
+          aria-label="Muted"
+          role="img"
+        >
+          <VolumeOffIcon fontSize="inherit" />
+        </span>
+        <div className={classes.volumeControl}>
+          <Typography className={classes.volumeLabel}>volume</Typography>
+          <Slider
+            classes={{
+              root: classes.slider,
+              track: classes.sliderTrack,
+              thumb: classes.sliderThumb,
+              rail: classes.sliderRail,
+            }}
+            defaultValue={75}
+            aria-label="Volume"
+          />
+        </div>
+        <span
+          className={`${classes.controlIcon} ${classes.controlIconDownload}`}
+          aria-label="Download"
+          role="img"
+        >
+          <GetAppIcon fontSize="inherit" />
+        </span>
+      </section>
     </div>
   )
 }
