@@ -6,7 +6,6 @@ import RetailPlayerDashboard from './retailPlayer/RetailPlayerDashboard'
 const routes = [
   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
   <Route
-    exact
     path="/retailplayer"
     render={() => <RetailPlayerDashboard />}
     key={'retailplayer'}
