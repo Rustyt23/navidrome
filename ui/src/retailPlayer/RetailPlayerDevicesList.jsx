@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { useMemo, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
-import { Typography, ButtonBase } from '@material-ui/core'
+import { Typography, ButtonBase, TextField } from '@material-ui/core'
 import { Title } from 'react-admin'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import { useHistory } from 'react-router-dom'
@@ -33,6 +33,14 @@ const useStyles = makeStyles((theme) => ({
     [theme.breakpoints.down('sm')]: {
       fontSize: theme.typography.pxToRem(26),
     },
+  },
+  searchRow: {
+    display: 'flex',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+  },
+  searchField: {
+    maxWidth: 360,
   },
   table: {
     borderRadius: theme.shape.borderRadius,
@@ -139,15 +147,32 @@ const useStyles = makeStyles((theme) => ({
   chevron: {
     fontSize: theme.typography.pxToRem(20),
   },
+  noResults: {
+    padding: `${theme.spacing(3)}px ${theme.spacing(3)}px ${theme.spacing(4)}px`,
+    color: theme.palette.text.secondary,
+    fontStyle: 'italic',
+  },
 }))
 
 const RetailPlayerDevicesList = () => {
   const classes = useStyles()
   const history = useHistory()
+  const [searchTerm, setSearchTerm] = useState('')
 
   const handleNavigate = (deviceId) => {
     history.push(`/retailplayer/${deviceId}`)
   }
+
+  const filteredDevices = useMemo(() => {
+    const normalizedTerm = searchTerm.trim().toLowerCase()
+    if (!normalizedTerm) {
+      return retailDevices
+    }
+
+    return retailDevices.filter((device) =>
+      device.name.toLowerCase().includes(normalizedTerm),
+    )
+  }, [searchTerm])
 
   return (
     <div className={classes.root}>
@@ -155,6 +180,17 @@ const RetailPlayerDevicesList = () => {
       <Typography component="h1" className={classes.heading}>
         Retail Player Devices
       </Typography>
+      <div className={classes.searchRow}>
+        <TextField
+          className={classes.searchField}
+          variant="outlined"
+          size="small"
+          placeholder="Search devices…"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+          inputProps={{ 'aria-label': 'Search devices' }}
+        />
+      </div>
       <div className={classes.table}>
         <div className={classes.headerRow}>
           <span className={classes.headerCell} data-area="actions">
@@ -173,34 +209,38 @@ const RetailPlayerDevicesList = () => {
             Organization
           </span>
         </div>
-        {retailDevices.map((device) => (
-          <ButtonBase
-            key={device.id}
-            className={classes.buttonBase}
-            onClick={() => handleNavigate(device.id)}
-            focusRipple
-            aria-label={`Open ${device.name}`}
-          >
-            <span className={classes.rowButton}>
-              <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
-                View
-                <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+        {filteredDevices.length > 0 ? (
+          filteredDevices.map((device) => (
+            <ButtonBase
+              key={device.id}
+              className={classes.buttonBase}
+              onClick={() => handleNavigate(device.id)}
+              focusRipple
+              aria-label={`Open ${device.name}`}
+            >
+              <span className={classes.rowButton}>
+                <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
+                  View
+                  <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+                </span>
+                <span className={classes.cell} data-area="name">
+                  {device.name}
+                </span>
+                <span className={classes.cell} data-area="channel">
+                  {device.channel}
+                </span>
+                <span className={classes.cell} data-area="channelList">
+                  {device.channelList}
+                </span>
+                <span className={classes.cell} data-area="organization">
+                  {device.organization}
+                </span>
               </span>
-              <span className={classes.cell} data-area="name">
-                {device.name}
-              </span>
-              <span className={classes.cell} data-area="channel">
-                {device.channel}
-              </span>
-              <span className={classes.cell} data-area="channelList">
-                {device.channelList}
-              </span>
-              <span className={classes.cell} data-area="organization">
-                {device.organization}
-              </span>
-            </span>
-          </ButtonBase>
-        ))}
+            </ButtonBase>
+          ))
+        ) : (
+          <div className={classes.noResults}>No devices match this search.</div>
+        )}
       </div>
     </div>
   )

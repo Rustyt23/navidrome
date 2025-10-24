@@ -1,10 +1,11 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
-import { Slider, Typography } from '@material-ui/core'
+import { ButtonBase, Slider, Typography } from '@material-ui/core'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
 import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
 import VolumeOffIcon from '@material-ui/icons/VolumeOff'
+import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import GetAppIcon from '@material-ui/icons/GetApp'
 import { Link as RouterLink, useParams } from 'react-router-dom'
@@ -61,6 +62,12 @@ const useStyles = makeStyles((theme) => {
       gap: theme.spacing(2),
       flexWrap: 'wrap',
     },
+    backLinkTop: {
+      alignSelf: 'flex-start',
+      fontSize: theme.typography.pxToRem(14),
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
     title: {
       fontWeight: theme.typography.fontWeightBold,
       fontSize: theme.typography.pxToRem(60),
@@ -110,35 +117,58 @@ const useStyles = makeStyles((theme) => {
       overflow: 'hidden',
       border: `1px solid ${theme.palette.divider}`,
     },
+    listItemButton: {
+      display: 'block',
+      width: '100%',
+      textAlign: 'left',
+      '&:hover $listItem, &:focus-visible $listItem': {
+        backgroundColor: theme.palette.action.hover,
+      },
+      '&:last-child $listItem': {
+        borderBottom: 'none',
+      },
+    },
     listItem: {
       display: 'flex',
       alignItems: 'center',
       gap: theme.spacing(2),
       padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
       borderBottom: `1px solid ${theme.palette.divider}`,
-      '&:last-child': {
-        borderBottom: 'none',
-      },
+      transition: theme.transitions.create(['background-color'], {
+        duration: theme.transitions.duration.shortest,
+      }),
     },
     listItemActive: {
-      backgroundColor: theme.palette.action.hover,
+      backgroundColor: theme.palette.action.selected,
     },
-    listItemDisabled: {
+    listItemInactive: {
       backgroundColor: disabledBackground,
     },
     listIcon: {
       color: theme.palette.text.secondary,
       fontSize: theme.typography.pxToRem(24),
     },
-    listIconDisabled: {
+    listIconInactive: {
       color: theme.palette.text.disabled,
     },
     listText: {
       fontSize: theme.typography.pxToRem(20),
       fontWeight: theme.typography.fontWeightMedium,
     },
-    listTextDisabled: {
+    listTextInactive: {
       color: theme.palette.text.disabled,
+    },
+    artworkWrapper: {
+      alignSelf: 'center',
+      width: 200,
+      maxWidth: '100%',
+    },
+    artworkPlaceholder: {
+      width: '100%',
+      paddingTop: '100%',
+      borderRadius: theme.shape.borderRadius,
+      backgroundColor: theme.palette.action.hover,
+      border: `1px solid ${theme.palette.divider}`,
     },
     nowPlaying: {
       fontSize: theme.typography.pxToRem(48),
@@ -158,14 +188,27 @@ const useStyles = makeStyles((theme) => {
       justifyContent: 'space-between',
       width: '100%',
     },
+    controlButton: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: theme.shape.borderRadius * 2,
+      padding: theme.spacing(1.5),
+      transition: theme.transitions.create(['background-color', 'color'], {
+        duration: theme.transitions.duration.shortest,
+      }),
+    },
     controlIcon: {
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
       fontSize: theme.typography.pxToRem(64),
     },
-    controlIconMuted: {
+    controlButtonMuted: {
       color: dangerMain,
+    },
+    controlButtonUnmuted: {
+      color: successMain,
     },
     controlIconDownload: {
       color: infoMain,
@@ -183,6 +226,11 @@ const useStyles = makeStyles((theme) => {
       fontSize: theme.typography.pxToRem(16),
       color: theme.palette.text.secondary,
     },
+    volumeSliderRow: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(2),
+    },
     slider: {
       color: sliderMain,
     },
@@ -194,6 +242,12 @@ const useStyles = makeStyles((theme) => {
     },
     sliderRail: {
       backgroundColor: theme.palette.action.disabled,
+    },
+    volumeValue: {
+      minWidth: 32,
+      textAlign: 'right',
+      fontVariantNumeric: 'tabular-nums',
+      fontWeight: theme.typography.fontWeightMedium,
     },
     notFoundWrapper: {
       display: 'flex',
@@ -221,9 +275,9 @@ const useStyles = makeStyles((theme) => {
         theme.palette.text.primary,
       fontWeight: theme.typography.fontWeightMedium,
       textDecoration: 'none',
-    },
-    controlIconSuccess: {
-      color: successMain,
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: theme.spacing(1),
     },
   }
 })
@@ -232,6 +286,36 @@ const RetailPlayerDashboard = () => {
   const classes = useStyles()
   const { deviceId } = useParams()
   const device = (deviceId && retailDeviceDetails[deviceId]) || null
+  const schedules = device?.schedules || []
+
+  const [activeChannelKey, setActiveChannelKey] = useState(() => {
+    const initialSchedule =
+      schedules.find((schedule) => schedule.isActive) || schedules[0] || null
+    return initialSchedule ? initialSchedule.key : null
+  })
+  const [nowPlaying, setNowPlaying] = useState(device?.nowPlaying || '')
+  const [isMuted, setIsMuted] = useState(Boolean(device?.isMuted))
+  const [volume, setVolume] = useState(
+    typeof device?.volume === 'number' ? device.volume : 0,
+  )
+
+  useEffect(() => {
+    if (!device) {
+      setActiveChannelKey(null)
+      setNowPlaying('')
+      setIsMuted(false)
+      setVolume(0)
+      return
+    }
+
+    const nextSchedules = device.schedules || []
+    const initialSchedule =
+      nextSchedules.find((schedule) => schedule.isActive) || nextSchedules[0] || null
+    setActiveChannelKey(initialSchedule ? initialSchedule.key : null)
+    setNowPlaying(device.nowPlaying)
+    setIsMuted(device.isMuted)
+    setVolume(device.volume)
+  }, [device])
 
   if (!device) {
     return (
@@ -251,6 +335,23 @@ const RetailPlayerDashboard = () => {
     )
   }
 
+  const handleSelectChannel = (schedule) => {
+    setActiveChannelKey(schedule.key)
+    setNowPlaying(`${schedule.label} | ${schedule.artist}`)
+  }
+
+  const handleToggleMute = () => {
+    setIsMuted((prev) => !prev)
+  }
+
+  const handleVolumeChange = (_, newValue) => {
+    if (Array.isArray(newValue)) {
+      setVolume(newValue[0])
+    } else if (typeof newValue === 'number') {
+      setVolume(newValue)
+    }
+  }
+
   const statusItems = [
     {
       key: 'connected',
@@ -267,15 +368,18 @@ const RetailPlayerDashboard = () => {
     },
     {
       key: 'muted',
-      icon: VolumeOffIcon,
-      intent: device.isMuted ? 'danger' : 'success',
-      label: device.isMuted ? 'Muted' : 'Audio Enabled',
+      icon: isMuted ? VolumeOffIcon : VolumeUpIcon,
+      intent: isMuted ? 'danger' : 'success',
+      label: isMuted ? 'Muted' : 'Audio Enabled',
     },
   ]
 
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
+      <RouterLink to="/retailplayer/devices" className={`${classes.backLink} ${classes.backLinkTop}`}>
+        ← Back to Devices
+      </RouterLink>
       <header className={classes.header}>
         <Typography component="h1" className={classes.title}>
           {device.name}
@@ -315,67 +419,86 @@ const RetailPlayerDashboard = () => {
       </header>
 
       <section className={classes.list} aria-label="Available schedules">
-        {device.schedules.map((schedule, index) => {
+        {device.schedules.map((schedule) => {
+          const isActive = schedule.key === activeChannelKey
           return (
-            <div
+            <ButtonBase
               key={schedule.key}
-              className={combineClasses(
-                classes.listItem,
-                schedule.isDisabled
-                  ? classes.listItemDisabled
-                  : schedule.isActive || (!schedule.isDisabled && index === 0)
-                  ? classes.listItemActive
-                  : null,
-              )}
-              aria-disabled={Boolean(schedule.isDisabled)}
+              className={classes.listItemButton}
+              onClick={() => handleSelectChannel(schedule)}
+              focusRipple
+              aria-label={`Select channel: ${schedule.label}`}
+              aria-pressed={isActive}
             >
-              <DescriptionIcon
+              <div
                 className={combineClasses(
-                  classes.listIcon,
-                  schedule.isDisabled ? classes.listIconDisabled : null,
-                )}
-                aria-hidden="true"
-              />
-              <Typography
-                className={combineClasses(
-                  classes.listText,
-                  schedule.isDisabled ? classes.listTextDisabled : null,
+                  classes.listItem,
+                  isActive ? classes.listItemActive : classes.listItemInactive,
                 )}
               >
-                {schedule.label}
-              </Typography>
-            </div>
+                <DescriptionIcon
+                  className={combineClasses(
+                    classes.listIcon,
+                    !isActive ? classes.listIconInactive : null,
+                  )}
+                  aria-hidden="true"
+                />
+                <Typography
+                  className={combineClasses(
+                    classes.listText,
+                    !isActive ? classes.listTextInactive : null,
+                  )}
+                >
+                  {schedule.label}
+                </Typography>
+              </div>
+            </ButtonBase>
           )
         })}
       </section>
 
+      <div className={classes.artworkWrapper}>
+        <div className={classes.artworkPlaceholder} role="img" aria-label="Album artwork placeholder" />
+      </div>
+
       <Typography component="h2" className={classes.nowPlaying}>
-        {device.nowPlaying}
+        {nowPlaying}
       </Typography>
 
       <section className={classes.controls}>
-        <span
+        <ButtonBase
           className={combineClasses(
-            classes.controlIcon,
-            device.isMuted ? classes.controlIconMuted : classes.controlIconSuccess,
+            classes.controlButton,
+            isMuted ? classes.controlButtonMuted : classes.controlButtonUnmuted,
           )}
-          aria-label={device.isMuted ? 'Muted' : 'Audio Enabled'}
-          role="img"
+          aria-label="Mute/Unmute"
+          onClick={handleToggleMute}
+          focusRipple
         >
-          <VolumeOffIcon fontSize="inherit" />
-        </span>
+          <span className={classes.controlIcon} role="img" aria-hidden="true">
+            {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
+          </span>
+        </ButtonBase>
         <div className={classes.volumeControl}>
           <Typography className={classes.volumeLabel}>volume</Typography>
-          <Slider
-            classes={{
-              root: classes.slider,
-              track: classes.sliderTrack,
-              thumb: classes.sliderThumb,
-              rail: classes.sliderRail,
-            }}
-            defaultValue={device.volume}
-            aria-label="Volume"
-          />
+          <div className={classes.volumeSliderRow}>
+            <Slider
+              classes={{
+                root: classes.slider,
+                track: classes.sliderTrack,
+                thumb: classes.sliderThumb,
+                rail: classes.sliderRail,
+              }}
+              value={volume}
+              min={0}
+              max={100}
+              aria-label="Volume"
+              onChange={handleVolumeChange}
+            />
+            <Typography className={classes.volumeValue} aria-live="polite">
+              {volume}
+            </Typography>
+          </div>
         </div>
         <span
           className={`${classes.controlIcon} ${classes.controlIconDownload}`}

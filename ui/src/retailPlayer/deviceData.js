@@ -38,9 +38,22 @@ export const retailDeviceDetails = {
     hasSignal: true,
     isMuted: true,
     schedules: [
-      { key: 'early', label: 'ThompsonChicago_LobbyEarly', isActive: true },
-      { key: 'late', label: 'ThompsonChicago_LobbyLate', isDisabled: true },
-      { key: 'mid', label: 'ThompsonChicago_LobbyMid', isDisabled: true },
+      {
+        key: 'early',
+        label: 'ThompsonChicago_LobbyEarly',
+        artist: 'Dog Trainer',
+        isActive: true,
+      },
+      {
+        key: 'late',
+        label: 'ThompsonChicago_LobbyLate',
+        artist: 'Late Night Riders',
+      },
+      {
+        key: 'mid',
+        label: 'ThompsonChicago_LobbyMid',
+        artist: 'Midday Parade',
+      },
     ],
     nowPlaying: 'The Kids | Dog Trainer',
     volume: 75,
@@ -53,9 +66,22 @@ export const retailDeviceDetails = {
     hasSignal: true,
     isMuted: false,
     schedules: [
-      { key: 'early', label: 'ThompsonChicago_RooftopEarly', isDisabled: true },
-      { key: 'late', label: 'ThompsonChicago_RooftopLate', isActive: true },
-      { key: 'mid', label: 'ThompsonChicago_RooftopMid', isDisabled: true },
+      {
+        key: 'early',
+        label: 'ThompsonChicago_RooftopEarly',
+        artist: 'Sunrise Syndicate',
+      },
+      {
+        key: 'late',
+        label: 'ThompsonChicago_RooftopLate',
+        artist: 'Moon District',
+        isActive: true,
+      },
+      {
+        key: 'mid',
+        label: 'ThompsonChicago_RooftopMid',
+        artist: 'Skyline Ensemble',
+      },
     ],
     nowPlaying: 'Skyline Drift | Moon District',
     volume: 62,
@@ -68,9 +94,22 @@ export const retailDeviceDetails = {
     hasSignal: true,
     isMuted: false,
     schedules: [
-      { key: 'early', label: 'ThompsonMiami_PoolEarly', isActive: true },
-      { key: 'late', label: 'ThompsonMiami_PoolLate', isDisabled: true },
-      { key: 'mid', label: 'ThompsonMiami_PoolMid', isDisabled: true },
+      {
+        key: 'early',
+        label: 'ThompsonMiami_PoolEarly',
+        artist: 'Sunrunners',
+        isActive: true,
+      },
+      {
+        key: 'late',
+        label: 'ThompsonMiami_PoolLate',
+        artist: 'Twilight Current',
+      },
+      {
+        key: 'mid',
+        label: 'ThompsonMiami_PoolMid',
+        artist: 'Harbor Crew',
+      },
     ],
     nowPlaying: 'Sea Breeze | Sunrunners',
     volume: 68,
@@ -83,9 +122,22 @@ export const retailDeviceDetails = {
     hasSignal: false,
     isMuted: true,
     schedules: [
-      { key: 'early', label: 'ThompsonDenver_LoungeEarly', isDisabled: true },
-      { key: 'late', label: 'ThompsonDenver_LoungeLate', isActive: true },
-      { key: 'mid', label: 'ThompsonDenver_LoungeMid', isDisabled: true },
+      {
+        key: 'early',
+        label: 'ThompsonDenver_LoungeEarly',
+        artist: 'Morning Summit',
+      },
+      {
+        key: 'late',
+        label: 'ThompsonDenver_LoungeLate',
+        artist: 'Alpine Echo',
+        isActive: true,
+      },
+      {
+        key: 'mid',
+        label: 'ThompsonDenver_LoungeMid',
+        artist: 'Denver Collective',
+      },
     ],
     nowPlaying: 'Quiet Hours | Alpine Echo',
     volume: 40,
