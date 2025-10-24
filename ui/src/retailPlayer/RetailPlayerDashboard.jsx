@@ -1,258 +1,251 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import {
-  Card,
-  CardActions,
-  CardContent,
-  Grid,
-  IconButton,
-  MenuItem,
-  Typography,
-} from '@material-ui/core'
-import { makeStyles } from '@material-ui/core/styles'
+import React from 'react'
+import { Box, Card, Divider, Slider, Typography } from '@material-ui/core'
+import { makeStyles, useTheme } from '@material-ui/core/styles'
 import { Title } from 'react-admin'
-import Select from '@material-ui/core/Select'
-import Slider from '@material-ui/core/Slider'
-import FiberManualRecordIcon from '@material-ui/icons/FiberManualRecord'
-import PlayArrowIcon from '@material-ui/icons/PlayArrow'
-import PauseIcon from '@material-ui/icons/Pause'
-import SkipNextIcon from '@material-ui/icons/SkipNext'
-import SkipPreviousIcon from '@material-ui/icons/SkipPrevious'
+import LinkIcon from '@material-ui/icons/Link'
+import WifiIcon from '@material-ui/icons/Wifi'
+import VolumeOffIcon from '@material-ui/icons/VolumeOff'
+import DescriptionIcon from '@material-ui/icons/Description'
+import GetAppIcon from '@material-ui/icons/GetApp'
+import clsx from 'clsx'
+
+const RETAIL_PLAYER_DATA = {
+  title: 'ThompsonChicago_Lobby',
+  statuses: [
+    { id: 'connection', type: 'icon', icon: LinkIcon, color: 'success.main' },
+    { id: 'time', type: 'pill', label: '16:40', color: 'success.main' },
+    { id: 'signal', type: 'icon', icon: WifiIcon, color: 'success.main' },
+    { id: 'muted', type: 'icon', icon: VolumeOffIcon, color: 'error.main' },
+  ],
+  schedules: [
+    { id: 'early', label: 'ThompsonChicago_LobbyEarly', active: true },
+    { id: 'late', label: 'ThompsonChicago_LobbyLate', active: false },
+    { id: 'mid', label: 'ThompsonChicago_LobbyMid', active: false },
+  ],
+  nowPlaying: 'The Kids | Dog Trainer',
+  volume: 75,
+}
 
 const useStyles = makeStyles((theme) => ({
   root: {
-    marginTop: theme.spacing(2),
-  },
-  card: {
-    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(5),
+    padding: theme.spacing(4, 6, 6),
+    [theme.breakpoints.down('sm')]: {
+      padding: theme.spacing(3, 2, 4),
+      gap: theme.spacing(4),
+    },
   },
   header: {
     display: 'flex',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing(1),
+    flexWrap: 'wrap',
+    gap: theme.spacing(2.5),
   },
-  status: {
+  title: {
+    fontWeight: 600,
+  },
+  statuses: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(1),
-    color: theme.palette.text.secondary,
+    gap: theme.spacing(2),
+    flexWrap: 'wrap',
   },
-  statusIconOnline: {
-    color: theme.palette.success.main,
-  },
-  statusIconOffline: {
-    color: theme.palette.action.disabled,
-  },
-  controls: {
+  statusIcon: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(1),
-    width: '100%',
+    justifyContent: 'center',
+    width: theme.spacing(4.5),
+    height: theme.spacing(4.5),
   },
-  channelSelect: {
-    minWidth: 160,
+  timePill: {
+    padding: theme.spacing(0.5, 2),
+    borderRadius: theme.spacing(2),
+    fontWeight: 600,
+    textTransform: 'uppercase',
   },
-  slider: {
+  listCard: {
+    backgroundColor: theme.palette.background.paper,
+    overflow: 'hidden',
+  },
+  scheduleCard: {
+    padding: theme.spacing(1.75, 3),
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(2),
+    transition: theme.transitions.create(['background-color', 'border-color'], {
+      duration: theme.transitions.duration.shorter,
+    }),
+  },
+  scheduleActive: {
+    backgroundColor: theme.palette.action.selected,
+    borderLeft: `4px solid ${theme.palette.secondary.main}`,
+  },
+  scheduleDisabled: {
+    opacity: 0.4,
+  },
+  scheduleLabel: {
     flex: 1,
-    marginLeft: theme.spacing(2),
-    marginRight: theme.spacing(2),
+    fontWeight: 500,
+  },
+  nowPlayingCard: {
+    padding: theme.spacing(2.5, 3),
+    backgroundColor: theme.palette.background.paper,
+  },
+  nowPlayingText: {
+    fontWeight: 600,
+    letterSpacing: '0.02em',
+  },
+  controlBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing(4),
+    flexWrap: 'wrap',
+    padding: theme.spacing(2.5, 3),
+    backgroundColor: theme.palette.background.paper,
+  },
+  controlIcon: {
+    fontSize: '3rem',
+  },
+  mutedIcon: {
+    color: theme.palette.error.main,
+  },
+  downloadIcon: {
+    color: theme.palette.secondary.main,
+  },
+  volumeSection: {
+    display: 'flex',
+    flexDirection: 'column',
+    flex: 1,
+    minWidth: theme.spacing(32),
+    gap: theme.spacing(1),
+  },
+  sliderRoot: {
+    padding: theme.spacing(0.5, 1, 0),
   },
 }))
 
-const createMockService = () => {
-  const channels = [
-    { id: 'channel-1', name: 'Main Floor' },
-    { id: 'channel-2', name: 'Outdoor Patio' },
-    { id: 'channel-3', name: 'Seasonal Playlist' },
-    { id: 'channel-4', name: 'Announcements' },
-  ]
-
-  const devices = [
-    {
-      id: 'device-1',
-      name: 'Lobby Speaker',
-      online: true,
-      channelId: channels[0].id,
-      volume: 65,
-    },
-    {
-      id: 'device-2',
-      name: 'Warehouse Receiver',
-      online: false,
-      channelId: channels[1].id,
-      volume: 30,
-    },
-  ]
-
-  return {
-    getDevices: () => Promise.resolve(devices.map((device) => ({ ...device }))),
-    getChannels: () => Promise.resolve(channels.map((channel) => ({ ...channel }))),
-    setDeviceChannel: (deviceId, channelId) => {
-      console.log(`[RetailPlayer] setDeviceChannel`, { deviceId, channelId })
-    },
-    setDeviceVolume: (deviceId, volume) => {
-      console.log(`[RetailPlayer] setDeviceVolume`, { deviceId, volume })
-    },
-    controlPlayback: (deviceId, action) => {
-      console.log(`[RetailPlayer] controlPlayback`, { deviceId, action })
-    },
-  }
-}
-
-const mockService = createMockService()
-
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
-  const [devices, setDevices] = useState([])
-  const [channels, setChannels] = useState([])
+  const theme = useTheme()
+  const { title, statuses, schedules, nowPlaying, volume } = RETAIL_PLAYER_DATA
 
-  useEffect(() => {
-    let isMounted = true
-    const loadData = async () => {
-      const [deviceList, channelList] = await Promise.all([
-        mockService.getDevices(),
-        mockService.getChannels(),
-      ])
-      if (isMounted) {
-        setDevices(deviceList)
-        setChannels(channelList)
-      }
+  const resolveColor = (token) => {
+    if (!token) {
+      return undefined
     }
-    loadData()
-    return () => {
-      isMounted = false
+
+    const [paletteKey, shadeKey] = token.split('.')
+    const palette = theme.palette[paletteKey]
+    if (!palette) {
+      return undefined
     }
-  }, [])
 
-  const channelMap = useMemo(
-    () =>
-      channels.reduce((acc, channel) => {
-        acc[channel.id] = channel
-        return acc
-      }, {}),
-    [channels],
-  )
+    if (shadeKey && palette[shadeKey]) {
+      return palette[shadeKey]
+    }
 
-  const handleChannelChange = (deviceId) => (event) => {
-    const channelId = event.target.value
-    setDevices((prevDevices) =>
-      prevDevices.map((device) =>
-        device.id === deviceId ? { ...device, channelId } : device,
-      ),
-    )
-    mockService.setDeviceChannel(deviceId, channelId)
-  }
-
-  const handleVolumeChange = (deviceId) => (event, value) => {
-    const volume = Array.isArray(value) ? value[0] : value
-    setDevices((prevDevices) =>
-      prevDevices.map((device) =>
-        device.id === deviceId ? { ...device, volume } : device,
-      ),
-    )
-    mockService.setDeviceVolume(deviceId, volume)
-  }
-
-  const handlePlayback = (deviceId, action) => () => {
-    mockService.controlPlayback(deviceId, action)
-  }
-
-  const renderDevice = (device) => {
-    const isOnline = device.online
-    const nowPlaying = channelMap[device.channelId]?.name || '—'
-    return (
-      <Grid item xs={12} md={6} key={device.id}>
-        <Card className={classes.card}>
-          <CardContent>
-            <div className={classes.header}>
-              <Typography variant="h6">{device.name}</Typography>
-              <div className={classes.status}>
-                <FiberManualRecordIcon
-                  fontSize="small"
-                  className={
-                    isOnline ? classes.statusIconOnline : classes.statusIconOffline
-                  }
-                />
-                <Typography variant="body2">
-                  {isOnline ? 'Online' : 'Offline'}
-                </Typography>
-              </div>
-            </div>
-            <Typography variant="subtitle2" color="textSecondary">
-              Now Playing
-            </Typography>
-            <Typography variant="body1" gutterBottom>
-              {nowPlaying}
-            </Typography>
-            <div className={classes.controls}>
-              <Select
-                value={device.channelId}
-                onChange={handleChannelChange(device.id)}
-                className={classes.channelSelect}
-                disabled={!isOnline}
-                variant="outlined"
-              >
-                {channels.map((channel) => (
-                  <MenuItem value={channel.id} key={channel.id}>
-                    {channel.name}
-                  </MenuItem>
-                ))}
-              </Select>
-              <Slider
-                value={device.volume}
-                onChange={handleVolumeChange(device.id)}
-                aria-labelledby={`${device.id}-volume`}
-                step={1}
-                min={0}
-                max={100}
-                className={classes.slider}
-                disabled={!isOnline}
-              />
-              <Typography variant="body2">{device.volume}</Typography>
-            </div>
-          </CardContent>
-          <CardActions>
-            <IconButton
-              aria-label="previous"
-              onClick={handlePlayback(device.id, 'previous')}
-              disabled={!isOnline}
-            >
-              <SkipPreviousIcon />
-            </IconButton>
-            <IconButton
-              aria-label="play"
-              onClick={handlePlayback(device.id, 'play')}
-              disabled={!isOnline}
-            >
-              <PlayArrowIcon />
-            </IconButton>
-            <IconButton
-              aria-label="pause"
-              onClick={handlePlayback(device.id, 'pause')}
-              disabled={!isOnline}
-            >
-              <PauseIcon />
-            </IconButton>
-            <IconButton
-              aria-label="next"
-              onClick={handlePlayback(device.id, 'next')}
-              disabled={!isOnline}
-            >
-              <SkipNextIcon />
-            </IconButton>
-          </CardActions>
-        </Card>
-      </Grid>
-    )
+    return palette.main ?? palette
   }
 
   return (
-    <div className={classes.root}>
+    <Box className={classes.root}>
       <Title title="Retail Player" />
-      <Grid container spacing={2}>
-        {devices.map(renderDevice)}
-      </Grid>
-    </div>
+
+      <Box className={classes.header}>
+        <Typography variant="h3" className={classes.title}>
+          {title}
+        </Typography>
+
+        <Box className={classes.statuses}>
+          {statuses.map((status) => {
+            const resolvedColor = resolveColor(status.color)
+
+            if (status.type === 'pill') {
+              return (
+                <Box
+                  key={status.id}
+                  className={classes.timePill}
+                  style={{
+                    backgroundColor: resolvedColor,
+                    color: resolvedColor
+                      ? theme.palette.getContrastText(resolvedColor)
+                      : undefined,
+                  }}
+                >
+                  <Typography component="span">{status.label}</Typography>
+                </Box>
+              )
+            }
+
+            const IconComponent = status.icon
+            return (
+              <Box
+                key={status.id}
+                className={classes.statusIcon}
+                style={{
+                  color: resolvedColor,
+                }}
+              >
+                <IconComponent style={{ color: resolvedColor }} />
+              </Box>
+            )
+          })}
+        </Box>
+      </Box>
+
+      <Card className={classes.listCard} elevation={4}>
+        {schedules.map((schedule, index) => {
+          const scheduleClasses = clsx(classes.scheduleCard, {
+            [classes.scheduleActive]: schedule.active,
+            [classes.scheduleDisabled]: !schedule.active,
+          })
+
+          return (
+            <React.Fragment key={schedule.id}>
+              {index > 0 && <Divider />}
+              <Box className={scheduleClasses}>
+                <DescriptionIcon color={schedule.active ? 'inherit' : 'disabled'} />
+                <Typography
+                  variant="h6"
+                  className={classes.scheduleLabel}
+                  color={schedule.active ? 'textPrimary' : 'textSecondary'}
+                >
+                  {schedule.label}
+                </Typography>
+              </Box>
+            </React.Fragment>
+          )
+        })}
+      </Card>
+
+      <Card className={classes.nowPlayingCard} elevation={4}>
+        <Typography variant="h2" className={classes.nowPlayingText}>
+          {nowPlaying}
+        </Typography>
+      </Card>
+
+      <Card className={classes.controlBar} elevation={4}>
+        <VolumeOffIcon className={`${classes.controlIcon} ${classes.mutedIcon}`} />
+
+        <Box className={classes.volumeSection}>
+          <Typography variant="subtitle1">volume</Typography>
+          <Slider
+            value={volume}
+            min={0}
+            max={100}
+            classes={{ root: classes.sliderRoot }}
+            color="secondary"
+            aria-label="volume"
+          />
+        </Box>
+
+        <GetAppIcon className={`${classes.controlIcon} ${classes.downloadIcon}`} />
+      </Card>
+    </Box>
   )
 }
 
