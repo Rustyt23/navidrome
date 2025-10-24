@@ -175,11 +175,13 @@ const PlaylistSongs = ({
         pageIds.length > 0 &&
         pageIds.every((id) => idsToSelect.includes(id))
 
+      const totalCount =
+        typeof contextTotal === 'number' ? contextTotal : undefined
+
       const shouldLoadAllIds =
         isSelectingCurrentPage &&
         isSelectingEntirePage &&
-        typeof contextTotal === 'number' &&
-        contextTotal > idsToSelect.length
+        (totalCount === undefined || totalCount > idsToSelect.length)
 
       if (shouldLoadAllIds) {
         const filter = { ...filterValues, playlist_id: playlistId }
@@ -188,19 +190,59 @@ const PlaylistSongs = ({
             ? currentSort
             : { field: 'id', order: 'ASC' }
 
-        dataProvider
-          .getList('playlistTrack', {
-            filter,
-            pagination: {
-              page: 1,
-              perPage:
-                contextTotal && contextTotal > 0
-                  ? contextTotal
-                  : idsToSelect.length,
-            },
-            sort: sort,
-          })
-          .then(({ data: records }) => {
+        const perPageBase = Math.max(ids?.length ?? 0, idsToSelect.length, 1)
+
+        const loadAllRecords = async () => {
+          const allRecords = []
+          let page = 1
+          let expectedTotal = totalCount
+
+          while (true) {
+            const perPage =
+              expectedTotal !== undefined && expectedTotal < perPageBase
+                ? expectedTotal
+                : perPageBase
+
+            const response = await dataProvider.getList('playlistTrack', {
+              filter,
+              pagination: {
+                page,
+                perPage,
+              },
+              sort,
+            })
+
+            const records = response?.data ?? []
+
+            if (records.length === 0) {
+              break
+            }
+
+            allRecords.push(...records)
+
+            if (
+              expectedTotal === undefined &&
+              typeof response?.total === 'number'
+            ) {
+              expectedTotal = response.total
+            }
+
+            if (
+              (expectedTotal !== undefined &&
+                allRecords.length >= expectedTotal) ||
+              records.length < perPage
+            ) {
+              break
+            }
+
+            page += 1
+          }
+
+          return allRecords
+        }
+
+        loadAllRecords()
+          .then((records) => {
             const recordsById = records.reduce((acc, record) => {
               acc[record.id] = record
               return acc
