@@ -175,11 +175,13 @@ const PlaylistSongs = ({
         pageIds.length > 0 &&
         pageIds.every((id) => idsToSelect.includes(id))
 
+      const totalCount = Number(contextTotal)
+
       const shouldLoadAllIds =
         isSelectingCurrentPage &&
         isSelectingEntirePage &&
-        typeof contextTotal === 'number' &&
-        contextTotal > idsToSelect.length
+        Number.isFinite(totalCount) &&
+        totalCount > idsToSelect.length
 
       if (shouldLoadAllIds) {
         const filter = { ...filterValues, playlist_id: playlistId }
@@ -194,8 +196,8 @@ const PlaylistSongs = ({
             pagination: {
               page: 1,
               perPage:
-                contextTotal && contextTotal > 0
-                  ? contextTotal
+                totalCount && totalCount > 0
+                  ? totalCount
                   : idsToSelect.length,
             },
             sort: sort,
