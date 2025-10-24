@@ -8,6 +8,25 @@ import VolumeOffIcon from '@material-ui/icons/VolumeOff'
 import DescriptionIcon from '@material-ui/icons/Description'
 import GetAppIcon from '@material-ui/icons/GetApp'
 
+const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
+
+const RETAIL_PLAYER_DATA = {
+  title: 'ThompsonChicago_Lobby',
+  status: [
+    { key: 'connected', icon: LinkIcon, intent: 'success', label: 'Connected' },
+    { key: 'time', label: '16:40' },
+    { key: 'signal', icon: SignalWifi4BarIcon, intent: 'success', label: 'Signal' },
+    { key: 'muted', icon: VolumeOffIcon, intent: 'danger', label: 'Muted' },
+  ],
+  schedules: [
+    { key: 'early', label: 'ThompsonChicago_LobbyEarly', disabled: false },
+    { key: 'late', label: 'ThompsonChicago_LobbyLate', disabled: true },
+    { key: 'mid', label: 'ThompsonChicago_LobbyMid', disabled: true },
+  ],
+  nowPlaying: 'The Kids | Dog Trainer',
+  volume: 75,
+}
+
 const useStyles = makeStyles((theme) => {
   const successMain =
     (theme.palette.success && theme.palette.success.main) ||
@@ -24,17 +43,29 @@ const useStyles = makeStyles((theme) => {
     (theme.palette.primary && theme.palette.primary.main) ||
     (theme.palette.secondary && theme.palette.secondary.main) ||
     theme.palette.text.primary
+  const infoMain =
+    (theme.palette.info && theme.palette.info.main) || accentMain
   const sliderMain =
     (theme.palette.secondary && theme.palette.secondary.main) || theme.palette.primary.main
+  const disabledBackground =
+    (theme.palette.action && theme.palette.action.disabledBackground) ||
+    theme.palette.background.paper
 
   return {
     root: {
       display: 'flex',
       flexDirection: 'column',
-      gap: theme.spacing(4),
-      padding: theme.spacing(4),
+      gap: theme.spacing(5),
+      padding: theme.spacing(5),
+      maxWidth: 960,
+      width: '100%',
+      margin: '0 auto',
+      [theme.breakpoints.down('md')]: {
+        padding: theme.spacing(4),
+        gap: theme.spacing(4),
+      },
       [theme.breakpoints.down('sm')]: {
-        padding: theme.spacing(2),
+        padding: theme.spacing(2.5),
         gap: theme.spacing(3),
       },
     },
@@ -47,9 +78,9 @@ const useStyles = makeStyles((theme) => {
     },
     title: {
       fontWeight: theme.typography.fontWeightBold,
-      fontSize: theme.typography.pxToRem(48),
+      fontSize: theme.typography.pxToRem(60),
       [theme.breakpoints.down('md')]: {
-        fontSize: theme.typography.pxToRem(36),
+        fontSize: theme.typography.pxToRem(44),
       },
       [theme.breakpoints.down('sm')]: {
         fontSize: theme.typography.pxToRem(28),
@@ -60,6 +91,7 @@ const useStyles = makeStyles((theme) => {
       alignItems: 'center',
       gap: theme.spacing(2),
       flexWrap: 'wrap',
+      justifyContent: 'flex-end',
     },
     statusIcon: {
       display: 'inline-flex',
@@ -103,9 +135,18 @@ const useStyles = makeStyles((theme) => {
         borderBottom: 'none',
       },
     },
+    listItemActive: {
+      backgroundColor: theme.palette.action.hover,
+    },
+    listItemDisabled: {
+      backgroundColor: disabledBackground,
+    },
     listIcon: {
       color: theme.palette.text.secondary,
       fontSize: theme.typography.pxToRem(24),
+    },
+    listIconDisabled: {
+      color: theme.palette.text.disabled,
     },
     listText: {
       fontSize: theme.typography.pxToRem(20),
@@ -115,10 +156,10 @@ const useStyles = makeStyles((theme) => {
       color: theme.palette.text.disabled,
     },
     nowPlaying: {
-      fontSize: theme.typography.pxToRem(40),
+      fontSize: theme.typography.pxToRem(48),
       fontWeight: theme.typography.fontWeightBold,
       [theme.breakpoints.down('md')]: {
-        fontSize: theme.typography.pxToRem(32),
+        fontSize: theme.typography.pxToRem(36),
       },
       [theme.breakpoints.down('sm')]: {
         fontSize: theme.typography.pxToRem(26),
@@ -129,6 +170,8 @@ const useStyles = makeStyles((theme) => {
       alignItems: 'center',
       gap: theme.spacing(4),
       flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      width: '100%',
     },
     controlIcon: {
       display: 'inline-flex',
@@ -140,7 +183,7 @@ const useStyles = makeStyles((theme) => {
       color: dangerMain,
     },
     controlIconDownload: {
-      color: accentMain,
+      color: infoMain,
     },
     volumeControl: {
       display: 'flex',
@@ -148,6 +191,7 @@ const useStyles = makeStyles((theme) => {
       flex: 1,
       minWidth: 240,
       gap: theme.spacing(1),
+      maxWidth: 480,
     },
     volumeLabel: {
       textTransform: 'lowercase',
@@ -177,59 +221,79 @@ const RetailPlayerDashboard = () => {
       <Title title="Retail Player" />
       <header className={classes.header}>
         <Typography component="h1" className={classes.title}>
-          ThompsonChicago_Lobby
+          {RETAIL_PLAYER_DATA.title}
         </Typography>
         <div className={classes.statusGroup}>
-          <span
-            className={`${classes.statusIcon} ${classes.statusIconSuccess}`}
-            aria-label="Connected"
-            role="img"
-          >
-            <LinkIcon fontSize="inherit" />
-          </span>
-          <span className={classes.timePill} aria-label="Time">
-            16:40
-          </span>
-          <span
-            className={`${classes.statusIcon} ${classes.statusIconSuccess}`}
-            aria-label="Signal"
-            role="img"
-          >
-            <SignalWifi4BarIcon fontSize="inherit" />
-          </span>
-          <span
-            className={`${classes.statusIcon} ${classes.statusIconDanger}`}
-            aria-label="Muted"
-            role="img"
-          >
-            <VolumeOffIcon fontSize="inherit" />
-          </span>
+          {RETAIL_PLAYER_DATA.status.map((statusItem) => {
+            if (statusItem.key === 'time') {
+              return (
+                <span
+                  key={statusItem.key}
+                  className={classes.timePill}
+                  aria-label="Time"
+                >
+                  {statusItem.label}
+                </span>
+              )
+            }
+
+            const StatusIcon = statusItem.icon
+            return (
+              <span
+                key={statusItem.key}
+                className={combineClasses(
+                  classes.statusIcon,
+                  statusItem.intent === 'success'
+                    ? classes.statusIconSuccess
+                    : classes.statusIconDanger,
+                )}
+                aria-label={statusItem.label}
+                role="img"
+              >
+                <StatusIcon fontSize="inherit" />
+              </span>
+            )
+          })}
         </div>
       </header>
 
       <section className={classes.list} aria-label="Available schedules">
-        <div className={classes.listItem}>
-          <DescriptionIcon className={classes.listIcon} aria-hidden="true" />
-          <Typography className={classes.listText}>
-            ThompsonChicago_LobbyEarly
-          </Typography>
-        </div>
-        <div className={classes.listItem}>
-          <DescriptionIcon className={classes.listIcon} aria-hidden="true" />
-          <Typography className={`${classes.listText} ${classes.listTextDisabled}`}>
-            ThompsonChicago_LobbyLate
-          </Typography>
-        </div>
-        <div className={classes.listItem}>
-          <DescriptionIcon className={classes.listIcon} aria-hidden="true" />
-          <Typography className={`${classes.listText} ${classes.listTextDisabled}`}>
-            ThompsonChicago_LobbyMid
-          </Typography>
-        </div>
+        {RETAIL_PLAYER_DATA.schedules.map((schedule, index) => {
+          return (
+            <div
+              key={schedule.key}
+              className={combineClasses(
+                classes.listItem,
+                schedule.disabled
+                  ? classes.listItemDisabled
+                  : index === 0
+                  ? classes.listItemActive
+                  : null,
+              )}
+              aria-disabled={schedule.disabled}
+            >
+              <DescriptionIcon
+                className={combineClasses(
+                  classes.listIcon,
+                  schedule.disabled ? classes.listIconDisabled : null,
+                )}
+                aria-hidden="true"
+              />
+              <Typography
+                className={combineClasses(
+                  classes.listText,
+                  schedule.disabled ? classes.listTextDisabled : null,
+                )}
+              >
+                {schedule.label}
+              </Typography>
+            </div>
+          )
+        })}
       </section>
 
       <Typography component="h2" className={classes.nowPlaying}>
-        The Kids | Dog Trainer
+        {RETAIL_PLAYER_DATA.nowPlaying}
       </Typography>
 
       <section className={classes.controls}>
@@ -249,7 +313,7 @@ const RetailPlayerDashboard = () => {
               thumb: classes.sliderThumb,
               rail: classes.sliderRail,
             }}
-            defaultValue={75}
+            defaultValue={RETAIL_PLAYER_DATA.volume}
             aria-label="Volume"
           />
         </div>
