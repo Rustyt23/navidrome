@@ -197,10 +197,16 @@ const PlaylistSongs = ({
           let page = 1
           let expectedTotal = totalCount
 
+          const getRemainingFromTotal = () =>
+            expectedTotal !== undefined
+              ? Math.max(expectedTotal - allRecords.length, 0)
+              : undefined
+
           while (true) {
+            const remainingFromTotal = getRemainingFromTotal()
             const perPage =
-              expectedTotal !== undefined && expectedTotal < perPageBase
-                ? expectedTotal
+              remainingFromTotal !== undefined && remainingFromTotal > 0
+                ? Math.min(remainingFromTotal, perPageBase)
                 : perPageBase
 
             const response = await dataProvider.getList('playlistTrack', {
@@ -221,8 +227,8 @@ const PlaylistSongs = ({
             allRecords.push(...records)
 
             if (
-              expectedTotal === undefined &&
-              typeof response?.total === 'number'
+              typeof response?.total === 'number' &&
+              response.total > allRecords.length
             ) {
               expectedTotal = response.total
             }
