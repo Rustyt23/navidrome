@@ -4,7 +4,7 @@ import { Typography, ButtonBase, TextField } from '@material-ui/core'
 import { Title } from 'react-admin'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import { useHistory } from 'react-router-dom'
-import { retailDevices } from './deviceData'
+import RetailPlayerMockService from './RetailPlayerMockService'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -158,6 +158,10 @@ const RetailPlayerDevicesList = () => {
   const classes = useStyles()
   const history = useHistory()
   const [searchTerm, setSearchTerm] = useState('')
+  const devices = useMemo(
+    () => RetailPlayerMockService.listDevices(),
+    [],
+  )
 
   const handleNavigate = (deviceId) => {
     history.push(`/retailplayer/${deviceId}`)
@@ -166,13 +170,13 @@ const RetailPlayerDevicesList = () => {
   const filteredDevices = useMemo(() => {
     const normalizedTerm = searchTerm.trim().toLowerCase()
     if (!normalizedTerm) {
-      return retailDevices
+      return devices
     }
 
-    return retailDevices.filter((device) =>
+    return devices.filter((device) =>
       device.name.toLowerCase().includes(normalizedTerm),
     )
-  }, [searchTerm])
+  }, [devices, searchTerm])
 
   return (
     <div className={classes.root}>

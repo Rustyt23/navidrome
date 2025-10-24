@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
 import { Title } from 'react-admin'
@@ -8,10 +8,20 @@ import VolumeOffIcon from '@material-ui/icons/VolumeOff'
 import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import GetAppIcon from '@material-ui/icons/GetApp'
+import CachedIcon from '@material-ui/icons/Cached'
 import { Link as RouterLink, useParams } from 'react-router-dom'
-import { retailDeviceDetails } from './deviceData'
+import RetailPlayerMockService from './RetailPlayerMockService'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
+
+const formatTime = (date) =>
+  date
+    .toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    .replace(/^24:/, '00:')
 
 const useStyles = makeStyles((theme) => {
   const successMain =
@@ -99,6 +109,9 @@ const useStyles = makeStyles((theme) => {
     },
     statusIconDanger: {
       color: dangerMain,
+    },
+    statusIconNeutral: {
+      color: theme.palette.text.secondary,
     },
     timePill: {
       display: 'inline-flex',
@@ -279,43 +292,208 @@ const useStyles = makeStyles((theme) => {
       alignItems: 'center',
       gap: theme.spacing(1),
     },
+    refreshButton: {
+      borderRadius: theme.shape.borderRadius * 2,
+      padding: theme.spacing(0.75),
+      border: `1px solid ${theme.palette.divider}`,
+      '&:hover, &:focus-visible': {
+        backgroundColor: theme.palette.action.hover,
+      },
+    },
+    artworkImage: {
+      width: '100%',
+      height: 'auto',
+      borderRadius: theme.shape.borderRadius,
+      display: 'block',
+    },
   }
 })
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
   const { deviceId } = useParams()
-  const device = (deviceId && retailDeviceDetails[deviceId]) || null
-  const schedules = device?.schedules || []
+  const [device, setDevice] = useState(null)
+  const [artworkUrl, setArtworkUrl] = useState(null)
+  const [currentTime, setCurrentTime] = useState(() => formatTime(new Date()))
 
-  const [activeChannelKey, setActiveChannelKey] = useState(() => {
-    const initialSchedule =
-      schedules.find((schedule) => schedule.isActive) || schedules[0] || null
-    return initialSchedule ? initialSchedule.key : null
-  })
-  const [nowPlaying, setNowPlaying] = useState(device?.nowPlaying || '')
-  const [isMuted, setIsMuted] = useState(Boolean(device?.isMuted))
-  const [volume, setVolume] = useState(
-    typeof device?.volume === 'number' ? device.volume : 0,
-  )
-
-  useEffect(() => {
-    if (!device) {
-      setActiveChannelKey(null)
-      setNowPlaying('')
-      setIsMuted(false)
-      setVolume(0)
+  const refreshDevice = useCallback(() => {
+    if (!deviceId) {
+      setDevice(null)
+      setArtworkUrl(null)
       return
     }
 
-    const nextSchedules = device.schedules || []
-    const initialSchedule =
-      nextSchedules.find((schedule) => schedule.isActive) || nextSchedules[0] || null
-    setActiveChannelKey(initialSchedule ? initialSchedule.key : null)
-    setNowPlaying(device.nowPlaying)
-    setIsMuted(device.isMuted)
-    setVolume(device.volume)
-  }, [device])
+    const nextDevice = RetailPlayerMockService.getDevice(deviceId)
+    setDevice(nextDevice)
+    setArtworkUrl(RetailPlayerMockService.getArtwork(deviceId))
+    setCurrentTime(formatTime(new Date()))
+  }, [deviceId])
+
+  useEffect(() => {
+    refreshDevice()
+  }, [refreshDevice])
+
+  useEffect(() => {
+    const updateTime = () => setCurrentTime(formatTime(new Date()))
+    const intervalId = window.setInterval(updateTime, 60000)
+    return () => window.clearInterval(intervalId)
+  }, [])
+
+  const schedules = useMemo(() => device?.schedules || [], [device])
+
+  const activeChannelKey = useMemo(() => {
+    const activeSchedule = schedules.find((schedule) => schedule.isActive)
+    return activeSchedule ? activeSchedule.key : null
+  }, [schedules])
+
+  const isMuted = Boolean(device?.isMuted)
+  const volume = typeof device?.volume === 'number' ? device.volume : 0
+  const nowPlaying = device?.nowPlaying || ''
+
+  const statusItems = useMemo(() => {
+    if (!device) {
+      return []
+    }
+
+    return [
+      {
+        key: 'connected',
+        icon: LinkIcon,
+        intent: device.isConnected ? 'success' : 'danger',
+        label: 'Connected',
+      },
+      { key: 'time', label: currentTime, labelForAria: 'Time' },
+      {
+        key: 'signal',
+        icon: SignalWifi4BarIcon,
+        intent: device.hasSignal ? 'success' : 'danger',
+        label: 'Signal',
+      },
+      {
+        key: 'muted',
+        icon: isMuted ? VolumeOffIcon : VolumeUpIcon,
+        intent: isMuted ? 'danger' : 'success',
+        label: isMuted ? 'Muted' : 'Audio Enabled',
+      },
+    ]
+  }, [currentTime, device, isMuted])
+
+  const handleSelectChannel = useCallback(
+    (schedule) => {
+      if (!device) {
+        return
+      }
+      RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
+      refreshDevice()
+    },
+    [device, deviceId, refreshDevice],
+  )
+
+  const handleToggleMute = useCallback(() => {
+    if (!device) {
+      return
+    }
+    RetailPlayerMockService.setMute(deviceId, !device.isMuted)
+    refreshDevice()
+  }, [device, deviceId, refreshDevice])
+
+  const handleVolumeChange = useCallback(
+    (_, newValue) => {
+      if (!device) {
+        return
+      }
+
+      const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
+      if (typeof resolvedValue !== 'number' || Number.isNaN(resolvedValue)) {
+        return
+      }
+
+      RetailPlayerMockService.setVolume(deviceId, resolvedValue)
+      refreshDevice()
+    },
+    [device, deviceId, refreshDevice],
+  )
+
+  const handleRefresh = useCallback(() => {
+    refreshDevice()
+  }, [refreshDevice])
+
+  const handleAdjustVolume = useCallback(
+    (delta) => {
+      if (!device) {
+        return
+      }
+      const nextVolume = device.volume + delta
+      RetailPlayerMockService.setVolume(deviceId, nextVolume)
+      refreshDevice()
+    },
+    [device, deviceId, refreshDevice],
+  )
+
+  const handleShortcutChannel = useCallback(
+    (index) => {
+      const schedule = schedules[index]
+      if (!schedule) {
+        return
+      }
+      RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
+      refreshDevice()
+    },
+    [deviceId, refreshDevice, schedules],
+  )
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (!device) {
+        return
+      }
+
+      const target = event.target
+      const tagName = target && target.tagName
+      if (
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        (target && target.isContentEditable)
+      ) {
+        return
+      }
+
+      switch (event.key) {
+        case 'm':
+        case 'M':
+          event.preventDefault()
+          RetailPlayerMockService.setMute(deviceId, !device.isMuted)
+          refreshDevice()
+          break
+        case '+':
+        case '=':
+          event.preventDefault()
+          handleAdjustVolume(5)
+          break
+        case '-':
+          event.preventDefault()
+          handleAdjustVolume(-5)
+          break
+        case '1':
+          event.preventDefault()
+          handleShortcutChannel(0)
+          break
+        case '2':
+          event.preventDefault()
+          handleShortcutChannel(1)
+          break
+        case '3':
+          event.preventDefault()
+          handleShortcutChannel(2)
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [device, deviceId, handleAdjustVolume, handleShortcutChannel, refreshDevice])
 
   if (!device) {
     return (
@@ -335,45 +513,6 @@ const RetailPlayerDashboard = () => {
     )
   }
 
-  const handleSelectChannel = (schedule) => {
-    setActiveChannelKey(schedule.key)
-    setNowPlaying(`${schedule.label} | ${schedule.artist}`)
-  }
-
-  const handleToggleMute = () => {
-    setIsMuted((prev) => !prev)
-  }
-
-  const handleVolumeChange = (_, newValue) => {
-    if (Array.isArray(newValue)) {
-      setVolume(newValue[0])
-    } else if (typeof newValue === 'number') {
-      setVolume(newValue)
-    }
-  }
-
-  const statusItems = [
-    {
-      key: 'connected',
-      icon: LinkIcon,
-      intent: device.isConnected ? 'success' : 'danger',
-      label: 'Connected',
-    },
-    { key: 'time', label: device.time, labelForAria: 'Time' },
-    {
-      key: 'signal',
-      icon: SignalWifi4BarIcon,
-      intent: device.hasSignal ? 'success' : 'danger',
-      label: 'Signal',
-    },
-    {
-      key: 'muted',
-      icon: isMuted ? VolumeOffIcon : VolumeUpIcon,
-      intent: isMuted ? 'danger' : 'success',
-      label: isMuted ? 'Muted' : 'Audio Enabled',
-    },
-  ]
-
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
@@ -385,6 +524,14 @@ const RetailPlayerDashboard = () => {
           {device.name}
         </Typography>
         <div className={classes.statusGroup}>
+          <ButtonBase
+            className={combineClasses(classes.statusIcon, classes.statusIconNeutral, classes.refreshButton)}
+            onClick={handleRefresh}
+            aria-label="Refresh"
+            focusRipple
+          >
+            <CachedIcon fontSize="inherit" />
+          </ButtonBase>
           {statusItems.map((statusItem) => {
             if (statusItem.key === 'time') {
               return (
@@ -458,7 +605,15 @@ const RetailPlayerDashboard = () => {
       </section>
 
       <div className={classes.artworkWrapper}>
-        <div className={classes.artworkPlaceholder} role="img" aria-label="Album artwork placeholder" />
+        {artworkUrl ? (
+          <img
+            src={artworkUrl}
+            alt="Album artwork"
+            className={classes.artworkImage}
+          />
+        ) : (
+          <div className={classes.artworkPlaceholder} role="img" aria-label="Album artwork placeholder" />
+        )}
       </div>
 
       <Typography component="h2" className={classes.nowPlaying}>
