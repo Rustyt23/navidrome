@@ -142,6 +142,7 @@ const PlaylistSongs = ({
     filterValues = {},
     currentSort,
     total: contextTotal,
+    perPage: contextPerPage,
   } = listContext
 
   const [loadedRecords, setLoadedRecords] = useState({})
@@ -178,10 +179,18 @@ const PlaylistSongs = ({
       const totalCount =
         typeof contextTotal === 'number' ? contextTotal : undefined
 
+      const effectivePerPage =
+        typeof contextPerPage === 'number' && contextPerPage > 0
+          ? contextPerPage
+          : undefined
+
       const shouldLoadAllIds =
         isSelectingCurrentPage &&
         isSelectingEntirePage &&
-        (totalCount === undefined || totalCount > idsToSelect.length)
+        (totalCount === undefined ||
+          totalCount > idsToSelect.length ||
+          (effectivePerPage !== undefined &&
+            idsToSelect.length >= effectivePerPage))
 
       if (shouldLoadAllIds) {
         const filter = { ...filterValues, playlist_id: playlistId }
@@ -190,7 +199,12 @@ const PlaylistSongs = ({
             ? currentSort
             : { field: 'id', order: 'ASC' }
 
-        const perPageBase = Math.max(ids?.length ?? 0, idsToSelect.length, 1)
+        const perPageBase = Math.max(
+          effectivePerPage ?? 0,
+          ids?.length ?? 0,
+          idsToSelect.length,
+          1,
+        )
 
         const loadAllRecords = async () => {
           const allRecords = []
@@ -275,6 +289,7 @@ const PlaylistSongs = ({
       ids,
       selectedIds,
       contextTotal,
+      contextPerPage,
       filterValues,
       playlistId,
       currentSort,
