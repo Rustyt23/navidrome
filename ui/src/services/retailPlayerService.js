@@ -1,21 +1,35 @@
-// BASE_URL stays empty to use same-origin proxy
-const BASE_URL = ""
+import { v4 as uuidv4 } from 'uuid'
+import { baseUrl } from '../utils/urls'
+
+const AUTH_HEADER = 'X-ND-Authorization'
+const CLIENT_ID_HEADER = 'X-ND-Client-Unique-Id'
+const clientUniqueId = uuidv4()
 
 async function fetchFromRetail(path, method = 'GET', body) {
+  const headers = new Headers({ Accept: 'application/json' })
+
+  headers.set(CLIENT_ID_HEADER, clientUniqueId)
+
+  const token = localStorage.getItem('token')
+  if (token) {
+    headers.set(AUTH_HEADER, `Bearer ${token}`)
+  }
+
+  if (body !== undefined) {
+    headers.set('Content-Type', 'application/json')
+  }
+
   const requestInit = {
     method,
-    headers: {
-      Accept: 'application/json',
-    },
+    headers,
     credentials: 'include',
   }
 
   if (body !== undefined) {
-    requestInit.headers['Content-Type'] = 'application/json'
     requestInit.body = JSON.stringify(body)
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, requestInit)
+  const response = await fetch(baseUrl(path), requestInit)
 
   if (!response.ok) {
     const error = new Error(
