@@ -11,6 +11,8 @@ import {
 import ReactGA from 'react-ga'
 import { GlobalHotKeys } from 'react-hotkeys'
 import ReactJkMusicPlayer from 'navidrome-music-player'
+import { BiDislike } from 'react-icons/bi'
+import { MdSkipNext } from 'react-icons/md'
 import 'navidrome-music-player/assets/index.css'
 import useCurrentTheme from '../themes/useCurrentTheme'
 import config from '../config'
@@ -148,6 +150,15 @@ const Player = () => {
     }
   }, [audioInstance, context, gainNode, playerState, gainInfo])
 
+  const customIcons = useMemo(
+    () => ({
+      volume: <BiDislike size={26} />,
+      mute: <BiDislike size={26} />,
+      download: <MdSkipNext size={26} />,
+    }),
+    [],
+  )
+
   const defaultOptions = useMemo(
     () => ({
       theme: playerTheme,
@@ -172,6 +183,7 @@ const Player = () => {
         left: 120,
       },
       volumeFade: { fadeIn: 200, fadeOut: 200 },
+      icon: customIcons,
       renderAudioTitle: (audioInfo, isMobile) => (
         <AudioTitle
           audioInfo={audioInfo}
@@ -181,7 +193,7 @@ const Player = () => {
       ),
       locale: locale(translate),
     }),
-    [gainInfo, isDesktop, playerTheme, translate, playerState.mode],
+    [customIcons, gainInfo, isDesktop, playerTheme, translate, playerState.mode],
   )
 
   const options = useMemo(() => {
