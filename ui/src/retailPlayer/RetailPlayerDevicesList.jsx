@@ -1,10 +1,18 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
-import { Typography, ButtonBase, TextField } from '@material-ui/core'
+import {
+  Typography,
+  Button,
+  ButtonBase,
+  CircularProgress,
+  IconButton,
+  TextField,
+} from '@material-ui/core'
 import { Title } from 'react-admin'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import { useHistory } from 'react-router-dom'
-import RetailPlayerMockService from './RetailPlayerMockService'
+import RefreshIcon from '@material-ui/icons/Refresh'
+import { getDevices } from '../services/retailPlayerService'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -38,9 +46,17 @@ const useStyles = makeStyles((theme) => ({
     display: 'flex',
     justifyContent: 'flex-start',
     alignItems: 'center',
+    gap: theme.spacing(2),
   },
   searchField: {
     maxWidth: 360,
+  },
+  refreshButton: {
+    padding: theme.spacing(1),
+  },
+  lastUpdated: {
+    color: theme.palette.text.secondary,
+    fontSize: theme.typography.pxToRem(13),
   },
   table: {
     borderRadius: theme.shape.borderRadius,
@@ -152,20 +168,141 @@ const useStyles = makeStyles((theme) => ({
     color: theme.palette.text.secondary,
     fontStyle: 'italic',
   },
+  statusRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1.5),
+    padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
+    color: theme.palette.text.secondary,
+  },
+  statusActions: {
+    display: 'flex',
+    gap: theme.spacing(1),
+  },
 }))
 
 const RetailPlayerDevicesList = () => {
   const classes = useStyles()
   const history = useHistory()
   const [searchTerm, setSearchTerm] = useState('')
-  const devices = useMemo(
-    () => RetailPlayerMockService.listDevices(),
-    [],
-  )
+  const [devices, setDevices] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [hasError, setHasError] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState(null)
+
+  const normalizeDevices = useCallback((response) => {
+    if (!response) {
+      return []
+    }
+
+    if (Array.isArray(response)) {
+      return response
+    }
+
+    if (Array.isArray(response.devices)) {
+      return response.devices
+    }
+
+    if (Array.isArray(response.items)) {
+      return response.items
+    }
+
+    if (Array.isArray(response.data)) {
+      return response.data
+    }
+
+    return []
+  }, [])
+
+  const loadDevices = useCallback(async () => {
+    setIsLoading(true)
+    setHasError(false)
+
+    try {
+      const response = await getDevices()
+      const fetchedDevices = normalizeDevices(response)
+      setDevices(fetchedDevices)
+      setLastUpdated(new Date())
+    } catch (error) {
+      setHasError(true)
+      setDevices([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [normalizeDevices])
+
+  useEffect(() => {
+    loadDevices()
+  }, [loadDevices])
 
   const handleNavigate = (deviceId) => {
     history.push(`/retailplayer/${deviceId}`)
   }
+
+  const getDeviceDisplayName = useCallback((device) => {
+    return (
+      (device?.name && device.name.trim()) ||
+      (device?.displayName && device.displayName.trim()) ||
+      (device?.deviceName && device.deviceName.trim()) ||
+      (device?.id && String(device.id)) ||
+      '—'
+    )
+  }, [])
+
+  const getDeviceId = (device) => {
+    return (
+      device?.id ||
+      device?.deviceId ||
+      device?.device_id ||
+      device?.uuid ||
+      null
+    )
+  }
+
+  const getDeviceChannel = (device) => {
+    return (
+      device?.channel?.name ||
+      device?.currentChannel?.name ||
+      device?.assignedChannel?.name ||
+      device?.channelName ||
+      device?.currentChannelName ||
+      '—'
+    )
+  }
+
+  const getDeviceOrganization = (device) => {
+    const organizationName =
+      device?.organization?.name ||
+      device?.orgName ||
+      device?.organizationName
+
+    if (organizationName) {
+      return organizationName
+    }
+
+    const organizationId =
+      device?.organization?.id ||
+      device?.orgId ||
+      device?.org_id ||
+      device?.organizationId
+
+    if (organizationId) {
+      return String(organizationId).slice(0, 8)
+    }
+
+    return '—'
+  }
+
+  const formattedLastUpdated = useMemo(() => {
+    if (!lastUpdated) {
+      return null
+    }
+
+    return lastUpdated.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }, [lastUpdated])
 
   const filteredDevices = useMemo(() => {
     const normalizedTerm = searchTerm.trim().toLowerCase()
@@ -174,9 +311,9 @@ const RetailPlayerDevicesList = () => {
     }
 
     return devices.filter((device) =>
-      device.name.toLowerCase().includes(normalizedTerm),
+      getDeviceDisplayName(device).toLowerCase().includes(normalizedTerm),
     )
-  }, [devices, searchTerm])
+  }, [devices, getDeviceDisplayName, searchTerm])
 
   return (
     <div className={classes.root}>
@@ -194,6 +331,19 @@ const RetailPlayerDevicesList = () => {
           onChange={(event) => setSearchTerm(event.target.value)}
           inputProps={{ 'aria-label': 'Search devices' }}
         />
+        <IconButton
+          className={classes.refreshButton}
+          aria-label="Refresh devices"
+          onClick={loadDevices}
+          disabled={isLoading}
+        >
+          <RefreshIcon fontSize="small" />
+        </IconButton>
+        {formattedLastUpdated && (
+          <Typography variant="caption" className={classes.lastUpdated}>
+            Last updated {formattedLastUpdated}
+          </Typography>
+        )}
       </div>
       <div className={classes.table}>
         <div className={classes.headerRow}>
@@ -213,35 +363,56 @@ const RetailPlayerDevicesList = () => {
             Organization
           </span>
         </div>
-        {filteredDevices.length > 0 ? (
-          filteredDevices.map((device) => (
-            <ButtonBase
-              key={device.id}
-              className={classes.buttonBase}
-              onClick={() => handleNavigate(device.id)}
-              focusRipple
-              aria-label={`Open ${device.name}`}
-            >
-              <span className={classes.rowButton}>
-                <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
-                  View
-                  <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+        {isLoading ? (
+          <div className={classes.statusRow}>
+            <CircularProgress size={18} thickness={4} />
+            <span>Loading devices…</span>
+          </div>
+        ) : hasError ? (
+          <div className={classes.statusRow}>
+            <span>Couldn't load devices.</span>
+            <span className={classes.statusActions}>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={loadDevices}
+              >
+                Retry
+              </Button>
+            </span>
+          </div>
+        ) : filteredDevices.length > 0 ? (
+          filteredDevices.map((device) => {
+            const deviceId = getDeviceId(device)
+            return (
+              <ButtonBase
+                key={deviceId || getDeviceDisplayName(device)}
+                className={classes.buttonBase}
+                onClick={() => deviceId && handleNavigate(deviceId)}
+                focusRipple
+                aria-label={`Open ${getDeviceDisplayName(device)}`}
+              >
+                <span className={classes.rowButton}>
+                  <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
+                    View
+                    <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+                  </span>
+                  <span className={classes.cell} data-area="name">
+                    {getDeviceDisplayName(device)}
+                  </span>
+                  <span className={classes.cell} data-area="channel">
+                    {getDeviceChannel(device)}
+                  </span>
+                  <span className={classes.cell} data-area="channelList">
+                    {'—'}
+                  </span>
+                  <span className={classes.cell} data-area="organization">
+                    {getDeviceOrganization(device)}
+                  </span>
                 </span>
-                <span className={classes.cell} data-area="name">
-                  {device.name}
-                </span>
-                <span className={classes.cell} data-area="channel">
-                  {device.channel}
-                </span>
-                <span className={classes.cell} data-area="channelList">
-                  {device.channelList}
-                </span>
-                <span className={classes.cell} data-area="organization">
-                  {device.organization}
-                </span>
-              </span>
-            </ButtonBase>
-          ))
+              </ButtonBase>
+            )
+          })
         ) : (
           <div className={classes.noResults}>No devices match this search.</div>
         )}
