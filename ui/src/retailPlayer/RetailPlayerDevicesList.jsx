@@ -240,13 +240,20 @@ const RetailPlayerDevicesList = () => {
   }
 
   const getDeviceDisplayName = useCallback((device) => {
-    return (
-      (device?.name && device.name.trim()) ||
-      (device?.displayName && device.displayName.trim()) ||
-      (device?.deviceName && device.deviceName.trim()) ||
-      (device?.id && String(device.id)) ||
-      '—'
-    )
+    if (!device) {
+      return '—'
+    }
+
+    if (typeof device.name === 'string' && device.name.trim()) {
+      return device.name.trim()
+    }
+
+    const id = getDeviceId(device)
+    if (id) {
+      return String(id)
+    }
+
+    return '—'
   }, [])
 
   const getDeviceId = (device) => {
@@ -398,7 +405,9 @@ const RetailPlayerDevicesList = () => {
                     <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
                   </span>
                   <span className={classes.cell} data-area="name">
-                    {getDeviceDisplayName(device)}
+                    {typeof device?.name === 'string' && device.name.trim()
+                      ? device.name.trim()
+                      : '—'}
                   </span>
                   <span className={classes.cell} data-area="channel">
                     {getDeviceChannel(device)}

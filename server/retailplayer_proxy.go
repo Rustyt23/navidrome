@@ -53,6 +53,7 @@ func getEnvDefault(key, defaultValue string) string {
 func (p *RetailPlayerProxy) Mount(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices", p.handleDevices)
+		r.Get("/devices/{id}", p.handleDevice)
 		r.Get("/devices/{id}/status", p.handleDeviceStatus)
 		r.Post("/devices/{id}/command", p.handleDeviceCommand)
 	})
@@ -60,6 +61,12 @@ func (p *RetailPlayerProxy) Mount(r chi.Router) {
 
 func (p *RetailPlayerProxy) handleDevices(w http.ResponseWriter, r *http.Request) {
 	endpoint := fmt.Sprintf("/orgs/%s/devices", p.orgID)
+	p.forward(w, r, http.MethodGet, endpoint, nil)
+}
+
+func (p *RetailPlayerProxy) handleDevice(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	endpoint := fmt.Sprintf("/orgs/%s/devices/%s", p.orgID, id)
 	p.forward(w, r, http.MethodGet, endpoint, nil)
 }
 

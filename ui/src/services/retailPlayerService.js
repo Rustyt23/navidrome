@@ -47,6 +47,10 @@ export function getDevices() {
   return fetchFromRetail(`/api/retailplayer/devices`);
 }
 
+export function getDevice(id) {
+  return fetchFromRetail(`/api/retailplayer/devices/${id}`);
+}
+
 export function getDeviceStatus(id) {
   return fetchFromRetail(`/api/retailplayer/devices/${id}/status`);
 }
@@ -57,6 +61,7 @@ export function postDeviceCommand(id, payload) {
 
 export default {
   getDevices,
+  getDevice,
   getDeviceStatus,
   postDeviceCommand,
 };
