@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   Badge,
   Card,
@@ -153,6 +153,10 @@ const MissingTracksPanel = () => {
     },
     [translate],
   )
+
+  useEffect(() => {
+    fetchEntries(0, false)
+  }, [fetchEntries])
 
   return (
     <div>
