@@ -1,10 +1,40 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
-import { Typography, ButtonBase, TextField } from '@material-ui/core'
+import {
+  Typography,
+  ButtonBase,
+  TextField,
+  Button,
+  CircularProgress,
+} from '@material-ui/core'
 import { Title } from 'react-admin'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
+import CachedIcon from '@material-ui/icons/Cached'
 import { useHistory } from 'react-router-dom'
-import RetailPlayerMockService from './RetailPlayerMockService'
+import { getDevices } from '../services/retailPlayerService'
+
+const KNOWN_DEVICE_ID = '145563ee-9711-4e66-a340-eae608284b5f'
+
+const formatTime = (date) =>
+  date
+    .toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    .replace(/^24:/, '00:')
+
+const formatDeviceId = (id) => {
+  if (!id) {
+    return ''
+  }
+
+  if (id.length <= 8) {
+    return id
+  }
+
+  return `${id.slice(0, 8)}…`
+}
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -38,6 +68,8 @@ const useStyles = makeStyles((theme) => ({
     display: 'flex',
     justifyContent: 'flex-start',
     alignItems: 'center',
+    gap: theme.spacing(2),
+    flexWrap: 'wrap',
   },
   searchField: {
     maxWidth: 360,
@@ -50,13 +82,14 @@ const useStyles = makeStyles((theme) => ({
   },
   headerRow: {
     display: 'grid',
-    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr',
+    gridTemplateColumns: '160px 220px 1.5fr 1fr 1fr 1fr',
     padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
     backgroundColor: theme.palette.action.hover,
     gap: theme.spacing(2),
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: '120px 1.2fr 1fr',
-      gridTemplateAreas: "'actions name name' 'channel channelList org'",
+      gridTemplateColumns: '120px 1fr 1fr',
+      gridTemplateAreas:
+        "'actions id name' 'channel channelList org'",
       rowGap: theme.spacing(1),
     },
   },
@@ -69,6 +102,9 @@ const useStyles = makeStyles((theme) => ({
     [theme.breakpoints.down('sm')]: {
       '&[data-area="actions"]': {
         gridArea: 'actions',
+      },
+      '&[data-area="id"]': {
+        gridArea: 'id',
       },
       '&[data-area="name"]': {
         gridArea: 'name',
@@ -99,7 +135,7 @@ const useStyles = makeStyles((theme) => ({
   },
   rowButton: {
     display: 'grid',
-    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr',
+    gridTemplateColumns: '160px 220px 1.5fr 1fr 1fr 1fr',
     padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
     textAlign: 'left',
     gap: theme.spacing(2),
@@ -109,8 +145,9 @@ const useStyles = makeStyles((theme) => ({
       duration: theme.transitions.duration.shortest,
     }),
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: '120px 1.2fr 1fr',
-      gridTemplateAreas: "'actions name name' 'channel channelList org'",
+      gridTemplateColumns: '120px 1fr 1fr',
+      gridTemplateAreas:
+        "'actions id name' 'channel channelList org'",
       rowGap: theme.spacing(1.5),
     },
   },
@@ -120,6 +157,9 @@ const useStyles = makeStyles((theme) => ({
     [theme.breakpoints.down('sm')]: {
       '&[data-area="actions"]': {
         gridArea: 'actions',
+      },
+      '&[data-area="id"]': {
+        gridArea: 'id',
       },
       '&[data-area="name"]': {
         gridArea: 'name',
@@ -144,8 +184,38 @@ const useStyles = makeStyles((theme) => ({
       theme.palette.text.primary,
     fontWeight: theme.typography.fontWeightMedium,
   },
+  idCell: {
+    fontFamily: 'monospace',
+    letterSpacing: 0.5,
+  },
   chevron: {
     fontSize: theme.typography.pxToRem(20),
+  },
+  refreshButton: {
+    minWidth: 0,
+  },
+  debugButton: {
+    minWidth: 0,
+  },
+  lastUpdated: {
+    color: theme.palette.text.secondary,
+    fontSize: theme.typography.pxToRem(14),
+  },
+  tableMessage: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(2),
+    padding: `${theme.spacing(3)}px ${theme.spacing(3)}px ${theme.spacing(4)}px`,
+    color: theme.palette.text.secondary,
+  },
+  tableSpinner: {
+    color:
+      (theme.palette.primary && theme.palette.primary.main) ||
+      theme.palette.text.secondary,
+  },
+  messageActions: {
+    display: 'inline-flex',
+    gap: theme.spacing(1),
   },
   noResults: {
     padding: `${theme.spacing(3)}px ${theme.spacing(3)}px ${theme.spacing(4)}px`,
@@ -158,14 +228,42 @@ const RetailPlayerDevicesList = () => {
   const classes = useStyles()
   const history = useHistory()
   const [searchTerm, setSearchTerm] = useState('')
-  const devices = useMemo(
-    () => RetailPlayerMockService.listDevices(),
-    [],
+  const [devices, setDevices] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [lastUpdated, setLastUpdated] = useState(null)
+
+  const fetchDevices = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const data = await getDevices()
+      setDevices(Array.isArray(data) ? data : [])
+      setLastUpdated(new Date())
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to load Retail Player devices', err)
+      setDevices([])
+      setError(err?.message || 'Unable to load devices')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchDevices()
+  }, [fetchDevices])
+
+  const handleNavigate = useCallback(
+    (deviceId) => {
+      history.push(`/retailplayer/${deviceId}`)
+    },
+    [history],
   )
 
-  const handleNavigate = (deviceId) => {
-    history.push(`/retailplayer/${deviceId}`)
-  }
+  const handleOpenLobby = useCallback(() => {
+    history.push(`/retailplayer/${KNOWN_DEVICE_ID}`)
+  }, [history])
 
   const filteredDevices = useMemo(() => {
     const normalizedTerm = searchTerm.trim().toLowerCase()
@@ -174,9 +272,20 @@ const RetailPlayerDevicesList = () => {
     }
 
     return devices.filter((device) =>
-      device.name.toLowerCase().includes(normalizedTerm),
+      (device.name || '').toLowerCase().includes(normalizedTerm),
     )
   }, [devices, searchTerm])
+
+  const formattedUpdatedTime = useMemo(() => {
+    if (!lastUpdated) {
+      return null
+    }
+
+    return formatTime(lastUpdated)
+  }, [lastUpdated])
+
+  // eslint-disable-next-line no-console
+  console.log('first-device-id', devices?.[0]?.id)
 
   return (
     <div className={classes.root}>
@@ -194,11 +303,37 @@ const RetailPlayerDevicesList = () => {
           onChange={(event) => setSearchTerm(event.target.value)}
           inputProps={{ 'aria-label': 'Search devices' }}
         />
+        <Button
+          className={classes.refreshButton}
+          variant="outlined"
+          size="small"
+          onClick={fetchDevices}
+          disabled={isLoading}
+          startIcon={<CachedIcon fontSize="small" />}
+        >
+          Refresh
+        </Button>
+        <Button
+          className={classes.debugButton}
+          variant="outlined"
+          size="small"
+          onClick={handleOpenLobby}
+        >
+          Open Lobby
+        </Button>
+        {formattedUpdatedTime ? (
+          <Typography component="span" className={classes.lastUpdated}>
+            Last updated {formattedUpdatedTime}
+          </Typography>
+        ) : null}
       </div>
       <div className={classes.table}>
         <div className={classes.headerRow}>
           <span className={classes.headerCell} data-area="actions">
             Actions
+          </span>
+          <span className={classes.headerCell} data-area="id">
+            ID
           </span>
           <span className={classes.headerCell} data-area="name">
             Name
@@ -213,7 +348,25 @@ const RetailPlayerDevicesList = () => {
             Organization
           </span>
         </div>
-        {filteredDevices.length > 0 ? (
+        {isLoading ? (
+          <div className={classes.tableMessage}>
+            <CircularProgress size={20} className={classes.tableSpinner} />
+            Loading devices…
+          </div>
+        ) : error ? (
+          <div className={classes.tableMessage}>
+            <span>Couldn’t load devices.</span>
+            <span className={classes.messageActions}>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={fetchDevices}
+              >
+                Retry
+              </Button>
+            </span>
+          </div>
+        ) : filteredDevices.length > 0 ? (
           filteredDevices.map((device) => (
             <ButtonBase
               key={device.id}
@@ -226,6 +379,13 @@ const RetailPlayerDevicesList = () => {
                 <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
                   View
                   <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+                </span>
+                <span
+                  className={`${classes.cell} ${classes.idCell}`}
+                  data-area="id"
+                  title={device.id || ''}
+                >
+                  {formatDeviceId(device.id)}
                 </span>
                 <span className={classes.cell} data-area="name">
                   {device.name}

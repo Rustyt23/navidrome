@@ -312,12 +312,16 @@ const useStyles = makeStyles((theme) => {
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
   const { deviceId } = useParams()
+  const isValidDeviceId = useMemo(
+    () => typeof deviceId === 'string' && deviceId.length === 36,
+    [deviceId],
+  )
   const [device, setDevice] = useState(null)
   const [artworkUrl, setArtworkUrl] = useState(null)
   const [currentTime, setCurrentTime] = useState(() => formatTime(new Date()))
 
   const refreshDevice = useCallback(() => {
-    if (!deviceId) {
+    if (!isValidDeviceId) {
       setDevice(null)
       setArtworkUrl(null)
       return
@@ -327,11 +331,16 @@ const RetailPlayerDashboard = () => {
     setDevice(nextDevice)
     setArtworkUrl(RetailPlayerMockService.getArtwork(deviceId))
     setCurrentTime(formatTime(new Date()))
-  }, [deviceId])
+  }, [deviceId, isValidDeviceId])
 
   useEffect(() => {
+    if (!isValidDeviceId) {
+      setCurrentTime(formatTime(new Date()))
+      return
+    }
+
     refreshDevice()
-  }, [refreshDevice])
+  }, [isValidDeviceId, refreshDevice])
 
   useEffect(() => {
     const updateTime = () => setCurrentTime(formatTime(new Date()))
@@ -494,6 +503,23 @@ const RetailPlayerDashboard = () => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [device, deviceId, handleAdjustVolume, handleShortcutChannel, refreshDevice])
+
+  if (!isValidDeviceId) {
+    return (
+      <div className={classes.root}>
+        <Title title="Retail Player" />
+        <RouterLink
+          to="/retailplayer/devices"
+          className={combineClasses(classes.backLink, classes.backLinkTop)}
+        >
+          ← Back to devices
+        </RouterLink>
+        <Typography className={classes.notFoundMessage}>
+          Invalid device id
+        </Typography>
+      </div>
+    )
+  }
 
   if (!device) {
     return (
