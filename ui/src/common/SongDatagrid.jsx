@@ -166,13 +166,81 @@ export const SongDatagridRow = ({
     [record],
   )
 
+  const resourceName = rest?.resource
+  const selectedIds = useSelector(
+    (state) =>
+      (resourceName &&
+        state?.admin?.resources?.[resourceName]?.list?.selectedIds) ||
+      [],
+  )
+  const resourceRecords = useSelector(
+    (state) =>
+      (resourceName && state?.admin?.resources?.[resourceName]?.data) || {},
+  )
+
+  const recordId = record?.id
+  const trackId = record?.mediaFileId || recordId
+
+  const getDragTrackIds = useCallback(() => {
+    const selection = Array.isArray(selectedIds) ? selectedIds : []
+    const isSelected = recordId != null && selection.includes(recordId)
+    const baseIds = isSelected ? selection : [recordId]
+    const seen = new Set()
+    const ids = []
+
+    baseIds.forEach((id) => {
+      if (id == null) {
+        return
+      }
+      const dataRecord = resourceRecords?.[id]
+      const value =
+        dataRecord?.mediaFileId || dataRecord?.id || (id === recordId ? trackId : id)
+      if (!value || seen.has(value)) {
+        return
+      }
+      seen.add(value)
+      ids.push(value)
+    })
+
+    if (!ids.length && trackId && !seen.has(trackId)) {
+      ids.push(trackId)
+    }
+
+    return ids
+  }, [selectedIds, recordId, resourceRecords, trackId])
+
   const [, dragSongRef] = useDrag(
     () => ({
       type: DraggableTypes.SONG,
-      item: { ids: [record?.mediaFileId || record?.id] },
+      item: () => ({ ids: getDragTrackIds() }),
       options: { dropEffect: 'copy' },
     }),
-    [record],
+    [getDragTrackIds],
+  )
+
+  const handleDragStart = useCallback(
+    (event) => {
+      if (!event?.dataTransfer) {
+        return
+      }
+      const ids = Array.from(new Set(getDragTrackIds()?.filter(Boolean) || []))
+      if (!ids.length) {
+        return
+      }
+      const payload = { kind: 'tracks', ids }
+      try {
+        event.dataTransfer.setData(
+          'application/x-navidrome-tracks',
+          JSON.stringify(payload),
+        )
+      } catch (error) {
+        // Ignore serialization errors and fall back to text/plain
+      }
+      event.dataTransfer.setData('text/plain', ids.join(','))
+      // multi-select drag payload: include all selected track IDs
+      event.dataTransfer.effectAllowed = 'copy'
+    },
+    [getDragTrackIds],
   )
 
   if (!record || !record.title) {
@@ -208,6 +276,7 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
+        onDragStart={handleDragStart}
       >
         {fields}
       </PureDatagridRow>
