@@ -127,6 +127,37 @@ const useStyles = makeStyles((theme) => {
       overflow: 'hidden',
       border: `1px solid ${theme.palette.divider}`,
     },
+    contentGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+      gap: theme.spacing(5),
+      alignItems: 'flex-start',
+      width: '100%',
+      [theme.breakpoints.down('md')]: {
+        gridTemplateColumns: 'minmax(0, 1fr)',
+      },
+    },
+    nowPlayingCard: {
+      borderRadius: theme.shape.borderRadius,
+      backgroundColor: theme.palette.background.paper,
+      border: `1px solid ${theme.palette.divider}`,
+      padding: theme.spacing(4),
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: theme.spacing(3),
+      [theme.breakpoints.down('sm')]: {
+        padding: theme.spacing(3),
+        gap: theme.spacing(2.5),
+      },
+    },
+    nowPlayingStack: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: theme.spacing(2),
+      width: '100%',
+    },
     listItemButton: {
       display: 'block',
       width: '100%',
@@ -169,9 +200,8 @@ const useStyles = makeStyles((theme) => {
       color: theme.palette.text.disabled,
     },
     artworkWrapper: {
-      alignSelf: 'center',
-      width: 'min(220px, 100%)',
-      maxWidth: 240,
+      width: 'min(180px, 100%)',
+      maxWidth: 200,
     },
     artworkCircle: {
       position: 'relative',
@@ -203,8 +233,8 @@ const useStyles = makeStyles((theme) => {
     discSvg: {
       width: '80%',
       height: '80%',
-      maxWidth: 200,
-      maxHeight: 200,
+      maxWidth: 180,
+      maxHeight: 180,
     },
     discOuter: {
       fill:
@@ -223,37 +253,37 @@ const useStyles = makeStyles((theme) => {
       opacity: 0.2,
     },
     nowPlayingTitle: {
-      fontSize: theme.typography.pxToRem(48),
+      fontSize: theme.typography.pxToRem(36),
       fontWeight: theme.typography.fontWeightBold,
       textAlign: 'center',
       [theme.breakpoints.down('md')]: {
-        fontSize: theme.typography.pxToRem(36),
+        fontSize: theme.typography.pxToRem(30),
       },
       [theme.breakpoints.down('sm')]: {
-        fontSize: theme.typography.pxToRem(26),
+        fontSize: theme.typography.pxToRem(22),
       },
     },
     nowPlayingArtist: {
-      fontSize: theme.typography.pxToRem(20),
+      fontSize: theme.typography.pxToRem(18),
       textAlign: 'center',
       color: theme.palette.text.secondary,
       [theme.breakpoints.down('sm')]: {
-        fontSize: theme.typography.pxToRem(16),
+        fontSize: theme.typography.pxToRem(15),
       },
     },
     controlsRow: {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: theme.spacing(6),
+      gap: theme.spacing(4),
       flexWrap: 'wrap',
     },
     controlButton: {
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
-      width: 56,
-      height: 56,
+      width: 52,
+      height: 52,
       borderRadius: '50%',
       transition: theme.transitions.create(['background-color', 'color'], {
         duration: theme.transitions.duration.shortest,
@@ -275,7 +305,7 @@ const useStyles = makeStyles((theme) => {
       flexDirection: 'column',
       gap: theme.spacing(1.5),
       width: '100%',
-      maxWidth: 420,
+      maxWidth: 360,
       alignSelf: 'center',
     },
     volumeLabelRow: {
@@ -708,141 +738,147 @@ const RetailPlayerDashboard = () => {
         </div>
       </header>
 
-      <section className={classes.list} aria-label="Available schedules">
-        {device.schedules.map((schedule) => {
-          const isActive = schedule.key === activeChannelKey
-          return (
-            <ButtonBase
-              key={schedule.key}
-              className={classes.listItemButton}
-              onClick={() => handleSelectChannel(schedule)}
-              focusRipple
-              aria-label={`Select channel: ${schedule.label}`}
-              aria-pressed={isActive}
-            >
-              <div
-                className={combineClasses(
-                  classes.listItem,
-                  isActive ? classes.listItemActive : classes.listItemInactive,
-                )}
+      <div className={classes.contentGrid}>
+        <section className={classes.list} aria-label="Available schedules">
+          {device.schedules.map((schedule) => {
+            const isActive = schedule.key === activeChannelKey
+            return (
+              <ButtonBase
+                key={schedule.key}
+                className={classes.listItemButton}
+                onClick={() => handleSelectChannel(schedule)}
+                focusRipple
+                aria-label={`Select channel: ${schedule.label}`}
+                aria-pressed={isActive}
               >
-                <DescriptionIcon
+                <div
                   className={combineClasses(
-                    classes.listIcon,
-                    !isActive ? classes.listIconInactive : null,
-                  )}
-                  aria-hidden="true"
-                />
-                <Typography
-                  className={combineClasses(
-                    classes.listText,
-                    !isActive ? classes.listTextInactive : null,
+                    classes.listItem,
+                    isActive ? classes.listItemActive : classes.listItemInactive,
                   )}
                 >
-                  {schedule.label}
-                </Typography>
+                  <DescriptionIcon
+                    className={combineClasses(
+                      classes.listIcon,
+                      !isActive ? classes.listIconInactive : null,
+                    )}
+                    aria-hidden="true"
+                  />
+                  <Typography
+                    className={combineClasses(
+                      classes.listText,
+                      !isActive ? classes.listTextInactive : null,
+                    )}
+                  >
+                    {schedule.label}
+                  </Typography>
+                </div>
+              </ButtonBase>
+            )
+          })}
+        </section>
+
+        <section className={classes.nowPlayingCard} aria-label="Now playing">
+          <div className={classes.artworkWrapper} aria-label="Artwork">
+            <div className={classes.artworkCircle}>
+              <div className={classes.artworkContent}>
+                {resolvedArtworkUrl ? (
+                  <img
+                    src={resolvedArtworkUrl}
+                    alt={`Artwork for ${currentTrack.title}`}
+                    className={classes.artworkImage}
+                  />
+                ) : (
+                  <svg
+                    viewBox="0 0 200 200"
+                    className={classes.discSvg}
+                    role="img"
+                    aria-hidden="true"
+                  >
+                    <circle cx="100" cy="100" r="98" className={classes.discOuter} />
+                    <circle cx="100" cy="100" r="48" className={classes.discInner} />
+                    <path
+                      d="M150 50c-18-14-40-22-62-20"
+                      className={classes.discHighlight}
+                    />
+                  </svg>
+                )}
               </div>
-            </ButtonBase>
-          )
-        })}
-      </section>
-
-      <div className={classes.artworkWrapper} aria-label="Artwork">
-        <div className={classes.artworkCircle}>
-          <div className={classes.artworkContent}>
-            {resolvedArtworkUrl ? (
-              <img
-                src={resolvedArtworkUrl}
-                alt={`Artwork for ${currentTrack.title}`}
-                className={classes.artworkImage}
-              />
-            ) : (
-              <svg
-                viewBox="0 0 200 200"
-                className={classes.discSvg}
-                role="img"
-                aria-hidden="true"
-              >
-                <circle cx="100" cy="100" r="98" className={classes.discOuter} />
-                <circle cx="100" cy="100" r="48" className={classes.discInner} />
-                <path
-                  d="M150 50c-18-14-40-22-62-20"
-                  className={classes.discHighlight}
-                />
-              </svg>
-            )}
+            </div>
           </div>
-        </div>
+
+          <div className={classes.nowPlayingStack}>
+            <Typography component="h2" className={classes.nowPlayingTitle}>
+              {currentTrack.title}
+            </Typography>
+            <Typography className={classes.nowPlayingArtist}>{currentTrack.artist}</Typography>
+          </div>
+
+          <section className={classes.controlsRow} aria-label="Now playing controls">
+            <ButtonBase
+              className={classes.controlButton}
+              aria-label="Dislike"
+              onClick={handleDislike}
+              focusRipple
+            >
+              <span className={classes.controlIcon} role="img" aria-hidden="true">
+                <BiDislike fontSize="inherit" />
+              </span>
+            </ButtonBase>
+            <ButtonBase
+              className={combineClasses(
+                classes.controlButton,
+                isMuted ? classes.controlButtonMuted : null,
+              )}
+              aria-label="Mute/Unmute"
+              onClick={handleToggleMute}
+              focusRipple
+            >
+              <span className={classes.controlIcon} role="img" aria-hidden="true">
+                {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
+              </span>
+            </ButtonBase>
+            <ButtonBase
+              className={classes.controlButton}
+              aria-label="Skip"
+              onClick={handleSkip}
+              focusRipple
+            >
+              <span className={classes.controlIcon} role="img" aria-hidden="true">
+                <MdSkipNext fontSize="inherit" />
+              </span>
+            </ButtonBase>
+          </section>
+
+          {showDislikeMessage ? (
+            <Typography className={classes.dislikeMessage} aria-live="polite">
+              Marked as disliked
+            </Typography>
+          ) : null}
+
+          <section className={classes.volumeSection} aria-label="Volume">
+            <div className={classes.volumeLabelRow}>
+              <Typography component="span">volume</Typography>
+              <Typography className={classes.volumeValue} aria-live="polite">
+                {displayVolume}
+              </Typography>
+            </div>
+            <Slider
+              classes={{
+                root: classes.slider,
+                track: classes.sliderTrack,
+                thumb: classes.sliderThumb,
+                rail: classes.sliderRail,
+              }}
+              value={displayVolume}
+              min={0}
+              max={100}
+              aria-label="Volume"
+              onChange={handleVolumeChange}
+            />
+          </section>
+        </section>
       </div>
-
-      <Typography component="h2" className={classes.nowPlayingTitle}>
-        {currentTrack.title}
-      </Typography>
-      <Typography className={classes.nowPlayingArtist}>{currentTrack.artist}</Typography>
-
-      <section className={classes.controlsRow} aria-label="Now playing controls">
-        <ButtonBase
-          className={classes.controlButton}
-          aria-label="Dislike"
-          onClick={handleDislike}
-          focusRipple
-        >
-          <span className={classes.controlIcon} role="img" aria-hidden="true">
-            <BiDislike fontSize="inherit" />
-          </span>
-        </ButtonBase>
-        <ButtonBase
-          className={combineClasses(
-            classes.controlButton,
-            isMuted ? classes.controlButtonMuted : null,
-          )}
-          aria-label="Mute/Unmute"
-          onClick={handleToggleMute}
-          focusRipple
-        >
-          <span className={classes.controlIcon} role="img" aria-hidden="true">
-            {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
-          </span>
-        </ButtonBase>
-        <ButtonBase
-          className={classes.controlButton}
-          aria-label="Skip"
-          onClick={handleSkip}
-          focusRipple
-        >
-          <span className={classes.controlIcon} role="img" aria-hidden="true">
-            <MdSkipNext fontSize="inherit" />
-          </span>
-        </ButtonBase>
-      </section>
-
-      {showDislikeMessage ? (
-        <Typography className={classes.dislikeMessage} aria-live="polite">
-          Marked as disliked
-        </Typography>
-      ) : null}
-
-      <section className={classes.volumeSection} aria-label="Volume">
-        <div className={classes.volumeLabelRow}>
-          <Typography component="span">volume</Typography>
-          <Typography className={classes.volumeValue} aria-live="polite">
-            {displayVolume}
-          </Typography>
-        </div>
-        <Slider
-          classes={{
-            root: classes.slider,
-            track: classes.sliderTrack,
-            thumb: classes.sliderThumb,
-            rail: classes.sliderRail,
-          }}
-          value={displayVolume}
-          min={0}
-          max={100}
-          aria-label="Volume"
-          onChange={handleVolumeChange}
-        />
-      </section>
     </div>
   )
 }
