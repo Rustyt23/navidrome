@@ -4,6 +4,7 @@ import {
   Datagrid,
   PureDatagridBody,
   PureDatagridRow,
+  useListContext,
   useTranslate,
 } from 'react-admin'
 import {
@@ -150,6 +151,41 @@ export const SongDatagridRow = ({
     isValidElement(c),
   )
 
+  const { selectedIds = [], data: listData } = useListContext() || {}
+
+  const getRecordTrackId = useCallback(
+    (recordId) => {
+      const item = listData?.[recordId]
+      if (item?.missing) {
+        return null
+      }
+      return item?.mediaFileId || item?.id || recordId
+    },
+    [listData],
+  )
+
+  const draggedSongIds = useMemo(() => {
+    const baseId =
+      getRecordTrackId(record?.id) || record?.mediaFileId || record?.id
+    if (!baseId) {
+      return []
+    }
+
+    if (
+      Array.isArray(selectedIds) &&
+      selectedIds.length > 1 &&
+      selectedIds.includes(record?.id)
+    ) {
+      const idsFromSelection = selectedIds
+        .map((id) => getRecordTrackId(id))
+        .filter(Boolean)
+
+      return Array.from(new Set(idsFromSelection))
+    }
+
+    return [baseId]
+  }, [getRecordTrackId, record, selectedIds])
+
   const [, dragDiscRef] = useDrag(
     () => ({
       type: DraggableTypes.DISC,
@@ -169,10 +205,11 @@ export const SongDatagridRow = ({
   const [, dragSongRef] = useDrag(
     () => ({
       type: DraggableTypes.SONG,
-      item: { ids: [record?.mediaFileId || record?.id] },
+      canDrag: draggedSongIds.length > 0,
+      item: { ids: draggedSongIds },
       options: { dropEffect: 'copy' },
     }),
-    [record],
+    [draggedSongIds],
   )
 
   if (!record || !record.title) {
