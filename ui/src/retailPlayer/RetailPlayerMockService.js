@@ -1,5 +1,16 @@
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
+const parseNowPlaying = (value) => {
+  if (typeof value !== 'string') {
+    return { label: '', artist: '' }
+  }
+  const [label = '', artist = ''] = value.split('|').map((part) => part.trim())
+  return { label, artist }
+}
+
+const scheduleLabelFromNowPlaying = (value) => parseNowPlaying(value).label
+const scheduleArtistFromNowPlaying = (value) => parseNowPlaying(value).artist
+
 const initialDevices = {
   'thompson-chicago-lobby': {
     id: 'thompson-chicago-lobby',
@@ -30,6 +41,30 @@ const initialDevices = {
     ],
     nowPlaying: 'The Kids | Dog Trainer',
     volume: 75,
+    currentTrackIndex: 0,
+    tracks: [
+      {
+        id: 'kids-dog-trainer',
+        title: 'The Kids',
+        artist: 'Dog Trainer',
+        album: 'Lobby Rotation Vol. 1',
+        artwork: null,
+      },
+      {
+        id: 'evening-hush',
+        title: 'Evening Hush',
+        artist: 'Late Night Riders',
+        album: 'Chicago After Hours',
+        artwork: null,
+      },
+      {
+        id: 'midday-march',
+        title: 'Midday March',
+        artist: 'Midday Parade',
+        album: 'City Strolls',
+        artwork: null,
+      },
+    ],
   },
   'thompson-chicago-rooftop': {
     id: 'thompson-chicago-rooftop',
@@ -60,6 +95,30 @@ const initialDevices = {
     ],
     nowPlaying: 'Skyline Drift | Moon District',
     volume: 62,
+    currentTrackIndex: 1,
+    tracks: [
+      {
+        id: 'sunrise-sessions',
+        title: 'Sunrise Sessions',
+        artist: 'Sunrise Syndicate',
+        album: 'Rooftop Dawn',
+        artwork: null,
+      },
+      {
+        id: 'skyline-drift',
+        title: 'Skyline Drift',
+        artist: 'Moon District',
+        album: 'Moonlit Mixes',
+        artwork: null,
+      },
+      {
+        id: 'night-spark',
+        title: 'Night Spark',
+        artist: 'Skyline Ensemble',
+        album: 'City Lights',
+        artwork: null,
+      },
+    ],
   },
   'thompson-miami-pool': {
     id: 'thompson-miami-pool',
@@ -90,6 +149,30 @@ const initialDevices = {
     ],
     nowPlaying: 'Sea Breeze | Sunrunners',
     volume: 68,
+    currentTrackIndex: 0,
+    tracks: [
+      {
+        id: 'sea-breeze',
+        title: 'Sea Breeze',
+        artist: 'Sunrunners',
+        album: 'Poolside Flow',
+        artwork: null,
+      },
+      {
+        id: 'twilight-currents',
+        title: 'Twilight Currents',
+        artist: 'Twilight Current',
+        album: 'Evening Reflections',
+        artwork: null,
+      },
+      {
+        id: 'harbor-glide',
+        title: 'Harbor Glide',
+        artist: 'Harbor Crew',
+        album: 'Beachline',
+        artwork: null,
+      },
+    ],
   },
   'thompson-denver-lounge': {
     id: 'thompson-denver-lounge',
@@ -120,6 +203,30 @@ const initialDevices = {
     ],
     nowPlaying: 'Quiet Hours | Alpine Echo',
     volume: 40,
+    currentTrackIndex: 1,
+    tracks: [
+      {
+        id: 'summit-glow',
+        title: 'Summit Glow',
+        artist: 'Morning Summit',
+        album: 'Mountain Dawn',
+        artwork: null,
+      },
+      {
+        id: 'quiet-hours',
+        title: 'Quiet Hours',
+        artist: 'Alpine Echo',
+        album: 'Twilight Peak',
+        artwork: null,
+      },
+      {
+        id: 'lounge-lines',
+        title: 'Lounge Lines',
+        artist: 'Denver Collective',
+        album: 'City Mountains',
+        artwork: null,
+      },
+    ],
   },
 }
 
@@ -182,6 +289,19 @@ class RetailPlayerMockService {
     })
 
     device.nowPlaying = nextNowPlaying
+    device.currentTrackIndex = 0
+    if (Array.isArray(device.tracks) && device.tracks.length > 0) {
+      device.tracks = device.tracks.map((track, index) => {
+        if (index === 0) {
+          return {
+            ...track,
+            title: scheduleLabelFromNowPlaying(nextNowPlaying),
+            artist: scheduleArtistFromNowPlaying(nextNowPlaying),
+          }
+        }
+        return track
+      })
+    }
     return this.getDevice(deviceId)
   }
 
@@ -191,6 +311,42 @@ class RetailPlayerMockService {
       return null
     }
     return null
+  }
+
+  setCurrentTrack(deviceId, trackIndex) {
+    const device = this.devices[deviceId]
+    if (!device || !Array.isArray(device.tracks) || device.tracks.length === 0) {
+      return null
+    }
+
+    const total = device.tracks.length
+    const normalizedIndex = ((trackIndex % total) + total) % total
+    device.currentTrackIndex = normalizedIndex
+    const track = device.tracks[normalizedIndex]
+    device.nowPlaying = `${track.title} | ${track.artist}`
+    return this.getDevice(deviceId)
+  }
+
+  skipTrack(deviceId) {
+    const device = this.devices[deviceId]
+    if (!device) {
+      return null
+    }
+
+    const nextIndex =
+      typeof device.currentTrackIndex === 'number' ? device.currentTrackIndex + 1 : 0
+    return this.setCurrentTrack(deviceId, nextIndex)
+  }
+
+  getCurrentTrack(deviceId) {
+    const device = this.devices[deviceId]
+    if (!device || !Array.isArray(device.tracks) || device.tracks.length === 0) {
+      return null
+    }
+
+    const index =
+      typeof device.currentTrackIndex === 'number' ? device.currentTrackIndex : 0
+    return deepClone(device.tracks[index % device.tracks.length])
   }
 }
 

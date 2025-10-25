@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
 import { Title } from 'react-admin'
@@ -9,6 +9,9 @@ import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import GetAppIcon from '@material-ui/icons/GetApp'
 import CachedIcon from '@material-ui/icons/Cached'
+import ThumbDownIcon from '@material-ui/icons/ThumbDown'
+import SkipNextIcon from '@material-ui/icons/SkipNext'
+import CloseIcon from '@material-ui/icons/Close'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import RetailPlayerMockService from './RetailPlayerMockService'
 
@@ -176,6 +179,15 @@ const useStyles = makeStyles((theme) => {
       width: 200,
       maxWidth: '100%',
     },
+    artworkButton: {
+      width: '100%',
+      display: 'block',
+      borderRadius: theme.shape.borderRadius,
+      overflow: 'hidden',
+      '&:hover, &:focus-visible': {
+        boxShadow: theme.shadows[4],
+      },
+    },
     artworkPlaceholder: {
       width: '100%',
       paddingTop: '100%',
@@ -306,6 +318,116 @@ const useStyles = makeStyles((theme) => {
       borderRadius: theme.shape.borderRadius,
       display: 'block',
     },
+    nowPlayingPanelContainer: {
+      display: 'flex',
+      justifyContent: 'center',
+      width: '100%',
+    },
+    nowPlayingPanel: {
+      position: 'relative',
+      width: '100%',
+      maxWidth: 600,
+      margin: '0 auto',
+      padding: theme.spacing(4),
+      borderRadius: theme.shape.borderRadius * 2,
+      backgroundColor: theme.palette.background.paper,
+      border: `1px solid ${theme.palette.divider}`,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: theme.spacing(3),
+      [theme.breakpoints.down('sm')]: {
+        padding: theme.spacing(3),
+      },
+    },
+    nowPlayingPanelHeader: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: theme.spacing(0.5),
+      textAlign: 'center',
+    },
+    nowPlayingPanelTitle: {
+      fontSize: theme.typography.pxToRem(32),
+      fontWeight: theme.typography.fontWeightBold,
+      textAlign: 'center',
+    },
+    nowPlayingPanelArtist: {
+      color: theme.palette.text.secondary,
+      fontSize: theme.typography.pxToRem(18),
+    },
+    nowPlayingPanelAlbum: {
+      fontStyle: 'italic',
+      color: theme.palette.text.secondary,
+      fontSize: theme.typography.pxToRem(16),
+    },
+    nowPlayingPanelClose: {
+      position: 'absolute',
+      top: theme.spacing(2),
+      right: theme.spacing(2),
+      borderRadius: theme.shape.borderRadius,
+      padding: theme.spacing(0.5),
+      '&:hover, &:focus-visible': {
+        backgroundColor: theme.palette.action.hover,
+      },
+    },
+    nowPlayingPanelArtwork: {
+      width: 180,
+      height: 180,
+      borderRadius: '50%',
+      objectFit: 'cover',
+      border: `2px solid ${theme.palette.divider}`,
+    },
+    nowPlayingPanelArtworkPlaceholder: {
+      width: 180,
+      height: 180,
+      borderRadius: '50%',
+      backgroundColor: theme.palette.action.hover,
+      border: `2px solid ${theme.palette.divider}`,
+    },
+    nowPlayingPanelControls: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: theme.spacing(3),
+      flexWrap: 'wrap',
+    },
+    nowPlayingPanelButton: {
+      borderRadius: theme.shape.borderRadius * 2,
+      padding: theme.spacing(1.5),
+      border: `1px solid ${theme.palette.divider}`,
+      '&:hover, &:focus-visible': {
+        backgroundColor: theme.palette.action.hover,
+      },
+    },
+    nowPlayingPanelButtonMuted: {
+      color: dangerMain,
+    },
+    nowPlayingPanelButtonUnmuted: {
+      color: successMain,
+    },
+    nowPlayingPanelButtonIcon: {
+      fontSize: theme.typography.pxToRem(28),
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    nowPlayingPanelVolume: {
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(1),
+    },
+    nowPlayingPanelVolumeRow: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(2),
+    },
+    nowPlayingPanelToast: {
+      fontSize: theme.typography.pxToRem(14),
+      color: theme.palette.text.secondary,
+      minHeight: theme.spacing(2),
+    },
   }
 })
 
@@ -315,6 +437,12 @@ const RetailPlayerDashboard = () => {
   const [device, setDevice] = useState(null)
   const [artworkUrl, setArtworkUrl] = useState(null)
   const [currentTime, setCurrentTime] = useState(() => formatTime(new Date()))
+  const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [panelMuted, setPanelMuted] = useState(false)
+  const [panelVolume, setPanelVolume] = useState(0)
+  const [panelTrack, setPanelTrack] = useState(null)
+  const [showDislikedToast, setShowDislikedToast] = useState(false)
+  const dislikeTimeoutRef = useRef(null)
 
   const refreshDevice = useCallback(() => {
     if (!deviceId) {
@@ -339,7 +467,59 @@ const RetailPlayerDashboard = () => {
     return () => window.clearInterval(intervalId)
   }, [])
 
+  useEffect(() => {
+    if (!device) {
+      setPanelTrack(null)
+      setPanelMuted(false)
+      setPanelVolume(0)
+      setIsPanelOpen(false)
+      return
+    }
+
+    const total = trackList.length
+    if (total > 0) {
+      const index =
+        typeof device.currentTrackIndex === 'number' ? device.currentTrackIndex : 0
+      const normalizedIndex = ((index % total) + total) % total
+      setPanelTrack(trackList[normalizedIndex])
+    } else {
+      setPanelTrack(null)
+    }
+    setPanelMuted(Boolean(device.isMuted))
+    setPanelVolume(typeof device.volume === 'number' ? device.volume : 0)
+  }, [device, trackList])
+
+  useEffect(() => {
+    if (!showDislikedToast) {
+      return
+    }
+
+    if (dislikeTimeoutRef.current) {
+      window.clearTimeout(dislikeTimeoutRef.current)
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setShowDislikedToast(false)
+      dislikeTimeoutRef.current = null
+    }, 2000)
+
+    dislikeTimeoutRef.current = timeoutId
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [showDislikedToast])
+
+  useEffect(() => {
+    return () => {
+      if (dislikeTimeoutRef.current) {
+        window.clearTimeout(dislikeTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const schedules = useMemo(() => device?.schedules || [], [device])
+  const trackList = useMemo(() => (device?.tracks && Array.isArray(device.tracks) ? device.tracks : []), [device])
 
   const activeChannelKey = useMemo(() => {
     const activeSchedule = schedules.find((schedule) => schedule.isActive)
@@ -383,7 +563,16 @@ const RetailPlayerDashboard = () => {
       if (!device) {
         return
       }
-      RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
+      const updatedDevice = RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
+      if (updatedDevice && Array.isArray(updatedDevice.tracks)) {
+        const nextTrack = updatedDevice.tracks[
+          ((updatedDevice.currentTrackIndex || 0) % updatedDevice.tracks.length +
+            updatedDevice.tracks.length) %
+            updatedDevice.tracks.length
+        ]
+        setPanelTrack(nextTrack || null)
+      }
+      setShowDislikedToast(false)
       refreshDevice()
     },
     [device, deviceId, refreshDevice],
@@ -393,7 +582,9 @@ const RetailPlayerDashboard = () => {
     if (!device) {
       return
     }
-    RetailPlayerMockService.setMute(deviceId, !device.isMuted)
+    const nextMuted = !device.isMuted
+    setPanelMuted(nextMuted)
+    RetailPlayerMockService.setMute(deviceId, nextMuted)
     refreshDevice()
   }, [device, deviceId, refreshDevice])
 
@@ -408,7 +599,9 @@ const RetailPlayerDashboard = () => {
         return
       }
 
-      RetailPlayerMockService.setVolume(deviceId, resolvedValue)
+      const nextValue = Math.min(Math.max(Math.round(resolvedValue), 0), 100)
+      setPanelVolume(nextValue)
+      RetailPlayerMockService.setVolume(deviceId, nextValue)
       refreshDevice()
     },
     [device, deviceId, refreshDevice],
@@ -423,23 +616,13 @@ const RetailPlayerDashboard = () => {
       if (!device) {
         return
       }
-      const nextVolume = device.volume + delta
+      const currentVolume = typeof device.volume === 'number' ? device.volume : 0
+      const nextVolume = Math.min(Math.max(Math.round(currentVolume + delta), 0), 100)
+      setPanelVolume(nextVolume)
       RetailPlayerMockService.setVolume(deviceId, nextVolume)
       refreshDevice()
     },
     [device, deviceId, refreshDevice],
-  )
-
-  const handleShortcutChannel = useCallback(
-    (index) => {
-      const schedule = schedules[index]
-      if (!schedule) {
-        return
-      }
-      RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
-      refreshDevice()
-    },
-    [deviceId, refreshDevice, schedules],
   )
 
   useEffect(() => {
@@ -462,8 +645,7 @@ const RetailPlayerDashboard = () => {
         case 'm':
         case 'M':
           event.preventDefault()
-          RetailPlayerMockService.setMute(deviceId, !device.isMuted)
-          refreshDevice()
+          handleToggleMute()
           break
         case '+':
         case '=':
@@ -476,15 +658,15 @@ const RetailPlayerDashboard = () => {
           break
         case '1':
           event.preventDefault()
-          handleShortcutChannel(0)
+          handleSelectChannel(schedules[0])
           break
         case '2':
           event.preventDefault()
-          handleShortcutChannel(1)
+          handleSelectChannel(schedules[1])
           break
         case '3':
           event.preventDefault()
-          handleShortcutChannel(2)
+          handleSelectChannel(schedules[2])
           break
         default:
           break
@@ -493,7 +675,56 @@ const RetailPlayerDashboard = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [device, deviceId, handleAdjustVolume, handleShortcutChannel, refreshDevice])
+  }, [device, handleAdjustVolume, handleSelectChannel, handleToggleMute, schedules])
+
+  const handleClosePanel = useCallback(() => {
+    setIsPanelOpen(false)
+    setShowDislikedToast(false)
+  }, [])
+
+  const handleOpenPanel = useCallback(() => {
+    if (!device) {
+      return
+    }
+    setIsPanelOpen(true)
+  }, [device])
+
+  useEffect(() => {
+    if (!isPanelOpen) {
+      return
+    }
+
+    const handleEsc = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        handleClosePanel()
+      }
+    }
+
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [handleClosePanel, isPanelOpen])
+
+  const handleDislike = useCallback(() => {
+    setShowDislikedToast(true)
+  }, [])
+
+  const handleSkipTrack = useCallback(() => {
+    if (!device) {
+      return
+    }
+    const nextDevice = RetailPlayerMockService.skipTrack(deviceId)
+    if (nextDevice && Array.isArray(nextDevice.tracks)) {
+      const total = nextDevice.tracks.length
+      const index =
+        typeof nextDevice.currentTrackIndex === 'number'
+          ? nextDevice.currentTrackIndex
+          : 0
+      const normalizedIndex = ((index % total) + total) % total
+      setPanelTrack(nextDevice.tracks[normalizedIndex] || null)
+    }
+    refreshDevice()
+  }, [device, deviceId, refreshDevice])
 
   if (!device) {
     return (
@@ -605,16 +836,147 @@ const RetailPlayerDashboard = () => {
       </section>
 
       <div className={classes.artworkWrapper}>
-        {artworkUrl ? (
-          <img
-            src={artworkUrl}
-            alt="Album artwork"
-            className={classes.artworkImage}
-          />
-        ) : (
-          <div className={classes.artworkPlaceholder} role="img" aria-label="Album artwork placeholder" />
-        )}
+        <ButtonBase
+          className={classes.artworkButton}
+          onClick={handleOpenPanel}
+          aria-label="Open Now Playing panel"
+          focusRipple
+        >
+          {artworkUrl ? (
+            <img
+              src={artworkUrl}
+              alt="Album artwork"
+              className={classes.artworkImage}
+            />
+          ) : (
+            <div
+              className={classes.artworkPlaceholder}
+              role="img"
+              aria-label="Album artwork placeholder"
+            />
+          )}
+        </ButtonBase>
       </div>
+
+      {isPanelOpen && (
+        <div className={classes.nowPlayingPanelContainer}>
+          <section
+            className={classes.nowPlayingPanel}
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby="now-playing-panel-title"
+          >
+            <ButtonBase
+              className={classes.nowPlayingPanelClose}
+              onClick={handleClosePanel}
+              aria-label="Close"
+              focusRipple
+            >
+              <CloseIcon fontSize="small" />
+            </ButtonBase>
+            <div className={classes.nowPlayingPanelHeader}>
+              <Typography
+                id="now-playing-panel-title"
+                className={classes.nowPlayingPanelTitle}
+              >
+                {panelTrack?.title || 'Now Playing'}
+              </Typography>
+              {panelTrack?.artist ? (
+                <Typography className={classes.nowPlayingPanelArtist}>
+                  {panelTrack.artist}
+                </Typography>
+              ) : null}
+              {panelTrack?.album ? (
+                <Typography className={classes.nowPlayingPanelAlbum}>
+                  {panelTrack.album}
+                </Typography>
+              ) : null}
+            </div>
+
+            {panelTrack?.artwork ? (
+              <img
+                src={panelTrack.artwork}
+                alt={`${panelTrack.title} artwork`}
+                className={classes.nowPlayingPanelArtwork}
+              />
+            ) : (
+              <div
+                className={classes.nowPlayingPanelArtworkPlaceholder}
+                role="img"
+                aria-label="Album artwork placeholder"
+              />
+            )}
+
+            <div className={classes.nowPlayingPanelControls}>
+              <ButtonBase
+                className={classes.nowPlayingPanelButton}
+                onClick={handleDislike}
+                aria-label="Dislike"
+                focusRipple
+              >
+                <span className={classes.nowPlayingPanelButtonIcon}>
+                  <ThumbDownIcon fontSize="inherit" />
+                </span>
+              </ButtonBase>
+              <ButtonBase
+                className={combineClasses(
+                  classes.nowPlayingPanelButton,
+                  panelMuted
+                    ? classes.nowPlayingPanelButtonMuted
+                    : classes.nowPlayingPanelButtonUnmuted,
+                )}
+                onClick={handleToggleMute}
+                aria-label="Mute/Unmute"
+                focusRipple
+              >
+                <span className={classes.nowPlayingPanelButtonIcon}>
+                  {panelMuted ? (
+                    <VolumeOffIcon fontSize="inherit" />
+                  ) : (
+                    <VolumeUpIcon fontSize="inherit" />
+                  )}
+                </span>
+              </ButtonBase>
+              <ButtonBase
+                className={classes.nowPlayingPanelButton}
+                onClick={handleSkipTrack}
+                aria-label="Skip"
+                focusRipple
+              >
+                <span className={classes.nowPlayingPanelButtonIcon}>
+                  <SkipNextIcon fontSize="inherit" />
+                </span>
+              </ButtonBase>
+            </div>
+
+            <Typography className={classes.nowPlayingPanelToast} aria-live="polite">
+              {showDislikedToast ? 'Marked as disliked' : '\u00a0'}
+            </Typography>
+
+            <div className={classes.nowPlayingPanelVolume}>
+              <Typography className={classes.volumeLabel}>volume</Typography>
+              <div className={classes.nowPlayingPanelVolumeRow}>
+                <Slider
+                  classes={{
+                    root: classes.slider,
+                    track: classes.sliderTrack,
+                    thumb: classes.sliderThumb,
+                    rail: classes.sliderRail,
+                  }}
+                  value={panelVolume}
+                  min={0}
+                  max={100}
+                  aria-label="Volume"
+                  onChange={handleVolumeChange}
+                />
+                <Typography className={classes.volumeValue} aria-live="polite">
+                  {panelVolume}
+                </Typography>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       <Typography component="h2" className={classes.nowPlaying}>
         {nowPlaying}
