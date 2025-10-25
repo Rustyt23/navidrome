@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useMediaQuery } from '@material-ui/core'
 import { ThemeProvider } from '@material-ui/core/styles'
@@ -11,8 +11,6 @@ import {
 import ReactGA from 'react-ga'
 import { GlobalHotKeys } from 'react-hotkeys'
 import ReactJkMusicPlayer from 'navidrome-music-player'
-import { BiDislike } from 'react-icons/bi'
-import { MdSkipNext } from 'react-icons/md'
 import 'navidrome-music-player/assets/index.css'
 import useCurrentTheme from '../themes/useCurrentTheme'
 import config from '../config'
@@ -33,6 +31,7 @@ import { keyMap } from '../hotkeys'
 import keyHandlers from './keyHandlers'
 import usePlayerKeyboard from './usePlayerKeyboard'
 import { calculateGain } from '../utils/calculateReplayGain'
+import NowPlayingControls from './NowPlayingControls'
 
 const buildNotificationBody = (song) => {
   if (!song) {
@@ -97,6 +96,8 @@ const Player = () => {
   const [scrobbled, setScrobbled] = useState(false)
   const [preloaded, setPreload] = useState(false)
   const [audioInstance, setAudioInstance] = useState(null)
+  const [isMuted, setIsMuted] = useState(false)
+  const previousVolume = useRef(playerState.volume || 1)
   const isDesktop = useMediaQuery('(min-width:810px)')
   const isMobilePlayer =
     /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
@@ -150,15 +151,6 @@ const Player = () => {
     }
   }, [audioInstance, context, gainNode, playerState, gainInfo])
 
-  const customIcons = useMemo(
-    () => ({
-      volume: <BiDislike size={26} />,
-      mute: <BiDislike size={26} />,
-      download: <MdSkipNext size={26} />,
-    }),
-    [],
-  )
-
   const defaultOptions = useMemo(
     () => ({
       theme: playerTheme,
@@ -183,7 +175,6 @@ const Player = () => {
         left: 120,
       },
       volumeFade: { fadeIn: 200, fadeOut: 200 },
-      icon: customIcons,
       renderAudioTitle: (audioInfo, isMobile) => (
         <AudioTitle
           audioInfo={audioInfo}
@@ -193,8 +184,57 @@ const Player = () => {
       ),
       locale: locale(translate),
     }),
-    [customIcons, gainInfo, isDesktop, playerTheme, translate, playerState.mode],
+    [gainInfo, isDesktop, playerTheme, translate, playerState.mode],
   )
+
+  useEffect(() => {
+    if (!audioInstance) {
+      setIsMuted(false)
+      return undefined
+    }
+
+    const updateMuteState = () => {
+      if (!audioInstance.muted && audioInstance.volume > 0) {
+        previousVolume.current = audioInstance.volume
+      }
+      setIsMuted(audioInstance.muted || audioInstance.volume === 0)
+    }
+
+    audioInstance.addEventListener('volumechange', updateMuteState)
+    updateMuteState()
+
+    return () => {
+      audioInstance.removeEventListener('volumechange', updateMuteState)
+    }
+  }, [audioInstance])
+
+  useEffect(() => {
+    if (playerState.volume > 0) {
+      previousVolume.current = playerState.volume
+    }
+  }, [playerState.volume])
+
+  const handleDislike = useCallback(() => {}, [])
+
+  const handleSkip = useCallback(() => {}, [])
+
+  const handleMuteToggle = useCallback(() => {
+    if (!audioInstance) {
+      return
+    }
+
+    const shouldUnmute = audioInstance.muted || audioInstance.volume === 0
+
+    if (shouldUnmute) {
+      audioInstance.muted = false
+      const restoredVolume =
+        previousVolume.current > 0 ? previousVolume.current : playerState.volume || 1
+      audioInstance.volume = Math.min(Math.max(restoredVolume, 0), 1)
+    } else {
+      previousVolume.current = audioInstance.volume || previousVolume.current
+      audioInstance.muted = true
+    }
+  }, [audioInstance, playerState.volume])
 
   const options = useMemo(() => {
     const current = playerState.current || {}
@@ -205,12 +245,28 @@ const Player = () => {
       autoPlay: playerState.clear || playerState.playIndex === 0,
       clearPriorAudioLists: playerState.clear,
       extendsContent: (
-        <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
+        <>
+          <NowPlayingControls
+            isMuted={isMuted}
+            onDislike={handleDislike}
+            onMuteToggle={handleMuteToggle}
+            onSkip={handleSkip}
+          />
+          <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
+        </>
       ),
       defaultVolume: isMobilePlayer ? 1 : playerState.volume,
       showMediaSession: !current.isRadio,
     }
-  }, [playerState, defaultOptions, isMobilePlayer])
+  }, [
+    playerState,
+    defaultOptions,
+    isMobilePlayer,
+    handleDislike,
+    handleMuteToggle,
+    handleSkip,
+    isMuted,
+  ])
 
   const onAudioListsChange = useCallback(
     (_, audioLists, audioInfo) => dispatch(syncQueue(audioInfo, audioLists)),

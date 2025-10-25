@@ -85,6 +85,59 @@ const useStyle = makeStyles(
       '& .react-jinke-music-player-mobile-progress': {
         display: (props) => (props.isRadio ? 'none' : 'flex'),
       },
+      '& .music-player-panel .panel-content .player-content .now-playing-controls': {
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: theme.spacing(1),
+      },
+      '& .music-player-panel .panel-content .player-content .now-playing-buttons': {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: theme.spacing(3),
+      },
+      '& .music-player-panel .panel-content .player-content .now-playing-button': {
+        background: 'none',
+        border: 'none',
+        color: 'inherit',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        width: '2.75rem',
+        height: '2.75rem',
+        borderRadius: '50%',
+        transition: 'color 150ms ease-in-out',
+      },
+      '& .music-player-panel .panel-content .player-content .now-playing-button:focus-visible': {
+        outline: `2px solid ${theme.palette.primary.main}`,
+        outlineOffset: 2,
+      },
+      '& .music-player-panel .panel-content .player-content .now-playing-button:hover svg': {
+        color: theme.palette.primary.main,
+      },
+      '& .music-player-panel .panel-content .player-content .now-playing-button:focus svg': {
+        color: theme.palette.primary.main,
+      },
+      '& .music-player-panel .panel-content .player-content .now-playing-button:focus-visible svg': {
+        color: theme.palette.primary.main,
+      },
+      '& .music-player-panel .panel-content .player-content .now-playing-controls svg': {
+        fontSize: '26px',
+      },
+      '& .music-player-panel .panel-content .player-content .play-sounds': {
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: theme.spacing(1),
+        textAlign: 'center',
+      },
+      '& .music-player-panel .panel-content .player-content .play-sounds .sounds-icon': {
+        display: 'none',
+      },
+      '& .music-player-panel .panel-content .player-content .play-sounds .sound-operation': {
+        margin: 0,
+      },
     },
   }),
   { name: 'NDAudioPlayer' },
