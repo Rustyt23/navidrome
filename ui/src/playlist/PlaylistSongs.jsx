@@ -83,6 +83,8 @@ const useStyles = makeStyles(
     },
     draggable: {
       cursor: 'move',
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
     },
   }),
   { name: 'RaList' },
