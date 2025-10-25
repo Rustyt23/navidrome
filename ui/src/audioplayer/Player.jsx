@@ -247,6 +247,7 @@ const Player = () => {
       extendsContent: (
         <>
           <NowPlayingControls
+            anchorKey={`${visible}-${playerState.current?.uuid || ''}`}
             isMuted={isMuted}
             onDislike={handleDislike}
             onMuteToggle={handleMuteToggle}
@@ -266,6 +267,7 @@ const Player = () => {
     handleMuteToggle,
     handleSkip,
     isMuted,
+    visible,
   ])
 
   const onAudioListsChange = useCallback(

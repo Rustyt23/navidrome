@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import PropTypes from 'prop-types'
+import { createPortal } from 'react-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import {
@@ -7,9 +8,34 @@ import {
   VolumeUnmuteIcon,
 } from 'navidrome-music-player/es/components/Icon'
 
-const NowPlayingControls = ({ isMuted, onDislike, onMuteToggle, onSkip }) => {
-  return (
-    <div className="group now-playing-controls" role="group" aria-label="Now playing controls">
+const DEFAULT_CONTAINER_SELECTOR =
+  '.music-player-panel .panel-content .player-content .play-sounds'
+
+const NowPlayingControls = ({
+  anchorKey,
+  containerSelector,
+  isMuted,
+  onDislike,
+  onMuteToggle,
+  onSkip,
+}) => {
+  const selector = useMemo(
+    () => containerSelector || DEFAULT_CONTAINER_SELECTOR,
+    [containerSelector],
+  )
+  const [container, setContainer] = useState(null)
+
+  useEffect(() => {
+    const element = document.querySelector(selector)
+    setContainer(element || null)
+  }, [anchorKey, selector])
+
+  if (!container) {
+    return null
+  }
+
+  return createPortal(
+    <div className="now-playing-controls" role="group" aria-label="Now playing controls">
       <div className="now-playing-buttons">
         <button
           type="button"
@@ -36,11 +62,14 @@ const NowPlayingControls = ({ isMuted, onDislike, onMuteToggle, onSkip }) => {
           <MdSkipNext size={26} />
         </button>
       </div>
-    </div>
+    </div>,
+    container,
   )
 }
 
 NowPlayingControls.propTypes = {
+  anchorKey: PropTypes.string,
+  containerSelector: PropTypes.string,
   isMuted: PropTypes.bool,
   onDislike: PropTypes.func.isRequired,
   onMuteToggle: PropTypes.func.isRequired,
@@ -48,6 +77,8 @@ NowPlayingControls.propTypes = {
 }
 
 NowPlayingControls.defaultProps = {
+  anchorKey: undefined,
+  containerSelector: DEFAULT_CONTAINER_SELECTOR,
   isMuted: false,
 }
 

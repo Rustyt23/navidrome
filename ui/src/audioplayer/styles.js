@@ -86,9 +86,12 @@ const useStyle = makeStyles(
         display: (props) => (props.isRadio ? 'none' : 'flex'),
       },
       '& .music-player-panel .panel-content .player-content .now-playing-controls': {
+        order: -1,
+        display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         gap: theme.spacing(1),
+        width: '100%',
       },
       '& .music-player-panel .panel-content .player-content .now-playing-buttons': {
         display: 'flex',
@@ -129,6 +132,7 @@ const useStyle = makeStyles(
       '& .music-player-panel .panel-content .player-content .play-sounds': {
         flexDirection: 'column',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: theme.spacing(1),
         textAlign: 'center',
       },
