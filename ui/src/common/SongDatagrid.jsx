@@ -86,6 +86,16 @@ const useStyles = makeStyles((theme) => ({
     cursor: 'grabbing',
     userSelect: 'none',
   },
+  // drag-arming state: temporarily block pointer events so the row owns the gesture
+  dragArmed: {
+    userSelect: 'none',
+    '& *': {
+      pointerEvents: 'none',
+    },
+    '& [data-no-drag], & button, & a, & input, & textarea, & select, & [role="menu"], & [role="button"]': {
+      pointerEvents: 'auto',
+    },
+  },
   headerStyle: {
     '& thead': {
       boxShadow: '0px 3px 3px rgba(0, 0, 0, 0.15)',
@@ -112,7 +122,16 @@ const useStyles = makeStyles((theme) => ({
     boxShadow: '0 6px 24px rgba(0, 0, 0, 0.25)',
     pointerEvents: 'none',
   },
+  '@global': {
+    '.nd-global-drag-armed': {
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+    },
+  },
 }))
+
+const INTERACTIVE_SELECTOR =
+  'button,input,textarea,select,a,[data-no-drag],[role="menu"],[role="button"]'
 
 const DiscSubtitleRow = forwardRef(
   ({ record, onClick, colSpan, contextAlwaysVisible }, ref) => {
@@ -177,8 +196,11 @@ export const SongDatagridRow = ({
     isValidElement(c),
   )
   const [isDragging, setIsDragging] = useState(false)
+  const [isDragArmed, setIsDragArmed] = useState(false)
   const rowRef = useRef(null)
   const dragPreviewRef = useRef(null)
+  const dragArmTimerRef = useRef(null)
+  const mouseUpHandlerRef = useRef(null)
 
   const [, dragDiscRef] = useDrag(
     () => ({
@@ -253,10 +275,8 @@ export const SongDatagridRow = ({
     if (!node) {
       return undefined
     }
-    const interactiveSelector =
-      'button,input,textarea,select,a,[data-no-drag]'
     const interactiveElements = Array.from(
-      node.querySelectorAll(interactiveSelector),
+      node.querySelectorAll(INTERACTIVE_SELECTOR),
     )
     if (!interactiveElements.length) {
       return undefined
@@ -275,14 +295,86 @@ export const SongDatagridRow = ({
     }
   }, [record?.id])
 
+  const clearArmTimer = useCallback(() => {
+    if (dragArmTimerRef.current) {
+      clearTimeout(dragArmTimerRef.current)
+      dragArmTimerRef.current = null
+    }
+  }, [])
+
+  const disarmDrag = useCallback(() => {
+    clearArmTimer()
+    if (mouseUpHandlerRef.current) {
+      window.removeEventListener('mouseup', mouseUpHandlerRef.current, true)
+      mouseUpHandlerRef.current = null
+    }
+    setIsDragArmed((prev) => (prev ? false : prev))
+  }, [clearArmTimer])
+
+  const armDrag = useCallback(() => {
+    clearArmTimer()
+    setIsDragArmed(true)
+    dragArmTimerRef.current = window.setTimeout(() => {
+      disarmDrag()
+    }, 1000)
+  }, [clearArmTimer, disarmDrag])
+
+  useEffect(() => {
+    if (!isDragArmed) {
+      return undefined
+    }
+    document.body.classList.add('nd-global-drag-armed')
+    return () => {
+      document.body.classList.remove('nd-global-drag-armed')
+    }
+  }, [isDragArmed])
+
+  useEffect(
+    () => () => {
+      clearArmTimer()
+      if (mouseUpHandlerRef.current) {
+        window.removeEventListener('mouseup', mouseUpHandlerRef.current, true)
+        mouseUpHandlerRef.current = null
+      }
+      document.body.classList.remove('nd-global-drag-armed')
+    },
+    [clearArmTimer],
+  )
+
+  const isInteractiveTarget = useCallback(
+    (target) => target && target.closest(INTERACTIVE_SELECTOR),
+    [],
+  )
+
+  const handleMouseDown = useCallback(
+    (event) => {
+      if (record?.missing || isInteractiveTarget(event?.target)) {
+        return
+      }
+      // Arm the drag so a light motion immediately starts dragging the row
+      armDrag()
+      if (mouseUpHandlerRef.current) {
+        window.removeEventListener('mouseup', mouseUpHandlerRef.current, true)
+        mouseUpHandlerRef.current = null
+      }
+      const handleMouseUp = () => {
+        disarmDrag()
+      }
+      mouseUpHandlerRef.current = handleMouseUp
+      window.addEventListener('mouseup', handleMouseUp, true)
+    },
+    [armDrag, disarmDrag, isInteractiveTarget, record?.missing],
+  )
+
   const handleDragStart = useCallback(
     (event) => {
-      if (event?.target?.closest('button,input,textarea,select,a,[data-no-drag]')) {
+      if (isInteractiveTarget(event?.target)) {
         return
       }
       if (!event?.dataTransfer) {
         return
       }
+      clearArmTimer()
       const ids = Array.from(new Set(getDragTrackIds()?.filter(Boolean) || []))
       if (!ids.length) {
         return
@@ -319,7 +411,13 @@ export const SongDatagridRow = ({
       }, 0)
       setIsDragging(true)
     },
-    [classes.dragPreview, getDragTrackIds, record?.title],
+    [
+      classes.dragPreview,
+      clearArmTimer,
+      getDragTrackIds,
+      isInteractiveTarget,
+      record?.title,
+    ],
   )
 
   const handleDragEnd = useCallback(() => {
@@ -328,7 +426,8 @@ export const SongDatagridRow = ({
       dragPreviewRef.current = null
     }
     setIsDragging(false)
-  }, [dragPreviewRef])
+    disarmDrag()
+  }, [disarmDrag])
 
   const setRowRef = useCallback(
     (node) => {
@@ -355,6 +454,7 @@ export const SongDatagridRow = ({
     record.missing && classes.missingRow,
     isCurrent && classes.currentRow,
     isDragging && classes.rowDragging,
+    isDragArmed && classes.dragArmed,
   )
   const childCount = fields.length
   return (
@@ -374,6 +474,7 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
+        onMouseDown={handleMouseDown}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         draggable={!record?.missing}
