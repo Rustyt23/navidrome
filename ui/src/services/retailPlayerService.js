@@ -7,6 +7,7 @@ async function fetchFromRetail(path, method = 'GET', body) {
     headers: {
       Accept: 'application/json',
     },
+    credentials: 'include',
   }
 
   if (body !== undefined) {
