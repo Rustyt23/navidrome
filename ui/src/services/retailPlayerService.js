@@ -1,4 +1,5 @@
-const BASE_URL = ''
+// BASE_URL stays empty to use same-origin proxy
+const BASE_URL = ""
 
 async function fetchFromRetail(path, method = 'GET', body) {
   const requestInit = {
