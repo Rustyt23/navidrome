@@ -397,7 +397,7 @@ const PlaylistSongs = ({
                 {...filteredListContext}
                 hasBulkActions={!readOnly}
                 contextAlwaysVisible={!isDesktop}
-                classes={{ row: classes.row }}
+                classes={{ row: clsx(classes.row, classes.draggable) }}
               >
                 {columns}
                 <SongContextMenu
