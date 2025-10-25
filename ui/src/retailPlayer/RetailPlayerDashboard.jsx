@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
 import { Title } from 'react-admin'
@@ -7,12 +7,15 @@ import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
 import VolumeOffIcon from '@material-ui/icons/VolumeOff'
 import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
-import GetAppIcon from '@material-ui/icons/GetApp'
 import CachedIcon from '@material-ui/icons/Cached'
 import { Link as RouterLink, useParams } from 'react-router-dom'
+import { BiDislike } from 'react-icons/bi'
+import { MdSkipNext } from 'react-icons/md'
 import RetailPlayerMockService from './RetailPlayerMockService'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const formatTime = (date) =>
   date
@@ -35,12 +38,6 @@ const useStyles = makeStyles((theme) => {
     (theme.palette.error && theme.palette.error.main) ||
     (theme.palette.secondary && theme.palette.secondary.main) ||
     theme.palette.primary.main
-  const accentMain =
-    (theme.palette.primary && theme.palette.primary.main) ||
-    (theme.palette.secondary && theme.palette.secondary.main) ||
-    theme.palette.text.primary
-  const infoMain =
-    (theme.palette.info && theme.palette.info.main) || accentMain
   const sliderMain =
     (theme.palette.secondary && theme.palette.secondary.main) || theme.palette.primary.main
   const disabledBackground =
@@ -173,19 +170,62 @@ const useStyles = makeStyles((theme) => {
     },
     artworkWrapper: {
       alignSelf: 'center',
-      width: 200,
-      maxWidth: '100%',
+      width: 'min(220px, 100%)',
+      maxWidth: 240,
     },
-    artworkPlaceholder: {
+    artworkCircle: {
+      position: 'relative',
       width: '100%',
       paddingTop: '100%',
-      borderRadius: theme.shape.borderRadius,
-      backgroundColor: theme.palette.action.hover,
-      border: `1px solid ${theme.palette.divider}`,
+      borderRadius: '50%',
+      overflow: 'hidden',
+      backgroundColor:
+        (theme.palette.action && theme.palette.action.disabledBackground) ||
+        theme.palette.action.hover,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    nowPlaying: {
+    artworkContent: {
+      position: 'absolute',
+      inset: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    artworkImage: {
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover',
+      borderRadius: '50%',
+      display: 'block',
+    },
+    discSvg: {
+      width: '80%',
+      height: '80%',
+      maxWidth: 200,
+      maxHeight: 200,
+    },
+    discOuter: {
+      fill:
+        (theme.palette.action && theme.palette.action.disabled) ||
+        theme.palette.grey[400],
+    },
+    discInner: {
+      fill:
+        (theme.palette.background && theme.palette.background.paper) ||
+        theme.palette.common.white,
+    },
+    discHighlight: {
+      fill:
+        (theme.palette.primary && theme.palette.primary.main) ||
+        theme.palette.text.primary,
+      opacity: 0.2,
+    },
+    nowPlayingTitle: {
       fontSize: theme.typography.pxToRem(48),
       fontWeight: theme.typography.fontWeightBold,
+      textAlign: 'center',
       [theme.breakpoints.down('md')]: {
         fontSize: theme.typography.pxToRem(36),
       },
@@ -193,56 +233,57 @@ const useStyles = makeStyles((theme) => {
         fontSize: theme.typography.pxToRem(26),
       },
     },
-    controls: {
+    nowPlayingArtist: {
+      fontSize: theme.typography.pxToRem(20),
+      textAlign: 'center',
+      color: theme.palette.text.secondary,
+      [theme.breakpoints.down('sm')]: {
+        fontSize: theme.typography.pxToRem(16),
+      },
+    },
+    controlsRow: {
       display: 'flex',
       alignItems: 'center',
-      gap: theme.spacing(4),
+      justifyContent: 'center',
+      gap: theme.spacing(6),
       flexWrap: 'wrap',
-      justifyContent: 'space-between',
-      width: '100%',
     },
     controlButton: {
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: theme.shape.borderRadius * 2,
-      padding: theme.spacing(1.5),
+      width: 56,
+      height: 56,
+      borderRadius: '50%',
       transition: theme.transitions.create(['background-color', 'color'], {
         duration: theme.transitions.duration.shortest,
       }),
-    },
-    controlIcon: {
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: theme.typography.pxToRem(64),
+      color: theme.palette.text.primary,
+      '&:hover, &:focus-visible': {
+        backgroundColor: theme.palette.action.hover,
+      },
     },
     controlButtonMuted: {
       color: dangerMain,
     },
-    controlButtonUnmuted: {
-      color: successMain,
+    controlIcon: {
+      fontSize: theme.typography.pxToRem(28),
+      display: 'inline-flex',
     },
-    controlIconDownload: {
-      color: infoMain,
-    },
-    volumeControl: {
+    volumeSection: {
       display: 'flex',
       flexDirection: 'column',
-      flex: 1,
-      minWidth: 240,
-      gap: theme.spacing(1),
-      maxWidth: 480,
+      gap: theme.spacing(1.5),
+      width: '100%',
+      maxWidth: 420,
+      alignSelf: 'center',
     },
-    volumeLabel: {
-      textTransform: 'lowercase',
-      fontSize: theme.typography.pxToRem(16),
-      color: theme.palette.text.secondary,
-    },
-    volumeSliderRow: {
+    volumeLabelRow: {
       display: 'flex',
       alignItems: 'center',
-      gap: theme.spacing(2),
+      justifyContent: 'space-between',
+      color: theme.palette.text.secondary,
+      textTransform: 'lowercase',
     },
     slider: {
       color: sliderMain,
@@ -261,6 +302,12 @@ const useStyles = makeStyles((theme) => {
       textAlign: 'right',
       fontVariantNumeric: 'tabular-nums',
       fontWeight: theme.typography.fontWeightMedium,
+    },
+    dislikeMessage: {
+      marginTop: theme.spacing(1),
+      textAlign: 'center',
+      color: theme.palette.text.secondary,
+      fontSize: theme.typography.pxToRem(14),
     },
     notFoundWrapper: {
       display: 'flex',
@@ -300,32 +347,49 @@ const useStyles = makeStyles((theme) => {
         backgroundColor: theme.palette.action.hover,
       },
     },
-    artworkImage: {
-      width: '100%',
-      height: 'auto',
-      borderRadius: theme.shape.borderRadius,
-      display: 'block',
-    },
   }
 })
+
+const dummyTracks = [
+  {
+    title: 'Neon Skyline',
+    artist: 'City Echo',
+    artworkUrl: null,
+  },
+  {
+    title: 'Golden Hours',
+    artist: 'Harbor Lights',
+    artworkUrl:
+      'https://images.unsplash.com/photo-1526285840434-67ff3760c121?auto=format&fit=crop&w=400&q=80',
+  },
+  {
+    title: 'Velvet Static',
+    artist: 'Analog Dream',
+    artworkUrl: null,
+  },
+]
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
   const { deviceId } = useParams()
   const [device, setDevice] = useState(null)
-  const [artworkUrl, setArtworkUrl] = useState(null)
   const [currentTime, setCurrentTime] = useState(() => formatTime(new Date()))
+  const [isMuted, setIsMuted] = useState(false)
+  const [, setVolume] = useState(50)
+  const [displayVolume, setDisplayVolume] = useState(50)
+  const volumeTimeoutRef = useRef(null)
+  const dislikeTimeoutRef = useRef(null)
+  const [showDislikeMessage, setShowDislikeMessage] = useState(false)
+  const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
 
   const refreshDevice = useCallback(() => {
     if (!deviceId) {
       setDevice(null)
-      setArtworkUrl(null)
       return
     }
 
     const nextDevice = RetailPlayerMockService.getDevice(deviceId)
     setDevice(nextDevice)
-    setArtworkUrl(RetailPlayerMockService.getArtwork(deviceId))
     setCurrentTime(formatTime(new Date()))
   }, [deviceId])
 
@@ -346,9 +410,59 @@ const RetailPlayerDashboard = () => {
     return activeSchedule ? activeSchedule.key : null
   }, [schedules])
 
-  const isMuted = Boolean(device?.isMuted)
-  const volume = typeof device?.volume === 'number' ? device.volume : 0
-  const nowPlaying = device?.nowPlaying || ''
+  useEffect(() => {
+    setIsMuted(Boolean(device?.isMuted))
+    const initialVolume =
+      typeof device?.volume === 'number' && !Number.isNaN(device.volume)
+        ? device.volume
+        : 50
+    setVolume(initialVolume)
+    setDisplayVolume(initialVolume)
+  }, [device])
+
+  const normalizedDeviceTrack = useMemo(() => {
+    if (!device?.nowPlaying) {
+      return null
+    }
+    if (typeof device.nowPlaying === 'object' && device.nowPlaying !== null) {
+      return {
+        title: device.nowPlaying.title || 'Now Playing',
+        artist: device.nowPlaying.artist || device.channel || 'Retail Player',
+        artworkUrl: device.nowPlaying.artworkUrl || null,
+      }
+    }
+    if (typeof device.nowPlaying === 'string') {
+      const [titlePart, artistPart] = device.nowPlaying.split('|')
+      return {
+        title: titlePart ? titlePart.trim() : device.nowPlaying,
+        artist: artistPart ? artistPart.trim() : device.channel || 'Retail Player',
+        artworkUrl: null,
+      }
+    }
+    return null
+  }, [device])
+
+  const trackPool = useMemo(() => {
+    if (normalizedDeviceTrack) {
+      return [normalizedDeviceTrack, ...dummyTracks]
+    }
+    return dummyTracks
+  }, [normalizedDeviceTrack])
+
+  useEffect(() => {
+    setCurrentTrackIndex(0)
+  }, [normalizedDeviceTrack])
+
+  const currentTrack = useMemo(() => {
+    if (!trackPool.length) {
+      return { title: 'Now Playing', artist: 'Retail Player', artworkUrl: null }
+    }
+    const index = ((currentTrackIndex % trackPool.length) + trackPool.length) % trackPool.length
+    return trackPool[index]
+  }, [currentTrackIndex, trackPool])
+
+  const artworkUrl = device?.nowPlaying?.artworkUrl || null
+  const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
   const statusItems = useMemo(() => {
     if (!device) {
@@ -389,30 +503,40 @@ const RetailPlayerDashboard = () => {
     [device, deviceId, refreshDevice],
   )
 
+  const clearVolumeTimeout = useCallback(() => {
+    if (volumeTimeoutRef.current) {
+      window.clearTimeout(volumeTimeoutRef.current)
+      volumeTimeoutRef.current = null
+    }
+  }, [])
+
+  const updateVolume = useCallback(
+    (nextValue) => {
+      setDisplayVolume((previous) => {
+        const rawNext = typeof nextValue === 'function' ? nextValue(previous) : nextValue
+        const clamped = clamp(Math.round(rawNext), 0, 100)
+        clearVolumeTimeout()
+        volumeTimeoutRef.current = window.setTimeout(() => {
+          setVolume(clamped)
+          volumeTimeoutRef.current = null
+        }, 150)
+        return clamped
+      })
+    },
+    [clearVolumeTimeout],
+  )
+
   const handleToggleMute = useCallback(() => {
-    if (!device) {
+    setIsMuted((prev) => !prev)
+  }, [])
+
+  const handleVolumeChange = useCallback((_, newValue) => {
+    const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
+    if (typeof resolvedValue !== 'number' || Number.isNaN(resolvedValue)) {
       return
     }
-    RetailPlayerMockService.setMute(deviceId, !device.isMuted)
-    refreshDevice()
-  }, [device, deviceId, refreshDevice])
-
-  const handleVolumeChange = useCallback(
-    (_, newValue) => {
-      if (!device) {
-        return
-      }
-
-      const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
-      if (typeof resolvedValue !== 'number' || Number.isNaN(resolvedValue)) {
-        return
-      }
-
-      RetailPlayerMockService.setVolume(deviceId, resolvedValue)
-      refreshDevice()
-    },
-    [device, deviceId, refreshDevice],
-  )
+    updateVolume(resolvedValue)
+  }, [updateVolume])
 
   const handleRefresh = useCallback(() => {
     refreshDevice()
@@ -420,15 +544,28 @@ const RetailPlayerDashboard = () => {
 
   const handleAdjustVolume = useCallback(
     (delta) => {
-      if (!device) {
-        return
-      }
-      const nextVolume = device.volume + delta
-      RetailPlayerMockService.setVolume(deviceId, nextVolume)
-      refreshDevice()
+      updateVolume((prev) => prev + delta)
     },
-    [device, deviceId, refreshDevice],
+    [updateVolume],
   )
+
+  const handleDislike = useCallback(() => {
+    setShowDislikeMessage(true)
+    if (dislikeTimeoutRef.current) {
+      window.clearTimeout(dislikeTimeoutRef.current)
+    }
+    dislikeTimeoutRef.current = window.setTimeout(() => {
+      setShowDislikeMessage(false)
+      dislikeTimeoutRef.current = null
+    }, 2000)
+  }, [])
+
+  const handleSkip = useCallback(() => {
+    if (!trackPool.length) {
+      return
+    }
+    setCurrentTrackIndex((previous) => (previous + 1) % trackPool.length)
+  }, [trackPool])
 
   const handleShortcutChannel = useCallback(
     (index) => {
@@ -462,8 +599,7 @@ const RetailPlayerDashboard = () => {
         case 'm':
         case 'M':
           event.preventDefault()
-          RetailPlayerMockService.setMute(deviceId, !device.isMuted)
-          refreshDevice()
+          handleToggleMute()
           break
         case '+':
         case '=':
@@ -493,7 +629,14 @@ const RetailPlayerDashboard = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [device, deviceId, handleAdjustVolume, handleShortcutChannel, refreshDevice])
+  }, [device, handleAdjustVolume, handleShortcutChannel, handleToggleMute])
+
+  useEffect(() => () => {
+    clearVolumeTimeout()
+    if (dislikeTimeoutRef.current) {
+      window.clearTimeout(dislikeTimeoutRef.current)
+    }
+  }, [clearVolumeTimeout])
 
   if (!device) {
     return (
@@ -604,27 +747,54 @@ const RetailPlayerDashboard = () => {
         })}
       </section>
 
-      <div className={classes.artworkWrapper}>
-        {artworkUrl ? (
-          <img
-            src={artworkUrl}
-            alt="Album artwork"
-            className={classes.artworkImage}
-          />
-        ) : (
-          <div className={classes.artworkPlaceholder} role="img" aria-label="Album artwork placeholder" />
-        )}
+      <div className={classes.artworkWrapper} aria-label="Artwork">
+        <div className={classes.artworkCircle}>
+          <div className={classes.artworkContent}>
+            {resolvedArtworkUrl ? (
+              <img
+                src={resolvedArtworkUrl}
+                alt={`Artwork for ${currentTrack.title}`}
+                className={classes.artworkImage}
+              />
+            ) : (
+              <svg
+                viewBox="0 0 200 200"
+                className={classes.discSvg}
+                role="img"
+                aria-hidden="true"
+              >
+                <circle cx="100" cy="100" r="98" className={classes.discOuter} />
+                <circle cx="100" cy="100" r="48" className={classes.discInner} />
+                <path
+                  d="M150 50c-18-14-40-22-62-20"
+                  className={classes.discHighlight}
+                />
+              </svg>
+            )}
+          </div>
+        </div>
       </div>
 
-      <Typography component="h2" className={classes.nowPlaying}>
-        {nowPlaying}
+      <Typography component="h2" className={classes.nowPlayingTitle}>
+        {currentTrack.title}
       </Typography>
+      <Typography className={classes.nowPlayingArtist}>{currentTrack.artist}</Typography>
 
-      <section className={classes.controls}>
+      <section className={classes.controlsRow} aria-label="Now playing controls">
+        <ButtonBase
+          className={classes.controlButton}
+          aria-label="Dislike"
+          onClick={handleDislike}
+          focusRipple
+        >
+          <span className={classes.controlIcon} role="img" aria-hidden="true">
+            <BiDislike fontSize="inherit" />
+          </span>
+        </ButtonBase>
         <ButtonBase
           className={combineClasses(
             classes.controlButton,
-            isMuted ? classes.controlButtonMuted : classes.controlButtonUnmuted,
+            isMuted ? classes.controlButtonMuted : null,
           )}
           aria-label="Mute/Unmute"
           onClick={handleToggleMute}
@@ -634,34 +804,44 @@ const RetailPlayerDashboard = () => {
             {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
           </span>
         </ButtonBase>
-        <div className={classes.volumeControl}>
-          <Typography className={classes.volumeLabel}>volume</Typography>
-          <div className={classes.volumeSliderRow}>
-            <Slider
-              classes={{
-                root: classes.slider,
-                track: classes.sliderTrack,
-                thumb: classes.sliderThumb,
-                rail: classes.sliderRail,
-              }}
-              value={volume}
-              min={0}
-              max={100}
-              aria-label="Volume"
-              onChange={handleVolumeChange}
-            />
-            <Typography className={classes.volumeValue} aria-live="polite">
-              {volume}
-            </Typography>
-          </div>
-        </div>
-        <span
-          className={`${classes.controlIcon} ${classes.controlIconDownload}`}
-          aria-label="Download"
-          role="img"
+        <ButtonBase
+          className={classes.controlButton}
+          aria-label="Skip"
+          onClick={handleSkip}
+          focusRipple
         >
-          <GetAppIcon fontSize="inherit" />
-        </span>
+          <span className={classes.controlIcon} role="img" aria-hidden="true">
+            <MdSkipNext fontSize="inherit" />
+          </span>
+        </ButtonBase>
+      </section>
+
+      {showDislikeMessage ? (
+        <Typography className={classes.dislikeMessage} aria-live="polite">
+          Marked as disliked
+        </Typography>
+      ) : null}
+
+      <section className={classes.volumeSection} aria-label="Volume">
+        <div className={classes.volumeLabelRow}>
+          <Typography component="span">volume</Typography>
+          <Typography className={classes.volumeValue} aria-live="polite">
+            {displayVolume}
+          </Typography>
+        </div>
+        <Slider
+          classes={{
+            root: classes.slider,
+            track: classes.sliderTrack,
+            thumb: classes.sliderThumb,
+            rail: classes.sliderRail,
+          }}
+          value={displayVolume}
+          min={0}
+          max={100}
+          aria-label="Volume"
+          onChange={handleVolumeChange}
+        />
       </section>
     </div>
   )
