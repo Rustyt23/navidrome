@@ -153,16 +153,56 @@ export const SongDatagridRow = ({
 
   const { selectedIds = [], data: listData } = useListContext() || {}
 
+  const getRecordFromList = useCallback(
+    (recordId) => {
+      if (!listData || recordId == null) {
+        return null
+      }
+
+      if (Array.isArray(listData)) {
+        return listData.find((item) => {
+          const itemId = item?.id
+          return itemId === recordId || String(itemId) === String(recordId)
+        })
+      }
+
+      const keysToCheck = [recordId, String(recordId)]
+      if (typeof recordId === 'string' || typeof recordId === 'number') {
+        const numericId = Number(recordId)
+        if (!Number.isNaN(numericId)) {
+          keysToCheck.push(numericId)
+        }
+      }
+
+      for (const key of keysToCheck) {
+        if (key in listData) {
+          return listData[key]
+        }
+      }
+
+      return null
+    },
+    [listData],
+  )
+
   const getRecordTrackId = useCallback(
     (recordId) => {
-      const item = listData?.[recordId]
+      const item = getRecordFromList(recordId)
       if (item?.missing) {
         return null
       }
       return item?.mediaFileId || item?.id || recordId
     },
-    [listData],
+    [getRecordFromList],
   )
+
+  const selectionIncludesRecord = useMemo(() => {
+    if (!Array.isArray(selectedIds) || record?.id == null) {
+      return false
+    }
+
+    return selectedIds.some((id) => String(id) === String(record.id))
+  }, [record?.id, selectedIds])
 
   const draggedSongIds = useMemo(() => {
     const baseId =
@@ -171,11 +211,7 @@ export const SongDatagridRow = ({
       return []
     }
 
-    if (
-      Array.isArray(selectedIds) &&
-      selectedIds.length > 1 &&
-      selectedIds.includes(record?.id)
-    ) {
+    if (Array.isArray(selectedIds) && selectedIds.length > 1 && selectionIncludesRecord) {
       const idsFromSelection = selectedIds
         .map((id) => getRecordTrackId(id))
         .filter(Boolean)
@@ -184,7 +220,7 @@ export const SongDatagridRow = ({
     }
 
     return [baseId]
-  }, [getRecordTrackId, record, selectedIds])
+  }, [getRecordTrackId, record, selectedIds, selectionIncludesRecord])
 
   const [, dragDiscRef] = useDrag(
     () => ({
