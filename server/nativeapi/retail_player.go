@@ -2,7 +2,6 @@ package nativeapi
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,33 +30,29 @@ func (n *Router) addRetailPlayerRoutes(r chi.Router) {
 			return "/devices", nil
 		}, http.MethodGet, false))
 
-		r.Route("/devices/{id}", func(r chi.Router) {
-			r.Use(server.URLParamsMiddleware)
+		r.With(server.URLParamsMiddleware).Get("/devices/{id}", n.retailPlayerProxyHandler(func(r *http.Request) (string, error) {
+			deviceID := chi.URLParam(r, "id")
+			if deviceID == "" {
+				return "", fmt.Errorf("missing device id")
+			}
+			return fmt.Sprintf("/devices/%s", url.PathEscape(deviceID)), nil
+		}, http.MethodGet, false))
 
-			r.Get("/", n.retailPlayerProxyHandler(func(r *http.Request) (string, error) {
-				deviceID := chi.URLParam(r, "id")
-				if deviceID == "" {
-					return "", errors.New("missing device id")
-				}
-				return fmt.Sprintf("/devices/%s", url.PathEscape(deviceID)), nil
-			}, http.MethodGet, false))
+		r.With(server.URLParamsMiddleware).Get("/devices/{id}/status", n.retailPlayerProxyHandler(func(r *http.Request) (string, error) {
+			deviceID := chi.URLParam(r, "id")
+			if deviceID == "" {
+				return "", fmt.Errorf("missing device id")
+			}
+			return fmt.Sprintf("/devices/%s/status", url.PathEscape(deviceID)), nil
+		}, http.MethodGet, false))
 
-			r.Get("/status", n.retailPlayerProxyHandler(func(r *http.Request) (string, error) {
-				deviceID := chi.URLParam(r, "id")
-				if deviceID == "" {
-					return "", errors.New("missing device id")
-				}
-				return fmt.Sprintf("/devices/%s/status", url.PathEscape(deviceID)), nil
-			}, http.MethodGet, false))
-
-			r.Post("/command", n.retailPlayerProxyHandler(func(r *http.Request) (string, error) {
-				deviceID := chi.URLParam(r, "id")
-				if deviceID == "" {
-					return "", errors.New("missing device id")
-				}
-				return fmt.Sprintf("/devices/%s/command", url.PathEscape(deviceID)), nil
-			}, http.MethodPost, true))
-		})
+		r.With(server.URLParamsMiddleware).Post("/devices/{id}/command", n.retailPlayerProxyHandler(func(r *http.Request) (string, error) {
+			deviceID := chi.URLParam(r, "id")
+			if deviceID == "" {
+				return "", fmt.Errorf("missing device id")
+			}
+			return fmt.Sprintf("/devices/%s/command", url.PathEscape(deviceID)), nil
+		}, http.MethodPost, true))
 
 		r.Get("/ping", n.retailPlayerProxyHandler(func(*http.Request) (string, error) {
 			return "/hello", nil
