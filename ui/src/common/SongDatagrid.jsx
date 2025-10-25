@@ -204,14 +204,18 @@ export const SongDatagridRow = ({
     return selectedIds.some((id) => String(id) === String(record.id))
   }, [record?.id, selectedIds])
 
-  const draggedSongIds = useMemo(() => {
+  const getDraggedSongIds = useCallback(() => {
     const baseId =
       getRecordTrackId(record?.id) || record?.mediaFileId || record?.id
     if (!baseId) {
       return []
     }
 
-    if (Array.isArray(selectedIds) && selectedIds.length > 1 && selectionIncludesRecord) {
+    if (
+      Array.isArray(selectedIds) &&
+      selectedIds.length > 1 &&
+      selectionIncludesRecord
+    ) {
       const idsFromSelection = selectedIds
         .map((id) => getRecordTrackId(id))
         .filter(Boolean)
@@ -220,7 +224,7 @@ export const SongDatagridRow = ({
     }
 
     return [baseId]
-  }, [getRecordTrackId, record, selectedIds, selectionIncludesRecord])
+  }, [getRecordTrackId, record?.id, record?.mediaFileId, selectedIds, selectionIncludesRecord])
 
   const [, dragDiscRef] = useDrag(
     () => ({
@@ -239,13 +243,16 @@ export const SongDatagridRow = ({
   )
 
   const [, dragSongRef] = useDrag(
-    () => ({
-      type: DraggableTypes.SONG,
-      canDrag: draggedSongIds.length > 0,
-      item: { ids: draggedSongIds },
-      options: { dropEffect: 'copy' },
-    }),
-    [draggedSongIds],
+    () => {
+      const draggedSongIds = getDraggedSongIds()
+      return {
+        type: DraggableTypes.SONG,
+        canDrag: draggedSongIds.length > 0,
+        item: { ids: draggedSongIds },
+        options: { dropEffect: 'copy' },
+      }
+    },
+    [getDraggedSongIds],
   )
 
   if (!record || !record.title) {
