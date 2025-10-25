@@ -105,6 +105,7 @@ type configOptions struct {
 	Spotify                         spotifyOptions      `json:",omitzero"`
 	Deezer                          deezerOptions       `json:",omitzero"`
 	ListenBrainz                    listenBrainzOptions `json:",omitzero"`
+	RetailPlayer                    retailPlayerOptions `json:",omitzero"`
 	Tags                            map[string]TagConf  `json:",omitempty"`
 	Agents                          string
 
@@ -184,6 +185,12 @@ type deezerOptions struct {
 type listenBrainzOptions struct {
 	Enabled bool
 	BaseURL string
+}
+
+type retailPlayerOptions struct {
+	BaseURL string
+	APIKey  string
+	OrgID   string
 }
 
 type secureOptions struct {
@@ -586,6 +593,9 @@ func setViperDefaults() {
 	viper.SetDefault("deezer.enabled", true)
 	viper.SetDefault("listenbrainz.enabled", true)
 	viper.SetDefault("listenbrainz.baseurl", "https://api.listenbrainz.org/1/")
+	viper.SetDefault("retailplayer.baseurl", "https://rpp.jareddietch.com/broad/api/v1")
+	viper.SetDefault("retailplayer.apikey", "f3894t28-aghj-cv50-453e-9dfr1s9h73s5")
+	viper.SetDefault("retailplayer.orgid", "1aa59b04-5365-4efe-afb3-deb23c414add")
 	viper.SetDefault("httpsecurityheaders.customframeoptionsvalue", "DENY")
 	viper.SetDefault("backup.path", "")
 	viper.SetDefault("backup.schedule", "")
