@@ -95,30 +95,13 @@ const toComparableId = (value) => {
   return String(value)
 }
 
-const recordMatchesId = (candidate, value) => {
-  if (!candidate) {
-    return false
-  }
-
-  const comparable = toComparableId(value)
-  if (comparable === null) {
-    return false
-  }
-
-  const candidateIds = [
-    toComparableId(candidate.id),
-    toComparableId(candidate.mediaFileId),
-  ]
-
-  return candidateIds.some((id) => id !== null && id === comparable)
-}
-
 const extractTrackId = (candidate) => {
   if (!candidate || candidate.missing) {
     return null
   }
 
-  return candidate.mediaFileId ?? candidate.id ?? null
+  const id = candidate.mediaFileId ?? candidate.id
+  return id ?? null
 }
 
 const DiscSubtitleRow = forwardRef(
@@ -185,166 +168,124 @@ export const SongDatagridRow = ({
   )
 
   const listContext = useListContext()
-  const selectedIds = listContext?.selectedIds ?? []
-  const listData = listContext?.data
-  const listIds = listContext?.ids ?? []
+  const selectedIds = listContext?.selectedIds ?? rest?.selectedIds ?? []
+  const listData = listContext?.data ?? rest?.data
+  const listIds = listContext?.ids ?? rest?.ids ?? []
 
-  const getRecordFromList = useCallback(
-    (recordId) => {
-      if (!listData || recordId == null) {
-        return null
-      }
-
-      if (Array.isArray(listData)) {
-        return listData.find((item) => recordMatchesId(item, recordId)) || null
-      }
-
-      const comparable = toComparableId(recordId)
-      const keysToCheck = []
-
+  const comparableIdsForRecord = useMemo(() => {
+    const set = new Set()
+    const register = (value) => {
+      const comparable = toComparableId(value)
       if (comparable !== null) {
-        keysToCheck.push(comparable)
+        set.add(comparable)
+      }
+    }
+
+    register(record?.id)
+    register(record?.mediaFileId)
+
+    return set
+  }, [record?.id, record?.mediaFileId])
+
+  const recordLookup = useMemo(() => {
+    const map = new Map()
+
+    const registerRecord = (candidate) => {
+      if (!candidate) {
+        return
       }
 
-      if (typeof recordId === 'string' || typeof recordId === 'number') {
-        const numericId = Number(recordId)
-        if (!Number.isNaN(numericId)) {
-          const numericComparable = toComparableId(numericId)
-          if (numericComparable !== null) {
-            keysToCheck.push(numericComparable)
-          }
+      const attach = (value) => {
+        const comparable = toComparableId(value)
+        if (comparable !== null && !map.has(comparable)) {
+          map.set(comparable, candidate)
         }
       }
 
-      for (const key of keysToCheck) {
-        if (key in listData && listData[key]) {
-          return listData[key]
-        }
-      }
-
-      const values = Object.values(listData)
-      return values.find((item) => recordMatchesId(item, recordId)) || null
-    },
-    [listData],
-  )
-
-  const ensureRecordForId = useCallback(
-    (recordId) => {
-      if (recordId == null) {
-        return null
-      }
-
-      const fromList = getRecordFromList(recordId)
-      if (fromList) {
-        return fromList
-      }
-
-      if (recordMatchesId(record, recordId)) {
-        return record
-      }
-
-      return null
-    },
-    [getRecordFromList, record],
-  )
-
-  const selectionIncludesRecord = useMemo(() => {
-    if (!Array.isArray(selectedIds) || selectedIds.length === 0) {
-      return false
+      attach(candidate.id)
+      attach(candidate.mediaFileId)
     }
 
-    const possibleMatches = new Set()
-
-    const recordComparableId = toComparableId(record?.id)
-    if (recordComparableId !== null) {
-      possibleMatches.add(recordComparableId)
+    if (Array.isArray(listData)) {
+      listData.forEach(registerRecord)
+    } else if (listData && typeof listData === 'object') {
+      Object.values(listData).forEach(registerRecord)
     }
 
-    const recordComparableMediaId = toComparableId(record?.mediaFileId)
-    if (recordComparableMediaId !== null) {
-      possibleMatches.add(recordComparableMediaId)
-    }
+    registerRecord(record)
 
-    if (possibleMatches.size === 0) {
-      return false
-    }
+    return map
+  }, [listData, record])
 
-    return selectedIds.some((id) => {
-      const comparable = toComparableId(id)
-      return comparable !== null && possibleMatches.has(comparable)
-    })
-  }, [record?.id, record?.mediaFileId, selectedIds])
-
-  const resolveDraggedSongIds = useCallback(() => {
+  const draggedSongIds = useMemo(() => {
     const baseTrackId = extractTrackId(record)
-    if (!baseTrackId) {
+    if (baseTrackId == null) {
       return []
     }
 
-    if (
-      !Array.isArray(selectedIds) ||
-      selectedIds.length < 2 ||
-      !selectionIncludesRecord
-    ) {
+    if (!Array.isArray(selectedIds) || selectedIds.length < 2) {
       return [baseTrackId]
     }
 
-    const selectedComparables = new Set(
-      selectedIds
-        .map((id) => toComparableId(id))
-        .filter((id) => id !== null),
+    const selectionComparables = selectedIds
+      .map((id) => toComparableId(id))
+      .filter((id) => id !== null)
+
+    if (selectionComparables.length === 0) {
+      return [baseTrackId]
+    }
+
+    const selectionSet = new Set(selectionComparables)
+    const recordIsInSelection = selectionComparables.some((id) =>
+      comparableIdsForRecord.has(id),
     )
 
-    if (selectedComparables.size === 0) {
+    if (!recordIsInSelection) {
       return [baseTrackId]
     }
 
     const orderSource =
-      Array.isArray(listIds) && listIds.length > 0 ? listIds : selectedIds
+      Array.isArray(listIds) && listIds.length > 0 ? listIds : selectionComparables
 
     const collected = []
-    const seen = new Set()
+    const seenTracks = new Set()
 
-    const pushRecord = (candidate) => {
+    const pushCandidate = (candidate) => {
       const trackId = extractTrackId(candidate)
-      if (!trackId) {
+      if (trackId == null) {
         return
       }
 
-      const comparable = toComparableId(trackId)
-      if (comparable === null || seen.has(comparable)) {
+      const comparableTrack = toComparableId(trackId)
+      if (comparableTrack === null || seenTracks.has(comparableTrack)) {
         return
       }
 
-      seen.add(comparable)
+      seenTracks.add(comparableTrack)
       collected.push(trackId)
     }
 
     orderSource.forEach((id) => {
       const comparable = toComparableId(id)
-      if (comparable === null || !selectedComparables.has(comparable)) {
+      if (comparable === null || !selectionSet.has(comparable)) {
         return
       }
 
-      const candidate = ensureRecordForId(id)
-      pushRecord(candidate)
+      const candidate = recordLookup.get(comparable)
+      pushCandidate(candidate)
     })
 
     if (collected.length === 0) {
-      pushRecord(record)
+      pushCandidate(record)
     }
 
-    if (collected.length === 0) {
-      return [baseTrackId]
-    }
-
-    return collected
+    return collected.length > 0 ? collected : [baseTrackId]
   }, [
-    ensureRecordForId,
+    comparableIdsForRecord,
     listIds,
     record,
+    recordLookup,
     selectedIds,
-    selectionIncludesRecord,
   ])
 
   const [, dragDiscRef] = useDrag(
@@ -366,11 +307,11 @@ export const SongDatagridRow = ({
   const [, dragSongRef] = useDrag(
     () => ({
       type: DraggableTypes.SONG,
-      item: () => ({ ids: resolveDraggedSongIds() }),
-      canDrag: () => resolveDraggedSongIds().length > 0,
+      item: { ids: draggedSongIds },
+      canDrag: draggedSongIds.length > 0,
       options: { dropEffect: 'copy' },
     }),
-    [resolveDraggedSongIds],
+    [draggedSongIds],
   )
 
   if (!record || !record.title) {
