@@ -444,6 +444,12 @@ const RetailPlayerDashboard = () => {
   const [showDislikedToast, setShowDislikedToast] = useState(false)
   const dislikeTimeoutRef = useRef(null)
 
+  const schedules = useMemo(() => device?.schedules || [], [device])
+  const trackList = useMemo(
+    () => (device?.tracks && Array.isArray(device.tracks) ? device.tracks : []),
+    [device],
+  )
+
   const refreshDevice = useCallback(() => {
     if (!deviceId) {
       setDevice(null)
@@ -517,9 +523,6 @@ const RetailPlayerDashboard = () => {
       }
     }
   }, [])
-
-  const schedules = useMemo(() => device?.schedules || [], [device])
-  const trackList = useMemo(() => (device?.tracks && Array.isArray(device.tracks) ? device.tracks : []), [device])
 
   const activeChannelKey = useMemo(() => {
     const activeSchedule = schedules.find((schedule) => schedule.isActive)
