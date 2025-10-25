@@ -67,15 +67,17 @@ func (n *Router) routes() http.Handler {
 		n.addSongPlaylistsRoute(r)
 		n.addSongDiscoveriesRoute(r)
 		n.addQueueRoute(r)
-		n.addMissingFilesRoute(r)
-		n.addNotificationsRoute(r)
-		n.addKeepAliveRoute(r)
-		n.addInsightsRoute(r)
+                n.addMissingFilesRoute(r)
+                n.addNotificationsRoute(r)
+                n.addKeepAliveRoute(r)
+                n.addInsightsRoute(r)
 
-		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
-			n.addInspectRoute(r)
-			n.addConfigRoute(r)
-			n.addUserLibraryRoute(r)
+                server.NewRetailPlayerProxy().Mount(r)
+
+                r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
+                        n.addInspectRoute(r)
+                        n.addConfigRoute(r)
+                        n.addUserLibraryRoute(r)
 			n.addSyncRoute(r)
 			n.RX(r, "/library", n.libs.NewRepository, true)
 		})

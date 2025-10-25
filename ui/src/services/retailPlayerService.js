@@ -1,18 +1,14 @@
-const BASE_URL = "https://rpp.jareddietch.com/broad/api/v1";
-const API_KEY = "f3894t28-aghj-cv50-453e-9dfr1s9h73s5";
-const ORG_ID = "1aa59b04-5365-4efe-afb3-deb23c414add";
+const BASE_URL = "";
 
 async function fetchFromRetail(endpoint, method = "GET", body = null) {
   const url = `${BASE_URL}${endpoint}`;
   const options = {
     method,
-    headers: {
-      "x-retailplayer-apikey": API_KEY,
-      "Content-Type": "application/json",
-    },
+    headers: {},
   };
 
   if (body !== null) {
+    options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
 
@@ -48,15 +44,15 @@ async function fetchFromRetail(endpoint, method = "GET", body = null) {
 }
 
 export function getDevices() {
-  return fetchFromRetail(`/orgs/${ORG_ID}/devices`);
+  return fetchFromRetail(`/api/retailplayer/devices`);
 }
 
 export function getDeviceStatus(id) {
-  return fetchFromRetail(`/orgs/${ORG_ID}/devices/${id}/status`);
+  return fetchFromRetail(`/api/retailplayer/devices/${id}/status`);
 }
 
 export function postDeviceCommand(id, payload) {
-  return fetchFromRetail(`/orgs/${ORG_ID}/devices/${id}/command`, "POST", payload);
+  return fetchFromRetail(`/api/retailplayer/devices/${id}/command`, "POST", payload);
 }
 
 export default {
