@@ -201,16 +201,36 @@ export const SongDatagridRow = ({
   )
 
   const resourceName = rest?.resource
-  const selectedIds = useSelector(
+  const storeSelectedIds = useSelector(
     (state) =>
       (resourceName &&
         state?.admin?.resources?.[resourceName]?.list?.selectedIds) ||
       [],
   )
-  const resourceRecords = useSelector(
+  const storeRecords = useSelector(
     (state) =>
       (resourceName && state?.admin?.resources?.[resourceName]?.data) || {},
   )
+
+  const contextSelectedIds = rest?.selectedIds
+  const contextData = rest?.data
+
+  const selectedIds = useMemo(() => {
+    return Array.isArray(contextSelectedIds) && contextSelectedIds.length
+      ? contextSelectedIds
+      : storeSelectedIds
+  }, [contextSelectedIds, storeSelectedIds])
+
+  const resourceRecords = useMemo(() => {
+    if (
+      contextData &&
+      !Array.isArray(contextData) &&
+      typeof contextData === 'object'
+    ) {
+      return { ...storeRecords, ...contextData }
+    }
+    return storeRecords
+  }, [contextData, storeRecords])
 
   const recordId = record?.id
   const trackId = record?.mediaFileId || recordId
