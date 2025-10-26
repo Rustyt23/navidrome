@@ -5,7 +5,6 @@ import ListItem from '@material-ui/core/ListItem'
 import ListItemIcon from '@material-ui/core/ListItemIcon'
 import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
-import clsx from 'clsx'
 import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
@@ -22,6 +21,9 @@ const useStyles = makeStyles(
     listItem: {
       padding: '10px',
       alignItems: 'flex-start',
+      '@media (max-width:768px)': {
+        padding: theme.spacing(0.75, 1.5),
+      },
     },
     currentRowMobile: {
       backgroundColor: theme.palette.action.hover,
@@ -39,6 +41,10 @@ const useStyles = makeStyles(
     title: {
       paddingRight: '10px',
       width: '80%',
+      '@media (max-width:768px)': {
+        width: 'auto',
+        paddingRight: 0,
+      },
     },
     secondary: {
       marginTop: '-3px',
@@ -61,16 +67,31 @@ const useStyles = makeStyles(
     rightIcon: {
       top: '26px',
     },
-    mobilePrimary: {
+    mobileRow: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(1),
+      minWidth: 0,
+    },
+    mobileTitle: {
+      flex: 1,
+      minWidth: 0,
       fontWeight: theme.typography.fontWeightMedium,
       color: theme.palette.text.primary,
-      display: 'block',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
     },
     mobileArtist: {
-      display: 'block',
+      flexShrink: 1,
+      minWidth: 0,
       color: theme.palette.text.secondary,
       fontSize: '0.875rem',
-      marginTop: theme.spacing(0.5),
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      maxWidth: '45%',
+      textAlign: 'right',
     },
   }),
   { name: 'RaSongSimpleList' },
@@ -160,29 +181,32 @@ export const SongSimpleList = ({
                   }}
                   selected={isMobile && isCurrentSong(data[id])}
                   button={true}
+                  dense={isMobile}
                 >
                   <ListItemText
                     primary={
-                      <div
-                        className={clsx(
-                          classes.title,
-                          isMobile && classes.mobilePrimary,
-                        )}
-                      >
-                        {data[id].title}
-                      </div>
+                      isMobile ? (
+                        <div className={classes.mobileRow}>
+                          <span className={classes.mobileTitle}>
+                            {data[id].title}
+                          </span>
+                          <span className={classes.mobileArtist}>
+                            {data[id].artist}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className={classes.title}>{data[id].title}</div>
+                      )
                     }
                     secondary={
-                      isMobile ? (
-                        <span className={classes.mobileArtist}>
-                          {data[id].artist}
-                        </span>
-                      ) : (
-                        <>
-                          <span className={classes.secondary}>
-                            <span className={classes.artist}>
-                              {data[id].artist}
-                            </span>
+                      isMobile
+                        ? null
+                        : (
+                          <>
+                            <span className={classes.secondary}>
+                              <span className={classes.artist}>
+                                {data[id].artist}
+                              </span>
                             <span className={classes.timeStamp}>
                               <DurationField
                                 record={data[id]}
