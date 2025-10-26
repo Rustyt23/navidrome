@@ -36,19 +36,36 @@ const useStyles = makeStyles(
         visibility: 'visible',
       },
     },
+    primaryWrapper: {
+      display: 'flex',
+      alignItems: 'center',
+      width: '100%',
+      gap: theme.spacing(2),
+    },
+    mobilePrimaryWrapper: {
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      gap: 0,
+    },
     title: {
       paddingRight: '10px',
-      width: '80%',
+      flex: 1,
+      minWidth: 0,
     },
     secondary: {
       marginTop: '-3px',
       width: '96%',
       display: 'flex',
       alignItems: 'flex-start',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
     },
     artist: {
-      paddingRight: '30px',
+      color: theme.palette.text.secondary,
+      fontSize: '0.875rem',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      maxWidth: '40%',
     },
     timeStamp: {
       float: 'right',
@@ -165,11 +182,23 @@ export const SongSimpleList = ({
                     primary={
                       <div
                         className={clsx(
-                          classes.title,
-                          isMobile && classes.mobilePrimary,
+                          classes.primaryWrapper,
+                          isMobile && classes.mobilePrimaryWrapper,
                         )}
                       >
-                        {data[id].title}
+                        <span
+                          className={clsx(
+                            classes.title,
+                            isMobile && classes.mobilePrimary,
+                          )}
+                        >
+                          {data[id].title}
+                        </span>
+                        {!isMobile && (
+                          <span className={classes.artist}>
+                            {data[id].artist}
+                          </span>
+                        )}
                       </div>
                     }
                     secondary={
@@ -180,9 +209,6 @@ export const SongSimpleList = ({
                       ) : (
                         <>
                           <span className={classes.secondary}>
-                            <span className={classes.artist}>
-                              {data[id].artist}
-                            </span>
                             <span className={classes.timeStamp}>
                               <DurationField
                                 record={data[id]}
