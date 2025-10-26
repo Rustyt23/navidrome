@@ -213,7 +213,23 @@ export const SongDatagridRow = ({
   )
 
   const recordId = record?.id
-  const trackId = record?.mediaFileId || recordId
+  const resolveTrackId = useCallback((maybeRecord, fallbackId) => {
+    if (!maybeRecord) {
+      return fallbackId
+    }
+
+    const mediaFile = maybeRecord.mediaFile || {}
+
+    return (
+      maybeRecord.mediaFileId ||
+      maybeRecord.mediaFileID ||
+      mediaFile.id ||
+      maybeRecord.songId ||
+      fallbackId
+    )
+  }, [])
+
+  const trackId = resolveTrackId(record, recordId)
 
   const getDragTrackIds = useCallback(() => {
     const selection = Array.isArray(selectedIds) ? selectedIds : []
@@ -227,8 +243,10 @@ export const SongDatagridRow = ({
         return
       }
       const dataRecord = resourceRecords?.[id]
-      const value =
-        dataRecord?.mediaFileId || dataRecord?.id || (id === recordId ? trackId : id)
+      const value = resolveTrackId(
+        dataRecord,
+        id === recordId ? trackId : resolveTrackId(record, id),
+      )
       if (!value || seen.has(value)) {
         return
       }
@@ -241,7 +259,14 @@ export const SongDatagridRow = ({
     }
 
     return ids
-  }, [selectedIds, recordId, resourceRecords, trackId])
+  }, [
+    selectedIds,
+    recordId,
+    resourceRecords,
+    trackId,
+    resolveTrackId,
+    record,
+  ])
 
   const [, dragSongRef] = useDrag(
     () => ({
