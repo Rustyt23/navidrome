@@ -19,7 +19,10 @@ const useStyles = makeStyles(
       color: 'inherit',
     },
     listItem: {
-      padding: '10px',
+      paddingTop: 6,
+      paddingBottom: 6,
+      paddingLeft: theme.spacing(2),
+      paddingRight: theme.spacing(7),
     },
     currentRowMobile: {
       backgroundColor: theme.palette.action.hover,
@@ -43,6 +46,7 @@ const useStyles = makeStyles(
       gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
       alignItems: 'center',
       width: '100%',
+      boxSizing: 'border-box',
     },
     mobileTitle: {
       minWidth: 0,
@@ -155,6 +159,10 @@ export const SongSimpleList = ({
     },
     [currentTrackId, getTrackId],
   )
+
+  const contextMenuPropsForRender = isMobile
+    ? { ...contextMenuProps, showLove: false }
+    : contextMenuProps
   return (
     (loading || total > 0) && (
       <List className={className} {...sanitizeListRestProps(rest)}>
@@ -218,7 +226,7 @@ export const SongSimpleList = ({
                       <SongContextMenu
                         record={data[id]}
                         visible={true}
-                        {...contextMenuProps}
+                        {...contextMenuPropsForRender}
                       />
                     </ListItemIcon>
                   </ListItemSecondaryAction>
