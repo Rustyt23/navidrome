@@ -44,8 +44,10 @@ const useStyles = makeStyles(
     },
     mobileTitle: {
       flex: '0 0 50%',
-      maxWidth: '50%',
+      width: '50%',
+      boxSizing: 'border-box',
       paddingRight: theme.spacing(1),
+      minWidth: 0,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
@@ -53,7 +55,9 @@ const useStyles = makeStyles(
     },
     mobileArtist: {
       flex: '0 0 50%',
-      maxWidth: '50%',
+      width: '50%',
+      boxSizing: 'border-box',
+      minWidth: 0,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
