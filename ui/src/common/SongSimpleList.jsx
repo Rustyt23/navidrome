@@ -67,15 +67,18 @@ const useStyles = makeStyles(
     rightIcon: {
       top: '26px',
     },
+    mobileListItemText: {
+      '@media (max-width:768px)': {
+        width: '100%',
+      },
+    },
     mobileRow: {
-      display: 'grid',
-      gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-      columnGap: theme.spacing(0.75),
-      alignItems: 'center',
-      justifyItems: 'start',
-      minWidth: 0,
+      display: 'flex',
+      width: '100%',
     },
     mobileTitle: {
+      flex: '0 0 50%',
+      maxWidth: '50%',
       minWidth: 0,
       display: 'block',
       fontWeight: theme.typography.fontWeightMedium,
@@ -86,6 +89,8 @@ const useStyles = makeStyles(
       textOverflow: 'ellipsis',
     },
     mobileArtist: {
+      flex: '0 0 50%',
+      maxWidth: '50%',
       minWidth: 0,
       display: 'block',
       color: theme.palette.text.secondary,
@@ -186,6 +191,9 @@ export const SongSimpleList = ({
                   dense={isMobile}
                 >
                   <ListItemText
+                    classes={{
+                      root: isMobile ? classes.mobileListItemText : undefined,
+                    }}
                     primary={
                       isMobile ? (
                         <div className={classes.mobileRow}>
