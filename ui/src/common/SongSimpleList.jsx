@@ -5,12 +5,17 @@ import ListItem from '@material-ui/core/ListItem'
 import ListItemIcon from '@material-ui/core/ListItemIcon'
 import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
-import { makeStyles } from '@material-ui/core/styles'
+import { makeStyles, useTheme } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
+import clsx from 'clsx'
 import { DurationField, SongContextMenu, RatingField } from './index'
 import { useDispatch, useSelector } from 'react-redux'
 import { playTracks, setTrack } from '../actions'
 import config from '../config'
+import PlayingLight from '../icons/playing-light.gif'
+import PlayingDark from '../icons/playing-dark.gif'
+import PausedLight from '../icons/paused-light.png'
+import PausedDark from '../icons/paused-dark.png'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -37,6 +42,11 @@ const useStyles = makeStyles(
         visibility: 'visible',
       },
     },
+    mobilePrimaryContainer: {
+      display: 'flex',
+      alignItems: 'center',
+      width: '100%',
+    },
     title: {
       paddingRight: '10px',
       width: '80%',
@@ -47,6 +57,7 @@ const useStyles = makeStyles(
       alignItems: 'center',
       width: '100%',
       boxSizing: 'border-box',
+      flex: 1,
     },
     mobileTitle: {
       minWidth: 0,
@@ -84,6 +95,16 @@ const useStyles = makeStyles(
     rightIcon: {
       top: '26px',
     },
+    playingIndicator: {
+      width: 24,
+      height: 24,
+      marginRight: theme.spacing(1),
+      flexShrink: 0,
+    },
+    playingIndicatorActive: {
+      filter:
+        'invert(72%) sepia(34%) saturate(6113%) hue-rotate(305deg) brightness(103%) contrast(102%)',
+    },
   }),
   { name: 'RaSongSimpleList' },
 )
@@ -103,9 +124,11 @@ export const SongSimpleList = ({
   ...rest
 }) => {
   const dispatch = useDispatch()
-  const currentTrackId = useSelector(
-    (state) => state?.player?.current?.trackId,
-  )
+  const currentTrack = useSelector((state) => state?.player?.current || {})
+  const currentTrackId = currentTrack?.trackId
+  const isPaused = Boolean(currentTrack?.paused)
+  const theme = useTheme()
+  const themeType = theme.palette.type
   const isMobile = useMemo(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
       return false
@@ -163,77 +186,100 @@ export const SongSimpleList = ({
   const contextMenuPropsForRender = isMobile
     ? { ...contextMenuProps, showLove: false }
     : contextMenuProps
+  const playingIcon = useMemo(() => {
+    if (!currentTrackId) {
+      return null
+    }
+    if (isPaused) {
+      return themeType === 'light' ? PausedLight : PausedDark
+    }
+    return themeType === 'light' ? PlayingLight : PlayingDark
+  }, [currentTrackId, isPaused, themeType])
   return (
     (loading || total > 0) && (
       <List className={className} {...sanitizeListRestProps(rest)}>
-        {ids.map(
-          (id) =>
-            data[id] && (
-              <span key={id} onClick={handlePlay(id)}>
-                <ListItem
-                  className={classes.listItem}
-                  classes={{
-                    selected: classes.currentRowMobile,
-                  }}
-                  selected={isMobile && isCurrentSong(data[id])}
-                  button={true}
-                >
-                  <ListItemText
-                    primary={
-                      isMobile ? (
+        {ids.map((id) => {
+          const record = data[id]
+          if (!record) {
+            return null
+          }
+          const isCurrent = isCurrentSong(record)
+          return (
+            <span key={id} onClick={handlePlay(id)}>
+              <ListItem
+                className={clsx(
+                  classes.listItem,
+                  isMobile && isCurrent && classes.currentRowMobile,
+                )}
+                selected={isMobile && isCurrent}
+                button={true}
+              >
+                <ListItemText
+                  primary={
+                    isMobile ? (
+                      <div className={classes.mobilePrimaryContainer}>
+                        {isCurrent && playingIcon && (
+                          <img
+                            src={playingIcon}
+                            alt={isPaused ? 'paused' : 'playing'}
+                            className={clsx(
+                              classes.playingIndicator,
+                              !isPaused && classes.playingIndicatorActive,
+                            )}
+                          />
+                        )}
                         <div className={classes.mobilePrimaryRow}>
                           <span className={classes.mobileTitle}>
-                            {data[id].title}
+                            {record.title}
                           </span>
                           <span className={classes.mobileArtist}>
-                            {data[id].artist}
+                            {record.artist}
                           </span>
                         </div>
-                      ) : (
-                        <div className={classes.title}>{data[id].title}</div>
-                      )
-                    }
-                    secondary={
-                      isMobile ? (
-                        null
-                      ) : (
-                        <>
-                          <span className={classes.secondary}>
-                            <span className={classes.artist}>
-                              {data[id].artist}
-                            </span>
-                            <span className={classes.timeStamp}>
-                              <DurationField
-                                record={data[id]}
-                                source={'duration'}
-                              />
-                            </span>
-                          </span>
-                          {config.enableStarRating && (
-                            <RatingField
-                              record={data[id]}
-                              source={'rating'}
-                              resource={'song'}
-                              size={'small'}
+                      </div>
+                    ) : (
+                      <div className={classes.title}>{record.title}</div>
+                    )
+                  }
+                  secondary={
+                    isMobile ? (
+                      null
+                    ) : (
+                      <>
+                        <span className={classes.secondary}>
+                          <span className={classes.artist}>{record.artist}</span>
+                          <span className={classes.timeStamp}>
+                            <DurationField
+                              record={record}
+                              source={'duration'}
                             />
-                          )}
-                        </>
-                      )
-                    }
-                  />
-                  <ListItemSecondaryAction className={classes.rightIcon}>
-                    <ListItemIcon>
-                      <SongContextMenu
-                        record={data[id]}
-                        visible={true}
-                        {...contextMenuPropsForRender}
-                      />
-                    </ListItemIcon>
-                  </ListItemSecondaryAction>
-                </ListItem>
-              </span>
-            ),
-        )}
+                          </span>
+                        </span>
+                        {config.enableStarRating && (
+                          <RatingField
+                            record={record}
+                            source={'rating'}
+                            resource={'song'}
+                            size={'small'}
+                          />
+                        )}
+                      </>
+                    )
+                  }
+                />
+                <ListItemSecondaryAction className={classes.rightIcon}>
+                  <ListItemIcon>
+                    <SongContextMenu
+                      record={record}
+                      visible={true}
+                      {...contextMenuPropsForRender}
+                    />
+                  </ListItemIcon>
+                </ListItemSecondaryAction>
+              </ListItem>
+            </span>
+          )
+        })}
       </List>
     )
   )
