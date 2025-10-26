@@ -40,6 +40,9 @@ const useStyles = makeStyles(
       paddingRight: '10px',
       width: '80%',
     },
+    mobileTitle: {
+      width: '100%',
+    },
     secondary: {
       marginTop: '-3px',
       width: '96%',
@@ -64,13 +67,13 @@ const useStyles = makeStyles(
     mobilePrimary: {
       fontWeight: theme.typography.fontWeightMedium,
       color: theme.palette.text.primary,
-      display: 'block',
+      display: 'inline',
     },
     mobileArtist: {
-      display: 'block',
+      display: 'inline',
       color: theme.palette.text.secondary,
       fontSize: '0.875rem',
-      marginTop: theme.spacing(0.5),
+      marginLeft: theme.spacing(1),
     },
   }),
   { name: 'RaSongSimpleList' },
@@ -166,18 +169,25 @@ export const SongSimpleList = ({
                       <div
                         className={clsx(
                           classes.title,
-                          isMobile && classes.mobilePrimary,
+                          isMobile && classes.mobileTitle,
                         )}
                       >
-                        {data[id].title}
+                        {isMobile ? (
+                          <>
+                            <span className={classes.mobilePrimary}>
+                              {data[id].title}
+                            </span>
+                            <span className={classes.mobileArtist}>
+                              {data[id].artist}
+                            </span>
+                          </>
+                        ) : (
+                          data[id].title
+                        )}
                       </div>
                     }
                     secondary={
-                      isMobile ? (
-                        <span className={classes.mobileArtist}>
-                          {data[id].artist}
-                        </span>
-                      ) : (
+                      isMobile ? undefined : (
                         <>
                           <span className={classes.secondary}>
                             <span className={classes.artist}>
