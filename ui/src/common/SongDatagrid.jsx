@@ -44,6 +44,10 @@ const useStyles = makeStyles((theme) => ({
   row: {
     cursor: 'grab',
     WebkitUserDrag: 'element',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+    MozUserSelect: 'none',
+    msUserSelect: 'none',
     // ↓ shrink row height by reducing vertical padding on all table cells
     '& td, & th, & .MuiTableCell-root': {
       paddingTop: 3,
@@ -253,14 +257,23 @@ export const SongDatagridRow = ({
     if (!node) {
       return undefined
     }
+    const preventTextSelection = (event) => {
+      if (
+        event?.target?.closest(
+          'button,input,textarea,select,a,[data-no-drag]',
+        )
+      ) {
+        return
+      }
+      event.preventDefault()
+    }
+    node.addEventListener('selectstart', preventTextSelection)
+
     const interactiveSelector =
       'button,input,textarea,select,a,[data-no-drag]'
     const interactiveElements = Array.from(
       node.querySelectorAll(interactiveSelector),
     )
-    if (!interactiveElements.length) {
-      return undefined
-    }
     const handleChildDragStart = (event) => {
       event.stopPropagation()
     }
@@ -269,6 +282,7 @@ export const SongDatagridRow = ({
       element.addEventListener('dragstart', handleChildDragStart)
     })
     return () => {
+      node.removeEventListener('selectstart', preventTextSelection)
       interactiveElements.forEach((element) => {
         element.removeEventListener('dragstart', handleChildDragStart)
       })
