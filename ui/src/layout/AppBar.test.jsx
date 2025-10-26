@@ -14,6 +14,16 @@ vi.mock('react-admin', () => ({
   useTranslate: () => (x) => x,
   usePermissions: () => ({ permissions: 'admin' }),
   getResources: () => [],
+  useNotify: () => vi.fn(),
+}))
+
+vi.mock('../dataProvider', () => ({
+  httpClient: vi.fn(() =>
+    Promise.resolve({
+      json: [],
+      headers: { get: () => '0' },
+    }),
+  ),
 }))
 
 vi.mock('./NowPlayingPanel', () => ({

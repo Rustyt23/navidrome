@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Card,
@@ -15,9 +15,12 @@ import {
 } from '@material-ui/core'
 import { MdOutlineNotifications } from 'react-icons/md'
 import { useTranslate, useNotify } from 'react-admin'
+import { useSelector } from 'react-redux'
 import { httpClient } from '../dataProvider'
+import { useRefreshOnEvents } from '../common'
 
 const PAGE_SIZE = 100
+const REFRESH_EVENTS = ['missing_files', 'mediafile', 'song', 'library']
 
 const useStyles = makeStyles((theme) => ({
   button: (props) => ({
@@ -74,6 +77,10 @@ const useStyles = makeStyles((theme) => ({
 const MissingTracksPanel = () => {
   const translate = useTranslate()
   const notify = useNotify()
+  const streamReconnected = useSelector(
+    (state) => state.activity?.streamReconnected,
+  )
+  const isMounted = useRef(true)
   const [anchorEl, setAnchorEl] = useState(null)
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(false)
@@ -88,17 +95,25 @@ const MissingTracksPanel = () => {
   const fetchEntries = useCallback(
     (offset = 0, append = false) => {
       const setLoadingState = append ? setLoadingMore : setLoading
-      setLoadingState(true)
+      if (isMounted.current) {
+        setLoadingState(true)
+      }
       const params = new URLSearchParams({
         limit: PAGE_SIZE.toString(),
         offset: Math.max(offset, 0).toString(),
       })
-      httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
+      return httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
         .then(({ json, headers }) => {
+          if (!isMounted.current) {
+            return
+          }
           const list = Array.isArray(json) ? json : []
           const totalHeader = headers && headers.get ? headers.get('X-Total-Count') : null
           const parsedTotal = totalHeader ? parseInt(totalHeader, 10) : NaN
           setEntries((prev) => {
+            if (!isMounted.current) {
+              return prev
+            }
             const nextEntries = append ? [...prev, ...list] : list
             const totalValue = Number.isNaN(parsedTotal) ? nextEntries.length : parsedTotal
             setTotalCount(totalValue)
@@ -111,17 +126,49 @@ const MissingTracksPanel = () => {
           notify('ra.notification.http_error', 'warning', {
             messageArgs: { error: error.message || 'Unknown error' },
           })
-          if (!append) {
+          if (!append && isMounted.current) {
             setEntries([])
             setTotalCount(0)
             setNextOffset(0)
             setHasMore(false)
           }
         })
-        .finally(() => setLoadingState(false))
+        .finally(() => {
+          if (isMounted.current) {
+            setLoadingState(false)
+          }
+        })
     },
     [notify],
   )
+
+  const refreshMissingTracks = useCallback(
+    () => fetchEntries(0, false),
+    [fetchEntries],
+  )
+
+  const eventsToWatch = useMemo(() => REFRESH_EVENTS, [])
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshMissingTracks()
+  }, [refreshMissingTracks])
+
+  useEffect(() => {
+    if (streamReconnected) {
+      refreshMissingTracks()
+    }
+  }, [refreshMissingTracks, streamReconnected])
+
+  useRefreshOnEvents({
+    events: eventsToWatch,
+    onRefresh: refreshMissingTracks,
+  })
 
   const handleOpen = useCallback(
     (event) => {
