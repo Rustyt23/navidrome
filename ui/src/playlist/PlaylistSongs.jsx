@@ -363,6 +363,10 @@ const PlaylistSongs = ({
     [dispatch, data, ids],
   )
 
+  // Disable playlist reordering when multiple tracks are selected so the
+  // native drag events can be handled by React DnD for multi-track moves.
+  const isReorderEnabled = !readOnly && selectedIds.length <= 1
+
   return (
     <>
       <ListContextProvider value={filteredListContext}>
@@ -387,7 +391,7 @@ const PlaylistSongs = ({
             </BulkActionsToolbar>
             {showDuplicatesOnly && listContext.loading && <LinearProgress />}
             <ReorderableList
-              readOnly={readOnly}
+              readOnly={!isReorderEnabled}
               onDragEnd={handleDragEnd}
               nodeSelector={'tr'}
               handleSelector={'.draggable'}
