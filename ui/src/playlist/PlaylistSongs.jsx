@@ -21,6 +21,7 @@ import {
   SongInfo,
   SongContextMenu,
   SongDatagrid,
+  SongSimpleList,
   SongTitleField,
   QualityInfo,
   useSelectedFields,
@@ -114,6 +115,7 @@ const PlaylistSongs = ({
   const ids = contextIds
   const data = contextData
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
+  const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
   const dataProvider = useDataProvider()
@@ -386,27 +388,31 @@ const PlaylistSongs = ({
               />
             </BulkActionsToolbar>
             {showDuplicatesOnly && listContext.loading && <LinearProgress />}
-            <ReorderableList
-              readOnly={readOnly}
-              onDragEnd={handleDragEnd}
-              nodeSelector={'tr'}
-              handleSelector={'.draggable'}
-            >
-              <SongDatagrid
-                rowClick={handleRowClick}
-                {...filteredListContext}
-                hasBulkActions={!readOnly}
-                contextAlwaysVisible={!isDesktop}
-                classes={{ row: classes.row }}
+            {isXsmall ? (
+              <SongSimpleList />
+            ) : (
+              <ReorderableList
+                readOnly={readOnly}
+                onDragEnd={handleDragEnd}
+                nodeSelector={'tr'}
+                handleSelector={'.draggable'}
               >
-                {columns}
-                <SongContextMenu
-                  onAddToPlaylist={onAddToPlaylist}
-                  showLove={true}
-                  className={classes.contextMenu}
-                />
-              </SongDatagrid>
-            </ReorderableList>
+                <SongDatagrid
+                  rowClick={handleRowClick}
+                  {...filteredListContext}
+                  hasBulkActions={!readOnly}
+                  contextAlwaysVisible={!isDesktop}
+                  classes={{ row: classes.row }}
+                >
+                  {columns}
+                  <SongContextMenu
+                    onAddToPlaylist={onAddToPlaylist}
+                    showLove={true}
+                    className={classes.contextMenu}
+                  />
+                </SongDatagrid>
+              </ReorderableList>
+            )}
           </Card>
         </div>
       </ListContextProvider>

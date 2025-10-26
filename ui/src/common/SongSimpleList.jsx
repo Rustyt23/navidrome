@@ -5,6 +5,7 @@ import ListItem from '@material-ui/core/ListItem'
 import ListItemIcon from '@material-ui/core/ListItemIcon'
 import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction'
 import ListItemText from '@material-ui/core/ListItemText'
+import clsx from 'clsx'
 import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
@@ -20,6 +21,7 @@ const useStyles = makeStyles(
     },
     listItem: {
       padding: '10px',
+      alignItems: 'flex-start',
     },
     currentRowMobile: {
       backgroundColor: theme.palette.action.hover,
@@ -58,6 +60,17 @@ const useStyles = makeStyles(
     },
     rightIcon: {
       top: '26px',
+    },
+    mobilePrimary: {
+      fontWeight: theme.typography.fontWeightMedium,
+      color: theme.palette.text.primary,
+      display: 'block',
+    },
+    mobileArtist: {
+      display: 'block',
+      color: theme.palette.text.secondary,
+      fontSize: '0.875rem',
+      marginTop: theme.spacing(0.5),
     },
   }),
   { name: 'RaSongSimpleList' },
@@ -150,37 +163,52 @@ export const SongSimpleList = ({
                 >
                   <ListItemText
                     primary={
-                      <div className={classes.title}>{data[id].title}</div>
+                      <div
+                        className={clsx(
+                          classes.title,
+                          isMobile && classes.mobilePrimary,
+                        )}
+                      >
+                        {data[id].title}
+                      </div>
                     }
                     secondary={
-                      <>
-                        <span className={classes.secondary}>
-                          <span className={classes.artist}>
-                            {data[id].artist}
-                          </span>
-                          <span className={classes.timeStamp}>
-                            <DurationField
-                              record={data[id]}
-                              source={'duration'}
-                            />
-                          </span>
+                      isMobile ? (
+                        <span className={classes.mobileArtist}>
+                          {data[id].artist}
                         </span>
-                        {config.enableStarRating && (
-                          <RatingField
-                            record={data[id]}
-                            source={'rating'}
-                            resource={'song'}
-                            size={'small'}
-                          />
-                        )}
-                      </>
+                      ) : (
+                        <>
+                          <span className={classes.secondary}>
+                            <span className={classes.artist}>
+                              {data[id].artist}
+                            </span>
+                            <span className={classes.timeStamp}>
+                              <DurationField
+                                record={data[id]}
+                                source={'duration'}
+                              />
+                            </span>
+                          </span>
+                          {config.enableStarRating && (
+                            <RatingField
+                              record={data[id]}
+                              source={'rating'}
+                              resource={'song'}
+                              size={'small'}
+                            />
+                          )}
+                        </>
+                      )
                     }
                   />
-                  <ListItemSecondaryAction className={classes.rightIcon}>
-                    <ListItemIcon>
-                      <SongContextMenu record={data[id]} visible={true} />
-                    </ListItemIcon>
-                  </ListItemSecondaryAction>
+                  {!isMobile && (
+                    <ListItemSecondaryAction className={classes.rightIcon}>
+                      <ListItemIcon>
+                        <SongContextMenu record={data[id]} visible={true} />
+                      </ListItemIcon>
+                    </ListItemSecondaryAction>
+                  )}
                 </ListItem>
               </span>
             ),
