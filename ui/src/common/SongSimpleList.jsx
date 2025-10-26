@@ -38,6 +38,27 @@ const useStyles = makeStyles(
       paddingRight: '10px',
       width: '80%',
     },
+    mobilePrimaryRow: {
+      display: 'flex',
+      width: '100%',
+    },
+    mobileTitle: {
+      flex: '0 0 50%',
+      maxWidth: '50%',
+      paddingRight: theme.spacing(1),
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      textAlign: 'left',
+    },
+    mobileArtist: {
+      flex: '0 0 50%',
+      maxWidth: '50%',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      textAlign: 'left',
+    },
     secondary: {
       marginTop: '-3px',
       width: '96%',
@@ -74,6 +95,7 @@ export const SongSimpleList = ({
   onToggleItem,
   selectedIds,
   total,
+  contextMenuProps = {},
   ...rest
 }) => {
   const dispatch = useDispatch()
@@ -150,35 +172,54 @@ export const SongSimpleList = ({
                 >
                   <ListItemText
                     primary={
-                      <div className={classes.title}>{data[id].title}</div>
-                    }
-                    secondary={
-                      <>
-                        <span className={classes.secondary}>
-                          <span className={classes.artist}>
+                      isMobile ? (
+                        <div className={classes.mobilePrimaryRow}>
+                          <span className={classes.mobileTitle}>
+                            {data[id].title}
+                          </span>
+                          <span className={classes.mobileArtist}>
                             {data[id].artist}
                           </span>
-                          <span className={classes.timeStamp}>
-                            <DurationField
-                              record={data[id]}
-                              source={'duration'}
-                            />
+                        </div>
+                      ) : (
+                        <div className={classes.title}>{data[id].title}</div>
+                      )
+                    }
+                    secondary={
+                      isMobile ? (
+                        null
+                      ) : (
+                        <>
+                          <span className={classes.secondary}>
+                            <span className={classes.artist}>
+                              {data[id].artist}
+                            </span>
+                            <span className={classes.timeStamp}>
+                              <DurationField
+                                record={data[id]}
+                                source={'duration'}
+                              />
+                            </span>
                           </span>
-                        </span>
-                        {config.enableStarRating && (
-                          <RatingField
-                            record={data[id]}
-                            source={'rating'}
-                            resource={'song'}
-                            size={'small'}
-                          />
-                        )}
-                      </>
+                          {config.enableStarRating && (
+                            <RatingField
+                              record={data[id]}
+                              source={'rating'}
+                              resource={'song'}
+                              size={'small'}
+                            />
+                          )}
+                        </>
+                      )
                     }
                   />
                   <ListItemSecondaryAction className={classes.rightIcon}>
                     <ListItemIcon>
-                      <SongContextMenu record={data[id]} visible={true} />
+                      <SongContextMenu
+                        record={data[id]}
+                        visible={true}
+                        {...contextMenuProps}
+                      />
                     </ListItemIcon>
                   </ListItemSecondaryAction>
                 </ListItem>
@@ -199,9 +240,11 @@ SongSimpleList.propTypes = {
   ids: PropTypes.array,
   onToggleItem: PropTypes.func,
   selectedIds: PropTypes.arrayOf(PropTypes.any).isRequired,
+  contextMenuProps: PropTypes.object,
 }
 
 SongSimpleList.defaultProps = {
   hasBulkActions: false,
   selectedIds: [],
+  contextMenuProps: {},
 }
