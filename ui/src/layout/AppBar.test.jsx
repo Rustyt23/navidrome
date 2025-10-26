@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, it, beforeEach, vi } from 'vitest'
 import { Provider } from 'react-redux'
 import { createStore, combineReducers } from 'redux'
+import { MemoryRouter } from 'react-router-dom'
 import { activityReducer } from '../reducers'
 import AppBar from './AppBar'
 import config from '../config'
@@ -56,9 +57,11 @@ describe('<AppBar />', () => {
 
   it('renders NowPlayingPanel when enabled', () => {
     render(
-      <Provider store={store}>
-        <AppBar />
-      </Provider>,
+      <MemoryRouter>
+        <Provider store={store}>
+          <AppBar />
+        </Provider>
+      </MemoryRouter>,
     )
     expect(screen.getByTestId('now-playing-panel')).toBeInTheDocument()
   })
@@ -66,9 +69,11 @@ describe('<AppBar />', () => {
   it('hides NowPlayingPanel when disabled', () => {
     config.enableNowPlaying = false
     render(
-      <Provider store={store}>
-        <AppBar />
-      </Provider>,
+      <MemoryRouter>
+        <Provider store={store}>
+          <AppBar />
+        </Provider>
+      </MemoryRouter>,
     )
     expect(screen.queryByTestId('now-playing-panel')).toBeNull()
   })

@@ -16,6 +16,7 @@ import {
 import { MdOutlineNotifications } from 'react-icons/md'
 import { useTranslate, useNotify } from 'react-admin'
 import { useSelector } from 'react-redux'
+import { useLocation } from 'react-router-dom'
 import { httpClient } from '../dataProvider'
 import { useRefreshOnEvents } from '../common'
 
@@ -80,7 +81,13 @@ const MissingTracksPanel = () => {
   const streamReconnected = useSelector(
     (state) => state.activity?.streamReconnected,
   )
+  const location = useLocation()
   const isMounted = useRef(true)
+  const requestIdRef = useRef(0)
+  const refreshCallbackRef = useRef(() => Promise.resolve())
+  const lastLocationKeyRef = useRef(
+    `${location.pathname}${location.search}${location.hash}`,
+  )
   const [anchorEl, setAnchorEl] = useState(null)
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(false)
@@ -94,7 +101,11 @@ const MissingTracksPanel = () => {
 
   const fetchEntries = useCallback(
     (offset = 0, append = false) => {
+      const requestId = ++requestIdRef.current
       const setLoadingState = append ? setLoadingMore : setLoading
+      if (!append && isMounted.current) {
+        setLoadingMore(false)
+      }
       if (isMounted.current) {
         setLoadingState(true)
       }
@@ -102,13 +113,28 @@ const MissingTracksPanel = () => {
         limit: PAGE_SIZE.toString(),
         offset: Math.max(offset, 0).toString(),
       })
-      return httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
-        .then(({ json, headers }) => {
-          if (!isMounted.current) {
+      params.set('_', Date.now().toString())
+      const requestOptions = {
+        cache: 'no-store',
+        headers: new Headers({
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache, no-store, max-age=0',
+          Pragma: 'no-cache',
+        }),
+      }
+      return httpClient(
+        `/api/notifications/missing-tracks?${params.toString()}`,
+        requestOptions,
+      )
+        .then(({ json, headers: responseHeaders }) => {
+          if (!isMounted.current || requestId !== requestIdRef.current) {
             return
           }
           const list = Array.isArray(json) ? json : []
-          const totalHeader = headers && headers.get ? headers.get('X-Total-Count') : null
+          const totalHeader =
+            responseHeaders && responseHeaders.get
+              ? responseHeaders.get('X-Total-Count')
+              : null
           const parsedTotal = totalHeader ? parseInt(totalHeader, 10) : NaN
           setEntries((prev) => {
             if (!isMounted.current) {
@@ -126,7 +152,11 @@ const MissingTracksPanel = () => {
           notify('ra.notification.http_error', 'warning', {
             messageArgs: { error: error.message || 'Unknown error' },
           })
-          if (!append && isMounted.current) {
+          if (
+            !append &&
+            isMounted.current &&
+            requestId === requestIdRef.current
+          ) {
             setEntries([])
             setTotalCount(0)
             setNextOffset(0)
@@ -134,7 +164,7 @@ const MissingTracksPanel = () => {
           }
         })
         .finally(() => {
-          if (isMounted.current) {
+          if (isMounted.current && requestId === requestIdRef.current) {
             setLoadingState(false)
           }
         })
@@ -150,14 +180,55 @@ const MissingTracksPanel = () => {
   const eventsToWatch = useMemo(() => REFRESH_EVENTS, [])
 
   useEffect(() => {
+    isMounted.current = true
     return () => {
       isMounted.current = false
     }
   }, [])
 
   useEffect(() => {
+    refreshCallbackRef.current = refreshMissingTracks
+  }, [refreshMissingTracks])
+
+  useEffect(() => {
     refreshMissingTracks()
   }, [refreshMissingTracks])
+
+  useEffect(() => {
+    const currentLocationKey = `${location.pathname}${location.search}${location.hash}`
+    if (lastLocationKeyRef.current !== currentLocationKey) {
+      lastLocationKeyRef.current = currentLocationKey
+      refreshMissingTracks()
+    }
+  }, [location, refreshMissingTracks])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return undefined
+    }
+
+    const handleFocusLikeEvent = () => {
+      refreshCallbackRef.current()
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshCallbackRef.current()
+      }
+    }
+
+    window.addEventListener('focus', handleFocusLikeEvent)
+    window.addEventListener('pageshow', handleFocusLikeEvent)
+    window.addEventListener('online', handleFocusLikeEvent)
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      window.removeEventListener('focus', handleFocusLikeEvent)
+      window.removeEventListener('pageshow', handleFocusLikeEvent)
+      window.removeEventListener('online', handleFocusLikeEvent)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [])
 
   useEffect(() => {
     if (streamReconnected) {
