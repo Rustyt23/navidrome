@@ -8,6 +8,7 @@ import VolumeOffIcon from '@material-ui/icons/VolumeOff'
 import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import CachedIcon from '@material-ui/icons/Cached'
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
@@ -40,6 +41,8 @@ const useStyles = makeStyles((theme) => {
     theme.palette.primary.main
   const sliderMain =
     (theme.palette.secondary && theme.palette.secondary.main) || theme.palette.primary.main
+  const accentColor =
+    (theme.palette.secondary && theme.palette.secondary.main) || '#ff6f9f'
   const disabledBackground =
     (theme.palette.action && theme.palette.action.disabledBackground) ||
     theme.palette.background.paper
@@ -179,25 +182,70 @@ const useStyles = makeStyles((theme) => {
         duration: theme.transitions.duration.shortest,
       }),
     },
-    listItemActive: {
-      backgroundColor: theme.palette.action.selected,
-    },
-    listItemInactive: {
-      backgroundColor: disabledBackground,
-    },
     listIcon: {
       color: theme.palette.text.secondary,
       fontSize: theme.typography.pxToRem(24),
     },
-    listIconInactive: {
-      color: theme.palette.text.disabled,
+    playlistLabel: {
+      flex: 1,
+      minWidth: 0,
+    },
+    playlistLabelActive: {
+      color: accentColor,
+    },
+    playlistLabelInactive: {
+      color: theme.palette.text.secondary,
+    },
+    playlistIconActive: {
+      color: accentColor,
+    },
+    playlistIconInactive: {
+      color: theme.palette.text.secondary,
+    },
+    dropdownWrapper: {
+      display: 'flex',
+      flexDirection: 'column',
+      width: '100%',
+    },
+    dropdownTriggerButton: {
+      borderBottom: `1px solid ${theme.palette.divider}`,
+    },
+    dropdownCaret: {
+      marginLeft: 'auto',
+      transition: theme.transitions.create(['transform'], {
+        duration: theme.transitions.duration.shortest,
+      }),
+      color: accentColor,
+    },
+    dropdownCaretOpen: {
+      transform: 'rotate(180deg)',
+    },
+    dropdownMenu: {
+      display: 'grid',
+      gridAutoRows: 'min-content',
+      backgroundColor: theme.palette.background.paper,
+      transition: theme.transitions.create(['max-height', 'opacity'], {
+        duration: theme.transitions.duration.short,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      maxHeight: 0,
+      opacity: 0,
+      pointerEvents: 'none',
+      overflow: 'hidden',
+    },
+    dropdownMenuOpen: {
+      maxHeight: 320,
+      opacity: 1,
+      pointerEvents: 'auto',
+    },
+    dropdownOptionButton: {
+      '&:last-child $listItem': {
+        borderBottom: 'none',
+      },
     },
     listText: {
       fontSize: theme.typography.pxToRem(20),
       fontWeight: theme.typography.fontWeightMedium,
-    },
-    listTextInactive: {
-      color: theme.palette.text.disabled,
     },
     artworkWrapper: {
       width: 'min(180px, 100%)',
@@ -411,6 +459,8 @@ const RetailPlayerDashboard = () => {
   const dislikeTimeoutRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
+  const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
+  const scheduleDropdownRef = useRef(null)
 
   const refreshDevice = useCallback(() => {
     if (!deviceId) {
@@ -434,11 +484,61 @@ const RetailPlayerDashboard = () => {
   }, [])
 
   const schedules = useMemo(() => device?.schedules || [], [device])
+  const schedulesCount = schedules.length
 
   const activeChannelKey = useMemo(() => {
     const activeSchedule = schedules.find((schedule) => schedule.isActive)
     return activeSchedule ? activeSchedule.key : null
   }, [schedules])
+
+  useEffect(() => {
+    if (!isScheduleMenuOpen) {
+      return undefined
+    }
+
+    const handleClickOutside = (event) => {
+      if (
+        scheduleDropdownRef.current &&
+        !scheduleDropdownRef.current.contains(event.target)
+      ) {
+        setScheduleMenuOpen(false)
+      }
+    }
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setScheduleMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isScheduleMenuOpen])
+
+  useEffect(() => {
+    setScheduleMenuOpen(false)
+  }, [activeChannelKey])
+
+  useEffect(() => {
+    if (schedulesCount === 0) {
+      setScheduleMenuOpen(false)
+    }
+  }, [schedulesCount])
+
+  const activeSchedule = useMemo(() => {
+    if (!schedulesCount) {
+      return null
+    }
+    const matched = schedules.find((schedule) => schedule.key === activeChannelKey)
+    return matched || schedules[0]
+  }, [activeChannelKey, schedules, schedulesCount])
+
+  const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
 
   useEffect(() => {
     setIsMuted(Boolean(device?.isMuted))
@@ -522,6 +622,13 @@ const RetailPlayerDashboard = () => {
     ]
   }, [currentTime, device, isMuted])
 
+  const handleToggleScheduleMenu = useCallback(() => {
+    if (!schedulesCount) {
+      return
+    }
+    setScheduleMenuOpen((prev) => !prev)
+  }, [schedulesCount])
+
   const handleSelectChannel = useCallback(
     (schedule) => {
       if (!device) {
@@ -531,6 +638,14 @@ const RetailPlayerDashboard = () => {
       refreshDevice()
     },
     [device, deviceId, refreshDevice],
+  )
+
+  const handleSelectFromDropdown = useCallback(
+    (schedule) => {
+      setScheduleMenuOpen(false)
+      handleSelectChannel(schedule)
+    },
+    [handleSelectChannel],
   )
 
   const clearVolumeTimeout = useCallback(() => {
@@ -739,43 +854,106 @@ const RetailPlayerDashboard = () => {
       </header>
 
       <div className={classes.contentGrid}>
-        <section className={classes.list} aria-label="Available schedules">
-          {device.schedules.map((schedule) => {
-            const isActive = schedule.key === activeChannelKey
-            return (
-              <ButtonBase
-                key={schedule.key}
-                className={classes.listItemButton}
-                onClick={() => handleSelectChannel(schedule)}
-                focusRipple
-                aria-label={`Select channel: ${schedule.label}`}
-                aria-pressed={isActive}
-              >
-                <div
+        <section
+          className={classes.list}
+          aria-label="Available schedules"
+          ref={scheduleDropdownRef}
+        >
+          <div className={classes.dropdownWrapper}>
+            <ButtonBase
+              className={combineClasses(
+                classes.listItemButton,
+                classes.dropdownTriggerButton,
+              )}
+              onClick={handleToggleScheduleMenu}
+              focusRipple
+              aria-haspopup="listbox"
+              aria-expanded={isScheduleMenuOpen && Boolean(schedulesCount)}
+              aria-controls="schedule-menu"
+              disabled={!schedulesCount}
+            >
+              <div className={classes.listItem}>
+                <DescriptionIcon
                   className={combineClasses(
-                    classes.listItem,
-                    isActive ? classes.listItemActive : classes.listItemInactive,
+                    classes.listIcon,
+                    activeSchedule
+                      ? classes.playlistIconActive
+                      : classes.playlistIconInactive,
                   )}
+                  aria-hidden="true"
+                />
+                <Typography
+                  className={combineClasses(
+                    classes.listText,
+                    classes.playlistLabel,
+                    activeSchedule
+                      ? classes.playlistLabelActive
+                      : classes.playlistLabelInactive,
+                  )}
+                  noWrap
                 >
-                  <DescriptionIcon
+                  {dropdownLabel}
+                </Typography>
+                <ExpandMoreIcon
+                  className={combineClasses(
+                    classes.dropdownCaret,
+                    isScheduleMenuOpen ? classes.dropdownCaretOpen : null,
+                  )}
+                  aria-hidden="true"
+                />
+              </div>
+            </ButtonBase>
+            <div
+              className={combineClasses(
+                classes.dropdownMenu,
+                isScheduleMenuOpen ? classes.dropdownMenuOpen : null,
+              )}
+              role="listbox"
+              id="schedule-menu"
+              aria-hidden={!isScheduleMenuOpen}
+            >
+              {schedules.map((schedule) => {
+                const isActive = schedule.key === activeChannelKey
+                return (
+                  <ButtonBase
+                    key={schedule.key}
                     className={combineClasses(
-                      classes.listIcon,
-                      !isActive ? classes.listIconInactive : null,
+                      classes.listItemButton,
+                      classes.dropdownOptionButton,
                     )}
-                    aria-hidden="true"
-                  />
-                  <Typography
-                    className={combineClasses(
-                      classes.listText,
-                      !isActive ? classes.listTextInactive : null,
-                    )}
+                    onClick={() => handleSelectFromDropdown(schedule)}
+                    focusRipple
+                    role="option"
+                    aria-selected={isActive}
                   >
-                    {schedule.label}
-                  </Typography>
-                </div>
-              </ButtonBase>
-            )
-          })}
+                    <div className={classes.listItem}>
+                      <DescriptionIcon
+                        className={combineClasses(
+                          classes.listIcon,
+                          isActive
+                            ? classes.playlistIconActive
+                            : classes.playlistIconInactive,
+                        )}
+                        aria-hidden="true"
+                      />
+                      <Typography
+                        className={combineClasses(
+                          classes.listText,
+                          classes.playlistLabel,
+                          isActive
+                            ? classes.playlistLabelActive
+                            : classes.playlistLabelInactive,
+                        )}
+                        noWrap
+                      >
+                        {schedule.label}
+                      </Typography>
+                    </div>
+                  </ButtonBase>
+                )
+              })}
+            </div>
+          </div>
         </section>
 
         <section className={classes.nowPlayingCard} aria-label="Now playing">
