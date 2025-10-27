@@ -51,14 +51,15 @@ const useStyles = makeStyles((theme) => {
     root: {
       display: 'flex',
       flexDirection: 'column',
-      gap: theme.spacing(5),
-      padding: theme.spacing(5),
-      maxWidth: 960,
-      width: '100%',
+      gap: theme.spacing(4),
+      padding: theme.spacing(4.5),
+      width: 'min(100%, 1200px)',
       margin: '0 auto',
+      boxSizing: 'border-box',
+      minHeight: '100vh',
       [theme.breakpoints.down('md')]: {
-        padding: theme.spacing(4),
-        gap: theme.spacing(4),
+        padding: theme.spacing(3.5),
+        gap: theme.spacing(3.5),
       },
       [theme.breakpoints.down('sm')]: {
         padding: theme.spacing(2.5),
@@ -130,15 +131,11 @@ const useStyles = makeStyles((theme) => {
       overflow: 'hidden',
       border: `1px solid ${theme.palette.divider}`,
     },
-    contentGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-      gap: theme.spacing(5),
-      alignItems: 'flex-start',
+    mainContent: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(4),
       width: '100%',
-      [theme.breakpoints.down('md')]: {
-        gridTemplateColumns: 'minmax(0, 1fr)',
-      },
     },
     nowPlayingCard: {
       borderRadius: theme.shape.borderRadius,
@@ -146,20 +143,37 @@ const useStyles = makeStyles((theme) => {
       border: `1px solid ${theme.palette.divider}`,
       padding: theme.spacing(4),
       display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: theme.spacing(3),
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      gap: theme.spacing(4),
+      width: '100%',
+      [theme.breakpoints.down('md')]: {
+        flexDirection: 'column',
+        padding: theme.spacing(3.5),
+        gap: theme.spacing(3),
+      },
       [theme.breakpoints.down('sm')]: {
         padding: theme.spacing(3),
-        gap: theme.spacing(2.5),
       },
+    },
+    nowPlayingBody: {
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'flex-start',
+      gap: theme.spacing(3),
+      flex: 1,
+      minWidth: 0,
     },
     nowPlayingStack: {
       display: 'flex',
       flexDirection: 'column',
-      alignItems: 'center',
-      gap: theme.spacing(2),
+      alignItems: 'flex-start',
+      gap: theme.spacing(1.5),
       width: '100%',
+      [theme.breakpoints.down('md')]: {
+        alignItems: 'center',
+        textAlign: 'center',
+      },
     },
     listItemButton: {
       display: 'block',
@@ -248,8 +262,16 @@ const useStyles = makeStyles((theme) => {
       fontWeight: theme.typography.fontWeightMedium,
     },
     artworkWrapper: {
-      width: 'min(180px, 100%)',
-      maxWidth: 200,
+      width: 220,
+      maxWidth: '100%',
+      flexShrink: 0,
+      alignSelf: 'center',
+      [theme.breakpoints.down('md')]: {
+        width: 'min(200px, 70%)',
+      },
+      [theme.breakpoints.down('sm')]: {
+        width: 'min(180px, 80%)',
+      },
     },
     artworkCircle: {
       position: 'relative',
@@ -301,11 +323,13 @@ const useStyles = makeStyles((theme) => {
       opacity: 0.2,
     },
     nowPlayingTitle: {
-      fontSize: theme.typography.pxToRem(36),
+      fontSize: theme.typography.pxToRem(34),
       fontWeight: theme.typography.fontWeightBold,
-      textAlign: 'center',
+      textAlign: 'left',
+      overflowWrap: 'anywhere',
       [theme.breakpoints.down('md')]: {
         fontSize: theme.typography.pxToRem(30),
+        textAlign: 'center',
       },
       [theme.breakpoints.down('sm')]: {
         fontSize: theme.typography.pxToRem(22),
@@ -313,8 +337,12 @@ const useStyles = makeStyles((theme) => {
     },
     nowPlayingArtist: {
       fontSize: theme.typography.pxToRem(18),
-      textAlign: 'center',
+      textAlign: 'left',
       color: theme.palette.text.secondary,
+      overflowWrap: 'anywhere',
+      [theme.breakpoints.down('md')]: {
+        textAlign: 'center',
+      },
       [theme.breakpoints.down('sm')]: {
         fontSize: theme.typography.pxToRem(15),
       },
@@ -322,9 +350,12 @@ const useStyles = makeStyles((theme) => {
     controlsRow: {
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'center',
+      justifyContent: 'flex-start',
       gap: theme.spacing(4),
       flexWrap: 'wrap',
+      [theme.breakpoints.down('md')]: {
+        justifyContent: 'center',
+      },
     },
     controlButton: {
       display: 'inline-flex',
@@ -354,7 +385,10 @@ const useStyles = makeStyles((theme) => {
       gap: theme.spacing(1.5),
       width: '100%',
       maxWidth: 360,
-      alignSelf: 'center',
+      alignSelf: 'flex-start',
+      [theme.breakpoints.down('md')]: {
+        alignSelf: 'center',
+      },
     },
     volumeLabelRow: {
       display: 'flex',
@@ -853,7 +887,7 @@ const RetailPlayerDashboard = () => {
         </div>
       </header>
 
-      <div className={classes.contentGrid}>
+      <div className={classes.mainContent}>
         <section
           className={classes.list}
           aria-label="Available schedules"
@@ -985,76 +1019,78 @@ const RetailPlayerDashboard = () => {
             </div>
           </div>
 
-          <div className={classes.nowPlayingStack}>
-            <Typography component="h2" className={classes.nowPlayingTitle}>
-              {currentTrack.title}
-            </Typography>
-            <Typography className={classes.nowPlayingArtist}>{currentTrack.artist}</Typography>
-          </div>
-
-          <section className={classes.controlsRow} aria-label="Now playing controls">
-            <ButtonBase
-              className={classes.controlButton}
-              aria-label="Dislike"
-              onClick={handleDislike}
-              focusRipple
-            >
-              <span className={classes.controlIcon} role="img" aria-hidden="true">
-                <BiDislike fontSize="inherit" />
-              </span>
-            </ButtonBase>
-            <ButtonBase
-              className={combineClasses(
-                classes.controlButton,
-                isMuted ? classes.controlButtonMuted : null,
-              )}
-              aria-label="Mute/Unmute"
-              onClick={handleToggleMute}
-              focusRipple
-            >
-              <span className={classes.controlIcon} role="img" aria-hidden="true">
-                {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
-              </span>
-            </ButtonBase>
-            <ButtonBase
-              className={classes.controlButton}
-              aria-label="Skip"
-              onClick={handleSkip}
-              focusRipple
-            >
-              <span className={classes.controlIcon} role="img" aria-hidden="true">
-                <MdSkipNext fontSize="inherit" />
-              </span>
-            </ButtonBase>
-          </section>
-
-          {showDislikeMessage ? (
-            <Typography className={classes.dislikeMessage} aria-live="polite">
-              Marked as disliked
-            </Typography>
-          ) : null}
-
-          <section className={classes.volumeSection} aria-label="Volume">
-            <div className={classes.volumeLabelRow}>
-              <Typography component="span">volume</Typography>
-              <Typography className={classes.volumeValue} aria-live="polite">
-                {displayVolume}
+          <div className={classes.nowPlayingBody}>
+            <div className={classes.nowPlayingStack}>
+              <Typography component="h2" className={classes.nowPlayingTitle}>
+                {currentTrack.title}
               </Typography>
+              <Typography className={classes.nowPlayingArtist}>{currentTrack.artist}</Typography>
             </div>
-            <Slider
-              classes={{
-                root: classes.slider,
-                track: classes.sliderTrack,
-                thumb: classes.sliderThumb,
-                rail: classes.sliderRail,
-              }}
-              value={displayVolume}
-              min={0}
-              max={100}
-              aria-label="Volume"
-              onChange={handleVolumeChange}
-            />
-          </section>
+
+            <section className={classes.controlsRow} aria-label="Now playing controls">
+              <ButtonBase
+                className={classes.controlButton}
+                aria-label="Dislike"
+                onClick={handleDislike}
+                focusRipple
+              >
+                <span className={classes.controlIcon} role="img" aria-hidden="true">
+                  <BiDislike fontSize="inherit" />
+                </span>
+              </ButtonBase>
+              <ButtonBase
+                className={combineClasses(
+                  classes.controlButton,
+                  isMuted ? classes.controlButtonMuted : null,
+                )}
+                aria-label="Mute/Unmute"
+                onClick={handleToggleMute}
+                focusRipple
+              >
+                <span className={classes.controlIcon} role="img" aria-hidden="true">
+                  {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
+                </span>
+              </ButtonBase>
+              <ButtonBase
+                className={classes.controlButton}
+                aria-label="Skip"
+                onClick={handleSkip}
+                focusRipple
+              >
+                <span className={classes.controlIcon} role="img" aria-hidden="true">
+                  <MdSkipNext fontSize="inherit" />
+                </span>
+              </ButtonBase>
+            </section>
+
+            {showDislikeMessage ? (
+              <Typography className={classes.dislikeMessage} aria-live="polite">
+                Marked as disliked
+              </Typography>
+            ) : null}
+
+            <section className={classes.volumeSection} aria-label="Volume">
+              <div className={classes.volumeLabelRow}>
+                <Typography component="span">volume</Typography>
+                <Typography className={classes.volumeValue} aria-live="polite">
+                  {displayVolume}
+                </Typography>
+              </div>
+              <Slider
+                classes={{
+                  root: classes.slider,
+                  track: classes.sliderTrack,
+                  thumb: classes.sliderThumb,
+                  rail: classes.sliderRail,
+                }}
+                value={displayVolume}
+                min={0}
+                max={100}
+                aria-label="Volume"
+                onChange={handleVolumeChange}
+              />
+            </section>
+          </div>
         </section>
       </div>
     </div>
