@@ -607,7 +607,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.baseurl", "")
 	viper.SetDefault("retailplayer.orgid", "")
 	viper.SetDefault("retailplayer.apikey", "")
-	viper.SetDefault("retailplayer.apikeyheader", "X-API-Key")
+    viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
 	viper.SetDefault("retailplayer.pagesize", 0)
 	viper.SetDefault("retailplayer.page", 0)
 	viper.SetDefault("retailplayer.filters", "")

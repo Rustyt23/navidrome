@@ -16,7 +16,10 @@ import (
 	"github.com/navidrome/navidrome/log"
 )
 
-const retailPlayerDefaultKeyHeader = "X-API-Key"
+const (
+	retailPlayerDefaultKeyHeader = "x-retailplayer-apikey"
+	retailPlayerLegacyKeyHeader  = "X-API-Key"
+)
 
 var retailPlayerHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
@@ -201,7 +204,15 @@ func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig) (*htt
 		if headerName == "" {
 			headerName = retailPlayerDefaultKeyHeader
 		}
+
 		req.Header.Set(headerName, apiKey)
+
+		if !strings.EqualFold(headerName, retailPlayerDefaultKeyHeader) {
+			req.Header.Set(retailPlayerDefaultKeyHeader, apiKey)
+		}
+		if !strings.EqualFold(headerName, retailPlayerLegacyKeyHeader) {
+			req.Header.Set(retailPlayerLegacyKeyHeader, apiKey)
+		}
 	}
 
 	for key, value := range cfg.AdditionalHeaders {
