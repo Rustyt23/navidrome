@@ -1,12 +1,9 @@
 import { useEffect, useState } from 'react'
 import config from '../config'
+import httpClient from '../dataProvider/httpClient'
 import RetailPlayerMockService from './RetailPlayerMockService'
 
-const buildDevicesUrl = () => {
-  const basePath = (config.baseURL || '').replace(/\/+$/, '')
-
-  return `${basePath}/api/retailplayer/devices`
-}
+const buildDevicesUrl = () => '/api/retailplayer/devices'
 
 const mapDevice = (device) => {
   if (!device || typeof device !== 'object') {
@@ -35,24 +32,24 @@ const fetchRetailPlayerDevices = async (signal) => {
     return { devices: null, enabled: false }
   }
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    credentials: 'same-origin',
-    signal,
-  })
+  let payload
+  try {
+    const { json } = await httpClient(url, { signal })
+    payload = json
+  } catch (err) {
+    if (err?.status === 404) {
+      return { devices: null, enabled: false }
+    }
 
-  if (response.status === 404) {
-    return { devices: null, enabled: false }
+    const status = typeof err?.status === 'number' ? err.status : null
+    if (status) {
+      throw new Error(
+        `Retail player device request failed with status ${status}`,
+      )
+    }
+
+    throw err
   }
-
-  if (!response.ok) {
-    throw new Error(
-      `Retail player device request failed with status ${response.status}`,
-    )
-  }
-
-  const payload = await response.json()
   const devices = Array.isArray(payload?.data)
     ? payload.data.map(mapDevice).filter(Boolean)
     : []
