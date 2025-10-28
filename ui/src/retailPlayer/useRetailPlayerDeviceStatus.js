@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDataProvider } from 'react-admin'
 import subsonic from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
+import { baseUrl } from '../utils'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
 
@@ -34,6 +35,11 @@ const mapStatusPayloadToDevice = (baseDevice, payload) => {
   const streamMetadata = ensureArray(payload?.streamMetadata).filter(
     (item) => item && typeof item === 'object',
   )
+
+  const payloadArtwork =
+    payload && typeof payload === 'object' ? payload.artwork || {} : {}
+  const artworkId = normalizeValue(payloadArtwork.artworkId)
+  const mediaFileId = normalizeValue(payloadArtwork.mediaFileId)
 
   const normalizedSchedules = streamMetadata
     .map((item, index) => {
@@ -75,6 +81,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload) => {
 
   const activeResource = normalizeValue(status.activeResource)
   const activeStreamName = normalizeValue(status.activeStreamName)
+  const streamName = activeStreamName || normalizeValue(status.activeStream)
 
   const schedulesWithActive = normalizedSchedules.map((schedule, index) => {
     const matchesResource =
@@ -126,6 +133,18 @@ const mapStatusPayloadToDevice = (baseDevice, payload) => {
     Boolean(normalizeValue(status.activeStream) || normalizeValue(status.activeStreamName)) ||
     Boolean(activeSchedule)
 
+  const deviceTimeZone =
+    normalizeValue(baseDevice.timeZone) || normalizeValue(status.timeZone)
+  const localTime = typeof status.localTime === 'string' ? status.localTime : null
+
+  const normalizedStatus = { ...status }
+  if (deviceTimeZone && !normalizedStatus.timeZone) {
+    normalizedStatus.timeZone = deviceTimeZone
+  }
+  if (localTime) {
+    normalizedStatus.localTime = localTime
+  }
+
   return {
     ...baseDevice,
     isConnected,
@@ -138,10 +157,15 @@ const mapStatusPayloadToDevice = (baseDevice, payload) => {
       artist: nowPlayingArtist || 'Retail Player',
       album: normalizeValue(metadata.album),
       artworkUrl: normalizeValue(metadata.artworkUrl),
+      streamName,
+      artworkId,
+      mediaFileId,
       metadata,
     },
-    status,
+    status: normalizedStatus,
     streamMetadata,
+    timeZone: deviceTimeZone,
+    localTime,
   }
 }
 
@@ -243,12 +267,22 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     if (!normalizedDevice) {
       return ''
     }
-    return [normalizedDevice.id, normalizedDevice.slug, normalizedDevice.nowPlaying?.title].join('::')
+    const nowPlaying = normalizedDevice.nowPlaying || {}
+    return [
+      normalizedDevice.id,
+      normalizedDevice.slug,
+      normalizeValue(nowPlaying.artworkId),
+      normalizeValue(nowPlaying.streamName),
+      normalizeValue(nowPlaying.title),
+      normalizeValue(nowPlaying.artist),
+    ].join('::')
   }, [normalizedDevice])
 
   const nowPlayingTitle = normalizeValue(normalizedDevice?.nowPlaying?.title)
   const nowPlayingArtist = normalizeValue(normalizedDevice?.nowPlaying?.artist)
   const existingArtwork = normalizeValue(normalizedDevice?.nowPlaying?.artworkUrl)
+  const streamName = normalizeValue(normalizedDevice?.nowPlaying?.streamName)
+  const backendArtworkId = normalizeValue(normalizedDevice?.nowPlaying?.artworkId)
 
   useEffect(() => {
     if (!normalizedDevice) {
@@ -261,43 +295,118 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    if (!nowPlayingTitle) {
+    if (backendArtworkId) {
+      const coverArtPath = subsonic.url('getCoverArt', backendArtworkId, {
+        size: 300,
+        square: true,
+      })
+      setArtworkUrl(baseUrl(coverArtPath))
+      return undefined
+    }
+
+    if (!streamName && !nowPlayingTitle) {
       setArtworkUrl(null)
       return undefined
     }
 
     let isCancelled = false
-    const filters = nowPlayingArtist
-      ? { title: nowPlayingTitle, artist: nowPlayingArtist }
-      : { title: nowPlayingTitle }
 
-    dataProvider
-      .getList('song', {
-        pagination: { page: 1, perPage: 1 },
-        sort: { field: 'id', order: 'ASC' },
-        filter: filters,
-      })
-      .then((response) => {
-        if (isCancelled) {
-          return
+    const sanitizedStream = streamName ? streamName.replace(/\\/g, '/') : ''
+    const fileName = sanitizedStream ? sanitizedStream.split('/').pop() : ''
+    const baseWithoutExt = fileName ? fileName.replace(/\.[^/.]+$/, '') : ''
+    let derivedTitle = ''
+    let derivedArtist = ''
+
+    if (baseWithoutExt && baseWithoutExt.includes(' - ')) {
+      const parts = baseWithoutExt.split(' - ')
+      derivedArtist = parts.shift()?.trim() || ''
+      derivedTitle = parts.join(' - ').trim()
+    } else {
+      derivedTitle = baseWithoutExt.trim()
+    }
+
+    const filterKeys = new Set()
+    const filterCandidates = []
+    const pushFilter = (filter) => {
+      if (!filter || typeof filter !== 'object') {
+        return
+      }
+      const entries = Object.entries(filter).filter(([, value]) => value)
+      if (!entries.length) {
+        return
+      }
+      const normalizedFilter = Object.fromEntries(entries)
+      const key = JSON.stringify(normalizedFilter)
+      if (filterKeys.has(key)) {
+        return
+      }
+      filterKeys.add(key)
+      filterCandidates.push(normalizedFilter)
+    }
+
+    if (derivedTitle && derivedArtist) {
+      pushFilter({ title: derivedTitle, artist: derivedArtist })
+    }
+    if (derivedTitle) {
+      pushFilter({ title: derivedTitle })
+    }
+    if (streamName) {
+      pushFilter({ title: streamName })
+    }
+    if (nowPlayingTitle && nowPlayingArtist) {
+      pushFilter({ title: nowPlayingTitle, artist: nowPlayingArtist })
+    }
+    if (nowPlayingTitle) {
+      pushFilter({ title: nowPlayingTitle })
+    }
+
+    if (!filterCandidates.length) {
+      setArtworkUrl(null)
+      return undefined
+    }
+
+    const fetchArtwork = async () => {
+      for (const filter of filterCandidates) {
+        try {
+          const response = await dataProvider.getList('song', {
+            pagination: { page: 1, perPage: 1 },
+            sort: { field: 'id', order: 'ASC' },
+            filter,
+          })
+          if (isCancelled) {
+            return
+          }
+          const songs = Array.isArray(response?.data) ? response.data : []
+          if (songs.length > 0) {
+            setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
+            return
+          }
+        } catch (err) {
+          if (isCancelled) {
+            return
+          }
         }
-        const songs = Array.isArray(response?.data) ? response.data : []
-        if (songs.length > 0) {
-          setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
-        } else {
-          setArtworkUrl(null)
-        }
-      })
-      .catch(() => {
-        if (!isCancelled) {
-          setArtworkUrl(null)
-        }
-      })
+      }
+      if (!isCancelled) {
+        setArtworkUrl(null)
+      }
+    }
+
+    fetchArtwork()
 
     return () => {
       isCancelled = true
     }
-  }, [artworkSignature, dataProvider, existingArtwork, nowPlayingArtist, nowPlayingTitle, normalizedDevice])
+  }, [
+    artworkSignature,
+    backendArtworkId,
+    dataProvider,
+    existingArtwork,
+    nowPlayingArtist,
+    nowPlayingTitle,
+    normalizedDevice,
+    streamName,
+  ])
 
   const deviceWithArtwork = useMemo(() => {
     if (!normalizedDevice) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/utils"
 )
 
 const (
@@ -33,6 +36,7 @@ type retailPlayerAPIDevice struct {
 	Channel      string `json:"channel"`
 	ChannelList  string `json:"channelList"`
 	MacAddress   string `json:"macAddress"`
+	TimeZone     string `json:"timeZone"`
 }
 
 type retailPlayerAPIResponse struct {
@@ -47,6 +51,7 @@ type retailPlayerDevice struct {
 	Channel      string `json:"channel"`
 	ChannelList  string `json:"channelList"`
 	Organization string `json:"organization"`
+	TimeZone     string `json:"timeZone,omitempty"`
 }
 
 type retailPlayerDevicesResponse struct {
@@ -121,7 +126,7 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 		}
 
 		log.Info(ctx, "Fetching retail player device status from remote API", "deviceID", deviceID)
-		response, err := fetchRetailPlayerDeviceStatus(ctx, deviceID)
+		response, err := n.fetchRetailPlayerDeviceStatus(ctx, deviceID)
 		if err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
 				log.Info(ctx, "Retail player device not found", "deviceID", deviceID)
@@ -199,11 +204,17 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 }
 
 type retailPlayerDeviceStatusResponse struct {
-	Status         map[string]any   `json:"status"`
-	StreamMetadata []map[string]any `json:"streamMetadata"`
+	Status         map[string]any             `json:"status"`
+	StreamMetadata []map[string]any           `json:"streamMetadata"`
+	Artwork        *retailPlayerStatusArtwork `json:"artwork,omitempty"`
 }
 
-func fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retailPlayerDeviceStatusResponse, error) {
+type retailPlayerStatusArtwork struct {
+	MediaFileID string `json:"mediaFileId,omitempty"`
+	ArtworkID   string `json:"artworkId,omitempty"`
+}
+
+func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retailPlayerDeviceStatusResponse, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
 		return retailPlayerDeviceStatusResponse{}, errors.New("retail player API not configured")
@@ -245,7 +256,164 @@ func fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retail
 		return retailPlayerDeviceStatusResponse{}, err
 	}
 
+	n.populateRetailPlayerStatusArtwork(ctx, &payload)
+
 	return payload, nil
+}
+
+func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, payload *retailPlayerDeviceStatusResponse) {
+	if payload == nil {
+		return
+	}
+
+	streamName := normalizeStatusString(payload.Status, "activeStreamName")
+	if streamName == "" {
+		streamName = normalizeStatusString(payload.Status, "activeStream")
+	}
+	if streamName == "" {
+		return
+	}
+
+	cleaned := strings.ReplaceAll(streamName, "\\", "/")
+	baseName := utils.BaseName(cleaned)
+	if baseName == "" {
+		baseName = strings.TrimSpace(streamName)
+	}
+	if baseName == "" {
+		return
+	}
+
+	repo := n.ds.MediaFile(ctx)
+	if repo == nil {
+		return
+	}
+
+	queries := buildStreamSearchQueries(baseName)
+	for _, query := range queries {
+		if query == "" {
+			continue
+		}
+
+		files, err := repo.Search(query, 0, 5)
+		if err != nil {
+			log.Debug(ctx, "Retail player artwork search failed", "query", query, "err", err)
+			continue
+		}
+		if len(files) == 0 {
+			continue
+		}
+
+		matched := selectBestMediaFileMatch(baseName, files)
+		if matched == nil {
+			continue
+		}
+
+		coverArtID := matched.CoverArtID().String()
+		if coverArtID == "" {
+			continue
+		}
+
+		payload.Artwork = &retailPlayerStatusArtwork{
+			MediaFileID: matched.ID,
+			ArtworkID:   coverArtID,
+		}
+		return
+	}
+}
+
+func normalizeStatusString(status map[string]any, key string) string {
+	if status == nil {
+		return ""
+	}
+
+	value := status[key]
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String())
+	case []byte:
+		return strings.TrimSpace(string(v))
+	default:
+		return ""
+	}
+}
+
+func buildStreamSearchQueries(baseName string) []string {
+	trimmed := strings.TrimSpace(baseName)
+	if trimmed == "" {
+		return nil
+	}
+
+	queries := []string{trimmed}
+
+	if replaced := strings.ReplaceAll(trimmed, "_", " "); replaced != trimmed {
+		queries = append(queries, replaced)
+	}
+
+	if ext := path.Ext(trimmed); ext != "" {
+		withoutExt := strings.TrimSuffix(trimmed, ext)
+		if withoutExt != "" {
+			queries = append(queries, withoutExt)
+			if replaced := strings.ReplaceAll(withoutExt, "_", " "); replaced != withoutExt {
+				queries = append(queries, replaced)
+			}
+		}
+	}
+
+	parts := strings.Split(trimmed, " - ")
+	if len(parts) > 1 {
+		title := strings.TrimSpace(strings.Join(parts[1:], " - "))
+		if title != "" {
+			queries = append(queries, title)
+		}
+	}
+
+	return uniqueStrings(queries)
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if _, exists := seen[lower]; exists {
+			continue
+		}
+		seen[lower] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func selectBestMediaFileMatch(baseName string, files model.MediaFiles) *model.MediaFile {
+	if len(files) == 0 {
+		return nil
+	}
+
+	trimmedBase := strings.TrimSpace(baseName)
+	lowerBase := strings.ToLower(trimmedBase)
+	if lowerBase != "" {
+		for _, file := range files {
+			fileBase := strings.ToLower(utils.BaseName(file.Path))
+			if fileBase == lowerBase {
+				return &file
+			}
+			title := strings.TrimSpace(file.Title)
+			if strings.EqualFold(title, trimmedBase) {
+				return &file
+			}
+			if title != "" && strings.Contains(lowerBase, strings.ToLower(title)) {
+				return &file
+			}
+		}
+	}
+
+	return &files[0]
 }
 
 func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig, pathParts ...string) (*http.Request, error) {
@@ -355,6 +523,7 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		Channel:      strings.TrimSpace(device.Channel),
 		ChannelList:  strings.TrimSpace(device.ChannelList),
 		Organization: organization,
+		TimeZone:     strings.TrimSpace(device.TimeZone),
 	}, true
 }
 

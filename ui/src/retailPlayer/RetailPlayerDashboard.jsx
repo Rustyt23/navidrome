@@ -9,7 +9,7 @@ import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
@@ -18,14 +18,30 @@ const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
-const formatTime = (date) =>
-  date
-    .toLocaleTimeString([], {
+const formatTime = (date, timeZone) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return '--:--'
+  }
+
+  try {
+    return new Intl.DateTimeFormat([], {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
+      ...(timeZone ? { timeZone } : {}),
     })
-    .replace(/^24:/, '00:')
+      .format(date)
+      .replace(/^24:/, '00:')
+  } catch (err) {
+    return date
+      .toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      .replace(/^24:/, '00:')
+  }
+}
 
 const useStyles = makeStyles((theme) => {
   const successMain =
@@ -80,12 +96,6 @@ const useStyles = makeStyles((theme) => {
         justifyContent: 'center',
         textAlign: 'center',
       },
-    },
-    backLinkTop: {
-      alignSelf: 'flex-start',
-      fontSize: theme.typography.pxToRem(14),
-      textTransform: 'uppercase',
-      letterSpacing: 1,
     },
     title: {
       fontWeight: theme.typography.fontWeightBold,
@@ -513,16 +523,6 @@ const useStyles = makeStyles((theme) => {
       color: theme.palette.text.secondary,
       fontSize: theme.typography.pxToRem(18),
     },
-    backLink: {
-      color:
-        (theme.palette.primary && theme.palette.primary.main) ||
-        theme.palette.text.primary,
-      fontWeight: theme.typography.fontWeightMedium,
-      textDecoration: 'none',
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: theme.spacing(1),
-    },
     refreshButton: {
       borderRadius: theme.shape.borderRadius * 2,
       padding: theme.spacing(0.75),
@@ -567,7 +567,7 @@ const RetailPlayerDashboard = () => {
     notFound,
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
-  const [currentTime, setCurrentTime] = useState(() => formatTime(new Date()))
+  const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
@@ -580,14 +580,61 @@ const RetailPlayerDashboard = () => {
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
 
-  useEffect(() => {
-    setDevice(resolvedDevice || null)
-    setCurrentTime(formatTime(new Date()))
-  }, [resolvedDevice])
+  const resolveDeviceTime = useCallback((sourceDevice) => {
+    if (!sourceDevice) {
+      return new Date()
+    }
+
+    const directLocalTime =
+      typeof sourceDevice.localTime === 'string' ? sourceDevice.localTime : null
+    if (directLocalTime) {
+      const parsedDirect = new Date(directLocalTime)
+      if (!Number.isNaN(parsedDirect.getTime())) {
+        return parsedDirect
+      }
+    }
+
+    const status =
+      sourceDevice.status && typeof sourceDevice.status === 'object'
+        ? sourceDevice.status
+        : {}
+
+    const localTimeValue =
+      typeof status.localTime === 'string' ? status.localTime : null
+    if (localTimeValue) {
+      const parsedLocal = new Date(localTimeValue)
+      if (!Number.isNaN(parsedLocal.getTime())) {
+        return parsedLocal
+      }
+    }
+
+    const systemTimeValue =
+      typeof status.systemTime === 'string' ? status.systemTime : null
+    if (systemTimeValue) {
+      const parsedSystem = new Date(systemTimeValue)
+      if (!Number.isNaN(parsedSystem.getTime())) {
+        return parsedSystem
+      }
+    }
+
+    return new Date()
+  }, [])
 
   useEffect(() => {
-    const updateTime = () => setCurrentTime(formatTime(new Date()))
-    const intervalId = window.setInterval(updateTime, 60000)
+    setDevice(resolvedDevice || null)
+    setDeviceTime(resolveDeviceTime(resolvedDevice))
+  }, [resolvedDevice, resolveDeviceTime])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setDeviceTime((previous) => {
+        if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) {
+          return new Date()
+        }
+        return new Date(previous.getTime() + 60000)
+      })
+    }, 60000)
+
     return () => window.clearInterval(intervalId)
   }, [])
 
@@ -702,6 +749,27 @@ const RetailPlayerDashboard = () => {
   const artworkUrl = device?.nowPlaying?.artworkUrl || null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
+  const deviceTimeZone = useMemo(() => {
+    if (device && typeof device.timeZone === 'string') {
+      const trimmed = device.timeZone.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+
+    const statusZone =
+      device?.status && typeof device.status === 'object' && typeof device.status.timeZone === 'string'
+        ? device.status.timeZone.trim()
+        : ''
+
+    return statusZone
+  }, [device])
+
+  const currentTimeLabel = useMemo(
+    () => formatTime(deviceTime, deviceTimeZone || undefined),
+    [deviceTime, deviceTimeZone],
+  )
+
   const statusItems = useMemo(() => {
     if (!device) {
       return []
@@ -714,7 +782,7 @@ const RetailPlayerDashboard = () => {
         intent: device.isConnected ? 'success' : 'danger',
         label: 'Connected',
       },
-      { key: 'time', label: currentTime, labelForAria: 'Time' },
+      { key: 'time', label: currentTimeLabel, labelForAria: 'Time' },
       {
         key: 'signal',
         icon: SignalWifi4BarIcon,
@@ -728,7 +796,7 @@ const RetailPlayerDashboard = () => {
         label: isMuted ? 'Muted' : 'Audio Enabled',
       },
     ]
-  }, [currentTime, device, isMuted])
+  }, [currentTimeLabel, device, isMuted])
 
   const handleToggleScheduleMenu = useCallback(() => {
     if (!schedulesCount) {
@@ -836,7 +904,7 @@ const RetailPlayerDashboard = () => {
 
   const handleRefresh = useCallback(() => {
     refreshStatus()
-    setCurrentTime(formatTime(new Date()))
+    setDeviceTime(new Date())
   }, [refreshStatus])
 
   const handleAdjustVolume = useCallback(
@@ -958,9 +1026,6 @@ const RetailPlayerDashboard = () => {
             {combinedError.message || String(combinedError)}
           </Typography>
         ) : null}
-        <RouterLink to="/retailplayer/devices" className={classes.backLink}>
-          ← Back to devices
-        </RouterLink>
       </div>
     )
   }
@@ -968,9 +1033,6 @@ const RetailPlayerDashboard = () => {
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
-      <RouterLink to="/retailplayer/devices" className={`${classes.backLink} ${classes.backLinkTop}`}>
-        ← Back to Devices
-      </RouterLink>
       <header className={classes.header}>
         <Typography component="h1" className={classes.title}>
           {device.name}

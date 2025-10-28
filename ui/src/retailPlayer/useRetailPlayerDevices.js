@@ -32,6 +32,7 @@ const mapDevice = (device) => {
       normalizeValue(device.organization) ||
       normalizeValue(device.orgUnit) ||
       normalizeValue(device.location),
+    timeZone: normalizeValue(device.timeZone),
   }
 }
 
