@@ -135,6 +135,7 @@ class RetailPlayerMockService {
   listDevices() {
     return Object.values(this.devices).map((device) => ({
       id: device.id,
+      apiId: device.id,
       name: device.name,
       slug: buildDeviceSlug(device) || device.name || device.id,
       slugKey: deviceSlugKey(device.name || device.id),

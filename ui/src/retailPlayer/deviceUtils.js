@@ -38,6 +38,12 @@ const buildDeviceSlug = (device) => {
   return ''
 }
 
-const deviceSlugKey = (value) => normalizeValue(value).toLowerCase()
+const deviceSlugKey = (value) => {
+  const normalized = normalizeValue(value).toLowerCase()
+  if (!normalized) {
+    return ''
+  }
+  return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
 
 export { buildDeviceSlug, deviceSlugKey, normalizeValue }

@@ -209,6 +209,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         return deviceKey === normalizedSlugKey
       }) ||
       devices.find((device) => deviceSlugKey(device.name) === normalizedSlugKey) ||
+      devices.find((device) => deviceSlugKey(device.apiId) === normalizedSlugKey) ||
       devices.find((device) => deviceSlugKey(device.id) === normalizedSlugKey) ||
       null
     )
@@ -222,12 +223,13 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [])
 
   useEffect(() => {
-    if (!baseDevice?.id) {
+    const deviceId = normalizeValue(baseDevice?.apiId) || normalizeValue(baseDevice?.id)
+    if (!deviceId) {
       setStatusState(initialStatusState)
       return undefined
     }
 
-    const url = buildStatusUrl(baseDevice.id)
+    const url = buildStatusUrl(deviceId)
     if (!url) {
       setStatusState(initialStatusState)
       return undefined
@@ -253,7 +255,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return () => {
       abortController.abort()
     }
-  }, [baseDevice?.id, refreshIndex])
+  }, [baseDevice?.apiId, baseDevice?.id, refreshIndex])
 
   const normalizedDevice = useMemo(
     () => mapStatusPayloadToDevice(baseDevice, statusState.data),

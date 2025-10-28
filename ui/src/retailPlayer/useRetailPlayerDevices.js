@@ -23,6 +23,7 @@ const mapDevice = (device) => {
 
   return {
     id: fallbackId,
+    apiId: rawId || null,
     name,
     slug,
     slugKey: deviceSlugKey(slug),

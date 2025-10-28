@@ -230,8 +230,8 @@ const RetailPlayerDevicesList = () => {
           </div>
         ) : filteredDevices.length > 0 ? (
           filteredDevices.map((device) => (
-            <ButtonBase
-              key={device.id}
+          <ButtonBase
+            key={device.apiId || device.id}
               className={classes.buttonBase}
               onClick={() => handleNavigate(device)}
               focusRipple

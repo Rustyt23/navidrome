@@ -151,7 +151,7 @@ const Menu = ({ dense = false }) => {
       const encodedSlug = encodeURIComponent(slug)
       return (
         <MenuItemLink
-          key={`retailplayer-${device.id}`}
+          key={`retailplayer-${device.apiId || device.id}`}
           to={`/retailplayer/${encodedSlug}`}
           activeClassName={classes.active}
           primaryText={device.name}
