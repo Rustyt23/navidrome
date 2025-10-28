@@ -1,12 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import config from '../config'
 import RetailPlayerMockService from './RetailPlayerMockService'
 
 const buildDevicesUrl = () => {
-  if (!config.retailPlayerDevicesEnabled) {
-    return null
-  }
-
   const basePath = (config.baseURL || '').replace(/\/+$/, '')
   if (!basePath) {
     return '/api/native/retailplayer/devices'
@@ -39,14 +35,19 @@ const fetchRetailPlayerDevices = async (signal) => {
   const url = buildDevicesUrl()
 
   if (!url) {
-    return null
+    return { devices: null, enabled: false }
   }
 
   const response = await fetch(url, {
     method: 'GET',
     headers: { Accept: 'application/json' },
+    credentials: 'same-origin',
     signal,
   })
+
+  if (response.status === 404) {
+    return { devices: null, enabled: false }
+  }
 
   if (!response.ok) {
     throw new Error(
@@ -59,20 +60,21 @@ const fetchRetailPlayerDevices = async (signal) => {
     ? payload.data.map(mapDevice).filter(Boolean)
     : []
 
-  return devices
+  return { devices, enabled: true }
 }
-
-const shouldUseApi = () => Boolean(config.retailPlayerDevicesEnabled)
 
 const useRetailPlayerDevices = () => {
   const [devices, setDevices] = useState(() => RetailPlayerMockService.listDevices())
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
-
-  const apiEnabled = useMemo(() => shouldUseApi(), [])
+  const [isApiEnabled, setIsApiEnabled] = useState(
+    Boolean(config.retailPlayerDevicesEnabled),
+  )
 
   useEffect(() => {
-    if (!apiEnabled) {
+    const url = buildDevicesUrl()
+    if (!url) {
+      setIsApiEnabled(false)
       return undefined
     }
 
@@ -81,9 +83,10 @@ const useRetailPlayerDevices = () => {
     setError(null)
 
     fetchRetailPlayerDevices(abortController.signal)
-      .then((apiDevices) => {
-        if (apiDevices) {
-          setDevices(apiDevices)
+      .then((result) => {
+        setIsApiEnabled(Boolean(result?.enabled))
+        if (Array.isArray(result?.devices)) {
+          setDevices(result.devices)
         }
       })
       .catch((err) => {
@@ -98,12 +101,12 @@ const useRetailPlayerDevices = () => {
     return () => {
       abortController.abort()
     }
-  }, [apiEnabled])
+  }, [])
 
   return {
     devices,
     error,
-    isApiEnabled: apiEnabled,
+    isApiEnabled,
     isLoading,
   }
 }

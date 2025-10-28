@@ -82,12 +82,15 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			return
 		}
 
+		log.Info(ctx, "Fetching retail player devices from remote API")
 		response, err := fetchRetailPlayerDevices(ctx)
 		if err != nil {
 			log.Error(ctx, "Unable to fetch retail player devices", "err", err)
 			http.Error(w, "Unable to fetch retail player devices", http.StatusBadGateway)
 			return
 		}
+
+		log.Info(ctx, "Retail player devices fetched", "count", len(response.Data))
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
