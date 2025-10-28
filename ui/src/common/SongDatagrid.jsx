@@ -215,9 +215,23 @@ export const SongDatagridRow = ({
   const recordId = record?.id
   const trackId = record?.mediaFileId || recordId
 
+  const normalizedSelectedIds = useMemo(() => {
+    const selection = Array.isArray(selectedIds) ? selectedIds : []
+    const normalized = new Set()
+    selection.forEach((id) => {
+      if (id == null) {
+        return
+      }
+      normalized.add(String(id))
+    })
+    return normalized
+  }, [selectedIds])
+
   const getDragTrackIds = useCallback(() => {
     const selection = Array.isArray(selectedIds) ? selectedIds : []
-    const isSelected = recordId != null && selection.includes(recordId)
+    const normalizedRecordId = recordId == null ? null : String(recordId)
+    const isSelected =
+      normalizedRecordId != null && normalizedSelectedIds.has(normalizedRecordId)
     const baseIds = isSelected ? selection : [recordId]
     const seen = new Set()
     const ids = []
@@ -228,7 +242,9 @@ export const SongDatagridRow = ({
       }
       const dataRecord = resourceRecords?.[id]
       const value =
-        dataRecord?.mediaFileId || dataRecord?.id || (id === recordId ? trackId : id)
+        dataRecord?.mediaFileId ||
+        dataRecord?.id ||
+        (String(id) === normalizedRecordId ? trackId : id)
       if (!value || seen.has(value)) {
         return
       }
@@ -241,7 +257,13 @@ export const SongDatagridRow = ({
     }
 
     return ids
-  }, [selectedIds, recordId, resourceRecords, trackId])
+  }, [
+    normalizedSelectedIds,
+    selectedIds,
+    recordId,
+    resourceRecords,
+    trackId,
+  ])
 
   const [, dragSongRef] = useDrag(
     () => ({
