@@ -217,7 +217,15 @@ export const SongDatagridRow = ({
 
   const getDragTrackIds = useCallback(() => {
     const selection = Array.isArray(selectedIds) ? selectedIds : []
-    const isSelected = recordId != null && selection.includes(recordId)
+    const normalizedSelection = selection
+      .map((value) => (value != null ? String(value) : value))
+      .filter((value) => value != null)
+
+    const normalizedRecordId = recordId != null ? String(recordId) : null
+    const isSelected =
+      normalizedRecordId != null &&
+      normalizedSelection.includes(normalizedRecordId)
+
     const baseIds = isSelected ? selection : [recordId]
     const seen = new Set()
     const ids = []
@@ -226,9 +234,18 @@ export const SongDatagridRow = ({
       if (id == null) {
         return
       }
-      const dataRecord = resourceRecords?.[id]
+      const normalizedId = String(id)
+      const normalizedNumberId = Number(normalizedId)
+      const dataRecord =
+        resourceRecords?.[id] ??
+        resourceRecords?.[normalizedId] ??
+        (!Number.isNaN(normalizedNumberId)
+          ? resourceRecords?.[normalizedNumberId]
+          : undefined)
       const value =
-        dataRecord?.mediaFileId || dataRecord?.id || (id === recordId ? trackId : id)
+        dataRecord?.mediaFileId ||
+        dataRecord?.id ||
+        (normalizedId === normalizedRecordId ? trackId : id)
       if (!value || seen.has(value)) {
         return
       }
