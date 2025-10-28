@@ -105,6 +105,7 @@ type configOptions struct {
 	Spotify                         spotifyOptions      `json:",omitzero"`
 	Deezer                          deezerOptions       `json:",omitzero"`
 	ListenBrainz                    listenBrainzOptions `json:",omitzero"`
+	RetailPlayer                    retailPlayerOptions `json:",omitzero"`
 	Tags                            map[string]TagConf  `json:",omitempty"`
 	Agents                          string
 
@@ -184,6 +185,22 @@ type deezerOptions struct {
 type listenBrainzOptions struct {
 	Enabled bool
 	BaseURL string
+}
+
+type retailPlayerOptions struct {
+	Enabled           bool
+	BaseURL           string
+	OrgID             string
+	APIKey            string
+	APIKeyHeader      string
+	PageSize          int
+	Page              int
+	Filters           string
+	OrderBy           string
+	OrderDirection    string
+	Search            string
+	Fields            []string          `json:",omitempty"`
+	AdditionalHeaders map[string]string `json:",omitempty"`
 }
 
 type secureOptions struct {
@@ -586,6 +603,19 @@ func setViperDefaults() {
 	viper.SetDefault("deezer.enabled", true)
 	viper.SetDefault("listenbrainz.enabled", true)
 	viper.SetDefault("listenbrainz.baseurl", "https://api.listenbrainz.org/1/")
+	viper.SetDefault("retailplayer.enabled", false)
+	viper.SetDefault("retailplayer.baseurl", "")
+	viper.SetDefault("retailplayer.orgid", "")
+	viper.SetDefault("retailplayer.apikey", "")
+	viper.SetDefault("retailplayer.apikeyheader", "X-API-Key")
+	viper.SetDefault("retailplayer.pagesize", 0)
+	viper.SetDefault("retailplayer.page", 0)
+	viper.SetDefault("retailplayer.filters", "")
+	viper.SetDefault("retailplayer.orderby", "")
+	viper.SetDefault("retailplayer.orderdirection", "")
+	viper.SetDefault("retailplayer.search", "")
+	viper.SetDefault("retailplayer.fields", []string{})
+	viper.SetDefault("retailplayer.additionalheaders", map[string]string{})
 	viper.SetDefault("httpsecurityheaders.customframeoptionsvalue", "DENY")
 	viper.SetDefault("backup.path", "")
 	viper.SetDefault("backup.schedule", "")

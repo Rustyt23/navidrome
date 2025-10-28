@@ -2,66 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import config from '../config'
 import RetailPlayerMockService from './RetailPlayerMockService'
 
-const DEFAULT_KEY_HEADER = 'X-API-Key'
-
-const buildFieldsParams = (fields, searchParams) => {
-  if (!fields) {
-    return
-  }
-
-  if (Array.isArray(fields)) {
-    fields.filter(Boolean).forEach((field) => searchParams.append('fields', field))
-    return
-  }
-
-  if (typeof fields === 'string') {
-    fields
-      .split(',')
-      .map((field) => field.trim())
-      .filter(Boolean)
-      .forEach((field) => searchParams.append('fields', field))
-  }
-}
-
 const buildDevicesUrl = () => {
-  if (!config.retailPlayerApiBaseUrl || !config.retailPlayerApiOrgId) {
+  if (!config.retailPlayerDevicesEnabled) {
     return null
   }
 
-  const url = new URL(
-    `/orgs/${config.retailPlayerApiOrgId}/devices`,
-    config.retailPlayerApiBaseUrl,
-  )
-
-  const { searchParams } = url
-
-  if (config.retailPlayerApiPageSize) {
-    searchParams.set('pageSize', String(config.retailPlayerApiPageSize))
+  const basePath = (config.baseURL || '').replace(/\/+$/, '')
+  if (!basePath) {
+    return '/api/native/retailplayer/devices'
   }
 
-  if (config.retailPlayerApiPage) {
-    searchParams.set('page', String(config.retailPlayerApiPage))
-  }
-
-  if (config.retailPlayerApiFilters) {
-    searchParams.set('filters', String(config.retailPlayerApiFilters))
-  }
-
-  if (config.retailPlayerApiOrderBy) {
-    searchParams.set('orderBy', String(config.retailPlayerApiOrderBy))
-  }
-
-  if (config.retailPlayerApiOrderDirection) {
-    searchParams.set('orderDirection', String(config.retailPlayerApiOrderDirection))
-  }
-
-  if (config.retailPlayerApiSearch) {
-    searchParams.set('search', String(config.retailPlayerApiSearch))
-  }
-
-  buildFieldsParams(config.retailPlayerApiFields, searchParams)
-
-  return url
+  return `${basePath}/api/native/retailplayer/devices`
 }
 
 const mapDevice = (device) => {
@@ -91,29 +42,9 @@ const fetchRetailPlayerDevices = async (signal) => {
     return null
   }
 
-  const headers = new Headers({ Accept: 'application/json' })
-
-  if (config.retailPlayerApiKey) {
-    headers.set(
-      config.retailPlayerApiKeyHeader || DEFAULT_KEY_HEADER,
-      config.retailPlayerApiKey,
-    )
-  }
-
-  if (
-    config.retailPlayerApiAdditionalHeaders &&
-    typeof config.retailPlayerApiAdditionalHeaders === 'object'
-  ) {
-    Object.entries(config.retailPlayerApiAdditionalHeaders).forEach(([key, value]) => {
-      if (key && value !== undefined && value !== null) {
-        headers.set(key, String(value))
-      }
-    })
-  }
-
-  const response = await fetch(url.toString(), {
+  const response = await fetch(url, {
     method: 'GET',
-    headers,
+    headers: { Accept: 'application/json' },
     signal,
   })
 
@@ -131,8 +62,7 @@ const fetchRetailPlayerDevices = async (signal) => {
   return devices
 }
 
-const shouldUseApi = () =>
-  Boolean(config.retailPlayerApiBaseUrl && config.retailPlayerApiOrgId)
+const shouldUseApi = () => Boolean(config.retailPlayerDevicesEnabled)
 
 const useRetailPlayerDevices = () => {
   const [devices, setDevices] = useState(() => RetailPlayerMockService.listDevices())
