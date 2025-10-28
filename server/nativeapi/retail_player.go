@@ -369,10 +369,10 @@ func buildStreamSearchQueries(baseName string) []string {
 		}
 	}
 
-	return uniqueStrings(queries)
+	return uniqueStringsInsensitive(queries)
 }
 
-func uniqueStrings(values []string) []string {
+func uniqueStringsInsensitive(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	result := make([]string, 0, len(values))
 	for _, value := range values {
