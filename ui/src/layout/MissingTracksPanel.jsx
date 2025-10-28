@@ -16,6 +16,7 @@ import {
 import { MdOutlineNotifications } from 'react-icons/md'
 import { useTranslate, useNotify } from 'react-admin'
 import { httpClient } from '../dataProvider'
+import { useRefreshOnEvents } from '../common/useRefreshOnEvents.jsx'
 
 const PAGE_SIZE = 100
 
@@ -93,7 +94,7 @@ const MissingTracksPanel = () => {
         limit: PAGE_SIZE.toString(),
         offset: Math.max(offset, 0).toString(),
       })
-      httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
+      return httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
         .then(({ json, headers }) => {
           const list = Array.isArray(json) ? json : []
           const totalHeader = headers && headers.get ? headers.get('X-Total-Count') : null
@@ -123,12 +124,19 @@ const MissingTracksPanel = () => {
     [notify],
   )
 
+  const refreshEntries = useCallback(() => fetchEntries(0, false), [fetchEntries])
+
+  useRefreshOnEvents({
+    events: ['playlist', 'song'],
+    onRefresh: refreshEntries,
+  })
+
   const handleOpen = useCallback(
     (event) => {
       setAnchorEl(event.currentTarget)
-      fetchEntries(0, false)
+      refreshEntries()
     },
-    [fetchEntries],
+    [refreshEntries],
   )
 
   const handleClose = useCallback(() => {
