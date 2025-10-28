@@ -12,6 +12,7 @@ import {
   Datagrid,
   PureDatagridBody,
   PureDatagridRow,
+  useListContext,
   useTranslate,
 } from 'react-admin'
 import {
@@ -200,14 +201,15 @@ export const SongDatagridRow = ({
     [record],
   )
 
+  const listContext = useListContext()
   const resourceName = rest?.resource
-  const selectedIds = useSelector(
+  const selectedIdsFromStore = useSelector(
     (state) =>
       (resourceName &&
         state?.admin?.resources?.[resourceName]?.list?.selectedIds) ||
       [],
   )
-  const resourceRecords = useSelector(
+  const resourceRecordsFromStore = useSelector(
     (state) =>
       (resourceName && state?.admin?.resources?.[resourceName]?.data) || {},
   )
@@ -216,7 +218,15 @@ export const SongDatagridRow = ({
   const trackId = record?.mediaFileId || recordId
 
   const getDragTrackIds = useCallback(() => {
-    const selection = Array.isArray(selectedIds) ? selectedIds : []
+    const contextSelectedIds =
+      (listContext && Array.isArray(listContext.selectedIds)
+        ? listContext.selectedIds
+        : []) || []
+    const selection = contextSelectedIds.length
+      ? contextSelectedIds
+      : Array.isArray(selectedIdsFromStore)
+      ? selectedIdsFromStore
+      : []
     const isSelected = recordId != null && selection.includes(recordId)
     const baseIds = isSelected ? selection : [recordId]
     const seen = new Set()
@@ -226,9 +236,14 @@ export const SongDatagridRow = ({
       if (id == null) {
         return
       }
-      const dataRecord = resourceRecords?.[id]
+      const dataRecord =
+        (listContext?.data && listContext.data[id]) ||
+        resourceRecordsFromStore?.[id]
       const value =
-        dataRecord?.mediaFileId || dataRecord?.id || (id === recordId ? trackId : id)
+        dataRecord?.mediaFileId ||
+        dataRecord?.mediafileId ||
+        dataRecord?.id ||
+        (id === recordId ? trackId : id)
       if (!value || seen.has(value)) {
         return
       }
@@ -241,7 +256,13 @@ export const SongDatagridRow = ({
     }
 
     return ids
-  }, [selectedIds, recordId, resourceRecords, trackId])
+  }, [
+    listContext,
+    selectedIdsFromStore,
+    recordId,
+    resourceRecordsFromStore,
+    trackId,
+  ])
 
   const [, dragSongRef] = useDrag(
     () => ({
@@ -354,6 +375,28 @@ export const SongDatagridRow = ({
     [dragSongRef, record?.missing],
   )
 
+  useEffect(() => {
+    const node = rowRef.current
+    if (!node || record?.missing) {
+      return undefined
+    }
+
+    const startListener = (event) => {
+      handleDragStart(event)
+    }
+    const endListener = (event) => {
+      handleDragEnd(event)
+    }
+
+    node.addEventListener('dragstart', startListener)
+    node.addEventListener('dragend', endListener)
+
+    return () => {
+      node.removeEventListener('dragstart', startListener)
+      node.removeEventListener('dragend', endListener)
+    }
+  }, [handleDragStart, handleDragEnd, record?.missing])
+
   if (!record || !record.title) {
     return null
   }
@@ -388,8 +431,6 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
         draggable={!record?.missing}
       >
         {fields}
