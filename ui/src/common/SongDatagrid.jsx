@@ -354,6 +354,28 @@ export const SongDatagridRow = ({
     [dragSongRef, record?.missing],
   )
 
+  useEffect(() => {
+    const node = rowRef.current
+    if (!node || record?.missing) {
+      return undefined
+    }
+
+    const startListener = (event) => {
+      handleDragStart(event)
+    }
+    const endListener = (event) => {
+      handleDragEnd(event)
+    }
+
+    node.addEventListener('dragstart', startListener)
+    node.addEventListener('dragend', endListener)
+
+    return () => {
+      node.removeEventListener('dragstart', startListener)
+      node.removeEventListener('dragend', endListener)
+    }
+  }, [handleDragStart, handleDragEnd, record?.missing])
+
   if (!record || !record.title) {
     return null
   }
@@ -388,8 +410,6 @@ export const SongDatagridRow = ({
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
         draggable={!record?.missing}
       >
         {fields}
