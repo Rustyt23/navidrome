@@ -4,11 +4,8 @@ import RetailPlayerMockService from './RetailPlayerMockService'
 
 const buildDevicesUrl = () => {
   const basePath = (config.baseURL || '').replace(/\/+$/, '')
-  if (!basePath) {
-    return '/api/native/retailplayer/devices'
-  }
 
-  return `${basePath}/api/native/retailplayer/devices`
+  return `${basePath}/api/retailplayer/devices`
 }
 
 const mapDevice = (device) => {
