@@ -146,17 +146,21 @@ const Menu = ({ dense = false }) => {
       )
     }
 
-    return retailDevices.map((device) => (
-      <MenuItemLink
-        key={`retailplayer-${device.id}`}
-        to={`/retailplayer/${device.id}`}
-        activeClassName={classes.active}
-        primaryText={device.name}
-        sidebarIsOpen={open}
-        dense={dense}
-        exact
-      />
-    ))
+    return retailDevices.map((device) => {
+      const slug = device.slug || device.name || device.id
+      const encodedSlug = encodeURIComponent(slug)
+      return (
+        <MenuItemLink
+          key={`retailplayer-${device.id}`}
+          to={`/retailplayer/${encodedSlug}`}
+          activeClassName={classes.active}
+          primaryText={device.name}
+          sidebarIsOpen={open}
+          dense={dense}
+          exact
+        />
+      )
+    })
   }
 
   const renderRetailPlayerMenu = () => (

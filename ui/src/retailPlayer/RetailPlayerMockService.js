@@ -1,3 +1,5 @@
+import { buildDeviceSlug, deviceSlugKey } from './deviceUtils'
+
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const initialDevices = {
@@ -134,6 +136,8 @@ class RetailPlayerMockService {
     return Object.values(this.devices).map((device) => ({
       id: device.id,
       name: device.name,
+      slug: buildDeviceSlug(device) || device.name || device.id,
+      slugKey: deviceSlugKey(device.name || device.id),
       channel: device.channel,
       channelList: device.channelList,
       organization: device.organization,

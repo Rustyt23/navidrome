@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import config from '../config'
 import httpClient from '../dataProvider/httpClient'
 import RetailPlayerMockService from './RetailPlayerMockService'
+import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
 
 const buildDevicesUrl = () => '/api/retailplayer/devices'
 
@@ -10,18 +11,27 @@ const mapDevice = (device) => {
     return null
   }
 
-  const id = device.id || device.macAddress || device.ordinal?.toString()
+  const rawId = normalizeValue(device.id)
+  const fallbackId = rawId || normalizeValue(device.macAddress) || normalizeValue(device.ordinal)
 
-  if (!id) {
+  if (!fallbackId) {
     return null
   }
 
+  const slug = buildDeviceSlug(device) || fallbackId
+  const name = normalizeValue(device.name) || fallbackId
+
   return {
-    id,
-    name: device.name || id,
-    channel: device.channel || '',
-    channelList: device.channelList || '',
-    organization: device.organization || device.orgUnit || device.location || '',
+    id: fallbackId,
+    name,
+    slug,
+    slugKey: deviceSlugKey(slug),
+    channel: normalizeValue(device.channel),
+    channelList: normalizeValue(device.channelList),
+    organization:
+      normalizeValue(device.organization) ||
+      normalizeValue(device.orgUnit) ||
+      normalizeValue(device.location),
   }
 }
 

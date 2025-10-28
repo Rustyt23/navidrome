@@ -12,7 +12,7 @@ import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
-import RetailPlayerMockService from './RetailPlayerMockService'
+import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -555,8 +555,18 @@ const dummyTracks = [
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
-  const { deviceId } = useParams()
-  const [device, setDevice] = useState(null)
+  const { deviceSlug } = useParams()
+  const {
+    device: resolvedDevice,
+    error: integrationError,
+    statusError,
+    devicesError,
+    isLoading: retailLoading,
+    isStatusLoading: statusLoading,
+    refresh: refreshStatus,
+    notFound,
+  } = useRetailPlayerDeviceStatus(deviceSlug)
+  const [device, setDevice] = useState(resolvedDevice)
   const [currentTime, setCurrentTime] = useState(() => formatTime(new Date()))
   const [isMuted, setIsMuted] = useState(false)
   const [, setVolume] = useState(50)
@@ -567,21 +577,13 @@ const RetailPlayerDashboard = () => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const scheduleDropdownRef = useRef(null)
-
-  const refreshDevice = useCallback(() => {
-    if (!deviceId) {
-      setDevice(null)
-      return
-    }
-
-    const nextDevice = RetailPlayerMockService.getDevice(deviceId)
-    setDevice(nextDevice)
-    setCurrentTime(formatTime(new Date()))
-  }, [deviceId])
+  const isBusy = retailLoading || statusLoading
+  const combinedError = integrationError || statusError || devicesError
 
   useEffect(() => {
-    refreshDevice()
-  }, [refreshDevice])
+    setDevice(resolvedDevice || null)
+    setCurrentTime(formatTime(new Date()))
+  }, [resolvedDevice])
 
   useEffect(() => {
     const updateTime = () => setCurrentTime(formatTime(new Date()))
@@ -737,13 +739,56 @@ const RetailPlayerDashboard = () => {
 
   const handleSelectChannel = useCallback(
     (schedule) => {
-      if (!device) {
+      if (!schedule) {
         return
       }
-      RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
-      refreshDevice()
+
+      setDevice((previous) => {
+        if (!previous) {
+          return previous
+        }
+
+        const previousSchedules = Array.isArray(previous.schedules)
+          ? previous.schedules
+          : []
+        const nextSchedules = previousSchedules.map((item) => ({
+          ...item,
+          isActive: item.key === schedule.key,
+        }))
+
+        const metadata =
+          schedule.metadata && typeof schedule.metadata === 'object'
+            ? schedule.metadata
+            : {}
+
+        const nextNowPlaying = {
+          ...(previous.nowPlaying || {}),
+          title:
+            metadata.title ||
+            schedule.label ||
+            previous.nowPlaying?.title ||
+            previous.name,
+          artist:
+            metadata.artist ||
+            schedule.artist ||
+            previous.nowPlaying?.artist ||
+            previous.channel ||
+            'Retail Player',
+          metadata: { ...metadata },
+        }
+
+        if (metadata.artworkUrl) {
+          nextNowPlaying.artworkUrl = metadata.artworkUrl
+        }
+
+        return {
+          ...previous,
+          schedules: nextSchedules,
+          nowPlaying: nextNowPlaying,
+        }
+      })
     },
-    [device, deviceId, refreshDevice],
+    [],
   )
 
   const handleSelectFromDropdown = useCallback(
@@ -790,8 +835,9 @@ const RetailPlayerDashboard = () => {
   }, [updateVolume])
 
   const handleRefresh = useCallback(() => {
-    refreshDevice()
-  }, [refreshDevice])
+    refreshStatus()
+    setCurrentTime(formatTime(new Date()))
+  }, [refreshStatus])
 
   const handleAdjustVolume = useCallback(
     (delta) => {
@@ -824,10 +870,9 @@ const RetailPlayerDashboard = () => {
       if (!schedule) {
         return
       }
-      RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
-      refreshDevice()
+      handleSelectChannel(schedule)
     },
-    [deviceId, refreshDevice, schedules],
+    [handleSelectChannel, schedules],
   )
 
   useEffect(() => {
@@ -890,16 +935,29 @@ const RetailPlayerDashboard = () => {
   }, [clearVolumeTimeout])
 
   if (!device) {
+    const heading = notFound
+      ? 'Device not found'
+      : isBusy
+        ? 'Loading device…'
+        : 'Unable to load device'
+    const message = notFound
+      ? 'The device you are looking for is unavailable. Choose a device from the list to continue.'
+      : isBusy
+        ? 'Fetching the latest device details. This will only take a moment.'
+        : 'We could not load this device right now. Please refresh and try again.'
+
     return (
       <div className={classes.notFoundWrapper}>
         <Title title="Retail Player" />
         <Typography component="h1" className={classes.notFoundTitle}>
-          Device not found
+          {heading}
         </Typography>
-        <Typography className={classes.notFoundMessage}>
-          The device you are looking for is unavailable. Choose a device from the list to
-          continue.
-        </Typography>
+        <Typography className={classes.notFoundMessage}>{message}</Typography>
+        {combinedError && !isBusy ? (
+          <Typography className={classes.notFoundMessage} component="p">
+            {combinedError.message || String(combinedError)}
+          </Typography>
+        ) : null}
         <RouterLink to="/retailplayer/devices" className={classes.backLink}>
           ← Back to devices
         </RouterLink>
@@ -923,6 +981,7 @@ const RetailPlayerDashboard = () => {
             onClick={handleRefresh}
             aria-label="Refresh"
             focusRipple
+            disabled={statusLoading}
           >
             <CachedIcon fontSize="inherit" />
           </ButtonBase>

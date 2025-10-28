@@ -165,8 +165,13 @@ const RetailPlayerDevicesList = () => {
     isLoading: devicesLoading,
   } = useRetailPlayerDevices()
 
-  const handleNavigate = (deviceId) => {
-    history.push(`/retailplayer/${deviceId}`)
+  const handleNavigate = (device) => {
+    if (!device) {
+      return
+    }
+    const slug = device.slug || device.name || device.id
+    const encodedSlug = encodeURIComponent(slug)
+    history.push(`/retailplayer/${encodedSlug}`)
   }
 
   const filteredDevices = useMemo(() => {
@@ -228,7 +233,7 @@ const RetailPlayerDevicesList = () => {
             <ButtonBase
               key={device.id}
               className={classes.buttonBase}
-              onClick={() => handleNavigate(device.id)}
+              onClick={() => handleNavigate(device)}
               focusRipple
               aria-label={`Open ${device.name}`}
             >

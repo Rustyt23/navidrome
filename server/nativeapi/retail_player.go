@@ -73,8 +73,11 @@ type retailPlayerConfig struct {
 func (n *Router) addRetailPlayerRoute(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices", n.handleRetailPlayerDevices())
+		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
 	})
 }
+
+var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
 
 func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +101,44 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Error(ctx, "Unable to encode retail player devices response", "err", err)
+		}
+	}
+}
+
+func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Fetching retail player device status from remote API", "deviceID", deviceID)
+		response, err := fetchRetailPlayerDeviceStatus(ctx, deviceID)
+		if err != nil {
+			if errors.Is(err, errRetailPlayerDeviceNotFound) {
+				log.Info(ctx, "Retail player device not found", "deviceID", deviceID)
+				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				return
+			}
+
+			log.Error(ctx, "Unable to fetch retail player device status", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to fetch retail player device status", http.StatusBadGateway)
+			return
+		}
+
+		log.Info(ctx, "Retail player device status fetched", "deviceID", deviceID)
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Error(ctx, "Unable to encode retail player device status response", "deviceID", deviceID, "err", err)
 		}
 	}
 }
@@ -157,44 +198,103 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 	}, nil
 }
 
-func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig) (*http.Request, error) {
+type retailPlayerDeviceStatusResponse struct {
+	Status         map[string]any   `json:"status"`
+	StreamMetadata []map[string]any `json:"streamMetadata"`
+}
+
+func fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retailPlayerDeviceStatusResponse, error) {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return retailPlayerDeviceStatusResponse{}, errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return retailPlayerDeviceStatusResponse{}, errors.New("retail player device id is empty")
+	}
+
+	requestConfig := retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerRequest(ctx, requestConfig, trimmedID, "status")
+	if err != nil {
+		return retailPlayerDeviceStatusResponse{}, err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return retailPlayerDeviceStatusResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return retailPlayerDeviceStatusResponse{}, errRetailPlayerDeviceNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return retailPlayerDeviceStatusResponse{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+	}
+
+	var payload retailPlayerDeviceStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return retailPlayerDeviceStatusResponse{}, err
+	}
+
+	return payload, nil
+}
+
+func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig, pathParts ...string) (*http.Request, error) {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	if baseURL == "" {
 		return nil, errors.New("retail player base URL is empty")
 	}
 
 	endpoint := fmt.Sprintf("%s/orgs/%s/devices", baseURL, url.PathEscape(cfg.OrgID))
+	for _, part := range pathParts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		endpoint = fmt.Sprintf("%s/%s", endpoint, url.PathEscape(trimmed))
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	query := req.URL.Query()
-	if cfg.PageSize > 0 {
-		query.Set("pageSize", strconv.Itoa(cfg.PageSize))
-	}
-	if cfg.Page > 0 {
-		query.Set("page", strconv.Itoa(cfg.Page))
-	}
-	if cfg.Filters != "" {
-		query.Set("filters", cfg.Filters)
-	}
-	if cfg.OrderBy != "" {
-		query.Set("orderBy", cfg.OrderBy)
-	}
-	if cfg.OrderDirection != "" {
-		query.Set("orderDirection", cfg.OrderDirection)
-	}
-	if cfg.Search != "" {
-		query.Set("search", cfg.Search)
-	}
-	for _, field := range cfg.Fields {
-		trimmed := strings.TrimSpace(field)
-		if trimmed != "" {
-			query.Add("fields", trimmed)
+	if len(pathParts) == 0 {
+		query := req.URL.Query()
+		if cfg.PageSize > 0 {
+			query.Set("pageSize", strconv.Itoa(cfg.PageSize))
 		}
+		if cfg.Page > 0 {
+			query.Set("page", strconv.Itoa(cfg.Page))
+		}
+		if cfg.Filters != "" {
+			query.Set("filters", cfg.Filters)
+		}
+		if cfg.OrderBy != "" {
+			query.Set("orderBy", cfg.OrderBy)
+		}
+		if cfg.OrderDirection != "" {
+			query.Set("orderDirection", cfg.OrderDirection)
+		}
+		if cfg.Search != "" {
+			query.Set("search", cfg.Search)
+		}
+		for _, field := range cfg.Fields {
+			trimmed := strings.TrimSpace(field)
+			if trimmed != "" {
+				query.Add("fields", trimmed)
+			}
+		}
+		req.URL.RawQuery = query.Encode()
 	}
-	req.URL.RawQuery = query.Encode()
 
 	req.Header.Set("Accept", "application/json")
 

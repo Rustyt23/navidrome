@@ -20,7 +20,7 @@ const routes = [
   />,
   <Route
     exact
-    path="/retailplayer/:deviceId"
+    path="/retailplayer/:deviceSlug"
     render={() => <RetailPlayerDashboard />}
     key={'retailplayer-device'}
   />,
