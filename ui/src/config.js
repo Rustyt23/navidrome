@@ -41,6 +41,18 @@ const defaultConfig = {
   publicBaseUrl: '/share',
   separator: '/',
   enableInspect: true,
+  retailPlayerApiBaseUrl: '',
+  retailPlayerApiOrgId: '',
+  retailPlayerApiKey: '',
+  retailPlayerApiKeyHeader: 'X-API-Key',
+  retailPlayerApiPageSize: null,
+  retailPlayerApiPage: null,
+  retailPlayerApiFilters: '',
+  retailPlayerApiOrderBy: '',
+  retailPlayerApiOrderDirection: '',
+  retailPlayerApiSearch: '',
+  retailPlayerApiFields: null,
+  retailPlayerApiAdditionalHeaders: null,
 }
 
 let config
