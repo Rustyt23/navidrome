@@ -1,6 +1,7 @@
 import jsonServerProvider from 'ra-data-json-server'
 import httpClient from './httpClient'
 import { REST_URL } from '../consts'
+import { emitLibraryMutated } from '../utils/libraryMutationEvents'
 
 const dataProvider = jsonServerProvider(REST_URL, httpClient)
 
@@ -80,12 +81,33 @@ const mapResource = (resource, params) => {
   }
 }
 
-const callDeleteMany = (resource, params) => {
+const LIBRARY_MUTATION_RESOURCES = new Set([
+  'song',
+  'playlist',
+  'playlistTrack',
+  'missing',
+  'folder',
+])
+
+const shouldEmitLibraryMutation = (resource) => LIBRARY_MUTATION_RESOURCES.has(resource)
+
+const emitMutationEvent = (resource, action, payload) => {
+  if (!shouldEmitLibraryMutation(resource)) {
+    return
+  }
+  emitLibraryMutated({ resource, action, payload })
+}
+
+const callDeleteMany = (resource, params, mappedResource) => {
   const ids = (params.ids || []).map((id) => `id=${id}`)
   const query = ids.length > 0 ? `?${ids.join('&')}` : ''
-  return httpClient(`${REST_URL}/${resource}${query}`, {
+  const targetResource = mappedResource || resource
+  return httpClient(`${REST_URL}/${targetResource}${query}`, {
     method: 'DELETE',
-  }).then((response) => ({ data: response.json.ids || [] }))
+  }).then((response) => {
+    emitMutationEvent(resource, 'deleteMany', { ids: response.json.ids || [] })
+    return { data: response.json.ids || [] }
+  })
 }
 
 // Helper function to handle user-library associations
@@ -95,10 +117,10 @@ const handleUserLibraryAssociation = async (userId, libraryIds) => {
   }
 
   try {
-  await httpClient(`${REST_URL}/user/${userId}/library`, {
-    method: 'PUT',
-    body: JSON.stringify({ libraryIds }),
-  })
+    await httpClient(`${REST_URL}/user/${userId}/library`, {
+      method: 'PUT',
+      body: JSON.stringify({ libraryIds }),
+    })
   } catch (error) {
     console.error('Error setting user libraries:', error) //eslint-disable-line no-console
     throw error
@@ -191,12 +213,16 @@ const wrapperDataProvider = {
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
         emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
       }
+      emitMutationEvent(resource, 'update', { id: params?.id, data: params?.data })
       return res
     })
   },
   updateMany: (resource, params) => {
     const [r, p] = mapResource(resource, params)
-    return dataProvider.updateMany(r, p)
+    return dataProvider.updateMany(r, p).then((res) => {
+      emitMutationEvent(resource, 'updateMany', { ids: params?.ids, data: params?.data })
+      return res
+    })
   },
   create: (resource, params) => {
     if (resource === 'user') {
@@ -209,6 +235,7 @@ const wrapperDataProvider = {
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
         emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
       }
+      emitMutationEvent(resource, 'create', { data: params?.data })
       return res
     })
   },
@@ -218,21 +245,28 @@ const wrapperDataProvider = {
       if (resource === 'playlist' || resource === 'folder') {
         emitFoldersChanged({ type: 'delete', resource, targetParentId: '' })
       }
+      emitMutationEvent(resource, 'delete', { id: params?.id })
       return res
     })
   },
   deleteMany: (resource, params) => {
     const [r, p] = mapResource(resource, params)
     if (r.endsWith('/tracks') || resource === 'missing' || resource === 'folder') {
-      return callDeleteMany(r, p)
+      return callDeleteMany(resource, p, r)
     }
-    return dataProvider.deleteMany(r, p)
+    return dataProvider.deleteMany(r, p).then((res) => {
+      emitMutationEvent(resource, 'deleteMany', { ids: params?.ids })
+      return res
+    })
   },
   addToPlaylist: (playlistId, data) => {
     return httpClient(`${REST_URL}/playlist/${playlistId}/tracks`, {
       method: 'POST',
       body: JSON.stringify(data),
-    }).then(({ json }) => ({ data: json }))
+    }).then(({ json }) => {
+      emitMutationEvent('playlistTrack', 'create', { playlistId, data })
+      return { data: json }
+    })
   },
   getPlaylists: (songId) => {
     return httpClient(`${REST_URL}/song/${songId}/playlists`).then(
@@ -258,6 +292,11 @@ const wrapperDataProvider = {
         sourceParentId: sourceParentId ?? '',
         targetParentId: targetFolderId ?? '',
       })
+      emitMutationEvent('playlist', 'move', {
+        id: playlistId,
+        targetFolderId,
+        sourceParentId,
+      })
       return { data: { id: playlistId, folderId: targetFolderId } }
     })
   },
@@ -275,6 +314,11 @@ const wrapperDataProvider = {
         sourceParentId: sourceParentId ?? '',
         targetParentId: targetParentId ?? '',
       })
+      emitMutationEvent('folder', 'move', {
+        id: folderId,
+        targetParentId,
+        sourceParentId,
+      })
       return { data: json }
     })
   },
@@ -291,6 +335,11 @@ const wrapperDataProvider = {
       if ((targetParentId ?? '') === '') {
         emitFoldersChanged({ type: 'bulkMove', targetParentId: '' })
       }
+      emitMutationEvent('folder', 'bulkMove', {
+        playlistIds,
+        folderIds,
+        targetParentId,
+      })
       return { data: json }
     })
   },
