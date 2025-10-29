@@ -11,6 +11,8 @@ import { DurationField, SongContextMenu, RatingField } from './index'
 import { useDispatch, useSelector } from 'react-redux'
 import { playTracks, setTrack } from '../actions'
 import config from '../config'
+import EqualizerIcon from '@material-ui/icons/Equalizer'
+import clsx from 'clsx'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -49,10 +51,17 @@ const useStyles = makeStyles(
       boxSizing: 'border-box',
     },
     mobileTitle: {
+      display: 'flex',
+      alignItems: 'center',
       minWidth: 0,
       overflow: 'hidden',
       paddingRight: theme.spacing(1),
       textAlign: 'left',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    },
+    mobileTitleText: {
+      overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
     },
@@ -84,6 +93,14 @@ const useStyles = makeStyles(
     rightIcon: {
       top: '26px',
     },
+    playingIcon: {
+      marginRight: theme.spacing(0.5),
+      color: 'var(--accent)',
+      fontSize: '1rem',
+    },
+    playingIconHidden: {
+      visibility: 'hidden',
+    },
   }),
   { name: 'RaSongSimpleList' },
 )
@@ -103,9 +120,9 @@ export const SongSimpleList = ({
   ...rest
 }) => {
   const dispatch = useDispatch()
-  const currentTrackId = useSelector(
-    (state) => state?.player?.current?.trackId,
-  )
+  const currentTrack = useSelector((state) => state?.player?.current || {})
+  const currentTrackId = currentTrack.trackId
+  const isPlaying = Boolean(currentTrackId) && !currentTrack.paused && !currentTrack.ended
   const isMobile = useMemo(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
       return false
@@ -175,7 +192,9 @@ export const SongSimpleList = ({
                   classes={{
                     selected: classes.currentRowMobile,
                   }}
-                  selected={isMobile && isCurrentSong(data[id])}
+                  selected={
+                    isMobile && isPlaying && isCurrentSong(data[id])
+                  }
                   button={true}
                 >
                   <ListItemText
@@ -183,7 +202,18 @@ export const SongSimpleList = ({
                       isMobile ? (
                         <div className={classes.mobilePrimaryRow}>
                           <span className={classes.mobileTitle}>
-                            {data[id].title}
+                            <EqualizerIcon
+                              className={clsx(
+                                classes.playingIcon,
+                                !(
+                                  isPlaying &&
+                                  isCurrentSong(data[id])
+                                ) && classes.playingIconHidden,
+                              )}
+                            />
+                            <span className={classes.mobileTitleText}>
+                              {data[id].title}
+                            </span>
                           </span>
                           <span className={classes.mobileArtist}>
                             {data[id].artist}
