@@ -88,6 +88,27 @@ const MissingTracksPanel = () => {
   const open = Boolean(anchorEl)
   const classes = useStyles({ open })
 
+  const mergeEntries = useCallback((base, incoming) => {
+    if (!incoming) {
+      return base
+    }
+    const merged = { ...base }
+    Object.keys(incoming).forEach((key) => {
+      const value = incoming[key]
+      if (value === undefined || value === null) {
+        return
+      }
+      if (typeof value === 'string' && value.trim() === '') {
+        return
+      }
+      const existing = merged[key]
+      if (existing === undefined || existing === null || (typeof existing === 'string' && existing.trim() === '')) {
+        merged[key] = value
+      }
+    })
+    return merged
+  }, [])
+
   const fetchEntries = useCallback(
     (offset = 0, append = false) => {
       const controller = new AbortController()
@@ -107,15 +128,21 @@ const MissingTracksPanel = () => {
 
       setLoadingState(true)
 
-      const params = new URLSearchParams({
+      const missingParams = new URLSearchParams({
         _sort: 'updated_at',
         _order: 'DESC',
         _start: start.toString(),
         _end: end.toString(),
       })
-      params.set('_', Date.now().toString())
+      missingParams.set('_', Date.now().toString())
 
-      return httpClient(`${REST_URL}/missing?${params.toString()}`, {
+      const notificationsParams = new URLSearchParams({
+        limit: PAGE_SIZE.toString(),
+        offset: start.toString(),
+      })
+      notificationsParams.set('_', Date.now().toString())
+
+      const requestOptions = {
         cache: 'no-store',
         signal: controller.signal,
         headers: new Headers({
@@ -123,22 +150,77 @@ const MissingTracksPanel = () => {
           'Cache-Control': 'no-cache',
           Pragma: 'no-cache',
         }),
-      })
-        .then(({ json, headers }) => {
+      }
+
+      const requests = [
+        httpClient(`/api/notifications/missing-tracks?${notificationsParams.toString()}`, requestOptions),
+        httpClient(`${REST_URL}/missing?${missingParams.toString()}`, requestOptions),
+      ]
+
+      return Promise.allSettled(requests)
+        .then((results) => {
           if (activeRequestRef.current.id !== nextRequestId) {
             return
           }
 
-          const list = Array.isArray(json) ? json : []
-          const rawTotal = headers && headers.get ? headers.get('X-Total-Count') : null
-          const totalValue = (() => {
-            if (!rawTotal) {
-              return list.length + (append ? start : 0)
+          const [notificationsResult, missingResult] = results
+          const notificationsSuccess =
+            notificationsResult.status === 'fulfilled' ? notificationsResult.value : null
+          const missingSuccess = missingResult.status === 'fulfilled' ? missingResult.value : null
+
+          const isNotificationsError =
+            notificationsResult.status === 'rejected' && notificationsResult.reason?.name !== 'AbortError'
+          const isMissingError =
+            missingResult.status === 'rejected' && missingResult.reason?.name !== 'AbortError'
+
+          if (!notificationsSuccess && !missingSuccess) {
+            if (isNotificationsError || isMissingError) {
+              const error = isMissingError ? missingResult.reason : notificationsResult.reason
+              notify('ra.notification.http_error', 'warning', {
+                messageArgs: { error: (error && error.message) || 'Unknown error' },
+              })
             }
-            const segments = rawTotal.split('/')
+            if (!append) {
+              setEntries([])
+              setTotalCount(0)
+              setNextOffset(0)
+              setHasMore(false)
+            }
+            return
+          }
+
+          if (isNotificationsError || isMissingError) {
+            const error = isMissingError ? missingResult.reason : notificationsResult.reason
+            if (error?.name !== 'AbortError') {
+              notify('ra.notification.http_error', 'warning', {
+                messageArgs: { error: (error && error.message) || 'Unknown error' },
+              })
+            }
+          }
+
+          const notificationList = Array.isArray(notificationsSuccess?.json)
+            ? notificationsSuccess.json
+            : []
+          const missingList = Array.isArray(missingSuccess?.json) ? missingSuccess.json : []
+
+          const notificationsHeader = notificationsSuccess?.headers?.get
+            ? notificationsSuccess.headers.get('X-Total-Count')
+            : null
+          const parsedNotificationsTotal = notificationsHeader
+            ? parseInt(notificationsHeader, 10)
+            : NaN
+
+          const missingHeader = missingSuccess?.headers?.get
+            ? missingSuccess.headers.get('X-Total-Count')
+            : null
+          const parsedMissingTotal = (() => {
+            if (!missingHeader) {
+              return missingList.length + (append ? start : 0)
+            }
+            const segments = missingHeader.split('/')
             const parsed = parseInt(segments[segments.length - 1], 10)
             if (Number.isNaN(parsed)) {
-              return list.length + (append ? start : 0)
+              return missingList.length + (append ? start : 0)
             }
             return parsed
           })()
@@ -146,37 +228,59 @@ const MissingTracksPanel = () => {
           setEntries((prev) => {
             const previous = append ? prev : []
             const nextEntriesMap = new Map()
-            previous.forEach((entry) => {
-              const key = entry?.id || entry?.path || `${entry?.title || ''}-${entry?.artist || ''}`
-              nextEntriesMap.set(key, entry)
-            })
-            list.forEach((entry) => {
-              const key = entry?.id || entry?.path || `${entry?.title || ''}-${entry?.artist || ''}`
-              nextEntriesMap.set(key, entry)
-            })
+            const getKey = (entry, fallbackIndex) => {
+              if (!entry) {
+                return `unknown-${fallbackIndex}`
+              }
+              return (
+                entry.id ||
+                entry.path ||
+                entry.trackPath ||
+                `${entry.title || ''}-${entry.artist || ''}` ||
+                `unknown-${fallbackIndex}`
+              )
+            }
+
+            const addEntry = (entry, indexOffset = 0) => {
+              if (!entry) {
+                return
+              }
+              const key = getKey(entry, indexOffset)
+              const existing = nextEntriesMap.get(key)
+              if (existing) {
+                nextEntriesMap.set(key, mergeEntries(existing, entry))
+              } else {
+                nextEntriesMap.set(key, { ...entry })
+              }
+            }
+
+            previous.forEach((entry, index) => addEntry(entry, index))
+            missingList.forEach((entry, index) => addEntry(entry, start + index))
+            notificationList.forEach((entry, index) => addEntry(entry, start + index + missingList.length))
+
             const nextEntries = Array.from(nextEntriesMap.values())
-            setTotalCount(totalValue)
-            setNextOffset(start + list.length)
-            setHasMore(start + list.length < totalValue && list.length > 0)
+
+            const hasMoreMissing =
+              Number.isFinite(parsedMissingTotal) && start + missingList.length < parsedMissingTotal
+            const hasMoreNotifications =
+              Number.isFinite(parsedNotificationsTotal) &&
+              start + notificationList.length < parsedNotificationsTotal
+
+            const computedTotal = Math.max(
+              nextEntries.length,
+              Number.isFinite(parsedMissingTotal) ? parsedMissingTotal : 0,
+              Number.isFinite(parsedNotificationsTotal) ? parsedNotificationsTotal : 0,
+            )
+
+            setTotalCount(computedTotal)
+            setNextOffset(start + Math.max(missingList.length, notificationList.length))
+            setHasMore(
+              (hasMoreMissing || hasMoreNotifications) &&
+              (missingList.length > 0 || notificationList.length > 0),
+            )
+
             return nextEntries
           })
-        })
-        .catch((error) => {
-          if (error?.name === 'AbortError') {
-            return
-          }
-          if (activeRequestRef.current.id !== nextRequestId) {
-            return
-          }
-          notify('ra.notification.http_error', 'warning', {
-            messageArgs: { error: error.message || 'Unknown error' },
-          })
-          if (!append) {
-            setEntries([])
-            setTotalCount(0)
-            setNextOffset(0)
-            setHasMore(false)
-          }
         })
         .finally(() => {
           if (activeRequestRef.current.id !== nextRequestId) {
@@ -188,7 +292,7 @@ const MissingTracksPanel = () => {
           }
         })
     },
-    [notify],
+    [mergeEntries, notify],
   )
 
   const refreshEntries = useCallback(() => fetchEntries(0, false), [fetchEntries])
