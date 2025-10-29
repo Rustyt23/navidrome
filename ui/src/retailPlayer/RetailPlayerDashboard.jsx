@@ -299,6 +299,7 @@ const useStyles = makeStyles((theme) => {
       overflow: 'hidden',
       boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)',
       borderTop: `1px solid ${theme.palette.divider}`,
+      justifyItems: 'center',
     },
     dropdownMenuOpen: {
       maxHeight: 320,
@@ -306,14 +307,22 @@ const useStyles = makeStyles((theme) => {
       pointerEvents: 'auto',
     },
     dropdownOptionButton: {
+      textAlign: 'center',
       '&:last-child $listItem': {
         borderBottom: 'none',
       },
+    },
+    dropdownOptionContent: {
+      justifyContent: 'center',
+      textAlign: 'center',
     },
     listText: {
       fontSize: theme.typography.pxToRem(18),
       fontWeight: theme.typography.fontWeightMedium,
       letterSpacing: 0.2,
+    },
+    dropdownOptionLabel: {
+      textAlign: 'center',
     },
     artworkWrapper: {
       width: 'clamp(120px, 20vw, 180px)',
@@ -680,12 +689,17 @@ const RetailPlayerDashboard = () => {
   }, [])
 
   const schedules = useMemo(() => device?.schedules || [], [device])
-  const schedulesCount = schedules.length
 
   const activeChannelKey = useMemo(() => {
     const activeSchedule = schedules.find((schedule) => schedule.isActive)
     return activeSchedule ? activeSchedule.key : null
   }, [schedules])
+
+  const availableSchedules = useMemo(
+    () => schedules.filter((schedule) => schedule.key !== activeChannelKey),
+    [activeChannelKey, schedules],
+  )
+  const availableSchedulesCount = availableSchedules.length
 
   useEffect(() => {
     if (!isScheduleMenuOpen) {
@@ -721,18 +735,18 @@ const RetailPlayerDashboard = () => {
   }, [activeChannelKey])
 
   useEffect(() => {
-    if (schedulesCount === 0) {
+    if (availableSchedulesCount === 0) {
       setScheduleMenuOpen(false)
     }
-  }, [schedulesCount])
+  }, [availableSchedulesCount])
 
   const activeSchedule = useMemo(() => {
-    if (!schedulesCount) {
+    if (!schedules.length) {
       return null
     }
     const matched = schedules.find((schedule) => schedule.key === activeChannelKey)
     return matched || schedules[0]
-  }, [activeChannelKey, schedules, schedulesCount])
+  }, [activeChannelKey, schedules])
 
   const sendDislikeNotification = useCallback(() => {
     if (!isApiEnabled || !deviceApiId) {
@@ -938,11 +952,11 @@ const RetailPlayerDashboard = () => {
   }, [currentTimeLabel, device, isMuted])
 
   const handleToggleScheduleMenu = useCallback(() => {
-    if (!schedulesCount) {
+    if (!availableSchedulesCount) {
       return
     }
     setScheduleMenuOpen((prev) => !prev)
-  }, [schedulesCount])
+  }, [availableSchedulesCount])
 
   const handleSelectChannel = useCallback(
     (schedule) => {
@@ -1090,13 +1104,13 @@ const RetailPlayerDashboard = () => {
 
   const handleShortcutChannel = useCallback(
     (index) => {
-      const schedule = schedules[index]
+      const schedule = availableSchedules[index]
       if (!schedule) {
         return
       }
       handleSelectChannel(schedule)
     },
-    [handleSelectChannel, schedules],
+    [availableSchedules, handleSelectChannel],
   )
 
   useEffect(() => {
@@ -1371,9 +1385,9 @@ const RetailPlayerDashboard = () => {
               onClick={handleToggleScheduleMenu}
               focusRipple
               aria-haspopup="listbox"
-              aria-expanded={isScheduleMenuOpen && Boolean(schedulesCount)}
+              aria-expanded={isScheduleMenuOpen && Boolean(availableSchedulesCount)}
               aria-controls="schedule-menu"
-              disabled={!schedulesCount}
+              disabled={!availableSchedulesCount}
             >
               <div className={classes.listItem}>
                 <DescriptionIcon
@@ -1415,7 +1429,7 @@ const RetailPlayerDashboard = () => {
               id="schedule-menu"
               aria-hidden={!isScheduleMenuOpen}
             >
-              {schedules.map((schedule) => {
+              {availableSchedules.map((schedule) => {
                 const isActive = schedule.key === activeChannelKey
                 return (
                   <ButtonBase
@@ -1429,7 +1443,12 @@ const RetailPlayerDashboard = () => {
                     role="option"
                     aria-selected={isActive}
                   >
-                    <div className={classes.listItem}>
+                    <div
+                      className={combineClasses(
+                        classes.listItem,
+                        classes.dropdownOptionContent,
+                      )}
+                    >
                       <DescriptionIcon
                         className={combineClasses(
                           classes.listIcon,
@@ -1443,6 +1462,7 @@ const RetailPlayerDashboard = () => {
                         className={combineClasses(
                           classes.listText,
                           classes.playlistLabel,
+                          classes.dropdownOptionLabel,
                           isActive
                             ? classes.playlistLabelActive
                             : classes.playlistLabelInactive,

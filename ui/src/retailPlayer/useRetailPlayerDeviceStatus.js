@@ -26,7 +26,28 @@ const parseVolume = (value) => {
 
 const ensureArray = (value) => (Array.isArray(value) ? value : [])
 
-const mapStatusPayloadToDevice = (baseDevice, payload) => {
+const mapChannelListResponse = (payload) =>
+  ensureArray(payload?.channels)
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null
+      }
+
+      const id = normalizeValue(item.id)
+      const name = normalizeValue(item.name)
+
+      if (!id && !name) {
+        return null
+      }
+
+      return {
+        id,
+        name: name || id,
+      }
+    })
+    .filter(Boolean)
+
+const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   if (!baseDevice) {
     return null
   }
@@ -41,35 +62,81 @@ const mapStatusPayloadToDevice = (baseDevice, payload) => {
   const artworkId = normalizeValue(payloadArtwork.artworkId)
   const mediaFileId = normalizeValue(payloadArtwork.mediaFileId)
 
+  const defaultChannelArtist =
+    normalizeValue(baseDevice.organization) || baseDevice.name
+
+  const normalizedChannelList = ensureArray(channelList)
+    .map((channel, index) => {
+      if (!channel || typeof channel !== 'object') {
+        return null
+      }
+
+      const channelId = normalizeValue(channel.id)
+      const channelName = normalizeValue(channel.name)
+      if (!channelId && !channelName) {
+        return null
+      }
+
+      const label = channelName || channelId || `Channel ${index + 1}`
+      const keyCandidates = [
+        channelId,
+        deviceSlugKey(label),
+        label,
+        `channel-${index + 1}`,
+      ]
+      const key =
+        keyCandidates.find((candidate) => normalizeValue(candidate)) ||
+        `channel-${index + 1}`
+
+      return {
+        key,
+        label,
+        artist: defaultChannelArtist || baseDevice.name,
+        isActive: false,
+        metadata: {
+          channelId,
+          channelName: channelName || label,
+        },
+        raw: channel,
+      }
+    })
+    .filter(Boolean)
+
   const normalizedSchedules = streamMetadata
     .map((item, index) => {
       const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
-      const keySource =
-        normalizeValue(item.channelName) ||
-        normalizeValue(item.activeResource) ||
-        normalizeValue(item.filename) ||
-        `channel-${index + 1}`
-      const key = keySource || `channel-${index + 1}`
-      const label =
-        normalizeValue(item.channelName) ||
-        normalizeValue(metadata.title) ||
-        normalizeValue(item.filename) ||
-        `Channel ${index + 1}`
-      const artist =
-        normalizeValue(metadata.artist) ||
-        normalizeValue(baseDevice.channel) ||
-        normalizeValue(baseDevice.organization) ||
-        baseDevice.name
+      const channelName = normalizeValue(item.channelName)
+      const keyCandidates = [
+        channelName,
+        normalizeValue(item.activeResource),
+        normalizeValue(item.filename),
+        `channel-${index + 1}`,
+      ]
+      const key = keyCandidates.find((candidate) => candidate) || `channel-${index + 1}`
+      const labelCandidates = [
+        channelName,
+        normalizeValue(metadata.title),
+        normalizeValue(item.filename),
+        `Channel ${index + 1}`,
+      ]
+      const label = labelCandidates.find((candidate) => candidate) || key
+      const artistCandidates = [
+        normalizeValue(metadata.artist),
+        normalizeValue(baseDevice.channel),
+        normalizeValue(baseDevice.organization),
+        baseDevice.name,
+      ]
+      const artist = artistCandidates.find((candidate) => candidate) || baseDevice.name
       const volume = parseVolume(item.volume)
 
       return {
         key,
-        label: label || key,
-        artist: artist || baseDevice.name,
+        label,
+        artist,
         isActive: false,
         metadata: {
           ...metadata,
-          channelName: normalizeValue(item.channelName),
+          channelName,
           activeResource: normalizeValue(item.activeResource),
           filename: normalizeValue(item.filename),
           volume,
@@ -84,28 +151,145 @@ const mapStatusPayloadToDevice = (baseDevice, payload) => {
   const streamName = activeStreamName || normalizeValue(status.activeStream)
 
   const schedulesWithActive = normalizedSchedules.map((schedule, index) => {
+    const metadata = schedule.metadata ? { ...schedule.metadata } : {}
     const matchesResource =
-      activeResource && normalizeValue(schedule.metadata?.activeResource) === activeResource
+      activeResource && normalizeValue(metadata.activeResource) === activeResource
     const matchesChannel =
-      activeStreamName && normalizeValue(schedule.metadata?.channelName) === activeStreamName
+      activeStreamName && normalizeValue(metadata.channelName) === activeStreamName
+    const isActive =
+      matchesResource ||
+      matchesChannel ||
+      (!activeResource && !activeStreamName && index === 0)
+
+    if (isActive) {
+      const deviceChannelId = normalizeValue(baseDevice.channel)
+      if (deviceChannelId && !metadata.channelId) {
+        metadata.channelId = deviceChannelId
+      }
+    }
+
     return {
       ...schedule,
-      isActive:
-        matchesResource || matchesChannel || (!activeResource && !activeStreamName && index === 0),
+      metadata,
+      isActive,
     }
   })
 
-  const schedules = schedulesWithActive.length
+  const fallbackSchedule = {
+    key: buildDeviceSlug(baseDevice) || baseDevice.id,
+    label: normalizeValue(baseDevice.channel) || baseDevice.name,
+    artist: normalizeValue(baseDevice.organization) || baseDevice.name,
+    isActive: true,
+    metadata: {
+      channelId: normalizeValue(baseDevice.channel),
+      channelName: normalizeValue(baseDevice.channel) || baseDevice.name,
+    },
+  }
+
+  const metadataSchedules = schedulesWithActive.length
     ? schedulesWithActive
-    : [
-        {
-          key: buildDeviceSlug(baseDevice) || baseDevice.id,
-          label: normalizeValue(baseDevice.channel) || baseDevice.name,
-          artist: normalizeValue(baseDevice.organization) || baseDevice.name,
-          isActive: true,
-          metadata: {},
-        },
-      ]
+    : [fallbackSchedule]
+
+  let schedules = metadataSchedules
+
+  if (normalizedChannelList.length) {
+    const metadataById = new Map()
+    const metadataByName = new Map()
+
+    metadataSchedules.forEach((schedule) => {
+      const scheduleMetadata = schedule.metadata || {}
+      const idKey = normalizeValue(scheduleMetadata.channelId)
+      const nameKey = deviceSlugKey(
+        normalizeValue(scheduleMetadata.channelName) || schedule.label || schedule.key,
+      )
+      if (idKey) {
+        metadataById.set(idKey, schedule)
+      }
+      if (nameKey) {
+        metadataByName.set(nameKey, schedule)
+      }
+    })
+
+    const activeMetadata = metadataSchedules.find((schedule) => schedule.isActive) || null
+    const activeId =
+      normalizeValue(activeMetadata?.metadata?.channelId) || normalizeValue(baseDevice.channel)
+    const activeNameKey = activeMetadata
+      ? deviceSlugKey(
+          normalizeValue(activeMetadata.metadata?.channelName) ||
+            activeMetadata.label ||
+            activeMetadata.key,
+        )
+      : ''
+
+    let mergedSchedules = normalizedChannelList.map((schedule, index) => {
+      const channelId = normalizeValue(schedule.metadata.channelId)
+      const channelName = normalizeValue(schedule.metadata.channelName) || schedule.label
+      const nameKey = deviceSlugKey(channelName)
+      const metadataMatch =
+        (channelId && metadataById.get(channelId)) ||
+        (nameKey && metadataByName.get(nameKey)) ||
+        null
+
+      const baseMetadata = metadataMatch?.metadata || {}
+      const mergedMetadata = { ...baseMetadata, ...schedule.metadata }
+      if (!mergedMetadata.channelName) {
+        mergedMetadata.channelName = channelName
+      }
+      if (!mergedMetadata.channelId && channelId) {
+        mergedMetadata.channelId = channelId
+      }
+
+      const artist = metadataMatch?.artist || schedule.artist
+      const isActive =
+        Boolean(metadataMatch?.isActive) ||
+        (activeId && channelId && channelId === activeId) ||
+        (activeNameKey && nameKey && nameKey === activeNameKey)
+
+      return {
+        ...schedule,
+        artist: artist || schedule.artist,
+        metadata: mergedMetadata,
+        isActive,
+        raw: metadataMatch?.raw || schedule.raw,
+      }
+    })
+
+    if (!mergedSchedules.some((schedule) => schedule.isActive) && mergedSchedules.length) {
+      mergedSchedules = mergedSchedules.map((schedule, index) => ({
+        ...schedule,
+        isActive: index === 0,
+      }))
+    }
+
+    const identifierSet = new Set()
+    mergedSchedules.forEach((schedule) => {
+      const idValue = normalizeValue(schedule.metadata?.channelId)
+      const nameKey = deviceSlugKey(
+        normalizeValue(schedule.metadata?.channelName) || schedule.label || schedule.key,
+      )
+      if (idValue) {
+        identifierSet.add(`id:${idValue}`)
+      }
+      if (nameKey) {
+        identifierSet.add(`name:${nameKey}`)
+      }
+    })
+
+    metadataSchedules.forEach((schedule) => {
+      const idValue = normalizeValue(schedule.metadata?.channelId)
+      const nameKey = deviceSlugKey(
+        normalizeValue(schedule.metadata?.channelName) || schedule.label || schedule.key,
+      )
+      const idToken = idValue ? `id:${idValue}` : ''
+      const nameToken = nameKey ? `name:${nameKey}` : ''
+      if ((idToken && identifierSet.has(idToken)) || (nameToken && identifierSet.has(nameToken))) {
+        return
+      }
+      mergedSchedules.push(schedule)
+    })
+
+    schedules = mergedSchedules
+  }
 
   const activeSchedule = schedules.find((schedule) => schedule.isActive) || schedules[0]
 
@@ -176,6 +360,13 @@ const initialStatusState = {
   fetchedAt: null,
 }
 
+const initialChannelState = {
+  data: [],
+  error: null,
+  isLoading: false,
+  fetchedAt: null,
+}
+
 const useRetailPlayerDeviceStatus = (slugParam) => {
   const {
     devices,
@@ -217,6 +408,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
   const [statusState, setStatusState] = useState(initialStatusState)
   const [refreshIndex, setRefreshIndex] = useState(0)
+  const [channelState, setChannelState] = useState(initialChannelState)
 
   const refresh = useCallback(() => {
     setRefreshIndex((previous) => previous + 1)
@@ -266,9 +458,58 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
   }, [baseDevice?.apiId, devicesLoading, isApiEnabled, refreshIndex])
 
+  useEffect(() => {
+    if (!isApiEnabled) {
+      setChannelState(initialChannelState)
+      return undefined
+    }
+
+    if (devicesLoading) {
+      return undefined
+    }
+
+    const channelListId = normalizeValue(baseDevice?.channelList)
+    if (!channelListId) {
+      setChannelState(initialChannelState)
+      return undefined
+    }
+
+    const url = `/api/retailplayer/channel-lists/${encodeURIComponent(channelListId)}/channels`
+    const abortController = new AbortController()
+    setChannelState((previous) => ({ ...previous, isLoading: true, error: null }))
+
+    httpClient(url, { signal: abortController.signal })
+      .then(({ json }) => {
+        if (abortController.signal.aborted) {
+          return
+        }
+        setChannelState({
+          data: mapChannelListResponse(json),
+          error: null,
+          isLoading: false,
+          fetchedAt: new Date(),
+        })
+      })
+      .catch((err) => {
+        if (abortController.signal.aborted) {
+          return
+        }
+        setChannelState({
+          data: [],
+          error: err,
+          isLoading: false,
+          fetchedAt: new Date(),
+        })
+      })
+
+    return () => {
+      abortController.abort()
+    }
+  }, [baseDevice?.channelList, devicesLoading, isApiEnabled, refreshIndex])
+
   const normalizedDevice = useMemo(
-    () => mapStatusPayloadToDevice(baseDevice, statusState.data),
-    [baseDevice, statusState.data],
+    () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
+    [baseDevice, channelState.data, statusState.data],
   )
 
   const dataProvider = useDataProvider()
@@ -395,18 +636,20 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     (!baseDevice || (statusState.error && statusState.error.status === 404))
 
   const statusError = statusState.error && statusState.error.status !== 404 ? statusState.error : null
-  const error = statusError || devicesError || null
+  const error = statusError || devicesError || channelState.error || null
 
   return {
     device: deviceWithArtwork,
     baseDevice,
     refresh,
-    isLoading: Boolean(devicesLoading || statusState.isLoading),
+    isLoading: Boolean(devicesLoading || statusState.isLoading || channelState.isLoading),
     isDeviceListLoading: devicesLoading,
     isStatusLoading: statusState.isLoading,
+    isChannelListLoading: channelState.isLoading,
     error,
     statusError: statusState.error,
     devicesError,
+    channelListError: channelState.error,
     notFound,
     isApiEnabled,
     lastUpdated: statusState.fetchedAt,

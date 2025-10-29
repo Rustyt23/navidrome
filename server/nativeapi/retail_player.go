@@ -50,6 +50,10 @@ type retailPlayerAPIResponse struct {
 	Total *int                    `json:"total"`
 }
 
+type retailPlayerChannelListAPIResponse struct {
+	Channels []retailPlayerAPIChannel `json:"channels"`
+}
+
 type retailPlayerDevice struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
@@ -63,6 +67,20 @@ type retailPlayerDevicesResponse struct {
 	Data  []retailPlayerDevice `json:"data"`
 	Page  *int                 `json:"page,omitempty"`
 	Total *int                 `json:"total,omitempty"`
+}
+
+type retailPlayerAPIChannel struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type retailPlayerChannel struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type retailPlayerChannelsResponse struct {
+	Channels []retailPlayerChannel `json:"channels"`
 }
 
 type retailPlayerConfig struct {
@@ -84,6 +102,7 @@ func (n *Router) addRetailPlayerRoute(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices", n.handleRetailPlayerDevices())
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
+		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
 		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
 	})
@@ -151,6 +170,38 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Error(ctx, "Unable to encode retail player device status response", "deviceID", deviceID, "err", err)
+		}
+	}
+}
+
+func (n *Router) handleRetailPlayerChannelListChannels() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		channelListID := strings.TrimSpace(chi.URLParam(r, "channelListID"))
+		if channelListID == "" {
+			http.Error(w, "Retail player channel list id is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Fetching retail player channel list", "channelListID", channelListID)
+		response, err := fetchRetailPlayerChannelListChannels(ctx, channelListID)
+		if err != nil {
+			log.Error(ctx, "Unable to fetch retail player channel list", "channelListID", channelListID, "err", err)
+			http.Error(w, "Unable to fetch retail player channel list", http.StatusBadGateway)
+			return
+		}
+
+		log.Info(ctx, "Retail player channel list fetched", "channelListID", channelListID, "count", len(response.Channels))
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Error(ctx, "Unable to encode retail player channel list response", "channelListID", channelListID, "err", err)
 		}
 	}
 }
@@ -340,6 +391,55 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 		Page:  apiPayload.Page,
 		Total: apiPayload.Total,
 	}, nil
+}
+
+func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID string) (retailPlayerChannelsResponse, error) {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return retailPlayerChannelsResponse{}, errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(channelListID)
+	if trimmedID == "" {
+		return retailPlayerChannelsResponse{}, errors.New("retail player channel list id is empty")
+	}
+
+	requestConfig := retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerChannelListRequest(ctx, requestConfig, trimmedID, "channels")
+	if err != nil {
+		return retailPlayerChannelsResponse{}, err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return retailPlayerChannelsResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return retailPlayerChannelsResponse{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+	}
+
+	var payload retailPlayerChannelListAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return retailPlayerChannelsResponse{}, err
+	}
+
+	channels := make([]retailPlayerChannel, 0, len(payload.Channels))
+	for _, item := range payload.Channels {
+		if channel, ok := simplifyRetailPlayerChannel(item); ok {
+			channels = append(channels, channel)
+		}
+	}
+
+	return retailPlayerChannelsResponse{Channels: channels}, nil
 }
 
 type retailPlayerDeviceStatusResponse struct {
@@ -659,6 +759,41 @@ func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig, pathP
 		req.URL.RawQuery = query.Encode()
 	}
 
+	applyRetailPlayerHeaders(req, cfg)
+
+	return req, nil
+}
+
+func buildRetailPlayerChannelListRequest(ctx context.Context, cfg retailPlayerConfig, channelListID string, pathParts ...string) (*http.Request, error) {
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	if baseURL == "" {
+		return nil, errors.New("retail player base URL is empty")
+	}
+
+	endpoint := fmt.Sprintf("%s/orgs/%s/channel-lists/%s", baseURL, url.PathEscape(cfg.OrgID), url.PathEscape(channelListID))
+	for _, part := range pathParts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		endpoint = fmt.Sprintf("%s/%s", endpoint, url.PathEscape(trimmed))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	applyRetailPlayerHeaders(req, cfg)
+
+	return req, nil
+}
+
+func applyRetailPlayerHeaders(req *http.Request, cfg retailPlayerConfig) {
+	if req == nil {
+		return
+	}
+
 	req.Header.Set("Accept", "application/json")
 
 	apiKey := strings.TrimSpace(cfg.APIKey)
@@ -685,8 +820,6 @@ func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig, pathP
 			req.Header.Set(trimmedKey, trimmedValue)
 		}
 	}
-
-	return req, nil
 }
 
 func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevice, bool) {
@@ -720,6 +853,21 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		Organization: organization,
 		TimeZone:     strings.TrimSpace(device.TimeZone),
 	}, true
+}
+
+func simplifyRetailPlayerChannel(channel retailPlayerAPIChannel) (retailPlayerChannel, bool) {
+	id := strings.TrimSpace(channel.ID)
+	name := strings.TrimSpace(channel.Name)
+
+	if id == "" && name == "" {
+		return retailPlayerChannel{}, false
+	}
+
+	if name == "" {
+		name = id
+	}
+
+	return retailPlayerChannel{ID: id, Name: name}, true
 }
 
 func firstNonEmpty(values ...string) string {
