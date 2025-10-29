@@ -36,6 +36,14 @@ const useStyles = makeStyles((theme) => ({
     color: theme.palette.text.primary,
     fontWeight: 'bold',
   },
+  retailPlayerSubItem: {
+    paddingTop: theme.spacing(0.5),
+    paddingBottom: theme.spacing(0.5),
+    fontSize: theme.typography.pxToRem(13),
+    '& .RaMenuItemLink-primaryText': {
+      fontSize: theme.typography.pxToRem(13),
+    },
+  },
 }))
 
 const translatedResourceName = (resource, translate) =>
@@ -122,7 +130,7 @@ const Menu = ({ dense = false }) => {
   const renderRetailPlayerDevices = () => {
     if (retailDevicesLoading) {
       return (
-        <MenuItem dense={dense} disabled>
+        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
           {translate('menu.retailPlayer.loading', { _: 'Loading devices…' })}
         </MenuItem>
       )
@@ -130,7 +138,7 @@ const Menu = ({ dense = false }) => {
 
     if (retailDevicesError) {
       return (
-        <MenuItem dense={dense} disabled>
+        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
           {translate('menu.retailPlayer.error', {
             _: 'Unable to load devices',
           })}
@@ -140,7 +148,7 @@ const Menu = ({ dense = false }) => {
 
     if (!retailDevices.length) {
       return (
-        <MenuItem dense={dense} disabled>
+        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
           {translate('menu.retailPlayer.empty', { _: 'No devices available' })}
         </MenuItem>
       )
@@ -158,6 +166,7 @@ const Menu = ({ dense = false }) => {
           sidebarIsOpen={open}
           dense={dense}
           exact
+          className={classes.retailPlayerSubItem}
         />
       )
     })
@@ -172,17 +181,6 @@ const Menu = ({ dense = false }) => {
       icon={<SpeakerGroupIcon />}
       dense={dense}
     >
-      <MenuItemLink
-        key="retailplayer"
-        to="/retailplayer/devices"
-        activeClassName={classes.active}
-        primaryText={translate('menu.retailPlayer.allDevices', {
-          _: 'All Devices',
-        })}
-        sidebarIsOpen={open}
-        dense={dense}
-        exact
-      />
       {renderRetailPlayerDevices()}
     </SubMenu>
   )

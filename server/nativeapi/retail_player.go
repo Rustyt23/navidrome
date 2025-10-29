@@ -155,6 +155,19 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 	}
 }
 
+func writeRetailPlayerJSON(ctx context.Context, w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	if payload == nil {
+		return
+	}
+
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Error(ctx, "Unable to encode retail player response", "err", err)
+	}
+}
+
 func (n *Router) handleRetailPlayerDeviceVolume() http.HandlerFunc {
 	type volumeRequest struct {
 		Volume json.Number `json:"volume"`
@@ -211,7 +224,10 @@ func (n *Router) handleRetailPlayerDeviceVolume() http.HandlerFunc {
 			return
 		}
 
-		w.WriteHeader(http.StatusNoContent)
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
+			"success": true,
+			"volume":  volume,
+		})
 	}
 }
 
@@ -250,20 +266,24 @@ func (n *Router) handleRetailPlayerDeviceDislike() http.HandlerFunc {
 		log.Info(ctx, "Received retail player dislike", "deviceID", deviceID, "trackTitle", trackTitle, "playlistName", playlistName)
 
 		notifications := conf.Server.RetailPlayer.Notifications
-		if !notifications.Enabled {
-			w.WriteHeader(http.StatusNoContent)
-			return
+		notified := false
+
+		if notifications.Enabled {
+			clientIP := extractClientIP(r)
+
+			if err := sendRetailPlayerDislikeNotification(ctx, clientIP, trackTitle, playlistName); err != nil {
+				log.Error(ctx, "Unable to send retail player dislike notification", "deviceID", deviceID, "err", err)
+				http.Error(w, "Unable to send dislike notification", http.StatusBadGateway)
+				return
+			}
+
+			notified = true
 		}
 
-		clientIP := extractClientIP(r)
-
-		if err := sendRetailPlayerDislikeNotification(ctx, clientIP, trackTitle, playlistName); err != nil {
-			log.Error(ctx, "Unable to send retail player dislike notification", "deviceID", deviceID, "err", err)
-			http.Error(w, "Unable to send dislike notification", http.StatusBadGateway)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
+			"success":  true,
+			"notified": notified,
+		})
 	}
 }
 
