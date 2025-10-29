@@ -94,7 +94,17 @@ const MissingTracksPanel = () => {
         limit: PAGE_SIZE.toString(),
         offset: Math.max(offset, 0).toString(),
       })
-      return httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
+      params.set('_', Date.now().toString())
+      return httpClient(`/api/notifications/missing-tracks?${params.toString()}`,
+        {
+          cache: 'no-store',
+          headers: new Headers({
+            Accept: 'application/json',
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+          }),
+        },
+      )
         .then(({ json, headers }) => {
           const list = Array.isArray(json) ? json : []
           const totalHeader = headers && headers.get ? headers.get('X-Total-Count') : null
