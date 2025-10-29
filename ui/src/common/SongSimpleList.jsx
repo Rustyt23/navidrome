@@ -70,6 +70,7 @@ const useStyles = makeStyles(
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
+      color: theme.palette.text.primary,
     },
     mobileArtist: {
       minWidth: 0,
@@ -77,6 +78,7 @@ const useStyles = makeStyles(
       textAlign: 'left',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
+      color: theme.palette.text.primary,
     },
     mobilePlayingIcon: {
       width: 24,
