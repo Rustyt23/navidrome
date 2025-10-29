@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Badge,
   Card,
@@ -82,13 +82,26 @@ const MissingTracksPanel = () => {
   const [totalCount, setTotalCount] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [nextOffset, setNextOffset] = useState(0)
+  const activeRequestRef = useRef({ id: 0, controller: null })
 
   const open = Boolean(anchorEl)
   const classes = useStyles({ open })
 
   const fetchEntries = useCallback(
     (offset = 0, append = false) => {
+      const controller = new AbortController()
       const setLoadingState = append ? setLoadingMore : setLoading
+      const nextRequestId = activeRequestRef.current.id + 1
+
+      if (!append && activeRequestRef.current.controller) {
+        activeRequestRef.current.controller.abort()
+      }
+
+      activeRequestRef.current = {
+        id: nextRequestId,
+        controller: append ? activeRequestRef.current.controller : controller,
+      }
+
       setLoadingState(true)
       const params = new URLSearchParams({
         limit: PAGE_SIZE.toString(),
@@ -98,6 +111,7 @@ const MissingTracksPanel = () => {
       return httpClient(`/api/notifications/missing-tracks?${params.toString()}`,
         {
           cache: 'no-store',
+          signal: controller.signal,
           headers: new Headers({
             Accept: 'application/json',
             'Cache-Control': 'no-cache',
@@ -106,6 +120,9 @@ const MissingTracksPanel = () => {
         },
       )
         .then(({ json, headers }) => {
+          if (activeRequestRef.current.id !== nextRequestId) {
+            return
+          }
           const list = Array.isArray(json) ? json : []
           const totalHeader = headers && headers.get ? headers.get('X-Total-Count') : null
           const parsedTotal = totalHeader ? parseInt(totalHeader, 10) : NaN
@@ -119,6 +136,12 @@ const MissingTracksPanel = () => {
           })
         })
         .catch((error) => {
+          if (error?.name === 'AbortError') {
+            return
+          }
+          if (activeRequestRef.current.id !== nextRequestId) {
+            return
+          }
           notify('ra.notification.http_error', 'warning', {
             messageArgs: { error: error.message || 'Unknown error' },
           })
@@ -129,7 +152,15 @@ const MissingTracksPanel = () => {
             setHasMore(false)
           }
         })
-        .finally(() => setLoadingState(false))
+        .finally(() => {
+          if (activeRequestRef.current.id !== nextRequestId) {
+            return
+          }
+          setLoadingState(false)
+          if (!append && activeRequestRef.current.controller === controller) {
+            activeRequestRef.current.controller = null
+          }
+        })
     },
     [notify],
   )
@@ -170,6 +201,16 @@ const MissingTracksPanel = () => {
   useEffect(() => {
     fetchEntries(0, false)
   }, [fetchEntries])
+
+  useEffect(
+    () => () => {
+      if (activeRequestRef.current.controller) {
+        activeRequestRef.current.controller.abort()
+        activeRequestRef.current.controller = null
+      }
+    },
+    [],
+  )
 
   useRefreshOnEvents({
     events: ['*'],
