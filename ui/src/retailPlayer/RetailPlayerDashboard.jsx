@@ -13,6 +13,7 @@ import { useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
+import httpClient from '../dataProvider/httpClient'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -559,6 +560,7 @@ const RetailPlayerDashboard = () => {
   const { deviceSlug } = useParams()
   const {
     device: resolvedDevice,
+    baseDevice,
     error: integrationError,
     statusError,
     devicesError,
@@ -566,20 +568,58 @@ const RetailPlayerDashboard = () => {
     isStatusLoading: statusLoading,
     refresh: refreshStatus,
     notFound,
+    isApiEnabled,
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
-  const [, setVolume] = useState(50)
+  const [volume, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
   const volumeTimeoutRef = useRef(null)
+  const previousVolumeRef = useRef(50)
+  const volumeSyncReadyRef = useRef(false)
   const dislikeTimeoutRef = useRef(null)
+  const dislikeRequestControllerRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
+
+  const deviceApiId = useMemo(() => {
+    if (resolvedDevice?.apiId) {
+      return resolvedDevice.apiId
+    }
+    if (resolvedDevice?.id) {
+      return resolvedDevice.id
+    }
+    if (baseDevice?.apiId) {
+      return baseDevice.apiId
+    }
+    if (baseDevice?.id) {
+      return baseDevice.id
+    }
+    if (device?.apiId) {
+      return device.apiId
+    }
+    if (device?.id) {
+      return device.id
+    }
+    return ''
+  }, [
+    baseDevice?.apiId,
+    baseDevice?.id,
+    device?.apiId,
+    device?.id,
+    resolvedDevice?.apiId,
+    resolvedDevice?.id,
+  ])
+
+  const canControlDevice = useMemo(
+    () => Boolean(isApiEnabled && deviceApiId),
+    [deviceApiId, isApiEnabled],
+  )
 
   const resolveDeviceTime = useCallback((sourceDevice) => {
     if (!sourceDevice) {
@@ -694,17 +734,115 @@ const RetailPlayerDashboard = () => {
     return matched || schedules[0]
   }, [activeChannelKey, schedules, schedulesCount])
 
+  const sendDislikeNotification = useCallback(() => {
+    if (!isApiEnabled || !deviceApiId) {
+      return
+    }
+
+    const nowPlaying = device?.nowPlaying && typeof device.nowPlaying === 'object' ? device.nowPlaying : {}
+    const metadata =
+      nowPlaying?.metadata && typeof nowPlaying.metadata === 'object'
+        ? nowPlaying.metadata
+        : {}
+
+    const titleCandidates = [
+      typeof nowPlaying?.title === 'string' ? nowPlaying.title.trim() : '',
+      typeof metadata?.title === 'string' ? metadata.title.trim() : '',
+    ]
+    const trackTitle = titleCandidates.find((value) => value) || ''
+
+    const playlistName =
+      typeof activeSchedule?.label === 'string' ? activeSchedule.label.trim() : ''
+
+    if (!trackTitle && !playlistName) {
+      return
+    }
+
+    if (dislikeRequestControllerRef.current) {
+      dislikeRequestControllerRef.current.abort()
+    }
+
+    const abortController = new AbortController()
+    dislikeRequestControllerRef.current = abortController
+
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+
+    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/dislike`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ trackTitle, playlistName }),
+      signal: abortController.signal,
+    })
+      .catch((err) => {
+        if (err?.name !== 'AbortError') {
+          // eslint-disable-next-line no-console
+          console.error('Failed to send dislike notification', err)
+        }
+      })
+      .finally(() => {
+        if (dislikeRequestControllerRef.current === abortController) {
+          dislikeRequestControllerRef.current = null
+        }
+      })
+  }, [activeSchedule?.label, device?.nowPlaying, deviceApiId, isApiEnabled])
+
   const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
 
   useEffect(() => {
-    setIsMuted(Boolean(device?.isMuted))
     const initialVolume =
       typeof device?.volume === 'number' && !Number.isNaN(device.volume)
         ? device.volume
         : 50
+    setIsMuted(Boolean(device?.isMuted) || initialVolume === 0)
     setVolume(initialVolume)
     setDisplayVolume(initialVolume)
+    if (initialVolume > 0) {
+      previousVolumeRef.current = initialVolume
+    }
+    volumeSyncReadyRef.current = false
   }, [device])
+
+  useEffect(() => {
+    volumeSyncReadyRef.current = false
+  }, [deviceApiId, isApiEnabled])
+
+  useEffect(() => {
+    if (!canControlDevice) {
+      return undefined
+    }
+
+    if (typeof volume !== 'number' || Number.isNaN(volume)) {
+      return undefined
+    }
+
+    if (!deviceApiId) {
+      return undefined
+    }
+
+    if (!volumeSyncReadyRef.current) {
+      volumeSyncReadyRef.current = true
+      return undefined
+    }
+
+    const abortController = new AbortController()
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+
+    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/volume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ volume }),
+      signal: abortController.signal,
+    }).catch((err) => {
+      if (err?.name !== 'AbortError') {
+        // eslint-disable-next-line no-console
+        console.error('Failed to update retail player volume', err)
+      }
+    })
+
+    return () => {
+      abortController.abort()
+    }
+  }, [canControlDevice, deviceApiId, volume])
 
   const normalizedDeviceTrack = useMemo(() => {
     if (!device?.nowPlaying) {
@@ -881,6 +1019,10 @@ const RetailPlayerDashboard = () => {
         const rawNext = typeof nextValue === 'function' ? nextValue(previous) : nextValue
         const clamped = clamp(Math.round(rawNext), 0, 100)
         clearVolumeTimeout()
+        setIsMuted(clamped === 0)
+        if (clamped > 0) {
+          previousVolumeRef.current = clamped
+        }
         volumeTimeoutRef.current = window.setTimeout(() => {
           setVolume(clamped)
           volumeTimeoutRef.current = null
@@ -888,12 +1030,24 @@ const RetailPlayerDashboard = () => {
         return clamped
       })
     },
-    [clearVolumeTimeout],
+    [clearVolumeTimeout, setIsMuted],
   )
 
   const handleToggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev)
-  }, [])
+    if (isMuted) {
+      const restoredVolume =
+        previousVolumeRef.current > 0 ? previousVolumeRef.current : 50
+      updateVolume(restoredVolume)
+      return
+    }
+
+    updateVolume((current) => {
+      if (current > 0) {
+        previousVolumeRef.current = current
+      }
+      return 0
+    })
+  }, [isMuted, updateVolume])
 
   const handleVolumeChange = useCallback((_, newValue) => {
     const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
@@ -916,6 +1070,7 @@ const RetailPlayerDashboard = () => {
   )
 
   const handleDislike = useCallback(() => {
+    sendDislikeNotification()
     setShowDislikeMessage(true)
     if (dislikeTimeoutRef.current) {
       window.clearTimeout(dislikeTimeoutRef.current)
@@ -924,7 +1079,7 @@ const RetailPlayerDashboard = () => {
       setShowDislikeMessage(false)
       dislikeTimeoutRef.current = null
     }, 2000)
-  }, [])
+  }, [sendDislikeNotification])
 
   const handleSkip = useCallback(() => {
     if (!trackPool.length) {
@@ -1000,6 +1155,10 @@ const RetailPlayerDashboard = () => {
     clearVolumeTimeout()
     if (dislikeTimeoutRef.current) {
       window.clearTimeout(dislikeTimeoutRef.current)
+    }
+    if (dislikeRequestControllerRef.current) {
+      dislikeRequestControllerRef.current.abort()
+      dislikeRequestControllerRef.current = null
     }
   }, [clearVolumeTimeout])
 

@@ -1,12 +1,17 @@
 package nativeapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
+	"net"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"path"
 	"strconv"
 	"strings"
@@ -79,6 +84,8 @@ func (n *Router) addRetailPlayerRoute(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices", n.handleRetailPlayerDevices())
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
+		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
+		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
 	})
 }
 
@@ -148,6 +155,118 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 	}
 }
 
+func (n *Router) handleRetailPlayerDeviceVolume() http.HandlerFunc {
+	type volumeRequest struct {
+		Volume json.Number `json:"volume"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+
+		var payload volumeRequest
+		if err := decoder.Decode(&payload); err != nil {
+			http.Error(w, "Invalid volume payload", http.StatusBadRequest)
+			return
+		}
+
+		if payload.Volume == "" {
+			http.Error(w, "Volume is required", http.StatusBadRequest)
+			return
+		}
+
+		rawValue, err := payload.Volume.Float64()
+		if err != nil {
+			http.Error(w, "Volume must be a number", http.StatusBadRequest)
+			return
+		}
+
+		volume := clampVolume(int(math.Round(rawValue)))
+
+		log.Info(ctx, "Sending retail player volume command", "deviceID", deviceID, "volume", volume)
+
+		command := retailPlayerCommandRequest{
+			Type: "set_volume",
+			Payload: map[string]any{
+				"volume": volume,
+			},
+		}
+
+		if err := n.sendRetailPlayerDeviceCommand(ctx, deviceID, command); err != nil {
+			log.Error(ctx, "Unable to send retail player volume command", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to update device volume", http.StatusBadGateway)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (n *Router) handleRetailPlayerDeviceDislike() http.HandlerFunc {
+	type dislikeRequest struct {
+		TrackTitle   string `json:"trackTitle"`
+		PlaylistName string `json:"playlistName"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+
+		var payload dislikeRequest
+		if err := decoder.Decode(&payload); err != nil {
+			http.Error(w, "Invalid dislike payload", http.StatusBadRequest)
+			return
+		}
+
+		trackTitle := strings.TrimSpace(payload.TrackTitle)
+		playlistName := strings.TrimSpace(payload.PlaylistName)
+
+		log.Info(ctx, "Received retail player dislike", "deviceID", deviceID, "trackTitle", trackTitle, "playlistName", playlistName)
+
+		notifications := conf.Server.RetailPlayer.Notifications
+		if !notifications.Enabled {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		clientIP := extractClientIP(r)
+
+		if err := sendRetailPlayerDislikeNotification(ctx, clientIP, trackTitle, playlistName); err != nil {
+			log.Error(ctx, "Unable to send retail player dislike notification", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to send dislike notification", http.StatusBadGateway)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
@@ -209,9 +328,65 @@ type retailPlayerDeviceStatusResponse struct {
 	Artwork        *retailPlayerStatusArtwork `json:"artwork,omitempty"`
 }
 
+type retailPlayerCommandRequest struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload,omitempty"`
+}
+
 type retailPlayerStatusArtwork struct {
 	MediaFileID string `json:"mediaFileId,omitempty"`
 	ArtworkID   string `json:"artworkId,omitempty"`
+}
+
+func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID string, command retailPlayerCommandRequest) error {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return errors.New("retail player device id is empty")
+	}
+
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return err
+	}
+
+	requestConfig := retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerRequest(ctx, requestConfig, trimmedID, "command")
+	if err != nil {
+		return err
+	}
+
+	bodyReader := bytes.NewReader(payload)
+	req.Method = http.MethodPost
+	req.Header.Set("Content-Type", "application/json")
+	req.Body = io.NopCloser(bodyReader)
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(payload)), nil
+	}
+	req.ContentLength = int64(len(payload))
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("retail player command failed with status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retailPlayerDeviceStatusResponse, error) {
@@ -534,4 +709,97 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func clampVolume(value int) int {
+	switch {
+	case value < 0:
+		return 0
+	case value > 100:
+		return 100
+	default:
+		return value
+	}
+}
+
+func extractClientIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
+	remoteAddr := strings.TrimSpace(r.RemoteAddr)
+	if remoteAddr == "" {
+		return ""
+	}
+
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+
+	return remoteAddr
+}
+
+func sendRetailPlayerDislikeNotification(ctx context.Context, clientIP, trackTitle, playlistName string) error {
+	notifications := conf.Server.RetailPlayer.Notifications
+	if !notifications.Enabled {
+		return nil
+	}
+
+	smtpServer := strings.TrimSpace(notifications.SMTPServer)
+	username := strings.TrimSpace(notifications.Username)
+	password := notifications.Password
+	recipient := strings.TrimSpace(notifications.To)
+
+	if smtpServer == "" || username == "" || password == "" || recipient == "" {
+		return errors.New("retail player dislike notifications are not fully configured")
+	}
+
+	port := notifications.SMTPPort
+	if port <= 0 {
+		port = 587
+	}
+
+	subject := strings.TrimSpace(notifications.Subject)
+	if subject == "" {
+		subject = "Song 👎"
+	}
+
+	ipLabel := strings.TrimSpace(clientIP)
+	if ipLabel == "" {
+		ipLabel = "unknown IP"
+	}
+
+	trackLabel := strings.TrimSpace(trackTitle)
+	if trackLabel == "" {
+		trackLabel = "unknown song"
+	}
+
+	playlistLabel := strings.TrimSpace(playlistName)
+	if playlistLabel == "" {
+		playlistLabel = "unknown playlist"
+	}
+
+	body := fmt.Sprintf("%s disliked %s from %s", ipLabel, trackLabel, playlistLabel)
+	message := fmt.Sprintf("Subject: %s\n\n%s", subject, body)
+
+	args := []string{
+		"--url", fmt.Sprintf("smtp://%s:%d", smtpServer, port),
+		"--ssl-reqd",
+		"--mail-from", username,
+		"--mail-rcpt", recipient,
+		"--user", fmt.Sprintf("%s:%s", username, password),
+		"--tlsv1.2",
+		"-T", "-",
+	}
+
+	cmd := exec.CommandContext(ctx, "curl", args...)
+	cmd.Stdin = strings.NewReader(message)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("curl command failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	return nil
 }

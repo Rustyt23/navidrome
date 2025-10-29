@@ -187,6 +187,16 @@ type listenBrainzOptions struct {
 	BaseURL string
 }
 
+type retailPlayerNotificationOptions struct {
+	Enabled    bool
+	SMTPServer string
+	SMTPPort   int
+	Username   string
+	Password   string
+	To         string
+	Subject    string
+}
+
 type retailPlayerOptions struct {
 	Enabled           bool
 	BaseURL           string
@@ -199,8 +209,9 @@ type retailPlayerOptions struct {
 	OrderBy           string
 	OrderDirection    string
 	Search            string
-	Fields            []string          `json:",omitempty"`
-	AdditionalHeaders map[string]string `json:",omitempty"`
+	Fields            []string                        `json:",omitempty"`
+	AdditionalHeaders map[string]string               `json:",omitempty"`
+	Notifications     retailPlayerNotificationOptions `json:",omitempty"`
 }
 
 type secureOptions struct {
@@ -607,7 +618,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.baseurl", "")
 	viper.SetDefault("retailplayer.orgid", "")
 	viper.SetDefault("retailplayer.apikey", "")
-    viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
+	viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
 	viper.SetDefault("retailplayer.pagesize", 0)
 	viper.SetDefault("retailplayer.page", 0)
 	viper.SetDefault("retailplayer.filters", "")
