@@ -15,6 +15,7 @@ import {
 } from '@material-ui/core'
 import { MdOutlineNotifications } from 'react-icons/md'
 import { useTranslate, useNotify } from 'react-admin'
+import { useRefreshOnEvents } from '../common'
 import { httpClient } from '../dataProvider'
 
 const PAGE_SIZE = 100
@@ -93,7 +94,7 @@ const MissingTracksPanel = () => {
         limit: PAGE_SIZE.toString(),
         offset: Math.max(offset, 0).toString(),
       })
-      httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
+      return httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
         .then(({ json, headers }) => {
           const list = Array.isArray(json) ? json : []
           const totalHeader = headers && headers.get ? headers.get('X-Total-Count') : null
@@ -122,6 +123,8 @@ const MissingTracksPanel = () => {
     },
     [notify],
   )
+
+  const refreshEntries = useCallback(() => fetchEntries(0, false), [fetchEntries])
 
   const handleOpen = useCallback(
     (event) => {
@@ -157,6 +160,11 @@ const MissingTracksPanel = () => {
   useEffect(() => {
     fetchEntries(0, false)
   }, [fetchEntries])
+
+  useRefreshOnEvents({
+    events: ['*'],
+    onRefresh: refreshEntries,
+  })
 
   return (
     <div>
