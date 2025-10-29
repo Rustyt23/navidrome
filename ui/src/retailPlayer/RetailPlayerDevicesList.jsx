@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
 import { Typography, ButtonBase, TextField } from '@material-ui/core'
-import { Title } from 'react-admin'
+import { Title, useTranslate } from 'react-admin'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import { useHistory } from 'react-router-dom'
-import RetailPlayerMockService from './RetailPlayerMockService'
+import useRetailPlayerDevices from './useRetailPlayerDevices'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -157,14 +157,21 @@ const useStyles = makeStyles((theme) => ({
 const RetailPlayerDevicesList = () => {
   const classes = useStyles()
   const history = useHistory()
+  const translate = useTranslate()
   const [searchTerm, setSearchTerm] = useState('')
-  const devices = useMemo(
-    () => RetailPlayerMockService.listDevices(),
-    [],
-  )
+  const {
+    devices,
+    error: devicesError,
+    isLoading: devicesLoading,
+  } = useRetailPlayerDevices()
 
-  const handleNavigate = (deviceId) => {
-    history.push(`/retailplayer/${deviceId}`)
+  const handleNavigate = (device) => {
+    if (!device) {
+      return
+    }
+    const slug = device.slug || device.name || device.id
+    const encodedSlug = encodeURIComponent(slug)
+    history.push(`/retailplayer/${encodedSlug}`)
   }
 
   const filteredDevices = useMemo(() => {
@@ -213,12 +220,20 @@ const RetailPlayerDevicesList = () => {
             Organization
           </span>
         </div>
-        {filteredDevices.length > 0 ? (
+        {devicesLoading ? (
+          <div className={classes.noResults}>
+            {translate('menu.retailPlayer.loading', { _: 'Loading devices…' })}
+          </div>
+        ) : devicesError ? (
+          <div className={classes.noResults}>
+            {translate('menu.retailPlayer.error', { _: 'Unable to load devices' })}
+          </div>
+        ) : filteredDevices.length > 0 ? (
           filteredDevices.map((device) => (
-            <ButtonBase
-              key={device.id}
+          <ButtonBase
+            key={device.apiId || device.id}
               className={classes.buttonBase}
-              onClick={() => handleNavigate(device.id)}
+              onClick={() => handleNavigate(device)}
               focusRipple
               aria-label={`Open ${device.name}`}
             >

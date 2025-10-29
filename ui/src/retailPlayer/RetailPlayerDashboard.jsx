@@ -9,23 +9,40 @@ import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
-import RetailPlayerMockService from './RetailPlayerMockService'
+import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
+import httpClient from '../dataProvider/httpClient'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
-const formatTime = (date) =>
-  date
-    .toLocaleTimeString([], {
+const formatTime = (date, timeZone) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return '--:--'
+  }
+
+  try {
+    return new Intl.DateTimeFormat([], {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
+      ...(timeZone ? { timeZone } : {}),
     })
-    .replace(/^24:/, '00:')
+      .format(date)
+      .replace(/^24:/, '00:')
+  } catch (err) {
+    return date
+      .toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      .replace(/^24:/, '00:')
+  }
+}
 
 const useStyles = makeStyles((theme) => {
   const successMain =
@@ -80,12 +97,6 @@ const useStyles = makeStyles((theme) => {
         justifyContent: 'center',
         textAlign: 'center',
       },
-    },
-    backLinkTop: {
-      alignSelf: 'flex-start',
-      fontSize: theme.typography.pxToRem(14),
-      textTransform: 'uppercase',
-      letterSpacing: 1,
     },
     title: {
       fontWeight: theme.typography.fontWeightBold,
@@ -156,6 +167,7 @@ const useStyles = makeStyles((theme) => {
       width: '100%',
       maxWidth: 960,
       margin: '0 auto',
+      alignItems: 'center',
     },
     nowPlayingCard: {
       borderRadius: theme.shape.borderRadius * 1.5,
@@ -287,6 +299,7 @@ const useStyles = makeStyles((theme) => {
       overflow: 'hidden',
       boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)',
       borderTop: `1px solid ${theme.palette.divider}`,
+      justifyItems: 'center',
     },
     dropdownMenuOpen: {
       maxHeight: 320,
@@ -294,14 +307,22 @@ const useStyles = makeStyles((theme) => {
       pointerEvents: 'auto',
     },
     dropdownOptionButton: {
+      textAlign: 'center',
       '&:last-child $listItem': {
         borderBottom: 'none',
       },
+    },
+    dropdownOptionContent: {
+      justifyContent: 'center',
+      textAlign: 'center',
     },
     listText: {
       fontSize: theme.typography.pxToRem(18),
       fontWeight: theme.typography.fontWeightMedium,
       letterSpacing: 0.2,
+    },
+    dropdownOptionLabel: {
+      textAlign: 'center',
     },
     artworkWrapper: {
       width: 'clamp(120px, 20vw, 180px)',
@@ -513,16 +534,6 @@ const useStyles = makeStyles((theme) => {
       color: theme.palette.text.secondary,
       fontSize: theme.typography.pxToRem(18),
     },
-    backLink: {
-      color:
-        (theme.palette.primary && theme.palette.primary.main) ||
-        theme.palette.text.primary,
-      fontWeight: theme.typography.fontWeightMedium,
-      textDecoration: 'none',
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: theme.spacing(1),
-    },
     refreshButton: {
       borderRadius: theme.shape.borderRadius * 2,
       padding: theme.spacing(0.75),
@@ -555,47 +566,140 @@ const dummyTracks = [
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
-  const { deviceId } = useParams()
-  const [device, setDevice] = useState(null)
-  const [currentTime, setCurrentTime] = useState(() => formatTime(new Date()))
+  const { deviceSlug } = useParams()
+  const {
+    device: resolvedDevice,
+    baseDevice,
+    error: integrationError,
+    statusError,
+    devicesError,
+    isLoading: retailLoading,
+    isStatusLoading: statusLoading,
+    refresh: refreshStatus,
+    notFound,
+    isApiEnabled,
+  } = useRetailPlayerDeviceStatus(deviceSlug)
+  const [device, setDevice] = useState(resolvedDevice)
+  const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
-  const [, setVolume] = useState(50)
+  const [volume, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
   const volumeTimeoutRef = useRef(null)
+  const previousVolumeRef = useRef(50)
+  const volumeSyncReadyRef = useRef(false)
   const dislikeTimeoutRef = useRef(null)
+  const dislikeRequestControllerRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const scheduleDropdownRef = useRef(null)
+  const isBusy = retailLoading || statusLoading
+  const combinedError = integrationError || statusError || devicesError
 
-  const refreshDevice = useCallback(() => {
-    if (!deviceId) {
-      setDevice(null)
-      return
+  const deviceApiId = useMemo(() => {
+    if (resolvedDevice?.apiId) {
+      return resolvedDevice.apiId
+    }
+    if (resolvedDevice?.id) {
+      return resolvedDevice.id
+    }
+    if (baseDevice?.apiId) {
+      return baseDevice.apiId
+    }
+    if (baseDevice?.id) {
+      return baseDevice.id
+    }
+    if (device?.apiId) {
+      return device.apiId
+    }
+    if (device?.id) {
+      return device.id
+    }
+    return ''
+  }, [
+    baseDevice?.apiId,
+    baseDevice?.id,
+    device?.apiId,
+    device?.id,
+    resolvedDevice?.apiId,
+    resolvedDevice?.id,
+  ])
+
+  const canControlDevice = useMemo(
+    () => Boolean(isApiEnabled && deviceApiId),
+    [deviceApiId, isApiEnabled],
+  )
+
+  const resolveDeviceTime = useCallback((sourceDevice) => {
+    if (!sourceDevice) {
+      return new Date()
     }
 
-    const nextDevice = RetailPlayerMockService.getDevice(deviceId)
-    setDevice(nextDevice)
-    setCurrentTime(formatTime(new Date()))
-  }, [deviceId])
+    const directLocalTime =
+      typeof sourceDevice.localTime === 'string' ? sourceDevice.localTime : null
+    if (directLocalTime) {
+      const parsedDirect = new Date(directLocalTime)
+      if (!Number.isNaN(parsedDirect.getTime())) {
+        return parsedDirect
+      }
+    }
+
+    const status =
+      sourceDevice.status && typeof sourceDevice.status === 'object'
+        ? sourceDevice.status
+        : {}
+
+    const localTimeValue =
+      typeof status.localTime === 'string' ? status.localTime : null
+    if (localTimeValue) {
+      const parsedLocal = new Date(localTimeValue)
+      if (!Number.isNaN(parsedLocal.getTime())) {
+        return parsedLocal
+      }
+    }
+
+    const systemTimeValue =
+      typeof status.systemTime === 'string' ? status.systemTime : null
+    if (systemTimeValue) {
+      const parsedSystem = new Date(systemTimeValue)
+      if (!Number.isNaN(parsedSystem.getTime())) {
+        return parsedSystem
+      }
+    }
+
+    return new Date()
+  }, [])
 
   useEffect(() => {
-    refreshDevice()
-  }, [refreshDevice])
+    setDevice(resolvedDevice || null)
+    setDeviceTime(resolveDeviceTime(resolvedDevice))
+  }, [resolvedDevice, resolveDeviceTime])
 
   useEffect(() => {
-    const updateTime = () => setCurrentTime(formatTime(new Date()))
-    const intervalId = window.setInterval(updateTime, 60000)
+    const intervalId = window.setInterval(() => {
+      setDeviceTime((previous) => {
+        if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) {
+          return new Date()
+        }
+        return new Date(previous.getTime() + 60000)
+      })
+    }, 60000)
+
     return () => window.clearInterval(intervalId)
   }, [])
 
   const schedules = useMemo(() => device?.schedules || [], [device])
-  const schedulesCount = schedules.length
 
   const activeChannelKey = useMemo(() => {
     const activeSchedule = schedules.find((schedule) => schedule.isActive)
     return activeSchedule ? activeSchedule.key : null
   }, [schedules])
+
+  const availableSchedules = useMemo(
+    () => schedules.filter((schedule) => schedule.key !== activeChannelKey),
+    [activeChannelKey, schedules],
+  )
+  const availableSchedulesCount = availableSchedules.length
 
   useEffect(() => {
     if (!isScheduleMenuOpen) {
@@ -631,30 +735,128 @@ const RetailPlayerDashboard = () => {
   }, [activeChannelKey])
 
   useEffect(() => {
-    if (schedulesCount === 0) {
+    if (availableSchedulesCount === 0) {
       setScheduleMenuOpen(false)
     }
-  }, [schedulesCount])
+  }, [availableSchedulesCount])
 
   const activeSchedule = useMemo(() => {
-    if (!schedulesCount) {
+    if (!schedules.length) {
       return null
     }
     const matched = schedules.find((schedule) => schedule.key === activeChannelKey)
     return matched || schedules[0]
-  }, [activeChannelKey, schedules, schedulesCount])
+  }, [activeChannelKey, schedules])
+
+  const sendDislikeNotification = useCallback(() => {
+    if (!isApiEnabled || !deviceApiId) {
+      return
+    }
+
+    const nowPlaying = device?.nowPlaying && typeof device.nowPlaying === 'object' ? device.nowPlaying : {}
+    const metadata =
+      nowPlaying?.metadata && typeof nowPlaying.metadata === 'object'
+        ? nowPlaying.metadata
+        : {}
+
+    const titleCandidates = [
+      typeof nowPlaying?.title === 'string' ? nowPlaying.title.trim() : '',
+      typeof metadata?.title === 'string' ? metadata.title.trim() : '',
+    ]
+    const trackTitle = titleCandidates.find((value) => value) || ''
+
+    const playlistName =
+      typeof activeSchedule?.label === 'string' ? activeSchedule.label.trim() : ''
+
+    if (!trackTitle && !playlistName) {
+      return
+    }
+
+    if (dislikeRequestControllerRef.current) {
+      dislikeRequestControllerRef.current.abort()
+    }
+
+    const abortController = new AbortController()
+    dislikeRequestControllerRef.current = abortController
+
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+
+    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/dislike`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ trackTitle, playlistName }),
+      signal: abortController.signal,
+    })
+      .catch((err) => {
+        if (err?.name !== 'AbortError') {
+          // eslint-disable-next-line no-console
+          console.error('Failed to send dislike notification', err)
+        }
+      })
+      .finally(() => {
+        if (dislikeRequestControllerRef.current === abortController) {
+          dislikeRequestControllerRef.current = null
+        }
+      })
+  }, [activeSchedule?.label, device?.nowPlaying, deviceApiId, isApiEnabled])
 
   const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
 
   useEffect(() => {
-    setIsMuted(Boolean(device?.isMuted))
     const initialVolume =
       typeof device?.volume === 'number' && !Number.isNaN(device.volume)
         ? device.volume
         : 50
+    setIsMuted(Boolean(device?.isMuted) || initialVolume === 0)
     setVolume(initialVolume)
     setDisplayVolume(initialVolume)
+    if (initialVolume > 0) {
+      previousVolumeRef.current = initialVolume
+    }
+    volumeSyncReadyRef.current = false
   }, [device])
+
+  useEffect(() => {
+    volumeSyncReadyRef.current = false
+  }, [deviceApiId, isApiEnabled])
+
+  useEffect(() => {
+    if (!canControlDevice) {
+      return undefined
+    }
+
+    if (typeof volume !== 'number' || Number.isNaN(volume)) {
+      return undefined
+    }
+
+    if (!deviceApiId) {
+      return undefined
+    }
+
+    if (!volumeSyncReadyRef.current) {
+      volumeSyncReadyRef.current = true
+      return undefined
+    }
+
+    const abortController = new AbortController()
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+
+    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/volume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ volume }),
+      signal: abortController.signal,
+    }).catch((err) => {
+      if (err?.name !== 'AbortError') {
+        // eslint-disable-next-line no-console
+        console.error('Failed to update retail player volume', err)
+      }
+    })
+
+    return () => {
+      abortController.abort()
+    }
+  }, [canControlDevice, deviceApiId, volume])
 
   const normalizedDeviceTrack = useMemo(() => {
     if (!device?.nowPlaying) {
@@ -700,6 +902,27 @@ const RetailPlayerDashboard = () => {
   const artworkUrl = device?.nowPlaying?.artworkUrl || null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
+  const deviceTimeZone = useMemo(() => {
+    if (device && typeof device.timeZone === 'string') {
+      const trimmed = device.timeZone.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+
+    const statusZone =
+      device?.status && typeof device.status === 'object' && typeof device.status.timeZone === 'string'
+        ? device.status.timeZone.trim()
+        : ''
+
+    return statusZone
+  }, [device])
+
+  const currentTimeLabel = useMemo(
+    () => formatTime(deviceTime, deviceTimeZone || undefined),
+    [deviceTime, deviceTimeZone],
+  )
+
   const statusItems = useMemo(() => {
     if (!device) {
       return []
@@ -712,7 +935,7 @@ const RetailPlayerDashboard = () => {
         intent: device.isConnected ? 'success' : 'danger',
         label: 'Connected',
       },
-      { key: 'time', label: currentTime, labelForAria: 'Time' },
+      { key: 'time', label: currentTimeLabel, labelForAria: 'Time' },
       {
         key: 'signal',
         icon: SignalWifi4BarIcon,
@@ -726,24 +949,67 @@ const RetailPlayerDashboard = () => {
         label: isMuted ? 'Muted' : 'Audio Enabled',
       },
     ]
-  }, [currentTime, device, isMuted])
+  }, [currentTimeLabel, device, isMuted])
 
   const handleToggleScheduleMenu = useCallback(() => {
-    if (!schedulesCount) {
+    if (!availableSchedulesCount) {
       return
     }
     setScheduleMenuOpen((prev) => !prev)
-  }, [schedulesCount])
+  }, [availableSchedulesCount])
 
   const handleSelectChannel = useCallback(
     (schedule) => {
-      if (!device) {
+      if (!schedule) {
         return
       }
-      RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
-      refreshDevice()
+
+      setDevice((previous) => {
+        if (!previous) {
+          return previous
+        }
+
+        const previousSchedules = Array.isArray(previous.schedules)
+          ? previous.schedules
+          : []
+        const nextSchedules = previousSchedules.map((item) => ({
+          ...item,
+          isActive: item.key === schedule.key,
+        }))
+
+        const metadata =
+          schedule.metadata && typeof schedule.metadata === 'object'
+            ? schedule.metadata
+            : {}
+
+        const nextNowPlaying = {
+          ...(previous.nowPlaying || {}),
+          title:
+            metadata.title ||
+            schedule.label ||
+            previous.nowPlaying?.title ||
+            previous.name,
+          artist:
+            metadata.artist ||
+            schedule.artist ||
+            previous.nowPlaying?.artist ||
+            previous.channel ||
+            'Retail Player',
+          metadata: { ...metadata },
+        }
+
+        if (metadata.artworkUrl) {
+          nextNowPlaying.artworkUrl = metadata.artworkUrl
+        }
+
+        return {
+          ...previous,
+          schedules: nextSchedules,
+          nowPlaying: nextNowPlaying,
+        }
+      })
     },
-    [device, deviceId, refreshDevice],
+    [],
   )
 
   const handleSelectFromDropdown = useCallback(
@@ -767,6 +1033,10 @@ const RetailPlayerDashboard = () => {
         const rawNext = typeof nextValue === 'function' ? nextValue(previous) : nextValue
         const clamped = clamp(Math.round(rawNext), 0, 100)
         clearVolumeTimeout()
+        setIsMuted(clamped === 0)
+        if (clamped > 0) {
+          previousVolumeRef.current = clamped
+        }
         volumeTimeoutRef.current = window.setTimeout(() => {
           setVolume(clamped)
           volumeTimeoutRef.current = null
@@ -774,12 +1044,24 @@ const RetailPlayerDashboard = () => {
         return clamped
       })
     },
-    [clearVolumeTimeout],
+    [clearVolumeTimeout, setIsMuted],
   )
 
   const handleToggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev)
-  }, [])
+    if (isMuted) {
+      const restoredVolume =
+        previousVolumeRef.current > 0 ? previousVolumeRef.current : 50
+      updateVolume(restoredVolume)
+      return
+    }
+
+    updateVolume((current) => {
+      if (current > 0) {
+        previousVolumeRef.current = current
+      }
+      return 0
+    })
+  }, [isMuted, updateVolume])
 
   const handleVolumeChange = useCallback((_, newValue) => {
     const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
@@ -790,8 +1072,9 @@ const RetailPlayerDashboard = () => {
   }, [updateVolume])
 
   const handleRefresh = useCallback(() => {
-    refreshDevice()
-  }, [refreshDevice])
+    refreshStatus()
+    setDeviceTime(new Date())
+  }, [refreshStatus])
 
   const handleAdjustVolume = useCallback(
     (delta) => {
@@ -801,6 +1084,7 @@ const RetailPlayerDashboard = () => {
   )
 
   const handleDislike = useCallback(() => {
+    sendDislikeNotification()
     setShowDislikeMessage(true)
     if (dislikeTimeoutRef.current) {
       window.clearTimeout(dislikeTimeoutRef.current)
@@ -809,7 +1093,7 @@ const RetailPlayerDashboard = () => {
       setShowDislikeMessage(false)
       dislikeTimeoutRef.current = null
     }, 2000)
-  }, [])
+  }, [sendDislikeNotification])
 
   const handleSkip = useCallback(() => {
     if (!trackPool.length) {
@@ -820,14 +1104,13 @@ const RetailPlayerDashboard = () => {
 
   const handleShortcutChannel = useCallback(
     (index) => {
-      const schedule = schedules[index]
+      const schedule = availableSchedules[index]
       if (!schedule) {
         return
       }
-      RetailPlayerMockService.setActiveChannel(deviceId, schedule.key)
-      refreshDevice()
+      handleSelectChannel(schedule)
     },
-    [deviceId, refreshDevice, schedules],
+    [availableSchedules, handleSelectChannel],
   )
 
   useEffect(() => {
@@ -887,22 +1170,36 @@ const RetailPlayerDashboard = () => {
     if (dislikeTimeoutRef.current) {
       window.clearTimeout(dislikeTimeoutRef.current)
     }
+    if (dislikeRequestControllerRef.current) {
+      dislikeRequestControllerRef.current.abort()
+      dislikeRequestControllerRef.current = null
+    }
   }, [clearVolumeTimeout])
 
   if (!device) {
+    const heading = notFound
+      ? 'Device not found'
+      : isBusy
+        ? 'Loading device…'
+        : 'Unable to load device'
+    const message = notFound
+      ? 'The device you are looking for is unavailable. Choose a device from the list to continue.'
+      : isBusy
+        ? 'Fetching the latest device details. This will only take a moment.'
+        : 'We could not load this device right now. Please refresh and try again.'
+
     return (
       <div className={classes.notFoundWrapper}>
         <Title title="Retail Player" />
         <Typography component="h1" className={classes.notFoundTitle}>
-          Device not found
+          {heading}
         </Typography>
-        <Typography className={classes.notFoundMessage}>
-          The device you are looking for is unavailable. Choose a device from the list to
-          continue.
-        </Typography>
-        <RouterLink to="/retailplayer/devices" className={classes.backLink}>
-          ← Back to devices
-        </RouterLink>
+        <Typography className={classes.notFoundMessage}>{message}</Typography>
+        {combinedError && !isBusy ? (
+          <Typography className={classes.notFoundMessage} component="p">
+            {combinedError.message || String(combinedError)}
+          </Typography>
+        ) : null}
       </div>
     )
   }
@@ -910,9 +1207,6 @@ const RetailPlayerDashboard = () => {
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
-      <RouterLink to="/retailplayer/devices" className={`${classes.backLink} ${classes.backLinkTop}`}>
-        ← Back to Devices
-      </RouterLink>
       <header className={classes.header}>
         <Typography component="h1" className={classes.title}>
           {device.name}
@@ -923,6 +1217,7 @@ const RetailPlayerDashboard = () => {
             onClick={handleRefresh}
             aria-label="Refresh"
             focusRipple
+            disabled={statusLoading}
           >
             <CachedIcon fontSize="inherit" />
           </ButtonBase>
@@ -960,108 +1255,6 @@ const RetailPlayerDashboard = () => {
       </header>
 
       <div className={classes.mainContent}>
-        <section
-          className={classes.list}
-          aria-label="Available schedules"
-          ref={scheduleDropdownRef}
-        >
-          <div className={classes.dropdownWrapper}>
-            <ButtonBase
-              className={combineClasses(
-                classes.listItemButton,
-                classes.dropdownTriggerButton,
-              )}
-              onClick={handleToggleScheduleMenu}
-              focusRipple
-              aria-haspopup="listbox"
-              aria-expanded={isScheduleMenuOpen && Boolean(schedulesCount)}
-              aria-controls="schedule-menu"
-              disabled={!schedulesCount}
-            >
-              <div className={classes.listItem}>
-                <DescriptionIcon
-                  className={combineClasses(
-                    classes.listIcon,
-                    activeSchedule
-                      ? classes.playlistIconActive
-                      : classes.playlistIconInactive,
-                  )}
-                  aria-hidden="true"
-                />
-                <Typography
-                  className={combineClasses(
-                    classes.listText,
-                    classes.playlistLabel,
-                    activeSchedule
-                      ? classes.playlistLabelActive
-                      : classes.playlistLabelInactive,
-                  )}
-                  noWrap
-                >
-                  {dropdownLabel}
-                </Typography>
-                <ExpandMoreIcon
-                  className={combineClasses(
-                    classes.dropdownCaret,
-                    isScheduleMenuOpen ? classes.dropdownCaretOpen : null,
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-            </ButtonBase>
-            <div
-              className={combineClasses(
-                classes.dropdownMenu,
-                isScheduleMenuOpen ? classes.dropdownMenuOpen : null,
-              )}
-              role="listbox"
-              id="schedule-menu"
-              aria-hidden={!isScheduleMenuOpen}
-            >
-              {schedules.map((schedule) => {
-                const isActive = schedule.key === activeChannelKey
-                return (
-                  <ButtonBase
-                    key={schedule.key}
-                    className={combineClasses(
-                      classes.listItemButton,
-                      classes.dropdownOptionButton,
-                    )}
-                    onClick={() => handleSelectFromDropdown(schedule)}
-                    focusRipple
-                    role="option"
-                    aria-selected={isActive}
-                  >
-                    <div className={classes.listItem}>
-                      <DescriptionIcon
-                        className={combineClasses(
-                          classes.listIcon,
-                          isActive
-                            ? classes.playlistIconActive
-                            : classes.playlistIconInactive,
-                        )}
-                        aria-hidden="true"
-                      />
-                      <Typography
-                        className={combineClasses(
-                          classes.listText,
-                          classes.playlistLabel,
-                          isActive
-                            ? classes.playlistLabelActive
-                            : classes.playlistLabelInactive,
-                        )}
-                        noWrap
-                      >
-                        {schedule.label}
-                      </Typography>
-                    </div>
-                  </ButtonBase>
-                )
-              })}
-            </div>
-          </div>
-        </section>
-
         <section className={classes.nowPlayingCard} aria-label="Now playing">
           <div className={classes.artworkWrapper} aria-label="Artwork">
             <div className={classes.artworkCircle}>
@@ -1175,6 +1368,114 @@ const RetailPlayerDashboard = () => {
                 Marked as disliked
               </Typography>
             ) : null}
+          </div>
+        </section>
+
+        <section
+          className={classes.list}
+          aria-label="Available schedules"
+          ref={scheduleDropdownRef}
+        >
+          <div className={classes.dropdownWrapper}>
+            <ButtonBase
+              className={combineClasses(
+                classes.listItemButton,
+                classes.dropdownTriggerButton,
+              )}
+              onClick={handleToggleScheduleMenu}
+              focusRipple
+              aria-haspopup="listbox"
+              aria-expanded={isScheduleMenuOpen && Boolean(availableSchedulesCount)}
+              aria-controls="schedule-menu"
+              disabled={!availableSchedulesCount}
+            >
+              <div className={classes.listItem}>
+                <DescriptionIcon
+                  className={combineClasses(
+                    classes.listIcon,
+                    activeSchedule
+                      ? classes.playlistIconActive
+                      : classes.playlistIconInactive,
+                  )}
+                  aria-hidden="true"
+                />
+                <Typography
+                  className={combineClasses(
+                    classes.listText,
+                    classes.playlistLabel,
+                    activeSchedule
+                      ? classes.playlistLabelActive
+                      : classes.playlistLabelInactive,
+                  )}
+                  noWrap
+                >
+                  {dropdownLabel}
+                </Typography>
+                <ExpandMoreIcon
+                  className={combineClasses(
+                    classes.dropdownCaret,
+                    isScheduleMenuOpen ? classes.dropdownCaretOpen : null,
+                  )}
+                  aria-hidden="true"
+                />
+              </div>
+            </ButtonBase>
+            <div
+              className={combineClasses(
+                classes.dropdownMenu,
+                isScheduleMenuOpen ? classes.dropdownMenuOpen : null,
+              )}
+              role="listbox"
+              id="schedule-menu"
+              aria-hidden={!isScheduleMenuOpen}
+            >
+              {availableSchedules.map((schedule) => {
+                const isActive = schedule.key === activeChannelKey
+                return (
+                  <ButtonBase
+                    key={schedule.key}
+                    className={combineClasses(
+                      classes.listItemButton,
+                      classes.dropdownOptionButton,
+                    )}
+                    onClick={() => handleSelectFromDropdown(schedule)}
+                    focusRipple
+                    role="option"
+                    aria-selected={isActive}
+                  >
+                    <div
+                      className={combineClasses(
+                        classes.listItem,
+                        classes.dropdownOptionContent,
+                      )}
+                    >
+                      <DescriptionIcon
+                        className={combineClasses(
+                          classes.listIcon,
+                          isActive
+                            ? classes.playlistIconActive
+                            : classes.playlistIconInactive,
+                        )}
+                        aria-hidden="true"
+                      />
+                      <Typography
+                        className={combineClasses(
+                          classes.listText,
+                          classes.playlistLabel,
+                          classes.dropdownOptionLabel,
+                          isActive
+                            ? classes.playlistLabelActive
+                            : classes.playlistLabelInactive,
+                        )}
+                        noWrap
+                      >
+                        {schedule.label}
+                      </Typography>
+                    </div>
+                  </ButtonBase>
+                )
+              })}
+            </div>
           </div>
         </section>
       </div>

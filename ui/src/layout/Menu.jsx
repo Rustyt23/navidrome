@@ -5,6 +5,8 @@ import clsx from 'clsx'
 import { useTranslate, MenuItemLink, getResources } from 'react-admin'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import AlbumIcon from '@material-ui/icons/Album'
+import MenuItem from '@material-ui/core/MenuItem'
+import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
@@ -12,6 +14,7 @@ import PlaylistsSubMenu from './PlaylistsSubMenu'
 import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
+import useRetailPlayerDevices from '../retailPlayer/useRetailPlayerDevices'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -32,6 +35,14 @@ const useStyles = makeStyles((theme) => ({
   active: {
     color: theme.palette.text.primary,
     fontWeight: 'bold',
+  },
+  retailPlayerSubItem: {
+    paddingTop: theme.spacing(0.5),
+    paddingBottom: theme.spacing(0.5),
+    fontSize: theme.typography.pxToRem(13),
+    '& .RaMenuItemLink-primaryText': {
+      fontSize: theme.typography.pxToRem(13),
+    },
   },
 }))
 
@@ -62,6 +73,7 @@ const Menu = ({ dense = false }) => {
     menuPlaylists: true,
     menuDiscovery: true,
     menuSharedPlaylists: true,
+    menuRetailPlayer: true,
   })
 
   const handleToggle = (menu) => {
@@ -109,16 +121,68 @@ const Menu = ({ dense = false }) => {
   const subItems = (subMenu) => (resource) =>
     resource.hasList && resource.options && resource.options.subMenu === subMenu
 
-  const renderRetailPlayerMenuItemLink = () => (
-    <MenuItemLink
-      key="retailplayer"
-      to="/retailplayer"
-      activeClassName={classes.active}
-      primaryText="Retail Player"
+  const {
+    devices: retailDevices,
+    error: retailDevicesError,
+    isLoading: retailDevicesLoading,
+  } = useRetailPlayerDevices()
+
+  const renderRetailPlayerDevices = () => {
+    if (retailDevicesLoading) {
+      return (
+        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
+          {translate('menu.retailPlayer.loading', { _: 'Loading devices…' })}
+        </MenuItem>
+      )
+    }
+
+    if (retailDevicesError) {
+      return (
+        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
+          {translate('menu.retailPlayer.error', {
+            _: 'Unable to load devices',
+          })}
+        </MenuItem>
+      )
+    }
+
+    if (!retailDevices.length) {
+      return (
+        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
+          {translate('menu.retailPlayer.empty', { _: 'No devices available' })}
+        </MenuItem>
+      )
+    }
+
+    return retailDevices.map((device) => {
+      const slug = device.slug || device.name || device.id
+      const encodedSlug = encodeURIComponent(slug)
+      return (
+        <MenuItemLink
+          key={`retailplayer-${device.apiId || device.id}`}
+          to={`/retailplayer/${encodedSlug}`}
+          activeClassName={classes.active}
+          primaryText={device.name}
+          sidebarIsOpen={open}
+          dense={dense}
+          exact
+          className={classes.retailPlayerSubItem}
+        />
+      )
+    })
+  }
+
+  const renderRetailPlayerMenu = () => (
+    <SubMenu
+      handleToggle={() => handleToggle('menuRetailPlayer')}
+      isOpen={state.menuRetailPlayer}
       sidebarIsOpen={open}
+      name="menu.retailPlayer.name"
+      icon={<SpeakerGroupIcon />}
       dense={dense}
-      exact
-    />
+    >
+      {renderRetailPlayerDevices()}
+    </SubMenu>
   )
 
   return (
@@ -144,7 +208,7 @@ const Menu = ({ dense = false }) => {
       {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
       {config.devSidebarPlaylists && open ? (
         <>
-          {renderRetailPlayerMenuItemLink()}
+          {renderRetailPlayerMenu()}
           <Divider />
           <DiscoverySubMenu
             state={state}
@@ -162,7 +226,7 @@ const Menu = ({ dense = false }) => {
         </>
       ) : (
         <>
-          {renderRetailPlayerMenuItemLink()}
+          {renderRetailPlayerMenu()}
           {resources.filter(subItems('discovery')).map(renderResourceMenuItemLink)}
           {resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)}
         </>

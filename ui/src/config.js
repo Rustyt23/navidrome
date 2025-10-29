@@ -41,6 +41,7 @@ const defaultConfig = {
   publicBaseUrl: '/share',
   separator: '/',
   enableInspect: true,
+  retailPlayerDevicesEnabled: false,
 }
 
 let config

@@ -71,6 +71,7 @@ func (n *Router) routes() http.Handler {
 		n.addNotificationsRoute(r)
 		n.addKeepAliveRoute(r)
 		n.addInsightsRoute(r)
+		n.addRetailPlayerRoute(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
 			n.addInspectRoute(r)

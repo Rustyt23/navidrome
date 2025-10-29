@@ -589,6 +589,13 @@
     "discovery": "Discovery",
     "playlists": "Playlists",
     "sharedPlaylists": "Shared Playlists",
+    "retailPlayer": {
+      "name": "Retail Player",
+      "allDevices": "All Devices",
+      "loading": "Loading devices…",
+      "error": "Unable to load devices",
+      "empty": "No devices available"
+    },
     "about": "About"
   },
   "player": {
