@@ -290,10 +290,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [normalizedDevice])
 
   const nowPlaying = normalizedDevice?.nowPlaying || {}
-  const nowPlayingTitle = normalizeValue(nowPlaying.title)
-  const nowPlayingArtist = normalizeValue(nowPlaying.artist)
   const existingArtwork = normalizeValue(nowPlaying.artworkUrl)
-  const streamName = normalizeValue(nowPlaying.streamName)
   const backendArtworkId = normalizeValue(nowPlaying.artworkId)
   const nowPlayingMetadata = nowPlaying.metadata || {}
   const metadataTitle = normalizeValue(nowPlayingMetadata.title)
@@ -319,52 +316,20 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    if (!streamName && !nowPlayingTitle && !metadataTitle) {
+    if (!statusState.data) {
+      setArtworkUrl(null)
+      return undefined
+    }
+
+    if (!metadataTitle) {
       setArtworkUrl(null)
       return undefined
     }
 
     let isCancelled = false
-
-    const sanitizedStream = streamName ? streamName.replace(/\\/g, '/') : ''
-    const fileName = sanitizedStream ? sanitizedStream.split('/').pop() : ''
-    const baseWithoutExt = fileName ? fileName.replace(/\.[^/.]+$/, '') : ''
-
-    let derivedTitle = metadataTitle || ''
-    let derivedArtist = metadataArtist || ''
-
-    if (!derivedTitle && baseWithoutExt) {
-      if (baseWithoutExt.includes(' - ')) {
-        const parts = baseWithoutExt.split(' - ')
-        derivedArtist = derivedArtist || parts.shift()?.trim() || ''
-        derivedTitle = parts.join(' - ').trim()
-      } else {
-        derivedTitle = baseWithoutExt.trim()
-      }
-    }
-
-    if (!derivedTitle && nowPlayingTitle) {
-      derivedTitle = nowPlayingTitle
-    }
-
-    if (!derivedArtist && nowPlayingArtist) {
-      derivedArtist = nowPlayingArtist
-    }
-
-    const filter = {}
-    if (derivedTitle) {
-      filter.title = derivedTitle
-    } else if (streamName) {
-      filter.title = streamName
-    }
-
-    if (derivedArtist) {
-      filter.artist = derivedArtist
-    }
-
-    if (!Object.keys(filter).length) {
-      setArtworkUrl(null)
-      return undefined
+    const filter = { title: metadataTitle }
+    if (metadataArtist) {
+      filter.artist = metadataArtist
     }
 
     const fetchArtwork = async () => {
@@ -402,10 +367,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     existingArtwork,
     metadataArtist,
     metadataTitle,
-    nowPlayingArtist,
-    nowPlayingTitle,
     normalizedDevice,
-    streamName,
+    statusState.data,
   ])
 
   const deviceWithArtwork = useMemo(() => {

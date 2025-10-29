@@ -166,6 +166,7 @@ const useStyles = makeStyles((theme) => {
       width: '100%',
       maxWidth: 960,
       margin: '0 auto',
+      alignItems: 'center',
     },
     nowPlayingCard: {
       borderRadius: theme.shape.borderRadius * 1.5,
@@ -1081,108 +1082,6 @@ const RetailPlayerDashboard = () => {
       </header>
 
       <div className={classes.mainContent}>
-        <section
-          className={classes.list}
-          aria-label="Available schedules"
-          ref={scheduleDropdownRef}
-        >
-          <div className={classes.dropdownWrapper}>
-            <ButtonBase
-              className={combineClasses(
-                classes.listItemButton,
-                classes.dropdownTriggerButton,
-              )}
-              onClick={handleToggleScheduleMenu}
-              focusRipple
-              aria-haspopup="listbox"
-              aria-expanded={isScheduleMenuOpen && Boolean(schedulesCount)}
-              aria-controls="schedule-menu"
-              disabled={!schedulesCount}
-            >
-              <div className={classes.listItem}>
-                <DescriptionIcon
-                  className={combineClasses(
-                    classes.listIcon,
-                    activeSchedule
-                      ? classes.playlistIconActive
-                      : classes.playlistIconInactive,
-                  )}
-                  aria-hidden="true"
-                />
-                <Typography
-                  className={combineClasses(
-                    classes.listText,
-                    classes.playlistLabel,
-                    activeSchedule
-                      ? classes.playlistLabelActive
-                      : classes.playlistLabelInactive,
-                  )}
-                  noWrap
-                >
-                  {dropdownLabel}
-                </Typography>
-                <ExpandMoreIcon
-                  className={combineClasses(
-                    classes.dropdownCaret,
-                    isScheduleMenuOpen ? classes.dropdownCaretOpen : null,
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-            </ButtonBase>
-            <div
-              className={combineClasses(
-                classes.dropdownMenu,
-                isScheduleMenuOpen ? classes.dropdownMenuOpen : null,
-              )}
-              role="listbox"
-              id="schedule-menu"
-              aria-hidden={!isScheduleMenuOpen}
-            >
-              {schedules.map((schedule) => {
-                const isActive = schedule.key === activeChannelKey
-                return (
-                  <ButtonBase
-                    key={schedule.key}
-                    className={combineClasses(
-                      classes.listItemButton,
-                      classes.dropdownOptionButton,
-                    )}
-                    onClick={() => handleSelectFromDropdown(schedule)}
-                    focusRipple
-                    role="option"
-                    aria-selected={isActive}
-                  >
-                    <div className={classes.listItem}>
-                      <DescriptionIcon
-                        className={combineClasses(
-                          classes.listIcon,
-                          isActive
-                            ? classes.playlistIconActive
-                            : classes.playlistIconInactive,
-                        )}
-                        aria-hidden="true"
-                      />
-                      <Typography
-                        className={combineClasses(
-                          classes.listText,
-                          classes.playlistLabel,
-                          isActive
-                            ? classes.playlistLabelActive
-                            : classes.playlistLabelInactive,
-                        )}
-                        noWrap
-                      >
-                        {schedule.label}
-                      </Typography>
-                    </div>
-                  </ButtonBase>
-                )
-              })}
-            </div>
-          </div>
-        </section>
-
         <section className={classes.nowPlayingCard} aria-label="Now playing">
           <div className={classes.artworkWrapper} aria-label="Artwork">
             <div className={classes.artworkCircle}>
@@ -1296,6 +1195,108 @@ const RetailPlayerDashboard = () => {
                 Marked as disliked
               </Typography>
             ) : null}
+          </div>
+        </section>
+
+        <section
+          className={classes.list}
+          aria-label="Available schedules"
+          ref={scheduleDropdownRef}
+        >
+          <div className={classes.dropdownWrapper}>
+            <ButtonBase
+              className={combineClasses(
+                classes.listItemButton,
+                classes.dropdownTriggerButton,
+              )}
+              onClick={handleToggleScheduleMenu}
+              focusRipple
+              aria-haspopup="listbox"
+              aria-expanded={isScheduleMenuOpen && Boolean(schedulesCount)}
+              aria-controls="schedule-menu"
+              disabled={!schedulesCount}
+            >
+              <div className={classes.listItem}>
+                <DescriptionIcon
+                  className={combineClasses(
+                    classes.listIcon,
+                    activeSchedule
+                      ? classes.playlistIconActive
+                      : classes.playlistIconInactive,
+                  )}
+                  aria-hidden="true"
+                />
+                <Typography
+                  className={combineClasses(
+                    classes.listText,
+                    classes.playlistLabel,
+                    activeSchedule
+                      ? classes.playlistLabelActive
+                      : classes.playlistLabelInactive,
+                  )}
+                  noWrap
+                >
+                  {dropdownLabel}
+                </Typography>
+                <ExpandMoreIcon
+                  className={combineClasses(
+                    classes.dropdownCaret,
+                    isScheduleMenuOpen ? classes.dropdownCaretOpen : null,
+                  )}
+                  aria-hidden="true"
+                />
+              </div>
+            </ButtonBase>
+            <div
+              className={combineClasses(
+                classes.dropdownMenu,
+                isScheduleMenuOpen ? classes.dropdownMenuOpen : null,
+              )}
+              role="listbox"
+              id="schedule-menu"
+              aria-hidden={!isScheduleMenuOpen}
+            >
+              {schedules.map((schedule) => {
+                const isActive = schedule.key === activeChannelKey
+                return (
+                  <ButtonBase
+                    key={schedule.key}
+                    className={combineClasses(
+                      classes.listItemButton,
+                      classes.dropdownOptionButton,
+                    )}
+                    onClick={() => handleSelectFromDropdown(schedule)}
+                    focusRipple
+                    role="option"
+                    aria-selected={isActive}
+                  >
+                    <div className={classes.listItem}>
+                      <DescriptionIcon
+                        className={combineClasses(
+                          classes.listIcon,
+                          isActive
+                            ? classes.playlistIconActive
+                            : classes.playlistIconInactive,
+                        )}
+                        aria-hidden="true"
+                      />
+                      <Typography
+                        className={combineClasses(
+                          classes.listText,
+                          classes.playlistLabel,
+                          isActive
+                            ? classes.playlistLabelActive
+                            : classes.playlistLabelInactive,
+                        )}
+                        noWrap
+                      >
+                        {schedule.label}
+                      </Typography>
+                    </div>
+                  </ButtonBase>
+                )
+              })}
+            </div>
           </div>
         </section>
       </div>
