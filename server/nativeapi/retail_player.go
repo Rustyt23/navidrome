@@ -427,9 +427,18 @@ func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID str
 		return retailPlayerChannelsResponse{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
 	}
 
-	var payload retailPlayerChannelListAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return retailPlayerChannelsResponse{}, err
+	}
+
+	var payload retailPlayerChannelListAPIResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		var rawChannels []retailPlayerAPIChannel
+		if unmarshalErr := json.Unmarshal(body, &rawChannels); unmarshalErr != nil {
+			return retailPlayerChannelsResponse{}, err
+		}
+		payload.Channels = rawChannels
 	}
 
 	channels := make([]retailPlayerChannel, 0, len(payload.Channels))
