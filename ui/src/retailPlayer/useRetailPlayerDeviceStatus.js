@@ -223,7 +223,16 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [])
 
   useEffect(() => {
-    const deviceId = normalizeValue(baseDevice?.apiId) || normalizeValue(baseDevice?.id)
+    if (!isApiEnabled) {
+      setStatusState(initialStatusState)
+      return undefined
+    }
+
+    if (devicesLoading) {
+      return undefined
+    }
+
+    const deviceId = normalizeValue(baseDevice?.apiId)
     if (!deviceId) {
       setStatusState(initialStatusState)
       return undefined
@@ -255,7 +264,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return () => {
       abortController.abort()
     }
-  }, [baseDevice?.apiId, baseDevice?.id, refreshIndex])
+  }, [baseDevice?.apiId, devicesLoading, isApiEnabled, refreshIndex])
 
   const normalizedDevice = useMemo(
     () => mapStatusPayloadToDevice(baseDevice, statusState.data),
@@ -280,11 +289,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     ].join('::')
   }, [normalizedDevice])
 
-  const nowPlayingTitle = normalizeValue(normalizedDevice?.nowPlaying?.title)
-  const nowPlayingArtist = normalizeValue(normalizedDevice?.nowPlaying?.artist)
-  const existingArtwork = normalizeValue(normalizedDevice?.nowPlaying?.artworkUrl)
-  const streamName = normalizeValue(normalizedDevice?.nowPlaying?.streamName)
-  const backendArtworkId = normalizeValue(normalizedDevice?.nowPlaying?.artworkId)
+  const nowPlaying = normalizedDevice?.nowPlaying || {}
+  const nowPlayingTitle = normalizeValue(nowPlaying.title)
+  const nowPlayingArtist = normalizeValue(nowPlaying.artist)
+  const existingArtwork = normalizeValue(nowPlaying.artworkUrl)
+  const streamName = normalizeValue(nowPlaying.streamName)
+  const backendArtworkId = normalizeValue(nowPlaying.artworkId)
+  const nowPlayingMetadata = nowPlaying.metadata || {}
+  const metadataTitle = normalizeValue(nowPlayingMetadata.title)
+  const metadataArtist = normalizeValue(nowPlayingMetadata.artist)
 
   useEffect(() => {
     if (!normalizedDevice) {
@@ -306,7 +319,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    if (!streamName && !nowPlayingTitle) {
+    if (!streamName && !nowPlayingTitle && !metadataTitle) {
       setArtworkUrl(null)
       return undefined
     }
@@ -316,81 +329,64 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     const sanitizedStream = streamName ? streamName.replace(/\\/g, '/') : ''
     const fileName = sanitizedStream ? sanitizedStream.split('/').pop() : ''
     const baseWithoutExt = fileName ? fileName.replace(/\.[^/.]+$/, '') : ''
-    let derivedTitle = ''
-    let derivedArtist = ''
 
-    if (baseWithoutExt && baseWithoutExt.includes(' - ')) {
-      const parts = baseWithoutExt.split(' - ')
-      derivedArtist = parts.shift()?.trim() || ''
-      derivedTitle = parts.join(' - ').trim()
-    } else {
-      derivedTitle = baseWithoutExt.trim()
+    let derivedTitle = metadataTitle || ''
+    let derivedArtist = metadataArtist || ''
+
+    if (!derivedTitle && baseWithoutExt) {
+      if (baseWithoutExt.includes(' - ')) {
+        const parts = baseWithoutExt.split(' - ')
+        derivedArtist = derivedArtist || parts.shift()?.trim() || ''
+        derivedTitle = parts.join(' - ').trim()
+      } else {
+        derivedTitle = baseWithoutExt.trim()
+      }
     }
 
-    const filterKeys = new Set()
-    const filterCandidates = []
-    const pushFilter = (filter) => {
-      if (!filter || typeof filter !== 'object') {
-        return
-      }
-      const entries = Object.entries(filter).filter(([, value]) => value)
-      if (!entries.length) {
-        return
-      }
-      const normalizedFilter = Object.fromEntries(entries)
-      const key = JSON.stringify(normalizedFilter)
-      if (filterKeys.has(key)) {
-        return
-      }
-      filterKeys.add(key)
-      filterCandidates.push(normalizedFilter)
+    if (!derivedTitle && nowPlayingTitle) {
+      derivedTitle = nowPlayingTitle
     }
 
-    if (derivedTitle && derivedArtist) {
-      pushFilter({ title: derivedTitle, artist: derivedArtist })
+    if (!derivedArtist && nowPlayingArtist) {
+      derivedArtist = nowPlayingArtist
     }
+
+    const filter = {}
     if (derivedTitle) {
-      pushFilter({ title: derivedTitle })
-    }
-    if (streamName) {
-      pushFilter({ title: streamName })
-    }
-    if (nowPlayingTitle && nowPlayingArtist) {
-      pushFilter({ title: nowPlayingTitle, artist: nowPlayingArtist })
-    }
-    if (nowPlayingTitle) {
-      pushFilter({ title: nowPlayingTitle })
+      filter.title = derivedTitle
+    } else if (streamName) {
+      filter.title = streamName
     }
 
-    if (!filterCandidates.length) {
+    if (derivedArtist) {
+      filter.artist = derivedArtist
+    }
+
+    if (!Object.keys(filter).length) {
       setArtworkUrl(null)
       return undefined
     }
 
     const fetchArtwork = async () => {
-      for (const filter of filterCandidates) {
-        try {
-          const response = await dataProvider.getList('song', {
-            pagination: { page: 1, perPage: 1 },
-            sort: { field: 'id', order: 'ASC' },
-            filter,
-          })
-          if (isCancelled) {
-            return
-          }
-          const songs = Array.isArray(response?.data) ? response.data : []
-          if (songs.length > 0) {
-            setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
-            return
-          }
-        } catch (err) {
-          if (isCancelled) {
-            return
-          }
+      try {
+        const response = await dataProvider.getList('song', {
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: 'id', order: 'ASC' },
+          filter,
+        })
+        if (isCancelled) {
+          return
         }
-      }
-      if (!isCancelled) {
+        const songs = Array.isArray(response?.data) ? response.data : []
+        if (songs.length > 0) {
+          setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
+          return
+        }
         setArtworkUrl(null)
+      } catch (err) {
+        if (!isCancelled) {
+          setArtworkUrl(null)
+        }
       }
     }
 
@@ -404,6 +400,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     backendArtworkId,
     dataProvider,
     existingArtwork,
+    metadataArtist,
+    metadataTitle,
     nowPlayingArtist,
     nowPlayingTitle,
     normalizedDevice,

@@ -70,7 +70,12 @@ const fetchRetailPlayerDevices = async (signal) => {
 }
 
 const useRetailPlayerDevices = () => {
-  const [devices, setDevices] = useState(() => RetailPlayerMockService.listDevices())
+  const [devices, setDevices] = useState(() => {
+    if (config.retailPlayerDevicesEnabled) {
+      return []
+    }
+    return RetailPlayerMockService.listDevices()
+  })
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isApiEnabled, setIsApiEnabled] = useState(
@@ -90,9 +95,12 @@ const useRetailPlayerDevices = () => {
 
     fetchRetailPlayerDevices(abortController.signal)
       .then((result) => {
-        setIsApiEnabled(Boolean(result?.enabled))
+        const enabled = Boolean(result?.enabled)
+        setIsApiEnabled(enabled)
         if (Array.isArray(result?.devices)) {
           setDevices(result.devices)
+        } else if (!enabled) {
+          setDevices(RetailPlayerMockService.listDevices())
         }
       })
       .catch((err) => {
