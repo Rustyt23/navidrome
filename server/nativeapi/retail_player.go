@@ -269,7 +269,8 @@ func (n *Router) handleRetailPlayerDeviceVolume() http.HandlerFunc {
 			},
 		}
 
-		if err := n.sendRetailPlayerDeviceCommand(ctx, deviceID, command); err != nil {
+		responseBody, err := n.sendRetailPlayerDeviceCommand(ctx, deviceID, command)
+		if err != nil {
 			log.Error(ctx, "Unable to send retail player volume command", "deviceID", deviceID, "err", err)
 			http.Error(w, "Unable to update device volume", http.StatusBadGateway)
 			return
@@ -278,6 +279,7 @@ func (n *Router) handleRetailPlayerDeviceVolume() http.HandlerFunc {
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
 			"success": true,
 			"volume":  volume,
+			"message": responseBody,
 		})
 	}
 }
@@ -467,55 +469,70 @@ type retailPlayerStatusArtwork struct {
 	ArtworkID   string `json:"artworkId,omitempty"`
 }
 
-func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID string, command retailPlayerCommandRequest) error {
+func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID string, command retailPlayerCommandRequest) (string, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
-		return errors.New("retail player API not configured")
+		return "", errors.New("retail player API not configured")
 	}
 
 	trimmedID := strings.TrimSpace(deviceID)
 	if trimmedID == "" {
-		return errors.New("retail player device id is empty")
+		return "", errors.New("retail player device id is empty")
 	}
 
 	payload, err := json.Marshal(command)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	requestConfig := retailPlayerConfig{
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	endpoint := fmt.Sprintf("%s/orgs/%s/devices/%s/command", baseURL, url.PathEscape(cfg.OrgID), url.PathEscape(trimmedID))
+
+	bodyReader := bytes.NewReader(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bodyReader)
+	if err != nil {
+		return "", err
+	}
+
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(payload)), nil
+	}
+	req.ContentLength = int64(len(payload))
+	req.Header.Set("Content-Type", "application/json")
+
+	applyRetailPlayerHeaders(req, retailPlayerConfig{
 		BaseURL:           cfg.BaseURL,
 		OrgID:             cfg.OrgID,
 		APIKey:            cfg.APIKey,
 		APIKeyHeader:      cfg.APIKeyHeader,
 		AdditionalHeaders: cfg.AdditionalHeaders,
-	}
-
-	req, err := buildRetailPlayerRequest(ctx, requestConfig, trimmedID, "command")
-	if err != nil {
-		return err
-	}
-
-	bodyReader := bytes.NewReader(payload)
-	req.Method = http.MethodPost
-	req.Header.Set("Content-Type", "application/json")
-	req.Body = io.NopCloser(bodyReader)
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(payload)), nil
-	}
-	req.ContentLength = int64(len(payload))
+	})
 
 	resp, err := retailPlayerHTTPClient.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("retail player command failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		if len(body) > 0 {
+			return "", fmt.Errorf("retail player command failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		return "", fmt.Errorf("retail player command failed with status %d", resp.StatusCode)
 	}
 
-	return nil
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	trimmedBody := strings.TrimSpace(string(body))
+	if trimmedBody != "" {
+		log.Info(ctx, "Retail player command response", "deviceID", trimmedID, "body", trimmedBody)
+	}
+
+	return trimmedBody, nil
 }
 
 func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retailPlayerDeviceStatusResponse, error) {
