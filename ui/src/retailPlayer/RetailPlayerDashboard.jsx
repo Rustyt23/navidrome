@@ -603,6 +603,8 @@ const RetailPlayerDashboard = () => {
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
+  const pendingScheduleKeyRef = useRef(null)
+  const latestResolvedDeviceRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
@@ -685,7 +687,41 @@ const RetailPlayerDashboard = () => {
   }, [])
 
   useEffect(() => {
-    setDevice(resolvedDevice || null)
+    latestResolvedDeviceRef.current = resolvedDevice || null
+    setDevice(() => {
+      const nextDevice = resolvedDevice || null
+      if (!nextDevice) {
+        pendingScheduleKeyRef.current = null
+        return nextDevice
+      }
+
+      const pendingKey = pendingScheduleKeyRef.current
+      if (!pendingKey) {
+        return nextDevice
+      }
+
+      const schedules = Array.isArray(nextDevice.schedules)
+        ? nextDevice.schedules
+        : []
+
+      const pendingSchedule = schedules.find((schedule) => schedule.key === pendingKey)
+      if (!pendingSchedule) {
+        pendingScheduleKeyRef.current = null
+        return nextDevice
+      }
+
+      if (pendingSchedule.isActive) {
+        pendingScheduleKeyRef.current = null
+        return nextDevice
+      }
+
+      const patchedSchedules = schedules.map((schedule) => ({
+        ...schedule,
+        isActive: schedule.key === pendingKey,
+      }))
+
+      return { ...nextDevice, schedules: patchedSchedules }
+    })
     setDeviceTime(resolveDeviceTime(resolvedDevice))
   }, [resolvedDevice, resolveDeviceTime])
 
@@ -1023,6 +1059,7 @@ const RetailPlayerDashboard = () => {
 
       const headers = new Headers({ 'Content-Type': 'application/json' })
       const selectedKey = schedule.key
+      pendingScheduleKeyRef.current = selectedKey
 
       httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
         method: 'POST',
@@ -1055,6 +1092,8 @@ const RetailPlayerDashboard = () => {
           if (err?.name !== 'AbortError') {
             // eslint-disable-next-line no-console
             console.error('Failed to update retail player channel', err)
+            pendingScheduleKeyRef.current = null
+            setDevice(latestResolvedDeviceRef.current)
           }
         })
         .finally(() => {
