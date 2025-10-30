@@ -1103,7 +1103,6 @@ const RetailPlayerDashboard = () => {
             }
           })
           refreshStatus()
-          setPendingChannelId((current) => (current === nextChannelId ? null : current))
         })
         .catch((err) => {
           if (err?.name !== 'AbortError') {
