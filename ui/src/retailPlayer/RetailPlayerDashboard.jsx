@@ -592,7 +592,7 @@ const RetailPlayerDashboard = () => {
     notFound,
     isApiEnabled,
   } = useRetailPlayerDeviceStatus(deviceSlug)
-  const [device, setDevice] = useState(resolvedDevice)
+  const device = resolvedDevice || null
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
@@ -685,7 +685,6 @@ const RetailPlayerDashboard = () => {
   }, [])
 
   useEffect(() => {
-    setDevice(resolvedDevice || null)
     setDeviceTime(resolveDeviceTime(resolvedDevice))
   }, [resolvedDevice, resolveDeviceTime])
 
@@ -1022,7 +1021,6 @@ const RetailPlayerDashboard = () => {
       channelRequestControllerRef.current = abortController
 
       const headers = new Headers({ 'Content-Type': 'application/json' })
-      const selectedKey = schedule.key
 
       httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
         method: 'POST',
@@ -1031,24 +1029,6 @@ const RetailPlayerDashboard = () => {
         signal: abortController.signal,
       })
         .then(() => {
-          setDevice((previous) => {
-            if (!previous) {
-              return previous
-            }
-
-            const previousSchedules = Array.isArray(previous.schedules)
-              ? previous.schedules
-              : []
-            const nextSchedules = previousSchedules.map((item) => ({
-              ...item,
-              isActive: item.key === selectedKey,
-            }))
-
-            return {
-              ...previous,
-              schedules: nextSchedules,
-            }
-          })
           refreshStatus()
         })
         .catch((err) => {
