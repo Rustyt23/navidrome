@@ -104,6 +104,7 @@ func (n *Router) addRetailPlayerRoute(r chi.Router) {
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
+		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
 		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
 	})
 }
@@ -279,6 +280,64 @@ func (n *Router) handleRetailPlayerDeviceVolume() http.HandlerFunc {
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
 			"success": true,
 			"volume":  volume,
+			"message": responseBody,
+		})
+	}
+}
+
+func (n *Router) handleRetailPlayerDeviceChannel() http.HandlerFunc {
+	type channelRequest struct {
+		Channel string `json:"channel"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+
+		var payload channelRequest
+		if err := decoder.Decode(&payload); err != nil {
+			http.Error(w, "Invalid channel payload", http.StatusBadRequest)
+			return
+		}
+
+		channelID := strings.TrimSpace(payload.Channel)
+		if channelID == "" {
+			http.Error(w, "Channel id is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Sending retail player channel command", "deviceID", deviceID, "channelID", channelID)
+
+		command := retailPlayerCommandRequest{
+			Type: "set_channel",
+			Payload: map[string]any{
+				"channel": channelID,
+			},
+		}
+
+		responseBody, err := n.sendRetailPlayerDeviceCommand(ctx, deviceID, command)
+		if err != nil {
+			log.Error(ctx, "Unable to send retail player channel command", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to update device channel", http.StatusBadGateway)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
+			"success": true,
+			"channel": channelID,
 			"message": responseBody,
 		})
 	}

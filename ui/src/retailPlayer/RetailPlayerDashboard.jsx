@@ -13,6 +13,7 @@ import { useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
+import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
@@ -93,6 +94,7 @@ const useStyles = makeStyles((theme) => {
       flexWrap: 'wrap',
       width: '100%',
       maxWidth: 960,
+      paddingLeft: theme.spacing(2),
       [theme.breakpoints.down('sm')]: {
         justifyContent: 'center',
         textAlign: 'center',
@@ -474,12 +476,17 @@ const useStyles = makeStyles((theme) => {
       minWidth: 220,
       maxWidth: 360,
       alignSelf: 'stretch',
+      position: 'relative',
       [theme.breakpoints.down('md')]: {
         alignSelf: 'center',
       },
       [theme.breakpoints.down('sm')]: {
         width: '100%',
         minWidth: 'auto',
+      },
+      '&:hover $volumeLabelRow, &:focus-within $volumeLabelRow': {
+        opacity: 1,
+        transform: 'translateY(0)',
       },
     },
     volumeLabelRow: {
@@ -488,6 +495,12 @@ const useStyles = makeStyles((theme) => {
       justifyContent: 'space-between',
       color: theme.palette.text.secondary,
       textTransform: 'lowercase',
+      opacity: 0,
+      pointerEvents: 'none',
+      transform: 'translateY(-6px)',
+      transition: theme.transitions.create(['opacity', 'transform'], {
+        duration: theme.transitions.duration.shortest,
+      }),
     },
     slider: {
       color: sliderMain,
@@ -578,6 +591,7 @@ const RetailPlayerDashboard = () => {
     refresh: refreshStatus,
     notFound,
     isApiEnabled,
+    lastUpdated: statusLastUpdated,
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
@@ -589,9 +603,14 @@ const RetailPlayerDashboard = () => {
   const volumeSyncReadyRef = useRef(false)
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
+  const channelRequestControllerRef = useRef(null)
+  const channelPollingIntervalRef = useRef(null)
+  const channelPollingTimeoutRef = useRef(null)
+  const waitingStatusTimestampRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
+  const [isWaitingForChannelUpdate, setIsWaitingForChannelUpdate] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -676,6 +695,33 @@ const RetailPlayerDashboard = () => {
   }, [resolvedDevice, resolveDeviceTime])
 
   useEffect(() => {
+    if (!isWaitingForChannelUpdate) {
+      return
+    }
+
+    const waitingStartTime = waitingStatusTimestampRef.current
+    const lastUpdatedTime =
+      statusLastUpdated instanceof Date && !Number.isNaN(statusLastUpdated.getTime())
+        ? statusLastUpdated.getTime()
+        : null
+
+    if (waitingStartTime !== null && lastUpdatedTime !== null && lastUpdatedTime <= waitingStartTime) {
+      return
+    }
+
+    if (lastUpdatedTime === null) {
+      return
+    }
+
+    waitingStatusTimestampRef.current = lastUpdatedTime
+
+    const activeResource = normalizeValue(resolvedDevice?.status?.activeResource)
+    if (activeResource && activeResource.toLowerCase() !== 'none') {
+      setIsWaitingForChannelUpdate(false)
+    }
+  }, [isWaitingForChannelUpdate, resolvedDevice, statusLastUpdated])
+
+  useEffect(() => {
     const intervalId = window.setInterval(() => {
       setDeviceTime((previous) => {
         if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) {
@@ -687,6 +733,48 @@ const RetailPlayerDashboard = () => {
 
     return () => window.clearInterval(intervalId)
   }, [])
+
+  useEffect(() => {
+    if (!isWaitingForChannelUpdate) {
+      waitingStatusTimestampRef.current = null
+      if (channelPollingIntervalRef.current) {
+        window.clearInterval(channelPollingIntervalRef.current)
+        channelPollingIntervalRef.current = null
+      }
+      if (channelPollingTimeoutRef.current) {
+        window.clearTimeout(channelPollingTimeoutRef.current)
+        channelPollingTimeoutRef.current = null
+      }
+      return undefined
+    }
+
+    refreshStatus()
+
+    const intervalId = window.setInterval(() => {
+      refreshStatus()
+    }, 1000)
+    const timeoutId = window.setTimeout(() => {
+      setIsWaitingForChannelUpdate(false)
+    }, 45000)
+
+    channelPollingIntervalRef.current = intervalId
+    channelPollingTimeoutRef.current = timeoutId
+
+    return () => {
+      if (channelPollingIntervalRef.current) {
+        window.clearInterval(channelPollingIntervalRef.current)
+        channelPollingIntervalRef.current = null
+      } else {
+        window.clearInterval(intervalId)
+      }
+      if (channelPollingTimeoutRef.current) {
+        window.clearTimeout(channelPollingTimeoutRef.current)
+        channelPollingTimeoutRef.current = null
+      } else {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [isWaitingForChannelUpdate, refreshStatus])
 
   const schedules = useMemo(() => device?.schedules || [], [device])
 
@@ -964,52 +1052,97 @@ const RetailPlayerDashboard = () => {
         return
       }
 
-      setDevice((previous) => {
-        if (!previous) {
-          return previous
-        }
+      const metadata =
+        schedule && typeof schedule === 'object' && schedule.metadata && typeof schedule.metadata === 'object'
+          ? schedule.metadata
+          : {}
 
-        const previousSchedules = Array.isArray(previous.schedules)
-          ? previous.schedules
-          : []
-        const nextSchedules = previousSchedules.map((item) => ({
-          ...item,
-          isActive: item.key === schedule.key,
-        }))
+      const rawSchedule = schedule && typeof schedule === 'object' && schedule.raw && typeof schedule.raw === 'object'
+        ? schedule.raw
+        : {}
 
-        const metadata =
-          schedule.metadata && typeof schedule.metadata === 'object'
-            ? schedule.metadata
-            : {}
+      const channelIdCandidates = [
+        metadata.channelId,
+        metadata.channel_id,
+        metadata.channel,
+        metadata.id,
+        schedule.channelId,
+        schedule.channel_id,
+        schedule.id,
+        rawSchedule.id,
+        rawSchedule.channelId,
+        rawSchedule.channel_id,
+      ]
 
-        const nextNowPlaying = {
-          ...(previous.nowPlaying || {}),
-          title:
-            metadata.title ||
-            schedule.label ||
-            previous.nowPlaying?.title ||
-            previous.name,
-          artist:
-            metadata.artist ||
-            schedule.artist ||
-            previous.nowPlaying?.artist ||
-            previous.channel ||
-            'Retail Player',
-          metadata: { ...metadata },
-        }
+      const selectedChannelId = channelIdCandidates
+        .map((candidate) => normalizeValue(candidate))
+        .find((value) => value)
 
-        if (metadata.artworkUrl) {
-          nextNowPlaying.artworkUrl = metadata.artworkUrl
-        }
+      if (!selectedChannelId) {
+        // eslint-disable-next-line no-console
+        console.error('Unable to determine channel id for selection', schedule)
+        return
+      }
 
-        return {
-          ...previous,
-          schedules: nextSchedules,
-          nowPlaying: nextNowPlaying,
-        }
+      if (!canControlDevice || !deviceApiId) {
+        return
+      }
+
+      if (channelRequestControllerRef.current) {
+        channelRequestControllerRef.current.abort()
+      }
+
+      const abortController = new AbortController()
+      channelRequestControllerRef.current = abortController
+
+      const headers = new Headers({ 'Content-Type': 'application/json' })
+      const selectedKey = schedule.key
+
+      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ channel: selectedChannelId }),
+        signal: abortController.signal,
       })
+        .then(() => {
+          setDevice((previous) => {
+            if (!previous) {
+              return previous
+            }
+
+            const previousSchedules = Array.isArray(previous.schedules)
+              ? previous.schedules
+              : []
+            const nextSchedules = previousSchedules.map((item) => ({
+              ...item,
+              isActive: item.key === selectedKey,
+            }))
+
+            return {
+              ...previous,
+              schedules: nextSchedules,
+            }
+          })
+          refreshStatus()
+          waitingStatusTimestampRef.current =
+            statusLastUpdated instanceof Date && !Number.isNaN(statusLastUpdated.getTime())
+              ? statusLastUpdated.getTime()
+              : null
+          setIsWaitingForChannelUpdate(true)
+        })
+        .catch((err) => {
+          if (err?.name !== 'AbortError') {
+            // eslint-disable-next-line no-console
+            console.error('Failed to update retail player channel', err)
+          }
+        })
+        .finally(() => {
+          if (channelRequestControllerRef.current === abortController) {
+            channelRequestControllerRef.current = null
+          }
+        })
     },
-    [],
+    [canControlDevice, deviceApiId, refreshStatus, statusLastUpdated],
   )
 
   const handleSelectFromDropdown = useCallback(
@@ -1173,6 +1306,18 @@ const RetailPlayerDashboard = () => {
     if (dislikeRequestControllerRef.current) {
       dislikeRequestControllerRef.current.abort()
       dislikeRequestControllerRef.current = null
+    }
+    if (channelRequestControllerRef.current) {
+      channelRequestControllerRef.current.abort()
+      channelRequestControllerRef.current = null
+    }
+    if (channelPollingIntervalRef.current) {
+      window.clearInterval(channelPollingIntervalRef.current)
+      channelPollingIntervalRef.current = null
+    }
+    if (channelPollingTimeoutRef.current) {
+      window.clearTimeout(channelPollingTimeoutRef.current)
+      channelPollingTimeoutRef.current = null
     }
   }, [clearVolumeTimeout])
 

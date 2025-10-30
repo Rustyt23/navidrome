@@ -26,6 +26,86 @@ const parseVolume = (value) => {
 
 const ensureArray = (value) => (Array.isArray(value) ? value : [])
 
+const stripMp3Suffix = (value) => {
+  const normalized = normalizeValue(value)
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized.toLowerCase().endsWith('.mp3')) {
+    return normalized.slice(0, -4).trim()
+  }
+
+  return normalized
+}
+
+const readNestedValue = (source, path) => {
+  if (!source || typeof source !== 'object' || !path) {
+    return undefined
+  }
+
+  const segments = String(path)
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+
+  if (!segments.length) {
+    return undefined
+  }
+
+  return segments.reduce((current, segment) => {
+    if (!current || typeof current !== 'object') {
+      return undefined
+    }
+    return current[segment]
+  }, source)
+}
+
+const pickFirstStringValue = (source, candidates) => {
+  if (!source || typeof source !== 'object' || !Array.isArray(candidates)) {
+    return ''
+  }
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index]
+    if (!candidate) {
+      continue
+    }
+
+    const rawValue = readNestedValue(source, candidate)
+    const normalized = normalizeValue(rawValue)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return ''
+}
+
+const parseStreamArtistTitle = (value) => {
+  const normalized = normalizeValue(value)
+  if (!normalized) {
+    return { artist: '', title: '' }
+  }
+
+  const parts = normalized
+    .split('-')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length < 2) {
+    return { artist: '', title: '' }
+  }
+
+  const [artist, ...titleParts] = parts
+  const title = stripMp3Suffix(titleParts.join(' - ').trim())
+
+  return {
+    artist,
+    title,
+  }
+}
+
 const mapChannelListResponse = (payload) =>
   ensureArray(payload?.channels)
     .map((item) => {
@@ -148,7 +228,10 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
   const activeResource = normalizeValue(status.activeResource)
   const activeStreamName = normalizeValue(status.activeStreamName)
-  const streamName = activeStreamName || normalizeValue(status.activeStream)
+  const activeStream = normalizeValue(status.activeStream)
+  const streamName = stripMp3Suffix(activeStreamName || activeStream)
+  const { artist: streamArtistFallback, title: streamTitleFallback } =
+    parseStreamArtistTitle(activeStream || activeStreamName)
 
   const schedulesWithActive = normalizedSchedules.map((schedule, index) => {
     const metadata = schedule.metadata ? { ...schedule.metadata } : {}
@@ -294,15 +377,87 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const activeSchedule = schedules.find((schedule) => schedule.isActive) || schedules[0]
 
   const metadata = activeSchedule?.metadata || {}
-  const nowPlayingTitle =
-    normalizeValue(metadata.title) ||
-    activeSchedule?.label ||
-    normalizeValue(status.activeStreamName) ||
-    normalizeValue(status.activeStream) ||
-    baseDevice.name
+  const metadataTitleRaw = pickFirstStringValue(metadata, [
+    'trackTitle',
+    'track_title',
+    'track.title',
+    'track.name',
+    'currentTrack.title',
+    'current_track.title',
+    'nowPlaying.title',
+    'now_playing.title',
+    'songTitle',
+    'song_title',
+    'song.title',
+    'streamTitle',
+    'stream_title',
+    'title',
+  ])
+  const metadataTitle = stripMp3Suffix(metadataTitleRaw)
+  const statusTitleRaw = pickFirstStringValue(status, [
+    'trackTitle',
+    'track_title',
+    'nowPlayingTitle',
+    'now_playing_title',
+    'currentTrackTitle',
+    'current_track_title',
+    'currentTitle',
+    'current_title',
+    'streamTitle',
+    'stream_title',
+    'title',
+  ])
+  const statusTitle = stripMp3Suffix(statusTitleRaw)
+  const scheduleLabel = normalizeValue(activeSchedule?.label)
+  const useStreamTitleFallback =
+    !metadataTitle && !statusTitle && Boolean(streamTitleFallback)
+  const nowPlayingTitle = stripMp3Suffix(
+    metadataTitle ||
+      statusTitle ||
+      (useStreamTitleFallback ? streamTitleFallback : '') ||
+      scheduleLabel ||
+      streamName ||
+      baseDevice.name,
+  )
+
+  const metadataArtist = pickFirstStringValue(metadata, [
+    'trackArtist',
+    'track_artist',
+    'track.artist',
+    'track.performer',
+    'currentTrack.artist',
+    'current_track.artist',
+    'nowPlaying.artist',
+    'now_playing.artist',
+    'songArtist',
+    'song_artist',
+    'song.artist',
+    'artistName',
+    'artist_name',
+    'albumArtist',
+    'album_artist',
+    'performer',
+    'artist',
+  ])
+  const statusArtist = pickFirstStringValue(status, [
+    'trackArtist',
+    'track_artist',
+    'nowPlayingArtist',
+    'now_playing_artist',
+    'currentTrackArtist',
+    'current_track_artist',
+    'currentArtist',
+    'current_artist',
+    'artist',
+  ])
+  const scheduleArtist = normalizeValue(activeSchedule?.artist)
+  const useStreamArtistFallback =
+    !metadataArtist && !statusArtist && Boolean(streamArtistFallback)
   const nowPlayingArtist =
-    normalizeValue(metadata.artist) ||
-    activeSchedule?.artist ||
+    metadataArtist ||
+    statusArtist ||
+    (useStreamArtistFallback ? streamArtistFallback : '') ||
+    scheduleArtist ||
     normalizeValue(baseDevice.channel) ||
     'Retail Player'
 
