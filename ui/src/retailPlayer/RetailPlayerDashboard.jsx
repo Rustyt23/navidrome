@@ -717,11 +717,12 @@ const RetailPlayerDashboard = () => {
     const status =
       device?.status && typeof device.status === 'object' ? device.status : {}
 
+    const nowPlaying =
+      device?.nowPlaying && typeof device.nowPlaying === 'object' ? device.nowPlaying : {}
+
     const nowPlayingMetadata =
-      device?.nowPlaying && typeof device.nowPlaying === 'object'
-        ? device.nowPlaying.metadata && typeof device.nowPlaying.metadata === 'object'
-          ? device.nowPlaying.metadata
-          : {}
+      nowPlaying.metadata && typeof nowPlaying.metadata === 'object'
+        ? nowPlaying.metadata
         : {}
 
     const collectUnique = (values, transform) => {
@@ -754,13 +755,13 @@ const RetailPlayerDashboard = () => {
         status.current_channel,
         device?.channel,
       ],
-      (value) => normalizeValue(value),
+      (value) => normalizeValue(value).toLowerCase(),
     )
 
     if (candidateIds.length) {
       const matchById = schedules.find((schedule) => {
         const metadata = schedule?.metadata && typeof schedule.metadata === 'object' ? schedule.metadata : {}
-        const scheduleId = normalizeValue(metadata.channelId)
+        const scheduleId = normalizeValue(metadata.channelId).toLowerCase()
         return scheduleId && candidateIds.includes(scheduleId)
       })
       if (matchById) {
@@ -772,17 +773,20 @@ const RetailPlayerDashboard = () => {
       [
         status.activeResource,
         status.active_resource,
+        status.resource,
         nowPlayingMetadata.activeResource,
         nowPlayingMetadata.active_resource,
         nowPlayingMetadata.resource,
+        nowPlayingMetadata.filename,
+        nowPlaying.streamName,
       ],
-      (value) => normalizeValue(value),
+      (value) => normalizeValue(value).toLowerCase(),
     )
 
     if (candidateResources.length) {
       const matchByResource = schedules.find((schedule) => {
         const metadata = schedule?.metadata && typeof schedule.metadata === 'object' ? schedule.metadata : {}
-        const resource = normalizeValue(metadata.activeResource)
+        const resource = normalizeValue(metadata.activeResource).toLowerCase()
         return resource && candidateResources.includes(resource)
       })
       if (matchByResource) {

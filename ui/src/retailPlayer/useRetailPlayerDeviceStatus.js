@@ -213,19 +213,22 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     })
     .filter(Boolean)
 
-  const activeResource = normalizeValue(status.activeResource)
+  const activeResource = normalizeValue(status.activeResource).toLowerCase()
   const activeStreamName = normalizeValue(status.activeStreamName)
   const activeStream = normalizeValue(status.activeStream)
   const streamName = activeStreamName || activeStream
+  const activeStreamNameKey = deviceSlugKey(activeStreamName || activeStream)
   const { artist: streamArtistFallback, title: streamTitleFallback } =
     parseStreamArtistTitle(activeStream || activeStreamName)
 
   const schedulesWithActive = normalizedSchedules.map((schedule, index) => {
     const metadata = schedule.metadata ? { ...schedule.metadata } : {}
     const matchesResource =
-      activeResource && normalizeValue(metadata.activeResource) === activeResource
+      activeResource &&
+      normalizeValue(metadata.activeResource).toLowerCase() === activeResource
     const matchesChannel =
-      activeStreamName && normalizeValue(metadata.channelName) === activeStreamName
+      activeStreamNameKey &&
+      deviceSlugKey(metadata.channelName) === activeStreamNameKey
     const isActive =
       matchesResource ||
       matchesChannel ||
@@ -268,7 +271,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
     metadataSchedules.forEach((schedule) => {
       const scheduleMetadata = schedule.metadata || {}
-      const idKey = normalizeValue(scheduleMetadata.channelId)
+      const idKey = normalizeValue(scheduleMetadata.channelId).toLowerCase()
       const nameKey = deviceSlugKey(
         normalizeValue(scheduleMetadata.channelName) || schedule.label || schedule.key,
       )
@@ -282,7 +285,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
     const activeMetadata = metadataSchedules.find((schedule) => schedule.isActive) || null
     const activeId =
-      normalizeValue(activeMetadata?.metadata?.channelId) || normalizeValue(baseDevice.channel)
+      normalizeValue(activeMetadata?.metadata?.channelId).toLowerCase() ||
+      normalizeValue(baseDevice.channel).toLowerCase()
     const activeNameKey = activeMetadata
       ? deviceSlugKey(
           normalizeValue(activeMetadata.metadata?.channelName) ||
@@ -292,7 +296,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
       : ''
 
     let mergedSchedules = normalizedChannelList.map((schedule, index) => {
-      const channelId = normalizeValue(schedule.metadata.channelId)
+      const channelId = normalizeValue(schedule.metadata.channelId).toLowerCase()
       const channelName = normalizeValue(schedule.metadata.channelName) || schedule.label
       const nameKey = deviceSlugKey(channelName)
       const metadataMatch =
@@ -333,7 +337,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
     const identifierSet = new Set()
     mergedSchedules.forEach((schedule) => {
-      const idValue = normalizeValue(schedule.metadata?.channelId)
+      const idValue = normalizeValue(schedule.metadata?.channelId).toLowerCase()
       const nameKey = deviceSlugKey(
         normalizeValue(schedule.metadata?.channelName) || schedule.label || schedule.key,
       )
@@ -346,7 +350,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     })
 
     metadataSchedules.forEach((schedule) => {
-      const idValue = normalizeValue(schedule.metadata?.channelId)
+      const idValue = normalizeValue(schedule.metadata?.channelId).toLowerCase()
       const nameKey = deviceSlugKey(
         normalizeValue(schedule.metadata?.channelName) || schedule.label || schedule.key,
       )
