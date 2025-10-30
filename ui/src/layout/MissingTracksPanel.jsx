@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Badge,
   Card,
@@ -15,7 +15,9 @@ import {
 } from '@material-ui/core'
 import { MdOutlineNotifications } from 'react-icons/md'
 import { useTranslate, useNotify } from 'react-admin'
+import { useRefreshOnEvents } from '../common'
 import { httpClient } from '../dataProvider'
+import { REST_URL } from '../consts'
 
 const PAGE_SIZE = 100
 
@@ -81,47 +83,219 @@ const MissingTracksPanel = () => {
   const [totalCount, setTotalCount] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [nextOffset, setNextOffset] = useState(0)
+  const activeRequestRef = useRef({ id: 0, controller: null })
 
   const open = Boolean(anchorEl)
   const classes = useStyles({ open })
 
+  const mergeEntries = useCallback((base, incoming) => {
+    if (!incoming) {
+      return base
+    }
+    const merged = { ...base }
+    Object.keys(incoming).forEach((key) => {
+      const value = incoming[key]
+      if (value === undefined || value === null) {
+        return
+      }
+      if (typeof value === 'string' && value.trim() === '') {
+        return
+      }
+      const existing = merged[key]
+      if (existing === undefined || existing === null || (typeof existing === 'string' && existing.trim() === '')) {
+        merged[key] = value
+      }
+    })
+    return merged
+  }, [])
+
   const fetchEntries = useCallback(
     (offset = 0, append = false) => {
+      const controller = new AbortController()
       const setLoadingState = append ? setLoadingMore : setLoading
+      const nextRequestId = activeRequestRef.current.id + 1
+      const start = Math.max(offset, 0)
+      const end = start + PAGE_SIZE
+
+      if (activeRequestRef.current.controller) {
+        activeRequestRef.current.controller.abort()
+      }
+
+      activeRequestRef.current = {
+        id: nextRequestId,
+        controller,
+      }
+
       setLoadingState(true)
-      const params = new URLSearchParams({
-        limit: PAGE_SIZE.toString(),
-        offset: Math.max(offset, 0).toString(),
+
+      const missingParams = new URLSearchParams({
+        _sort: 'updated_at',
+        _order: 'DESC',
+        _start: start.toString(),
+        _end: end.toString(),
       })
-      httpClient(`/api/notifications/missing-tracks?${params.toString()}`)
-        .then(({ json, headers }) => {
-          const list = Array.isArray(json) ? json : []
-          const totalHeader = headers && headers.get ? headers.get('X-Total-Count') : null
-          const parsedTotal = totalHeader ? parseInt(totalHeader, 10) : NaN
+      missingParams.set('_', Date.now().toString())
+
+      const notificationsParams = new URLSearchParams({
+        limit: PAGE_SIZE.toString(),
+        offset: start.toString(),
+      })
+      notificationsParams.set('_', Date.now().toString())
+
+      const requestOptions = {
+        cache: 'no-store',
+        signal: controller.signal,
+        headers: new Headers({
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        }),
+      }
+
+      const requests = [
+        httpClient(`/api/notifications/missing-tracks?${notificationsParams.toString()}`, requestOptions),
+        httpClient(`${REST_URL}/missing?${missingParams.toString()}`, requestOptions),
+      ]
+
+      return Promise.allSettled(requests)
+        .then((results) => {
+          if (activeRequestRef.current.id !== nextRequestId) {
+            return
+          }
+
+          const [notificationsResult, missingResult] = results
+          const notificationsSuccess =
+            notificationsResult.status === 'fulfilled' ? notificationsResult.value : null
+          const missingSuccess = missingResult.status === 'fulfilled' ? missingResult.value : null
+
+          const isNotificationsError =
+            notificationsResult.status === 'rejected' && notificationsResult.reason?.name !== 'AbortError'
+          const isMissingError =
+            missingResult.status === 'rejected' && missingResult.reason?.name !== 'AbortError'
+
+          if (!notificationsSuccess && !missingSuccess) {
+            if (isNotificationsError || isMissingError) {
+              const error = isMissingError ? missingResult.reason : notificationsResult.reason
+              notify('ra.notification.http_error', 'warning', {
+                messageArgs: { error: (error && error.message) || 'Unknown error' },
+              })
+            }
+            if (!append) {
+              setEntries([])
+              setTotalCount(0)
+              setNextOffset(0)
+              setHasMore(false)
+            }
+            return
+          }
+
+          if (isNotificationsError || isMissingError) {
+            const error = isMissingError ? missingResult.reason : notificationsResult.reason
+            if (error?.name !== 'AbortError') {
+              notify('ra.notification.http_error', 'warning', {
+                messageArgs: { error: (error && error.message) || 'Unknown error' },
+              })
+            }
+          }
+
+          const notificationList = Array.isArray(notificationsSuccess?.json)
+            ? notificationsSuccess.json
+            : []
+          const missingList = Array.isArray(missingSuccess?.json) ? missingSuccess.json : []
+
+          const notificationsHeader = notificationsSuccess?.headers?.get
+            ? notificationsSuccess.headers.get('X-Total-Count')
+            : null
+          const parsedNotificationsTotal = notificationsHeader
+            ? parseInt(notificationsHeader, 10)
+            : NaN
+
+          const missingHeader = missingSuccess?.headers?.get
+            ? missingSuccess.headers.get('X-Total-Count')
+            : null
+          const parsedMissingTotal = (() => {
+            if (!missingHeader) {
+              return missingList.length + (append ? start : 0)
+            }
+            const segments = missingHeader.split('/')
+            const parsed = parseInt(segments[segments.length - 1], 10)
+            if (Number.isNaN(parsed)) {
+              return missingList.length + (append ? start : 0)
+            }
+            return parsed
+          })()
+
           setEntries((prev) => {
-            const nextEntries = append ? [...prev, ...list] : list
-            const totalValue = Number.isNaN(parsedTotal) ? nextEntries.length : parsedTotal
-            setTotalCount(totalValue)
-            setNextOffset(nextEntries.length)
-            setHasMore(nextEntries.length < totalValue && list.length > 0)
+            const previous = append ? prev : []
+            const nextEntriesMap = new Map()
+            const getKey = (entry, fallbackIndex) => {
+              if (!entry) {
+                return `unknown-${fallbackIndex}`
+              }
+              return (
+                entry.id ||
+                entry.path ||
+                entry.trackPath ||
+                `${entry.title || ''}-${entry.artist || ''}` ||
+                `unknown-${fallbackIndex}`
+              )
+            }
+
+            const addEntry = (entry, indexOffset = 0) => {
+              if (!entry) {
+                return
+              }
+              const key = getKey(entry, indexOffset)
+              const existing = nextEntriesMap.get(key)
+              if (existing) {
+                nextEntriesMap.set(key, mergeEntries(existing, entry))
+              } else {
+                nextEntriesMap.set(key, { ...entry })
+              }
+            }
+
+            previous.forEach((entry, index) => addEntry(entry, index))
+            missingList.forEach((entry, index) => addEntry(entry, start + index))
+            notificationList.forEach((entry, index) => addEntry(entry, start + index + missingList.length))
+
+            const nextEntries = Array.from(nextEntriesMap.values())
+
+            const hasMoreMissing =
+              Number.isFinite(parsedMissingTotal) && start + missingList.length < parsedMissingTotal
+            const hasMoreNotifications =
+              Number.isFinite(parsedNotificationsTotal) &&
+              start + notificationList.length < parsedNotificationsTotal
+
+            const computedTotal = Math.max(
+              nextEntries.length,
+              Number.isFinite(parsedMissingTotal) ? parsedMissingTotal : 0,
+              Number.isFinite(parsedNotificationsTotal) ? parsedNotificationsTotal : 0,
+            )
+
+            setTotalCount(computedTotal)
+            setNextOffset(start + Math.max(missingList.length, notificationList.length))
+            setHasMore(
+              (hasMoreMissing || hasMoreNotifications) &&
+              (missingList.length > 0 || notificationList.length > 0),
+            )
+
             return nextEntries
           })
         })
-        .catch((error) => {
-          notify('ra.notification.http_error', 'warning', {
-            messageArgs: { error: error.message || 'Unknown error' },
-          })
-          if (!append) {
-            setEntries([])
-            setTotalCount(0)
-            setNextOffset(0)
-            setHasMore(false)
+        .finally(() => {
+          if (activeRequestRef.current.id !== nextRequestId) {
+            return
+          }
+          setLoadingState(false)
+          if (activeRequestRef.current.controller === controller) {
+            activeRequestRef.current.controller = null
           }
         })
-        .finally(() => setLoadingState(false))
     },
-    [notify],
+    [mergeEntries, notify],
   )
+
+  const refreshEntries = useCallback(() => fetchEntries(0, false), [fetchEntries])
 
   const handleOpen = useCallback(
     (event) => {
@@ -143,9 +317,13 @@ const MissingTracksPanel = () => {
       if (!entry) {
         return ''
       }
-      const rawTitle = (entry.title || '').trim()
-      const rawArtist = (entry.artist || '').trim()
-      const title = rawTitle || translate('notifications.missingTracksUnknownTitle')
+      const rawTitle = (entry.title || entry.name || '').trim()
+      const rawArtist = (entry.artist || entry.artistName || '').trim()
+      const fallbackTitle = (entry.path || '').split(/[/\\]/).pop() || ''
+      const title =
+        rawTitle ||
+        fallbackTitle ||
+        translate('notifications.missingTracksUnknownTitle')
       const unknownArtist = translate('notifications.missingTracksUnknownArtist').trim()
       const hasArtist =
         rawArtist && rawArtist.toLocaleLowerCase() !== unknownArtist.toLocaleLowerCase()
@@ -154,9 +332,34 @@ const MissingTracksPanel = () => {
     [translate],
   )
 
+  const getEntrySecondaryLabel = useCallback((entry) => {
+    if (!entry) {
+      return ''
+    }
+    const details = [entry.libraryName, entry.album || entry.albumName]
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .filter(Boolean)
+    return details.join(' • ')
+  }, [])
+
   useEffect(() => {
     fetchEntries(0, false)
   }, [fetchEntries])
+
+  useEffect(
+    () => () => {
+      if (activeRequestRef.current.controller) {
+        activeRequestRef.current.controller.abort()
+        activeRequestRef.current.controller = null
+      }
+    },
+    [],
+  )
+
+  useRefreshOnEvents({
+    events: ['*'],
+    onRefresh: refreshEntries,
+  })
 
   return (
     <div>
@@ -201,11 +404,18 @@ const MissingTracksPanel = () => {
               </Typography>
             ) : (
               <List className={classes.list} dense>
-                {entries.map((entry, index) => (
-                  <ListItem key={`${entry.title || 'missing'}-${entry.artist || index}-${index}`} className={classes.listItem}>
-                    <ListItemText primary={getEntryLabel(entry)} />
-                  </ListItem>
-                ))}
+                {entries.map((entry, index) => {
+                  const key = entry?.id || entry?.path || `${index}-${entry?.title || 'missing'}`
+                  return (
+                    <ListItem key={key} className={classes.listItem}>
+                      <ListItemText
+                        primary={getEntryLabel(entry)}
+                        secondary={getEntrySecondaryLabel(entry)}
+                        secondaryTypographyProps={{ variant: 'body2', color: 'textSecondary' }}
+                      />
+                    </ListItem>
+                  )
+                })}
                 {hasMore && (
                   <ListItem
                     button
