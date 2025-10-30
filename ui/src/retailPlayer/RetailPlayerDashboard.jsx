@@ -577,6 +577,9 @@ const dummyTracks = [
   },
 ]
 
+const CHANNEL_STATUS_REFRESH_ATTEMPTS = 3
+const CHANNEL_STATUS_REFRESH_DELAY_MS = 1000
+
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
   const { deviceSlug } = useParams()
@@ -603,6 +606,10 @@ const RetailPlayerDashboard = () => {
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
+  const pendingScheduleKeyRef = useRef(null)
+  const latestResolvedDeviceRef = useRef(null)
+  const statusRefreshTimeoutRef = useRef(null)
+  const statusRefreshRemainingRef = useRef(0)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
@@ -684,10 +691,86 @@ const RetailPlayerDashboard = () => {
     return new Date()
   }, [])
 
+  const clearStatusRefreshRetry = useCallback(() => {
+    if (statusRefreshTimeoutRef.current) {
+      window.clearTimeout(statusRefreshTimeoutRef.current)
+      statusRefreshTimeoutRef.current = null
+    }
+    statusRefreshRemainingRef.current = 0
+  }, [])
+
+  const scheduleStatusRefreshRetry = useCallback(
+    (
+      attempts = CHANNEL_STATUS_REFRESH_ATTEMPTS,
+      delayMs = CHANNEL_STATUS_REFRESH_DELAY_MS,
+    ) => {
+      clearStatusRefreshRetry()
+
+      if (!attempts || delayMs <= 0) {
+        return
+      }
+
+      statusRefreshRemainingRef.current = attempts
+
+      const scheduleNextAttempt = () => {
+        if (statusRefreshRemainingRef.current <= 0) {
+          statusRefreshTimeoutRef.current = null
+          return
+        }
+
+        statusRefreshTimeoutRef.current = window.setTimeout(() => {
+          refreshStatus()
+          statusRefreshRemainingRef.current -= 1
+          scheduleNextAttempt()
+        }, delayMs)
+      }
+
+      scheduleNextAttempt()
+    },
+    [clearStatusRefreshRetry, refreshStatus],
+  )
+
   useEffect(() => {
-    setDevice(resolvedDevice || null)
+    latestResolvedDeviceRef.current = resolvedDevice || null
+    setDevice(() => {
+      const nextDevice = resolvedDevice || null
+      if (!nextDevice) {
+        pendingScheduleKeyRef.current = null
+        clearStatusRefreshRetry()
+        return nextDevice
+      }
+
+      const pendingKey = pendingScheduleKeyRef.current
+      if (!pendingKey) {
+        return nextDevice
+      }
+
+      const schedules = Array.isArray(nextDevice.schedules)
+        ? nextDevice.schedules
+        : []
+
+      const pendingSchedule = schedules.find((schedule) => schedule.key === pendingKey)
+      if (!pendingSchedule) {
+        pendingScheduleKeyRef.current = null
+        clearStatusRefreshRetry()
+        return nextDevice
+      }
+
+      if (pendingSchedule.isActive) {
+        pendingScheduleKeyRef.current = null
+        clearStatusRefreshRetry()
+        return nextDevice
+      }
+
+      const patchedSchedules = schedules.map((schedule) => ({
+        ...schedule,
+        isActive: schedule.key === pendingKey,
+      }))
+
+      return { ...nextDevice, schedules: patchedSchedules }
+    })
     setDeviceTime(resolveDeviceTime(resolvedDevice))
-  }, [resolvedDevice, resolveDeviceTime])
+  }, [clearStatusRefreshRetry, resolvedDevice, resolveDeviceTime])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -1023,6 +1106,7 @@ const RetailPlayerDashboard = () => {
 
       const headers = new Headers({ 'Content-Type': 'application/json' })
       const selectedKey = schedule.key
+      pendingScheduleKeyRef.current = selectedKey
 
       httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
         method: 'POST',
@@ -1050,11 +1134,15 @@ const RetailPlayerDashboard = () => {
             }
           })
           refreshStatus()
+          scheduleStatusRefreshRetry()
         })
         .catch((err) => {
           if (err?.name !== 'AbortError') {
             // eslint-disable-next-line no-console
             console.error('Failed to update retail player channel', err)
+            pendingScheduleKeyRef.current = null
+            clearStatusRefreshRetry()
+            setDevice(latestResolvedDeviceRef.current)
           }
         })
         .finally(() => {
@@ -1063,7 +1151,13 @@ const RetailPlayerDashboard = () => {
           }
         })
     },
-    [canControlDevice, deviceApiId, refreshStatus],
+    [
+      canControlDevice,
+      clearStatusRefreshRetry,
+      deviceApiId,
+      refreshStatus,
+      scheduleStatusRefreshRetry,
+    ],
   )
 
   const handleSelectFromDropdown = useCallback(
@@ -1232,7 +1326,8 @@ const RetailPlayerDashboard = () => {
       channelRequestControllerRef.current.abort()
       channelRequestControllerRef.current = null
     }
-  }, [clearVolumeTimeout])
+    clearStatusRefreshRetry()
+  }, [clearStatusRefreshRetry, clearVolumeTimeout])
 
   if (!device) {
     const heading = notFound
