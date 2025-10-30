@@ -640,7 +640,7 @@ const RetailPlayerDashboard = () => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const [selectedChannelId, setSelectedChannelId] = useState(null)
-  const isChangingChannelRef = useRef(false)
+  const [pendingChannelId, setPendingChannelId] = useState(null)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -748,9 +748,9 @@ const RetailPlayerDashboard = () => {
 
   useEffect(() => {
     const activeChannelId = getScheduleChannelId(activeScheduleFromDevice)
-    if (isChangingChannelRef.current) {
-      if (activeChannelId && activeChannelId === selectedChannelId) {
-        isChangingChannelRef.current = false
+    if (pendingChannelId) {
+      if (activeChannelId && activeChannelId === pendingChannelId) {
+        setPendingChannelId((current) => (current === activeChannelId ? null : current))
       }
       return
     }
@@ -763,7 +763,7 @@ const RetailPlayerDashboard = () => {
     if (selectedChannelId !== null) {
       setSelectedChannelId(null)
     }
-  }, [activeScheduleFromDevice, selectedChannelId])
+  }, [activeScheduleFromDevice, pendingChannelId, selectedChannelId])
 
   const activeSchedule = useMemo(() => {
     if (selectedChannelId) {
@@ -778,6 +778,10 @@ const RetailPlayerDashboard = () => {
   }, [activeScheduleFromDevice, schedules, selectedChannelId])
 
   const activeChannelKey = activeSchedule ? activeSchedule.key : null
+  const highlightedChannelId = useMemo(
+    () => selectedChannelId || getScheduleChannelId(activeScheduleFromDevice),
+    [activeScheduleFromDevice, selectedChannelId],
+  )
 
   const availableSchedules = useMemo(
     () => schedules.filter((schedule) => schedule.key !== activeChannelKey),
@@ -1060,7 +1064,7 @@ const RetailPlayerDashboard = () => {
 
       const abortController = new AbortController()
       channelRequestControllerRef.current = abortController
-      isChangingChannelRef.current = true
+      setPendingChannelId(nextChannelId)
       setSelectedChannelId(nextChannelId)
 
       const headers = new Headers({ 'Content-Type': 'application/json' })
@@ -1088,17 +1092,25 @@ const RetailPlayerDashboard = () => {
 
             return {
               ...previous,
+              status: {
+                ...(previous.status && typeof previous.status === 'object'
+                  ? previous.status
+                  : {}),
+                channelId: nextChannelId,
+                channel_id: nextChannelId,
+              },
               schedules: nextSchedules,
             }
           })
           refreshStatus()
+          setPendingChannelId((current) => (current === nextChannelId ? null : current))
         })
         .catch((err) => {
           if (err?.name !== 'AbortError') {
             // eslint-disable-next-line no-console
             console.error('Failed to update retail player channel', err)
-            isChangingChannelRef.current = false
             setSelectedChannelId(previousChannelId)
+            setPendingChannelId((current) => (current === nextChannelId ? null : current))
           }
         })
         .finally(() => {
@@ -1532,7 +1544,10 @@ const RetailPlayerDashboard = () => {
               aria-hidden={!isScheduleMenuOpen}
             >
               {availableSchedules.map((schedule) => {
-                const isActive = schedule.key === activeChannelKey
+                const channelId = getScheduleChannelId(schedule)
+                const isActive = highlightedChannelId
+                  ? channelId === highlightedChannelId
+                  : schedule.key === activeChannelKey
                 return (
                   <ButtonBase
                     key={schedule.key}
