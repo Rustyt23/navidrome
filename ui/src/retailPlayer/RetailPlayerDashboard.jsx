@@ -1039,17 +1039,31 @@ const RetailPlayerDashboard = () => {
           if (err?.name !== 'AbortError') {
             // eslint-disable-next-line no-console
             console.error('Failed to update retail player channel', err)
+            setPendingChannelKey(null)
           }
         })
         .finally(() => {
           if (channelRequestControllerRef.current === abortController) {
             channelRequestControllerRef.current = null
           }
-          setPendingChannelKey(null)
         })
     },
     [canControlDevice, deviceApiId, refreshStatus],
   )
+
+  useEffect(() => {
+    if (!pendingChannelKey) {
+      return
+    }
+
+    const pendingSchedule = schedules.find(
+      (schedule) => schedule.key === pendingChannelKey,
+    )
+
+    if (!pendingSchedule || pendingSchedule.isActive) {
+      setPendingChannelKey(null)
+    }
+  }, [pendingChannelKey, schedules])
 
   const handleSelectFromDropdown = useCallback(
     (schedule) => {
