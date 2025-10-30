@@ -114,6 +114,8 @@ const mapChannelListResponse = (payload) =>
     })
     .filter(Boolean)
 
+const STATUS_REFRESH_INTERVAL_MS = 5000
+
 const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   if (!baseDevice) {
     return null
@@ -552,6 +554,29 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const refresh = useCallback(() => {
     setRefreshIndex((previous) => previous + 1)
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+
+    if (!isApiEnabled || devicesLoading) {
+      return undefined
+    }
+
+    const deviceId = normalizeValue(baseDevice?.apiId)
+    if (!deviceId) {
+      return undefined
+    }
+
+    const intervalId = window.setInterval(() => {
+      refresh()
+    }, STATUS_REFRESH_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [baseDevice?.apiId, devicesLoading, isApiEnabled, refresh])
 
   useEffect(() => {
     if (!isApiEnabled) {
