@@ -13,7 +13,7 @@ import { useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
-import { normalizeValue } from './deviceUtils'
+import { deviceSlugKey, normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
@@ -704,9 +704,136 @@ const RetailPlayerDashboard = () => {
 
   const schedules = useMemo(() => device?.schedules || [], [device])
 
+  const resolvedActiveChannelKey = useMemo(() => {
+    if (!schedules.length) {
+      return null
+    }
+
+    const flaggedActive = schedules.find((schedule) => schedule.isActive)
+    if (flaggedActive) {
+      return flaggedActive.key
+    }
+
+    const status =
+      device?.status && typeof device.status === 'object' ? device.status : {}
+
+    const nowPlayingMetadata =
+      device?.nowPlaying && typeof device.nowPlaying === 'object'
+        ? device.nowPlaying.metadata && typeof device.nowPlaying.metadata === 'object'
+          ? device.nowPlaying.metadata
+          : {}
+        : {}
+
+    const collectUnique = (values, transform) => {
+      const result = []
+      const seen = new Set()
+      values.forEach((value) => {
+        const normalized = transform ? transform(value) : value
+        if (normalized) {
+          const token = String(normalized)
+          if (!seen.has(token)) {
+            seen.add(token)
+            result.push(token)
+          }
+        }
+      })
+      return result
+    }
+
+    const candidateIds = collectUnique(
+      [
+        nowPlayingMetadata.channelId,
+        nowPlayingMetadata.channel_id,
+        nowPlayingMetadata.channel,
+        status.channelId,
+        status.channel_id,
+        status.currentChannelId,
+        status.current_channel_id,
+        status.channel,
+        status.currentChannel,
+        status.current_channel,
+        device?.channel,
+      ],
+      (value) => normalizeValue(value),
+    )
+
+    if (candidateIds.length) {
+      const matchById = schedules.find((schedule) => {
+        const metadata = schedule?.metadata && typeof schedule.metadata === 'object' ? schedule.metadata : {}
+        const scheduleId = normalizeValue(metadata.channelId)
+        return scheduleId && candidateIds.includes(scheduleId)
+      })
+      if (matchById) {
+        return matchById.key
+      }
+    }
+
+    const candidateResources = collectUnique(
+      [
+        status.activeResource,
+        status.active_resource,
+        nowPlayingMetadata.activeResource,
+        nowPlayingMetadata.active_resource,
+        nowPlayingMetadata.resource,
+      ],
+      (value) => normalizeValue(value),
+    )
+
+    if (candidateResources.length) {
+      const matchByResource = schedules.find((schedule) => {
+        const metadata = schedule?.metadata && typeof schedule.metadata === 'object' ? schedule.metadata : {}
+        const resource = normalizeValue(metadata.activeResource)
+        return resource && candidateResources.includes(resource)
+      })
+      if (matchByResource) {
+        return matchByResource.key
+      }
+    }
+
+    const candidateNameKeys = collectUnique(
+      [
+        nowPlayingMetadata.channelName,
+        nowPlayingMetadata.channel_name,
+        nowPlayingMetadata.channel,
+        nowPlayingMetadata.playlistName,
+        nowPlayingMetadata.playlist_name,
+        status.channelName,
+        status.channel_name,
+        status.currentChannelName,
+        status.current_channel_name,
+        status.currentChannel,
+        status.current_channel,
+        status.activeStreamName,
+        status.active_stream_name,
+        status.activeStream,
+        status.active_stream,
+        device?.channel,
+      ],
+      (value) => deviceSlugKey(value),
+    )
+
+    if (candidateNameKeys.length) {
+      const matchByName = schedules.find((schedule) => {
+        const metadata = schedule?.metadata && typeof schedule.metadata === 'object' ? schedule.metadata : {}
+        const scheduleNameKey =
+          deviceSlugKey(metadata.channelName) ||
+          deviceSlugKey(metadata.channel_name) ||
+          deviceSlugKey(metadata.channel) ||
+          deviceSlugKey(schedule.label) ||
+          deviceSlugKey(schedule.key)
+        return scheduleNameKey && candidateNameKeys.includes(scheduleNameKey)
+      })
+      if (matchByName) {
+        return matchByName.key
+      }
+    }
+
+    return schedules[0].key
+  }, [device?.channel, device?.nowPlaying, device?.status, schedules])
+
   const activeChannelKey = useMemo(
-    () => pendingChannelKey || (schedules.find((schedule) => schedule.isActive)?.key ?? null),
-    [pendingChannelKey, schedules],
+    () => pendingChannelKey || resolvedActiveChannelKey,
+    [pendingChannelKey, resolvedActiveChannelKey],
   )
 
   const availableSchedules = useMemo(
@@ -1056,14 +1183,16 @@ const RetailPlayerDashboard = () => {
       return
     }
 
-    const pendingSchedule = schedules.find(
-      (schedule) => schedule.key === pendingChannelKey,
-    )
+    const hasPending = schedules.some((schedule) => schedule.key === pendingChannelKey)
+    if (!hasPending) {
+      setPendingChannelKey(null)
+      return
+    }
 
-    if (!pendingSchedule || pendingSchedule.isActive) {
+    if (pendingChannelKey === resolvedActiveChannelKey) {
       setPendingChannelKey(null)
     }
-  }, [pendingChannelKey, schedules])
+  }, [pendingChannelKey, resolvedActiveChannelKey, schedules])
 
   const handleSelectFromDropdown = useCallback(
     (schedule) => {
