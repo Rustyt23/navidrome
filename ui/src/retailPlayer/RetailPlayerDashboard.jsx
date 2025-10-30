@@ -558,25 +558,6 @@ const useStyles = makeStyles((theme) => {
   }
 })
 
-const dummyTracks = [
-  {
-    title: 'Neon Skyline',
-    artist: 'City Echo',
-    artworkUrl: null,
-  },
-  {
-    title: 'Golden Hours',
-    artist: 'Harbor Lights',
-    artworkUrl:
-      'https://images.unsplash.com/photo-1526285840434-67ff3760c121?auto=format&fit=crop&w=400&q=80',
-  },
-  {
-    title: 'Velvet Static',
-    artist: 'Analog Dream',
-    artworkUrl: null,
-  },
-]
-
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
   const { deviceSlug } = useParams()
@@ -604,7 +585,6 @@ const RetailPlayerDashboard = () => {
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
-  const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
@@ -894,24 +874,24 @@ const RetailPlayerDashboard = () => {
     return null
   }, [device])
 
-  const trackPool = useMemo(() => {
-    if (normalizedDeviceTrack) {
-      return [normalizedDeviceTrack, ...dummyTracks]
-    }
-    return dummyTracks
-  }, [normalizedDeviceTrack])
+  const fallbackTrack = useMemo(() => {
+    const activeScheduleLabel = normalizeValue(activeSchedule?.label)
+    const activeScheduleArtist = normalizeValue(activeSchedule?.artist)
+    const channelName = normalizeValue(device?.channel)
+    const deviceName = normalizeValue(device?.name)
+    const organizationName = normalizeValue(device?.organization)
 
-  useEffect(() => {
-    setCurrentTrackIndex(0)
-  }, [normalizedDeviceTrack])
-
-  const currentTrack = useMemo(() => {
-    if (!trackPool.length) {
-      return { title: 'Now Playing', artist: 'Retail Player', artworkUrl: null }
+    return {
+      title: activeScheduleLabel || channelName || deviceName || 'Now Playing',
+      artist: activeScheduleArtist || channelName || organizationName || 'Retail Player',
+      artworkUrl: null,
     }
-    const index = ((currentTrackIndex % trackPool.length) + trackPool.length) % trackPool.length
-    return trackPool[index]
-  }, [currentTrackIndex, trackPool])
+  }, [activeSchedule?.artist, activeSchedule?.label, device?.channel, device?.name, device?.organization])
+
+  const currentTrack = useMemo(
+    () => normalizedDeviceTrack || fallbackTrack,
+    [fallbackTrack, normalizedDeviceTrack],
+  )
 
   const artworkUrl = device?.nowPlaying?.artworkUrl || null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
@@ -1150,11 +1130,8 @@ const RetailPlayerDashboard = () => {
   }, [sendDislikeNotification])
 
   const handleSkip = useCallback(() => {
-    if (!trackPool.length) {
-      return
-    }
-    setCurrentTrackIndex((previous) => (previous + 1) % trackPool.length)
-  }, [trackPool])
+    refreshStatus()
+  }, [refreshStatus])
 
   const handleShortcutChannel = useCallback(
     (index) => {
