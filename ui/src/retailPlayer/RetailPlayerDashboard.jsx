@@ -13,6 +13,7 @@ import { useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
+import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
@@ -600,6 +601,7 @@ const RetailPlayerDashboard = () => {
   const volumeSyncReadyRef = useRef(false)
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
+  const channelRequestControllerRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
@@ -975,52 +977,92 @@ const RetailPlayerDashboard = () => {
         return
       }
 
-      setDevice((previous) => {
-        if (!previous) {
-          return previous
-        }
+      const metadata =
+        schedule && typeof schedule === 'object' && schedule.metadata && typeof schedule.metadata === 'object'
+          ? schedule.metadata
+          : {}
 
-        const previousSchedules = Array.isArray(previous.schedules)
-          ? previous.schedules
-          : []
-        const nextSchedules = previousSchedules.map((item) => ({
-          ...item,
-          isActive: item.key === schedule.key,
-        }))
+      const rawSchedule = schedule && typeof schedule === 'object' && schedule.raw && typeof schedule.raw === 'object'
+        ? schedule.raw
+        : {}
 
-        const metadata =
-          schedule.metadata && typeof schedule.metadata === 'object'
-            ? schedule.metadata
-            : {}
+      const channelIdCandidates = [
+        metadata.channelId,
+        metadata.channel_id,
+        metadata.channel,
+        metadata.id,
+        schedule.channelId,
+        schedule.channel_id,
+        schedule.id,
+        rawSchedule.id,
+        rawSchedule.channelId,
+        rawSchedule.channel_id,
+      ]
 
-        const nextNowPlaying = {
-          ...(previous.nowPlaying || {}),
-          title:
-            metadata.title ||
-            schedule.label ||
-            previous.nowPlaying?.title ||
-            previous.name,
-          artist:
-            metadata.artist ||
-            schedule.artist ||
-            previous.nowPlaying?.artist ||
-            previous.channel ||
-            'Retail Player',
-          metadata: { ...metadata },
-        }
+      const selectedChannelId = channelIdCandidates
+        .map((candidate) => normalizeValue(candidate))
+        .find((value) => value)
 
-        if (metadata.artworkUrl) {
-          nextNowPlaying.artworkUrl = metadata.artworkUrl
-        }
+      if (!selectedChannelId) {
+        // eslint-disable-next-line no-console
+        console.error('Unable to determine channel id for selection', schedule)
+        return
+      }
 
-        return {
-          ...previous,
-          schedules: nextSchedules,
-          nowPlaying: nextNowPlaying,
-        }
+      if (!canControlDevice || !deviceApiId) {
+        return
+      }
+
+      if (channelRequestControllerRef.current) {
+        channelRequestControllerRef.current.abort()
+      }
+
+      const abortController = new AbortController()
+      channelRequestControllerRef.current = abortController
+
+      const headers = new Headers({ 'Content-Type': 'application/json' })
+      const selectedKey = schedule.key
+
+      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ channel: selectedChannelId }),
+        signal: abortController.signal,
       })
+        .then(() => {
+          setDevice((previous) => {
+            if (!previous) {
+              return previous
+            }
+
+            const previousSchedules = Array.isArray(previous.schedules)
+              ? previous.schedules
+              : []
+            const nextSchedules = previousSchedules.map((item) => ({
+              ...item,
+              isActive: item.key === selectedKey,
+            }))
+
+            return {
+              ...previous,
+              schedules: nextSchedules,
+            }
+          })
+          refreshStatus()
+        })
+        .catch((err) => {
+          if (err?.name !== 'AbortError') {
+            // eslint-disable-next-line no-console
+            console.error('Failed to update retail player channel', err)
+          }
+        })
+        .finally(() => {
+          if (channelRequestControllerRef.current === abortController) {
+            channelRequestControllerRef.current = null
+          }
+        })
     },
-    [],
+    [canControlDevice, deviceApiId, refreshStatus],
   )
 
   const handleSelectFromDropdown = useCallback(
@@ -1184,6 +1226,10 @@ const RetailPlayerDashboard = () => {
     if (dislikeRequestControllerRef.current) {
       dislikeRequestControllerRef.current.abort()
       dislikeRequestControllerRef.current = null
+    }
+    if (channelRequestControllerRef.current) {
+      channelRequestControllerRef.current.abort()
+      channelRequestControllerRef.current = null
     }
   }, [clearVolumeTimeout])
 
