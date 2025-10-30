@@ -474,12 +474,17 @@ const useStyles = makeStyles((theme) => {
       minWidth: 220,
       maxWidth: 360,
       alignSelf: 'stretch',
+      position: 'relative',
       [theme.breakpoints.down('md')]: {
         alignSelf: 'center',
       },
       [theme.breakpoints.down('sm')]: {
         width: '100%',
         minWidth: 'auto',
+      },
+      '&:hover $volumeLabelRow, &:focus-within $volumeLabelRow': {
+        opacity: 1,
+        transform: 'translateY(0)',
       },
     },
     volumeLabelRow: {
@@ -488,6 +493,12 @@ const useStyles = makeStyles((theme) => {
       justifyContent: 'space-between',
       color: theme.palette.text.secondary,
       textTransform: 'lowercase',
+      opacity: 0,
+      pointerEvents: 'none',
+      transform: 'translateY(-6px)',
+      transition: theme.transitions.create(['opacity', 'transform'], {
+        duration: theme.transitions.duration.shortest,
+      }),
     },
     slider: {
       color: sliderMain,
