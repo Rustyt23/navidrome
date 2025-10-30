@@ -20,6 +20,8 @@ const mapDevice = (device) => {
 
   const slug = buildDeviceSlug(device) || fallbackId
   const name = normalizeValue(device.name) || fallbackId
+  const channel = normalizeValue(device.channel)
+  const channelName = normalizeValue(device.channelName)
 
   return {
     id: fallbackId,
@@ -27,7 +29,8 @@ const mapDevice = (device) => {
     name,
     slug,
     slugKey: deviceSlugKey(slug),
-    channel: normalizeValue(device.channel),
+    channel,
+    channelName: channelName || channel,
     channelList: normalizeValue(device.channelList),
     organization:
       normalizeValue(device.organization) ||
