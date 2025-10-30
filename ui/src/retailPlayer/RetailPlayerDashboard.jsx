@@ -592,7 +592,7 @@ const RetailPlayerDashboard = () => {
     notFound,
     isApiEnabled,
   } = useRetailPlayerDeviceStatus(deviceSlug)
-  const [device, setDevice] = useState(resolvedDevice)
+  const device = resolvedDevice
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
@@ -606,6 +606,7 @@ const RetailPlayerDashboard = () => {
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
+  const [pendingChannelKey, setPendingChannelKey] = useState(null)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -685,9 +686,8 @@ const RetailPlayerDashboard = () => {
   }, [])
 
   useEffect(() => {
-    setDevice(resolvedDevice || null)
-    setDeviceTime(resolveDeviceTime(resolvedDevice))
-  }, [resolvedDevice, resolveDeviceTime])
+    setDeviceTime(resolveDeviceTime(device))
+  }, [device, resolveDeviceTime])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -704,10 +704,10 @@ const RetailPlayerDashboard = () => {
 
   const schedules = useMemo(() => device?.schedules || [], [device])
 
-  const activeChannelKey = useMemo(() => {
-    const activeSchedule = schedules.find((schedule) => schedule.isActive)
-    return activeSchedule ? activeSchedule.key : null
-  }, [schedules])
+  const activeChannelKey = useMemo(
+    () => pendingChannelKey || (schedules.find((schedule) => schedule.isActive)?.key ?? null),
+    [pendingChannelKey, schedules],
+  )
 
   const availableSchedules = useMemo(
     () => schedules.filter((schedule) => schedule.key !== activeChannelKey),
@@ -974,6 +974,7 @@ const RetailPlayerDashboard = () => {
 
   const handleSelectChannel = useCallback(
     (schedule) => {
+      setPendingChannelKey(schedule?.key || null)
       if (!schedule) {
         return
       }
@@ -1007,10 +1008,12 @@ const RetailPlayerDashboard = () => {
       if (!selectedChannelId) {
         // eslint-disable-next-line no-console
         console.error('Unable to determine channel id for selection', schedule)
+        setPendingChannelKey(null)
         return
       }
 
       if (!canControlDevice || !deviceApiId) {
+        setPendingChannelKey(null)
         return
       }
 
@@ -1022,7 +1025,6 @@ const RetailPlayerDashboard = () => {
       channelRequestControllerRef.current = abortController
 
       const headers = new Headers({ 'Content-Type': 'application/json' })
-      const selectedKey = schedule.key
 
       httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
         method: 'POST',
@@ -1031,24 +1033,6 @@ const RetailPlayerDashboard = () => {
         signal: abortController.signal,
       })
         .then(() => {
-          setDevice((previous) => {
-            if (!previous) {
-              return previous
-            }
-
-            const previousSchedules = Array.isArray(previous.schedules)
-              ? previous.schedules
-              : []
-            const nextSchedules = previousSchedules.map((item) => ({
-              ...item,
-              isActive: item.key === selectedKey,
-            }))
-
-            return {
-              ...previous,
-              schedules: nextSchedules,
-            }
-          })
           refreshStatus()
         })
         .catch((err) => {
@@ -1061,6 +1045,7 @@ const RetailPlayerDashboard = () => {
           if (channelRequestControllerRef.current === abortController) {
             channelRequestControllerRef.current = null
           }
+          setPendingChannelKey(null)
         })
     },
     [canControlDevice, deviceApiId, refreshStatus],
