@@ -591,6 +591,7 @@ const RetailPlayerDashboard = () => {
     refresh: refreshStatus,
     notFound,
     isApiEnabled,
+    lastUpdated: statusLastUpdated,
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
@@ -603,9 +604,13 @@ const RetailPlayerDashboard = () => {
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
+  const channelPollingIntervalRef = useRef(null)
+  const channelPollingTimeoutRef = useRef(null)
+  const waitingStatusTimestampRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
+  const [isWaitingForChannelUpdate, setIsWaitingForChannelUpdate] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -690,6 +695,33 @@ const RetailPlayerDashboard = () => {
   }, [resolvedDevice, resolveDeviceTime])
 
   useEffect(() => {
+    if (!isWaitingForChannelUpdate) {
+      return
+    }
+
+    const waitingStartTime = waitingStatusTimestampRef.current
+    const lastUpdatedTime =
+      statusLastUpdated instanceof Date && !Number.isNaN(statusLastUpdated.getTime())
+        ? statusLastUpdated.getTime()
+        : null
+
+    if (waitingStartTime !== null && lastUpdatedTime !== null && lastUpdatedTime <= waitingStartTime) {
+      return
+    }
+
+    if (lastUpdatedTime === null) {
+      return
+    }
+
+    waitingStatusTimestampRef.current = lastUpdatedTime
+
+    const activeResource = normalizeValue(resolvedDevice?.status?.activeResource)
+    if (activeResource && activeResource.toLowerCase() !== 'none') {
+      setIsWaitingForChannelUpdate(false)
+    }
+  }, [isWaitingForChannelUpdate, resolvedDevice, statusLastUpdated])
+
+  useEffect(() => {
     const intervalId = window.setInterval(() => {
       setDeviceTime((previous) => {
         if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) {
@@ -701,6 +733,48 @@ const RetailPlayerDashboard = () => {
 
     return () => window.clearInterval(intervalId)
   }, [])
+
+  useEffect(() => {
+    if (!isWaitingForChannelUpdate) {
+      waitingStatusTimestampRef.current = null
+      if (channelPollingIntervalRef.current) {
+        window.clearInterval(channelPollingIntervalRef.current)
+        channelPollingIntervalRef.current = null
+      }
+      if (channelPollingTimeoutRef.current) {
+        window.clearTimeout(channelPollingTimeoutRef.current)
+        channelPollingTimeoutRef.current = null
+      }
+      return undefined
+    }
+
+    refreshStatus()
+
+    const intervalId = window.setInterval(() => {
+      refreshStatus()
+    }, 1000)
+    const timeoutId = window.setTimeout(() => {
+      setIsWaitingForChannelUpdate(false)
+    }, 45000)
+
+    channelPollingIntervalRef.current = intervalId
+    channelPollingTimeoutRef.current = timeoutId
+
+    return () => {
+      if (channelPollingIntervalRef.current) {
+        window.clearInterval(channelPollingIntervalRef.current)
+        channelPollingIntervalRef.current = null
+      } else {
+        window.clearInterval(intervalId)
+      }
+      if (channelPollingTimeoutRef.current) {
+        window.clearTimeout(channelPollingTimeoutRef.current)
+        channelPollingTimeoutRef.current = null
+      } else {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [isWaitingForChannelUpdate, refreshStatus])
 
   const schedules = useMemo(() => device?.schedules || [], [device])
 
@@ -1050,6 +1124,11 @@ const RetailPlayerDashboard = () => {
             }
           })
           refreshStatus()
+          waitingStatusTimestampRef.current =
+            statusLastUpdated instanceof Date && !Number.isNaN(statusLastUpdated.getTime())
+              ? statusLastUpdated.getTime()
+              : null
+          setIsWaitingForChannelUpdate(true)
         })
         .catch((err) => {
           if (err?.name !== 'AbortError') {
@@ -1063,7 +1142,7 @@ const RetailPlayerDashboard = () => {
           }
         })
     },
-    [canControlDevice, deviceApiId, refreshStatus],
+    [canControlDevice, deviceApiId, refreshStatus, statusLastUpdated],
   )
 
   const handleSelectFromDropdown = useCallback(
@@ -1231,6 +1310,14 @@ const RetailPlayerDashboard = () => {
     if (channelRequestControllerRef.current) {
       channelRequestControllerRef.current.abort()
       channelRequestControllerRef.current = null
+    }
+    if (channelPollingIntervalRef.current) {
+      window.clearInterval(channelPollingIntervalRef.current)
+      channelPollingIntervalRef.current = null
+    }
+    if (channelPollingTimeoutRef.current) {
+      window.clearTimeout(channelPollingTimeoutRef.current)
+      channelPollingTimeoutRef.current = null
     }
   }, [clearVolumeTimeout])
 
