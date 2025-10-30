@@ -44,7 +44,21 @@ const readNestedValue = (source, path) => {
     if (!current || typeof current !== 'object') {
       return undefined
     }
-    return current[segment]
+
+    if (Object.prototype.hasOwnProperty.call(current, segment)) {
+      return current[segment]
+    }
+
+    const segmentLower = segment.toLowerCase()
+    const matchingKey = Object.keys(current).find(
+      (key) => String(key).toLowerCase() === segmentLower,
+    )
+
+    if (matchingKey) {
+      return current[matchingKey]
+    }
+
+    return undefined
   }, source)
 }
 
@@ -93,23 +107,136 @@ const parseStreamArtistTitle = (value) => {
   }
 }
 
+const parseNowPlayingString = (value, channelCandidates, artistCandidates) => {
+  const normalized = normalizeValue(value)
+  if (!normalized) {
+    return { title: '', artist: '' }
+  }
+
+  const channelSet = new Set(
+    ensureArray(channelCandidates)
+      .map((candidate) => normalizeValue(candidate))
+      .filter(Boolean)
+      .map((candidate) => candidate.toLowerCase()),
+  )
+
+  const artistSet = new Set(
+    ensureArray(artistCandidates)
+      .map((candidate) => normalizeValue(candidate))
+      .filter(Boolean)
+      .map((candidate) => candidate.toLowerCase()),
+  )
+
+  const separators = ['|', '-', '–', '—', '·', '/', '•']
+
+  const evaluatePairs = (parts, separator) => {
+    if (!Array.isArray(parts) || parts.length < 2) {
+      return null
+    }
+
+    const trimmedParts = parts.map((part) => normalizeValue(part)).filter(Boolean)
+    if (trimmedParts.length < 2) {
+      return null
+    }
+
+    const joinedTail = trimmedParts.slice(1).join(separator === '|' ? '|' : ` ${separator} `)
+    const joinedHead = trimmedParts
+      .slice(0, trimmedParts.length - 1)
+      .join(separator === '|' ? '|' : ` ${separator} `)
+
+    const candidatePairs = []
+    candidatePairs.push({ title: trimmedParts[0], artist: joinedTail })
+    if (trimmedParts.length === 2) {
+      candidatePairs.push({ title: trimmedParts[1], artist: trimmedParts[0] })
+    } else if (trimmedParts.length > 2) {
+      candidatePairs.push({ title: trimmedParts[trimmedParts.length - 1], artist: joinedHead })
+    }
+
+    for (let index = 0; index < candidatePairs.length; index += 1) {
+      const pair = candidatePairs[index]
+      const titleLower = normalizeValue(pair.title).toLowerCase()
+      const artistLower = normalizeValue(pair.artist).toLowerCase()
+      const titleMatchesChannel = channelSet.has(titleLower)
+      const artistMatchesChannel = channelSet.has(artistLower)
+      const artistMatchesKnown = artistSet.has(artistLower)
+      const titleMatchesKnownArtist = artistSet.has(titleLower)
+
+      if (titleMatchesChannel && !artistMatchesChannel) {
+        continue
+      }
+
+      if (titleMatchesKnownArtist && !artistMatchesKnown) {
+        continue
+      }
+
+      return pair
+    }
+
+    const fallbackPair = candidatePairs.find((pair) => {
+      const titleLower = normalizeValue(pair.title).toLowerCase()
+      return !channelSet.has(titleLower)
+    })
+
+    return fallbackPair || null
+  }
+
+  for (let index = 0; index < separators.length; index += 1) {
+    const separator = separators[index]
+    if (!normalized.includes(separator)) {
+      continue
+    }
+
+    const parts = normalized.split(separator)
+    const evaluated = evaluatePairs(parts, separator)
+    if (evaluated) {
+      return evaluated
+    }
+  }
+
+  return { title: '', artist: '' }
+}
+
+const sanitizeCandidate = (value, invalidCandidates) => {
+  const normalized = normalizeValue(value)
+  if (!normalized) {
+    return ''
+  }
+
+  const invalidSet = new Set(
+    ensureArray(invalidCandidates)
+      .map((candidate) => normalizeValue(candidate))
+      .filter(Boolean)
+      .map((candidate) => candidate.toLowerCase()),
+  )
+
+  return invalidSet.has(normalized.toLowerCase()) ? '' : normalized
+}
+
 const mapChannelListResponse = (payload) =>
   ensureArray(payload?.channels)
-    .map((item) => {
+    .map((item, index) => {
       if (!item || typeof item !== 'object') {
         return null
       }
 
-      const id = normalizeValue(item.id)
-      const name = normalizeValue(item.name)
+      const id = pickFirstStringValue(item, ['id', 'channelId', 'channel_id'])
+      const name = pickFirstStringValue(item, [
+        'name',
+        'channelName',
+        'channel_name',
+        'label',
+        'title',
+      ])
 
       if (!id && !name) {
         return null
       }
 
+      const resolvedName = name || id || `Channel ${index + 1}`
+
       return {
-        id,
-        name: name || id,
+        id: id || resolvedName,
+        name: resolvedName,
       }
     })
     .filter(Boolean)
@@ -138,8 +265,14 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
         return null
       }
 
-      const channelId = normalizeValue(channel.id)
-      const channelName = normalizeValue(channel.name)
+      const channelId = pickFirstStringValue(channel, ['id', 'channelId', 'channel_id'])
+      const channelName = pickFirstStringValue(channel, [
+        'name',
+        'channelName',
+        'channel_name',
+        'label',
+        'title',
+      ])
       if (!channelId && !channelName) {
         return null
       }
@@ -172,23 +305,32 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const normalizedSchedules = streamMetadata
     .map((item, index) => {
       const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
-      const channelName = normalizeValue(item.channelName)
+      const channelName = pickFirstStringValue(item, [
+        'channelName',
+        'channel_name',
+        'name',
+      ])
       const keyCandidates = [
         channelName,
-        normalizeValue(item.activeResource),
-        normalizeValue(item.filename),
+        pickFirstStringValue(item, ['activeResource', 'active_resource', 'resource']),
+        pickFirstStringValue(item, ['filename', 'fileName', 'file_name']),
         `channel-${index + 1}`,
       ]
       const key = keyCandidates.find((candidate) => candidate) || `channel-${index + 1}`
       const labelCandidates = [
         channelName,
-        normalizeValue(metadata.title),
-        normalizeValue(item.filename),
+        pickFirstStringValue(metadata, ['title', 'label', 'name']),
+        pickFirstStringValue(item, ['filename', 'fileName', 'file_name']),
         `Channel ${index + 1}`,
       ]
       const label = labelCandidates.find((candidate) => candidate) || key
       const artistCandidates = [
-        normalizeValue(metadata.artist),
+        pickFirstStringValue(metadata, [
+          'artist',
+          'performer',
+          'artistName',
+          'artist_name',
+        ]),
         normalizeValue(baseDevice.channel),
         normalizeValue(baseDevice.organization),
         baseDevice.name,
@@ -317,6 +459,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
       return {
         ...schedule,
+        label: mergedMetadata.channelName || schedule.label,
         artist: artist || schedule.artist,
         metadata: mergedMetadata,
         isActive,
@@ -364,7 +507,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const activeSchedule = schedules.find((schedule) => schedule.isActive) || schedules[0]
 
   const metadata = activeSchedule?.metadata || {}
-  const metadataTitle = pickFirstStringValue(metadata, [
+  const metadataTitleRaw = pickFirstStringValue(metadata, [
     'trackTitle',
     'track_title',
     'track.title',
@@ -380,7 +523,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'stream_title',
     'title',
   ])
-  const statusTitle = pickFirstStringValue(status, [
+  const statusTitleRaw = pickFirstStringValue(status, [
     'trackTitle',
     'track_title',
     'nowPlayingTitle',
@@ -393,18 +536,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'stream_title',
     'title',
   ])
-  const scheduleLabel = normalizeValue(activeSchedule?.label)
-  const useStreamTitleFallback =
-    !metadataTitle && !statusTitle && Boolean(streamTitleFallback)
-  const nowPlayingTitle =
-    metadataTitle ||
-    statusTitle ||
-    (useStreamTitleFallback ? streamTitleFallback : '') ||
-    scheduleLabel ||
-    streamName ||
-    baseDevice.name
-
-  const metadataArtist = pickFirstStringValue(metadata, [
+  const metadataArtistRaw = pickFirstStringValue(metadata, [
     'trackArtist',
     'track_artist',
     'track.artist',
@@ -423,7 +555,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'performer',
     'artist',
   ])
-  const statusArtist = pickFirstStringValue(status, [
+  const statusArtistRaw = pickFirstStringValue(status, [
     'trackArtist',
     'track_artist',
     'nowPlayingArtist',
@@ -434,12 +566,90 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'current_artist',
     'artist',
   ])
+  const scheduleLabel = normalizeValue(activeSchedule?.label)
   const scheduleArtist = normalizeValue(activeSchedule?.artist)
+
+  const channelNameCandidate = pickFirstStringValue(metadata, [
+    'channelName',
+    'channel_name',
+  ])
+  const channelLabelCandidates = [
+    channelNameCandidate,
+    scheduleLabel,
+    normalizeValue(baseDevice.channel),
+    streamName,
+    baseDevice.name,
+  ].filter(Boolean)
+
+  const combinedNowPlayingValues = [
+    pickFirstStringValue(metadata, [
+      'nowPlaying',
+      'now_playing',
+      'currentTrack',
+      'current_track',
+      'track',
+      'streamTitle',
+      'stream_title',
+    ]),
+    pickFirstStringValue(status, [
+      'nowPlaying',
+      'now_playing',
+      'currentTrack',
+      'current_track',
+      'track',
+      'streamTitle',
+      'stream_title',
+    ]),
+  ]
+
+  const knownArtistCandidates = [
+    metadataArtistRaw,
+    statusArtistRaw,
+    scheduleArtist,
+    streamArtistFallback,
+    normalizeValue(baseDevice.organization),
+    normalizeValue(baseDevice.channel),
+  ].filter(Boolean)
+
+  const parsedCombined =
+    combinedNowPlayingValues
+      .map((candidate) =>
+        parseNowPlayingString(candidate, channelLabelCandidates, knownArtistCandidates),
+      )
+      .find((parsed) => parsed.title || parsed.artist) || { title: '', artist: '' }
+
+  const useStreamTitleFallback =
+    !metadataTitleRaw && !statusTitleRaw && Boolean(streamTitleFallback)
+
+  const sanitizedMetadataTitle = sanitizeCandidate(
+    metadataTitleRaw,
+    channelLabelCandidates,
+  )
+  const sanitizedStatusTitle = sanitizeCandidate(statusTitleRaw, channelLabelCandidates)
+  const sanitizedParsedTitle = sanitizeCandidate(parsedCombined.title, channelLabelCandidates)
+  const sanitizedStreamFallback = sanitizeCandidate(
+    useStreamTitleFallback ? streamTitleFallback : '',
+    channelLabelCandidates,
+  )
+
+  const nowPlayingTitle =
+    sanitizedMetadataTitle ||
+    sanitizedStatusTitle ||
+    sanitizedParsedTitle ||
+    sanitizedStreamFallback ||
+    scheduleLabel ||
+    streamName ||
+    baseDevice.name
+
   const useStreamArtistFallback =
-    !metadataArtist && !statusArtist && Boolean(streamArtistFallback)
+    !metadataArtistRaw && !statusArtistRaw && Boolean(streamArtistFallback)
+
+  const sanitizedParsedArtist = sanitizeCandidate(parsedCombined.artist, channelLabelCandidates)
+
   const nowPlayingArtist =
-    metadataArtist ||
-    statusArtist ||
+    metadataArtistRaw ||
+    statusArtistRaw ||
+    sanitizedParsedArtist ||
     (useStreamArtistFallback ? streamArtistFallback : '') ||
     scheduleArtist ||
     normalizeValue(baseDevice.channel) ||
