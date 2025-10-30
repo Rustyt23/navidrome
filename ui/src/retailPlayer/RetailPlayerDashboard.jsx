@@ -94,6 +94,7 @@ const useStyles = makeStyles((theme) => {
       flexWrap: 'wrap',
       width: '100%',
       maxWidth: 960,
+      paddingLeft: theme.spacing(2),
       [theme.breakpoints.down('sm')]: {
         justifyContent: 'center',
         textAlign: 'center',

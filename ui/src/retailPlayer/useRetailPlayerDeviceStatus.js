@@ -69,6 +69,30 @@ const pickFirstStringValue = (source, candidates) => {
   return ''
 }
 
+const parseStreamArtistTitle = (value) => {
+  const normalized = normalizeValue(value)
+  if (!normalized) {
+    return { artist: '', title: '' }
+  }
+
+  const parts = normalized
+    .split('-')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length < 2) {
+    return { artist: '', title: '' }
+  }
+
+  const [artist, ...titleParts] = parts
+  const title = titleParts.join(' - ').trim()
+
+  return {
+    artist,
+    title,
+  }
+}
+
 const mapChannelListResponse = (payload) =>
   ensureArray(payload?.channels)
     .map((item) => {
@@ -191,7 +215,10 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
   const activeResource = normalizeValue(status.activeResource)
   const activeStreamName = normalizeValue(status.activeStreamName)
-  const streamName = activeStreamName || normalizeValue(status.activeStream)
+  const activeStream = normalizeValue(status.activeStream)
+  const streamName = activeStreamName || activeStream
+  const { artist: streamArtistFallback, title: streamTitleFallback } =
+    parseStreamArtistTitle(activeStream || activeStreamName)
 
   const schedulesWithActive = normalizedSchedules.map((schedule, index) => {
     const metadata = schedule.metadata ? { ...schedule.metadata } : {}
@@ -367,12 +394,14 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'title',
   ])
   const scheduleLabel = normalizeValue(activeSchedule?.label)
+  const useStreamTitleFallback =
+    !metadataTitle && !statusTitle && Boolean(streamTitleFallback)
   const nowPlayingTitle =
     metadataTitle ||
     statusTitle ||
+    (useStreamTitleFallback ? streamTitleFallback : '') ||
     scheduleLabel ||
-    normalizeValue(status.activeStreamName) ||
-    normalizeValue(status.activeStream) ||
+    streamName ||
     baseDevice.name
 
   const metadataArtist = pickFirstStringValue(metadata, [
@@ -406,9 +435,12 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'artist',
   ])
   const scheduleArtist = normalizeValue(activeSchedule?.artist)
+  const useStreamArtistFallback =
+    !metadataArtist && !statusArtist && Boolean(streamArtistFallback)
   const nowPlayingArtist =
     metadataArtist ||
     statusArtist ||
+    (useStreamArtistFallback ? streamArtistFallback : '') ||
     scheduleArtist ||
     normalizeValue(baseDevice.channel) ||
     'Retail Player'
