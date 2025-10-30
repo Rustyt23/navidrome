@@ -859,7 +859,11 @@ const RetailPlayerDashboard = () => {
     if (typeof device.nowPlaying === 'object' && device.nowPlaying !== null) {
       return {
         title: device.nowPlaying.title || 'Now Playing',
-        artist: device.nowPlaying.artist || device.channel || 'Retail Player',
+        artist:
+          device.nowPlaying.artist ||
+          device.channelName ||
+          device.channel ||
+          'Retail Player',
         artworkUrl: device.nowPlaying.artworkUrl || null,
       }
     }
@@ -867,7 +871,9 @@ const RetailPlayerDashboard = () => {
       const [titlePart, artistPart] = device.nowPlaying.split('|')
       return {
         title: titlePart ? titlePart.trim() : device.nowPlaying,
-        artist: artistPart ? artistPart.trim() : device.channel || 'Retail Player',
+        artist: artistPart
+          ? artistPart.trim()
+          : device.channelName || device.channel || 'Retail Player',
         artworkUrl: null,
       }
     }
@@ -877,7 +883,7 @@ const RetailPlayerDashboard = () => {
   const fallbackTrack = useMemo(() => {
     const activeScheduleLabel = normalizeValue(activeSchedule?.label)
     const activeScheduleArtist = normalizeValue(activeSchedule?.artist)
-    const channelName = normalizeValue(device?.channel)
+    const channelName = normalizeValue(device?.channelName) || normalizeValue(device?.channel)
     const deviceName = normalizeValue(device?.name)
     const organizationName = normalizeValue(device?.organization)
 
@@ -886,7 +892,14 @@ const RetailPlayerDashboard = () => {
       artist: activeScheduleArtist || channelName || organizationName || 'Retail Player',
       artworkUrl: null,
     }
-  }, [activeSchedule?.artist, activeSchedule?.label, device?.channel, device?.name, device?.organization])
+  }, [
+    activeSchedule?.artist,
+    activeSchedule?.label,
+    device?.channel,
+    device?.channelName,
+    device?.name,
+    device?.organization,
+  ])
 
   const currentTrack = useMemo(
     () => normalizedDeviceTrack || fallbackTrack,
@@ -990,6 +1003,22 @@ const RetailPlayerDashboard = () => {
         return
       }
 
+      const channelNameCandidates = [
+        metadata.channelName,
+        metadata.channel_name,
+        metadata.name,
+        schedule.label,
+        schedule.name,
+        schedule.key,
+        rawSchedule.name,
+        rawSchedule.channelName,
+        rawSchedule.channel_name,
+      ]
+
+      const selectedChannelName = channelNameCandidates
+        .map((candidate) => normalizeValue(candidate))
+        .find((value) => value)
+
       if (!canControlDevice || !deviceApiId) {
         return
       }
@@ -1026,6 +1055,8 @@ const RetailPlayerDashboard = () => {
 
             return {
               ...previous,
+              channel: selectedChannelId || previous.channel,
+              channelName: selectedChannelName || previous.channelName || previous.channel,
               schedules: nextSchedules,
             }
           })

@@ -246,7 +246,7 @@ const RetailPlayerDevicesList = () => {
                   {device.name}
                 </span>
                 <span className={classes.cell} data-area="channel">
-                  {device.channel}
+                  {device.channelName || device.channel}
                 </span>
                 <span className={classes.cell} data-area="channelList">
                   {device.channelList}

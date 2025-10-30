@@ -245,14 +245,17 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     }
   })
 
+  const baseChannelId = normalizeValue(baseDevice.channel)
+  const baseChannelName = normalizeValue(baseDevice.channelName)
+
   const fallbackSchedule = {
     key: buildDeviceSlug(baseDevice) || baseDevice.id,
-    label: normalizeValue(baseDevice.channel) || baseDevice.name,
+    label: baseChannelName || baseChannelId || baseDevice.name,
     artist: normalizeValue(baseDevice.organization) || baseDevice.name,
     isActive: true,
     metadata: {
-      channelId: normalizeValue(baseDevice.channel),
-      channelName: normalizeValue(baseDevice.channel) || baseDevice.name,
+      channelId: baseChannelId,
+      channelName: baseChannelName || baseChannelId || baseDevice.name,
     },
   }
 
@@ -394,6 +397,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'title',
   ])
   const scheduleLabel = normalizeValue(activeSchedule?.label)
+  const metadataChannelId = normalizeValue(metadata.channelId)
+  const metadataChannelName = normalizeValue(metadata.channelName)
   const useStreamTitleFallback =
     !metadataTitle && !statusTitle && Boolean(streamTitleFallback)
   const nowPlayingTitle =
@@ -442,8 +447,26 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     statusArtist ||
     (useStreamArtistFallback ? streamArtistFallback : '') ||
     scheduleArtist ||
-    normalizeValue(baseDevice.channel) ||
+    metadataChannelName ||
+    baseChannelName ||
+    baseChannelId ||
     'Retail Player'
+
+  const activeChannelId =
+    metadataChannelId || normalizeValue(status.channelId) || baseChannelId
+
+  const activeChannelName =
+    metadataChannelName ||
+    scheduleLabel ||
+    normalizeValue(status.activeStreamName) ||
+    streamName ||
+    baseChannelName ||
+    baseChannelId ||
+    baseDevice.name
+
+  const nextChannelId = activeChannelId || baseChannelId
+  const nextChannelName =
+    activeChannelName || baseChannelName || nextChannelId || baseDevice.name
 
   const volume = metadata.volume ?? parseVolume(status.volume)
 
@@ -470,6 +493,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
   return {
     ...baseDevice,
+    channel: nextChannelId || baseDevice.channel,
+    channelName: nextChannelName,
     isConnected,
     hasSignal,
     isMuted: volume === 0,
