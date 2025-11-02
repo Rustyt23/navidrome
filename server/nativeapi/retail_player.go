@@ -365,12 +365,15 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 			return
 		}
 
+		log.Info(ctx, "Retail player channel toggle requested", "deviceID", deviceID)
+
 		var payload toggleRequest
 		if r.Body != nil {
 			decoder := json.NewDecoder(r.Body)
 			decoder.DisallowUnknownFields()
 			if err := decoder.Decode(&payload); err != nil {
 				if !errors.Is(err, io.EOF) {
+					log.Error(ctx, "Invalid toggle channel payload", "deviceID", deviceID, "err", err)
 					http.Error(w, "Invalid toggle channel payload", http.StatusBadRequest)
 					return
 				}
@@ -381,10 +384,14 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 		channelListID := strings.TrimSpace(payload.ChannelList)
 		alternateChannelID := strings.TrimSpace(payload.AlternateChannel)
 
+		log.Info(ctx, "Retail player toggle payload received", "deviceID", deviceID, "channel", currentChannelID, "channelList", channelListID, "alternateChannel", alternateChannelID)
+
 		if currentChannelID == "" || channelListID == "" {
+			log.Info(ctx, "Fetching device metadata for toggle", "deviceID", deviceID)
 			device, err := fetchRetailPlayerDevice(ctx, deviceID)
 			if err != nil {
 				if errors.Is(err, errRetailPlayerDeviceNotFound) {
+					log.Info(ctx, "Retail player device not found during toggle", "deviceID", deviceID)
 					http.Error(w, "Retail player device not found", http.StatusNotFound)
 					return
 				}
@@ -393,6 +400,8 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 				http.Error(w, "Unable to fetch device information", http.StatusBadGateway)
 				return
 			}
+
+			log.Info(ctx, "Retail player device metadata fetched for toggle", "deviceID", deviceID, "channel", device.Channel, "channelList", device.ChannelList)
 
 			if currentChannelID == "" {
 				currentChannelID = strings.TrimSpace(device.Channel)
@@ -403,20 +412,24 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 		}
 
 		if currentChannelID == "" {
+			log.Error(ctx, "Missing channel id for toggle", "deviceID", deviceID)
 			http.Error(w, "Channel id is required", http.StatusBadRequest)
 			return
 		}
 
 		if alternateChannelID != "" && strings.EqualFold(alternateChannelID, currentChannelID) {
+			log.Info(ctx, "Ignoring alternate channel identical to current", "deviceID", deviceID, "channel", currentChannelID)
 			alternateChannelID = ""
 		}
 
 		if alternateChannelID == "" {
 			if channelListID == "" {
+				log.Error(ctx, "Missing channel list for toggle", "deviceID", deviceID)
 				http.Error(w, "Channel list id is required to toggle channel", http.StatusBadRequest)
 				return
 			}
 
+			log.Info(ctx, "Fetching channel list for toggle", "deviceID", deviceID, "channelListID", channelListID)
 			response, err := fetchRetailPlayerChannelListChannels(ctx, channelListID)
 			if err != nil {
 				log.Error(ctx, "Unable to fetch retail player channel list", "deviceID", deviceID, "channelListID", channelListID, "err", err)
@@ -436,11 +449,13 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 					continue
 				}
 				alternateChannelID = candidate
+				log.Info(ctx, "Selected alternate channel for toggle", "deviceID", deviceID, "alternateChannelID", alternateChannelID)
 				break
 			}
 		}
 
 		if alternateChannelID == "" {
+			log.Error(ctx, "No alternate channel found for toggle", "deviceID", deviceID, "channelListID", channelListID)
 			http.Error(w, "No alternate channel available to toggle", http.StatusBadRequest)
 			return
 		}
@@ -454,12 +469,14 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 			},
 		}
 
+		log.Info(ctx, "Sending alternate channel command", "deviceID", deviceID, "alternateChannelID", alternateChannelID)
 		alternateResponse, err := n.sendRetailPlayerDeviceCommand(ctx, deviceID, alternateCommand)
 		if err != nil {
 			log.Error(ctx, "Unable to send retail player alternate channel command", "deviceID", deviceID, "alternateChannelID", alternateChannelID, "err", err)
 			http.Error(w, "Unable to toggle device channel", http.StatusBadGateway)
 			return
 		}
+		log.Info(ctx, "Alternate channel command acknowledged", "deviceID", deviceID, "alternateChannelID", alternateChannelID, "response", strings.TrimSpace(alternateResponse))
 
 		restoreCommand := retailPlayerCommandRequest{
 			Type: "set_channel",
@@ -468,12 +485,14 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 			},
 		}
 
+		log.Info(ctx, "Restoring original channel", "deviceID", deviceID, "currentChannelID", currentChannelID)
 		restoreResponse, err := n.sendRetailPlayerDeviceCommand(ctx, deviceID, restoreCommand)
 		if err != nil {
 			log.Error(ctx, "Unable to restore retail player channel", "deviceID", deviceID, "currentChannelID", currentChannelID, "err", err)
 			http.Error(w, "Unable to restore device channel", http.StatusBadGateway)
 			return
 		}
+		log.Info(ctx, "Original channel restored", "deviceID", deviceID, "currentChannelID", currentChannelID, "response", strings.TrimSpace(restoreResponse))
 
 		response := map[string]any{
 			"success":          true,
@@ -490,6 +509,7 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 			delete(response, "restoreMessage")
 		}
 
+		log.Info(ctx, "Retail player toggle completed", "deviceID", deviceID, "channel", currentChannelID, "alternateChannel", alternateChannelID)
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, response)
 	}
 }
