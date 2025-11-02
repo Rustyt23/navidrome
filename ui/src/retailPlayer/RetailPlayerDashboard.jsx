@@ -609,6 +609,20 @@ const RetailPlayerDashboard = () => {
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
 
+  useEffect(() => {
+    if (!isApiEnabled) {
+      return undefined
+    }
+
+    const intervalId = window.setInterval(() => {
+      refreshStatus()
+    }, 3000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [isApiEnabled, refreshStatus])
+
   const deviceApiId = useMemo(() => {
     if (resolvedDevice?.apiId) {
       return resolvedDevice.apiId
@@ -1152,8 +1166,83 @@ const RetailPlayerDashboard = () => {
     if (!trackPool.length) {
       return
     }
+
     setCurrentTrackIndex((previous) => (previous + 1) % trackPool.length)
-  }, [trackPool])
+
+    if (!canControlDevice || !deviceApiId) {
+      return
+    }
+
+    const activeMetadata =
+      activeSchedule && typeof activeSchedule === 'object' && activeSchedule.metadata
+        ? activeSchedule.metadata
+        : {}
+
+    const channelIdCandidates = [
+      normalizeValue(activeMetadata?.channelId),
+      normalizeValue(activeMetadata?.channel_id),
+      normalizeValue(activeMetadata?.channel),
+      normalizeValue(device?.channel),
+    ]
+    const channelListCandidates = [
+      normalizeValue(baseDevice?.channelList),
+      normalizeValue(device?.channelList),
+    ]
+
+    const resolvedChannelId = channelIdCandidates.find((candidate) => candidate) || ''
+    const resolvedChannelListId = channelListCandidates.find((candidate) => candidate) || ''
+
+    if (!resolvedChannelId && !resolvedChannelListId) {
+      return
+    }
+
+    if (channelRequestControllerRef.current) {
+      channelRequestControllerRef.current.abort()
+    }
+
+    const abortController = new AbortController()
+    channelRequestControllerRef.current = abortController
+
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    const body = {}
+
+    if (resolvedChannelId) {
+      body.channel = resolvedChannelId
+    }
+    if (resolvedChannelListId) {
+      body.channelList = resolvedChannelListId
+    }
+
+    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel/toggle`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: abortController.signal,
+    })
+      .then(() => {
+        refreshStatus()
+      })
+      .catch((err) => {
+        if (err?.name !== 'AbortError') {
+          // eslint-disable-next-line no-console
+          console.error('Failed to toggle retail player channel', err)
+        }
+      })
+      .finally(() => {
+        if (channelRequestControllerRef.current === abortController) {
+          channelRequestControllerRef.current = null
+        }
+      })
+  }, [
+    activeSchedule,
+    baseDevice?.channelList,
+    canControlDevice,
+    device?.channel,
+    device?.channelList,
+    deviceApiId,
+    refreshStatus,
+    trackPool,
+  ])
 
   const handleShortcutChannel = useCallback(
     (index) => {
