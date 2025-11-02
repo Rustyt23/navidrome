@@ -26,6 +26,29 @@ const parseVolume = (value) => {
 
 const ensureArray = (value) => (Array.isArray(value) ? value : [])
 
+const parseStreamValue = (value) => {
+  const normalized = normalizeValue(value)
+  if (!normalized) {
+    return { title: '', artist: '' }
+  }
+
+  const cleaned = normalized.replace(/\.(mp3|flac|wav|m4a|aac|ogg)$/i, '').trim()
+  if (!cleaned) {
+    return { title: '', artist: '' }
+  }
+
+  const hyphenIndex = cleaned.indexOf('-')
+  if (hyphenIndex > -1) {
+    const artistPart = cleaned.slice(0, hyphenIndex).trim()
+    const titlePart = cleaned.slice(hyphenIndex + 1).trim()
+    if (artistPart && titlePart) {
+      return { title: titlePart, artist: artistPart }
+    }
+  }
+
+  return { title: cleaned, artist: '' }
+}
+
 const readNestedValue = (source, path) => {
   if (!source || typeof source !== 'object' || !path) {
     return undefined
@@ -192,6 +215,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const activeResource = normalizeValue(status.activeResource)
   const activeStreamName = normalizeValue(status.activeStreamName)
   const streamName = activeStreamName || normalizeValue(status.activeStream)
+  const { title: activeStreamTitle, artist: activeStreamArtist } =
+    parseStreamValue(streamName)
 
   const schedulesWithActive = normalizedSchedules.map((schedule, index) => {
     const metadata = schedule.metadata ? { ...schedule.metadata } : {}
@@ -332,6 +357,35 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     })
 
     schedules = mergedSchedules
+  }
+
+  if (schedules.length) {
+    schedules = schedules.map((schedule) => {
+      if (!schedule.isActive) {
+        return schedule
+      }
+
+      const metadata = schedule.metadata ? { ...schedule.metadata } : {}
+      const label = activeStreamTitle || schedule.label
+      const artist = activeStreamArtist || schedule.artist
+
+      if (activeStreamTitle && !metadata.trackTitle) {
+        metadata.trackTitle = activeStreamTitle
+      }
+      if (activeStreamArtist && !metadata.trackArtist) {
+        metadata.trackArtist = activeStreamArtist
+      }
+      if (streamName && !metadata.streamTitle) {
+        metadata.streamTitle = streamName
+      }
+
+      return {
+        ...schedule,
+        label,
+        artist,
+        metadata,
+      }
+    })
   }
 
   const activeSchedule = schedules.find((schedule) => schedule.isActive) || schedules[0]
