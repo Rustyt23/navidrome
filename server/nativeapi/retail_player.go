@@ -105,6 +105,7 @@ func (n *Router) addRetailPlayerRoute(r chi.Router) {
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
 		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
+		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
 		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
 	})
 }
@@ -343,6 +344,156 @@ func (n *Router) handleRetailPlayerDeviceChannel() http.HandlerFunc {
 	}
 }
 
+func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
+	type toggleRequest struct {
+		Channel          string `json:"channel,omitempty"`
+		ChannelList      string `json:"channelList,omitempty"`
+		AlternateChannel string `json:"alternateChannel,omitempty"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload toggleRequest
+		if r.Body != nil {
+			decoder := json.NewDecoder(r.Body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&payload); err != nil {
+				if !errors.Is(err, io.EOF) {
+					http.Error(w, "Invalid toggle channel payload", http.StatusBadRequest)
+					return
+				}
+			}
+		}
+
+		currentChannelID := strings.TrimSpace(payload.Channel)
+		channelListID := strings.TrimSpace(payload.ChannelList)
+		alternateChannelID := strings.TrimSpace(payload.AlternateChannel)
+
+		if currentChannelID == "" || channelListID == "" {
+			device, err := fetchRetailPlayerDevice(ctx, deviceID)
+			if err != nil {
+				if errors.Is(err, errRetailPlayerDeviceNotFound) {
+					http.Error(w, "Retail player device not found", http.StatusNotFound)
+					return
+				}
+
+				log.Error(ctx, "Unable to fetch retail player device", "deviceID", deviceID, "err", err)
+				http.Error(w, "Unable to fetch device information", http.StatusBadGateway)
+				return
+			}
+
+			if currentChannelID == "" {
+				currentChannelID = strings.TrimSpace(device.Channel)
+			}
+			if channelListID == "" {
+				channelListID = strings.TrimSpace(device.ChannelList)
+			}
+		}
+
+		if currentChannelID == "" {
+			http.Error(w, "Channel id is required", http.StatusBadRequest)
+			return
+		}
+
+		if alternateChannelID != "" && strings.EqualFold(alternateChannelID, currentChannelID) {
+			alternateChannelID = ""
+		}
+
+		if alternateChannelID == "" {
+			if channelListID == "" {
+				http.Error(w, "Channel list id is required to toggle channel", http.StatusBadRequest)
+				return
+			}
+
+			response, err := fetchRetailPlayerChannelListChannels(ctx, channelListID)
+			if err != nil {
+				log.Error(ctx, "Unable to fetch retail player channel list", "deviceID", deviceID, "channelListID", channelListID, "err", err)
+				http.Error(w, "Unable to fetch channel list", http.StatusBadGateway)
+				return
+			}
+
+			for _, channel := range response.Channels {
+				candidate := strings.TrimSpace(channel.ID)
+				if candidate == "" {
+					candidate = strings.TrimSpace(channel.Name)
+				}
+				if candidate == "" {
+					continue
+				}
+				if strings.EqualFold(candidate, currentChannelID) {
+					continue
+				}
+				alternateChannelID = candidate
+				break
+			}
+		}
+
+		if alternateChannelID == "" {
+			http.Error(w, "No alternate channel available to toggle", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Toggling retail player channel", "deviceID", deviceID, "currentChannelID", currentChannelID, "alternateChannelID", alternateChannelID)
+
+		alternateCommand := retailPlayerCommandRequest{
+			Type: "set_channel",
+			Payload: map[string]any{
+				"channel": alternateChannelID,
+			},
+		}
+
+		alternateResponse, err := n.sendRetailPlayerDeviceCommand(ctx, deviceID, alternateCommand)
+		if err != nil {
+			log.Error(ctx, "Unable to send retail player alternate channel command", "deviceID", deviceID, "alternateChannelID", alternateChannelID, "err", err)
+			http.Error(w, "Unable to toggle device channel", http.StatusBadGateway)
+			return
+		}
+
+		restoreCommand := retailPlayerCommandRequest{
+			Type: "set_channel",
+			Payload: map[string]any{
+				"channel": currentChannelID,
+			},
+		}
+
+		restoreResponse, err := n.sendRetailPlayerDeviceCommand(ctx, deviceID, restoreCommand)
+		if err != nil {
+			log.Error(ctx, "Unable to restore retail player channel", "deviceID", deviceID, "currentChannelID", currentChannelID, "err", err)
+			http.Error(w, "Unable to restore device channel", http.StatusBadGateway)
+			return
+		}
+
+		response := map[string]any{
+			"success":          true,
+			"channel":          currentChannelID,
+			"alternateChannel": alternateChannelID,
+			"alternateMessage": strings.TrimSpace(alternateResponse),
+			"restoreMessage":   strings.TrimSpace(restoreResponse),
+		}
+
+		if response["alternateMessage"] == "" {
+			delete(response, "alternateMessage")
+		}
+		if response["restoreMessage"] == "" {
+			delete(response, "restoreMessage")
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, response)
+	}
+}
+
 func (n *Router) handleRetailPlayerDeviceDislike() http.HandlerFunc {
 	type dislikeRequest struct {
 		TrackTitle   string `json:"trackTitle"`
@@ -452,6 +603,67 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 		Page:  apiPayload.Page,
 		Total: apiPayload.Total,
 	}, nil
+}
+
+func fetchRetailPlayerDevice(ctx context.Context, deviceID string) (retailPlayerDevice, error) {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return retailPlayerDevice{}, errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return retailPlayerDevice{}, errors.New("retail player device id is empty")
+	}
+
+	requestConfig := retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerRequest(ctx, requestConfig, trimmedID)
+	if err != nil {
+		return retailPlayerDevice{}, err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return retailPlayerDevice{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return retailPlayerDevice{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return retailPlayerDevice{}, err
+	}
+
+	var apiDevice retailPlayerAPIDevice
+	if err := json.Unmarshal(body, &apiDevice); err != nil || isRetailPlayerAPIDeviceEmpty(apiDevice) {
+		var wrapped struct {
+			Data retailPlayerAPIDevice `json:"data"`
+		}
+		if err := json.Unmarshal(body, &wrapped); err != nil || isRetailPlayerAPIDeviceEmpty(wrapped.Data) {
+			return retailPlayerDevice{}, errors.New("unable to parse retail player device response")
+		}
+		apiDevice = wrapped.Data
+	}
+
+	device, ok := simplifyRetailPlayerDevice(apiDevice)
+	if !ok {
+		return retailPlayerDevice{}, errors.New("unable to simplify retail player device")
+	}
+
+	return device, nil
 }
 
 func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID string) (retailPlayerChannelsResponse, error) {
@@ -905,6 +1117,42 @@ func applyRetailPlayerHeaders(req *http.Request, cfg retailPlayerConfig) {
 			req.Header.Set(trimmedKey, trimmedValue)
 		}
 	}
+}
+
+func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
+	if device.Ordinal != nil {
+		return false
+	}
+
+	if strings.TrimSpace(device.ID) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.MacAddress) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.Name) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.Location) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.OrgUnit) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.Organization) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.Channel) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.ChannelList) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.TimeZone) != "" {
+		return false
+	}
+
+	return true
 }
 
 func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevice, bool) {
