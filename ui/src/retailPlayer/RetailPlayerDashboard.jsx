@@ -740,9 +740,19 @@ const RetailPlayerDashboard = () => {
     return activeSchedule ? activeSchedule.key : null
   }, [schedules])
 
+  const [pendingActiveChannelKey, setPendingActiveChannelKey] = useState(null)
+
+  useEffect(() => {
+    if (pendingActiveChannelKey && activeChannelKey === pendingActiveChannelKey) {
+      setPendingActiveChannelKey(null)
+    }
+  }, [activeChannelKey, pendingActiveChannelKey])
+
+  const effectiveActiveChannelKey = pendingActiveChannelKey || activeChannelKey
+
   const availableSchedules = useMemo(
-    () => schedules.filter((schedule) => schedule.key !== activeChannelKey),
-    [activeChannelKey, schedules],
+    () => schedules.filter((schedule) => schedule.key !== effectiveActiveChannelKey),
+    [effectiveActiveChannelKey, schedules],
   )
   const availableSchedulesCount = availableSchedules.length
 
@@ -789,9 +799,9 @@ const RetailPlayerDashboard = () => {
     if (!schedules.length) {
       return null
     }
-    const matched = schedules.find((schedule) => schedule.key === activeChannelKey)
+    const matched = schedules.find((schedule) => schedule.key === effectiveActiveChannelKey)
     return matched || schedules[0]
-  }, [activeChannelKey, schedules])
+  }, [effectiveActiveChannelKey, schedules])
 
   const sendDislikeNotification = useCallback(() => {
     if (!isApiEnabled || !deviceApiId) {
@@ -1114,6 +1124,8 @@ const RetailPlayerDashboard = () => {
       const headers = new Headers({ 'Content-Type': 'application/json' })
       const selectedKey = schedule.key
 
+      setPendingActiveChannelKey(selectedKey)
+
       httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
         method: 'POST',
         headers,
@@ -1146,6 +1158,7 @@ const RetailPlayerDashboard = () => {
             // eslint-disable-next-line no-console
             console.error('Failed to update retail player channel', err)
           }
+          setPendingActiveChannelKey(null)
         })
         .finally(() => {
           if (channelRequestControllerRef.current === abortController) {
@@ -1653,7 +1666,7 @@ const RetailPlayerDashboard = () => {
               aria-hidden={!isScheduleMenuOpen}
             >
               {availableSchedules.map((schedule) => {
-                const isActive = schedule.key === activeChannelKey
+                const isActive = schedule.key === effectiveActiveChannelKey
                 return (
                   <ButtonBase
                     key={schedule.key}
