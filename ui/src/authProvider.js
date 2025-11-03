@@ -38,6 +38,22 @@ const isPublicRetailPlayerRoute = () => {
   return /^\/musicmatters\//.test(path)
 }
 
+const ensurePublicRetailPlayerSession = () => {
+  if (!isPublicRetailPlayerRoute()) {
+    return false
+  }
+
+  if (!localStorage.getItem('is-authenticated')) {
+    localStorage.setItem('is-authenticated', 'public')
+  }
+
+  if (!localStorage.getItem('role')) {
+    localStorage.setItem('role', 'regular')
+  }
+
+  return true
+}
+
 const authProvider = {
   login: ({ username, password }) => {
     let url = baseUrl('/auth/login')
@@ -82,7 +98,7 @@ const authProvider = {
   },
 
   checkAuth: () =>
-    localStorage.getItem('is-authenticated') || isPublicRetailPlayerRoute()
+    localStorage.getItem('is-authenticated') || ensurePublicRetailPlayerSession()
       ? Promise.resolve()
       : Promise.reject(),
 
@@ -96,7 +112,13 @@ const authProvider = {
 
   getPermissions: () => {
     const role = localStorage.getItem('role')
-    return role ? Promise.resolve(role) : Promise.reject()
+    if (role) {
+      return Promise.resolve(role)
+    }
+
+    return ensurePublicRetailPlayerSession()
+      ? Promise.resolve(localStorage.getItem('role'))
+      : Promise.reject()
   },
 
   getIdentity: () => {
