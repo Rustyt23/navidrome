@@ -1133,24 +1133,6 @@ const RetailPlayerDashboard = () => {
         signal: abortController.signal,
       })
         .then(() => {
-          setDevice((previous) => {
-            if (!previous) {
-              return previous
-            }
-
-            const previousSchedules = Array.isArray(previous.schedules)
-              ? previous.schedules
-              : []
-            const nextSchedules = previousSchedules.map((item) => ({
-              ...item,
-              isActive: item.key === selectedKey,
-            }))
-
-            return {
-              ...previous,
-              schedules: nextSchedules,
-            }
-          })
           refreshStatus()
         })
         .catch((err) => {
