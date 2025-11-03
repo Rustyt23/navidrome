@@ -9,6 +9,8 @@ import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
+import ArrowBackIcon from '@material-ui/icons/ArrowBack'
+import AccessTimeIcon from '@material-ui/icons/AccessTime'
 import { useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
@@ -86,6 +88,41 @@ const useStyles = makeStyles((theme) => {
         padding: `${theme.spacing(3)}px ${theme.spacing(2.5)}px`,
         gap: theme.spacing(2.5),
       },
+    },
+    topBar: {
+      width: '100%',
+      maxWidth: 960,
+      margin: '0 auto',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      [theme.breakpoints.down('md')]: {
+        maxWidth: '100%',
+      },
+    },
+    backButton: {
+      width: theme.spacing(6),
+      height: theme.spacing(6),
+      borderRadius: '50%',
+      border: `2px solid ${theme.palette.common.white}`,
+      color: theme.palette.common.white,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: theme.transitions.create(['color', 'border-color'], {
+        duration: theme.transitions.duration.shortest,
+      }),
+      '&:hover, &:focus-visible': {
+        color: accentColor,
+        borderColor: accentColor,
+      },
+    },
+    backButtonIcon: {
+      fontSize: theme.typography.pxToRem(28),
+    },
+    timeIcon: {
+      color: theme.palette.common.white,
+      fontSize: theme.typography.pxToRem(28),
     },
     header: {
       display: 'flex',
@@ -1393,6 +1430,12 @@ const trackPool = useMemo(() => {
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
+      <div className={classes.topBar}>
+        <ButtonBase className={classes.backButton} aria-label="Go back" focusRipple>
+          <ArrowBackIcon className={classes.backButtonIcon} />
+        </ButtonBase>
+        <AccessTimeIcon className={classes.timeIcon} aria-hidden="true" />
+      </div>
 
       <div className={classes.mainContent}>
         <section className={classes.nowPlayingCard} aria-label="Now playing">
