@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { makeStyles } from '@material-ui/core/styles'
+import { alpha, makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
@@ -72,7 +72,7 @@ const useStyles = makeStyles((theme) => {
       gap: theme.spacing(3.5),
       padding: `${theme.spacing(1)}px ${theme.spacing(4)}px`,
       width: '100%',
-      maxWidth: 1200,
+      maxWidth: '50vw',
       margin: '0 auto',
       boxSizing: 'border-box',
       minHeight: '100vh',
@@ -80,6 +80,7 @@ const useStyles = makeStyles((theme) => {
       [theme.breakpoints.down('md')]: {
         padding: `${theme.spacing(4)}px ${theme.spacing(3)}px`,
         gap: theme.spacing(3),
+        maxWidth: '100%',
       },
       [theme.breakpoints.down('sm')]: {
         padding: `${theme.spacing(3)}px ${theme.spacing(2.5)}px`,
@@ -89,16 +90,14 @@ const useStyles = makeStyles((theme) => {
     header: {
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'center',
+      flexDirection: 'column',
       gap: theme.spacing(2),
       flexWrap: 'wrap',
       width: '100%',
       maxWidth: 960,
-      paddingLeft: theme.spacing(2),
-      [theme.breakpoints.down('sm')]: {
-        justifyContent: 'center',
-        textAlign: 'center',
-      },
+      textAlign: 'center',
+      paddingLeft: 0,
     },
     title: {
       fontWeight: theme.typography.fontWeightBold,
@@ -116,7 +115,7 @@ const useStyles = makeStyles((theme) => {
       alignItems: 'center',
       gap: theme.spacing(2),
       flexWrap: 'wrap',
-      justifyContent: 'flex-end',
+      justifyContent: 'center',
     },
     statusIcon: {
       display: 'inline-flex',
@@ -173,11 +172,11 @@ const useStyles = makeStyles((theme) => {
     },
     nowPlayingCard: {
       borderRadius: theme.shape.borderRadius * 1.5,
-      backgroundColor: theme.palette.background.paper,
+      backgroundColor: alpha(theme.palette.background.paper, 0.3),
       border: `1px solid ${theme.palette.divider}`,
       padding: theme.spacing(3),
       display: 'flex',
-      flexDirection: 'row',
+      flexDirection: 'column',
       alignItems: 'center',
       gap: theme.spacing(3),
       width: '100%',
@@ -191,20 +190,24 @@ const useStyles = makeStyles((theme) => {
         boxShadow: '0 36px 70px rgba(0, 0, 0, 0.38)',
         transform: 'translateY(-2px)',
       },
-      [theme.breakpoints.down('md')]: {
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: theme.spacing(3),
-        gap: theme.spacing(3),
-      },
       [theme.breakpoints.down('sm')]: {
         padding: theme.spacing(2.5),
       },
+    },
+    locationLabel: {
+      width: '100%',
+      textAlign: 'center',
+      fontSize: theme.typography.pxToRem(26),
+      fontWeight: theme.typography.fontWeightBold,
+      color: accentColor,
+      letterSpacing: 0.8,
     },
     nowPlayingBody: {
       display: 'flex',
       flexDirection: 'column',
       justifyContent: 'center',
+      alignItems: 'center',
+      textAlign: 'center',
       gap: theme.spacing(3),
       flex: 1,
       minWidth: 0,
@@ -213,13 +216,10 @@ const useStyles = makeStyles((theme) => {
     nowPlayingHeader: {
       display: 'flex',
       flexDirection: 'column',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       gap: theme.spacing(1),
       width: '100%',
-      [theme.breakpoints.down('md')]: {
-        alignItems: 'center',
-        textAlign: 'center',
-      },
+      textAlign: 'center',
     },
     listItemButton: {
       display: 'block',
@@ -391,14 +391,13 @@ const useStyles = makeStyles((theme) => {
     nowPlayingTitle: {
       fontSize: theme.typography.pxToRem(32),
       fontWeight: 600,
-      textAlign: 'left',
+      textAlign: 'center',
       width: '100%',
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
       [theme.breakpoints.down('md')]: {
         fontSize: theme.typography.pxToRem(28),
-        textAlign: 'center',
       },
       [theme.breakpoints.down('sm')]: {
         fontSize: theme.typography.pxToRem(22),
@@ -406,45 +405,32 @@ const useStyles = makeStyles((theme) => {
     },
     nowPlayingArtist: {
       fontSize: theme.typography.pxToRem(18),
-      textAlign: 'left',
+      textAlign: 'center',
       color: theme.palette.text.secondary,
       width: '100%',
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
       letterSpacing: 0.2,
-      [theme.breakpoints.down('md')]: {
-        textAlign: 'center',
-      },
       [theme.breakpoints.down('sm')]: {
         fontSize: theme.typography.pxToRem(15),
       },
     },
     nowPlayingFooter: {
       display: 'flex',
+      flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: theme.spacing(3),
+      justifyContent: 'center',
+      gap: theme.spacing(2.5),
       flexWrap: 'wrap',
       width: '100%',
-      [theme.breakpoints.down('md')]: {
-        justifyContent: 'center',
-      },
-      [theme.breakpoints.down('sm')]: {
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: theme.spacing(2.5),
-      },
     },
     controlsRow: {
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'flex-start',
+      justifyContent: 'center',
       gap: theme.spacing(3),
       flexWrap: 'wrap',
-      [theme.breakpoints.down('md')]: {
-        justifyContent: 'center',
-      },
     },
     controlButton: {
       display: 'inline-flex',
@@ -472,13 +458,14 @@ const useStyles = makeStyles((theme) => {
       display: 'flex',
       flexDirection: 'column',
       gap: theme.spacing(1.5),
-      flex: 1,
-      minWidth: 220,
+      width: '100%',
       maxWidth: 360,
-      alignSelf: 'stretch',
+      minWidth: 0,
+      alignSelf: 'center',
+      margin: '0 auto',
       position: 'relative',
       [theme.breakpoints.down('md')]: {
-        alignSelf: 'center',
+        maxWidth: 420,
       },
       [theme.breakpoints.down('sm')]: {
         width: '100%',
@@ -504,6 +491,8 @@ const useStyles = makeStyles((theme) => {
     },
     slider: {
       color: sliderMain,
+      width: '100%',
+      margin: '0 auto',
     },
     sliderTrack: {
       backgroundColor: sliderMain,
@@ -1404,14 +1393,17 @@ const trackPool = useMemo(() => {
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
-      <header className={classes.header}>
-        <Typography component="h1" className={classes.title}>
-          {device.name}
-        </Typography>
-      </header>
 
       <div className={classes.mainContent}>
         <section className={classes.nowPlayingCard} aria-label="Now playing">
+          <Typography
+            component="h1"
+            className={classes.locationLabel}
+            noWrap
+            title={device.name}
+          >
+            {device.name}
+          </Typography>
           <div className={classes.artworkWrapper} aria-label="Artwork">
             <div className={classes.artworkCircle}>
               <div className={classes.artworkContent}>
