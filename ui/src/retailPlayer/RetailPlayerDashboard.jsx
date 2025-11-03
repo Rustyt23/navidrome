@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
 import { Title } from 'react-admin'
@@ -13,8 +13,6 @@ import { useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
-import { normalizeValue } from './deviceUtils'
-import httpClient from '../dataProvider/httpClient'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -43,6 +41,53 @@ const formatTime = (date, timeZone) => {
       })
       .replace(/^24:/, '00:')
   }
+}
+
+const resolveDeviceTime = (sourceDevice) => {
+  if (!sourceDevice) {
+    return new Date()
+  }
+
+  const directLocalTime =
+    typeof sourceDevice.localTime === 'string' ? sourceDevice.localTime : null
+  if (directLocalTime) {
+    const parsedDirect = new Date(directLocalTime)
+    if (!Number.isNaN(parsedDirect.getTime())) {
+      return parsedDirect
+    }
+  }
+
+  const status =
+    sourceDevice.status && typeof sourceDevice.status === 'object'
+      ? sourceDevice.status
+      : {}
+
+  const localTimeValue =
+    typeof status.localTime === 'string' ? status.localTime : null
+  if (localTimeValue) {
+    const parsedLocal = new Date(localTimeValue)
+    if (!Number.isNaN(parsedLocal.getTime())) {
+      return parsedLocal
+    }
+  }
+
+  const systemTimeValue =
+    typeof status.systemTime === 'string' ? status.systemTime : null
+  if (systemTimeValue) {
+    const parsedSystem = new Date(systemTimeValue)
+    if (!Number.isNaN(parsedSystem.getTime())) {
+      return parsedSystem
+    }
+  }
+
+  return new Date()
+}
+
+const getInitialVolume = (device) => {
+  if (typeof device?.volume === 'number' && !Number.isNaN(device.volume)) {
+    return clamp(Math.round(device.volume), 0, 100)
+  }
+  return 50
 }
 
 const useStyles = makeStyles((theme) => {
@@ -589,287 +634,114 @@ const RetailPlayerDashboard = () => {
     isStatusLoading: statusLoading,
     refresh: refreshStatus,
     notFound,
-    isApiEnabled,
   } = useRetailPlayerDeviceStatus(deviceSlug)
-  const [device, setDevice] = useState(resolvedDevice)
-  const [deviceTime, setDeviceTime] = useState(() => new Date())
-  const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(50)
-  const [displayVolume, setDisplayVolume] = useState(50)
-  const volumeTimeoutRef = useRef(null)
-  const previousVolumeRef = useRef(50)
-  const volumeSyncReadyRef = useRef(false)
-  const dislikeTimeoutRef = useRef(null)
-  const dislikeRequestControllerRef = useRef(null)
-  const channelRequestControllerRef = useRef(null)
-  const [showDislikeMessage, setShowDislikeMessage] = useState(false)
-  const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
-  const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
-  const scheduleDropdownRef = useRef(null)
+  const device = resolvedDevice || baseDevice || null
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
 
-  const deviceApiId = useMemo(() => {
-    if (resolvedDevice?.apiId) {
-      return resolvedDevice.apiId
-    }
-    if (resolvedDevice?.id) {
-      return resolvedDevice.id
-    }
-    if (baseDevice?.apiId) {
-      return baseDevice.apiId
-    }
-    if (baseDevice?.id) {
-      return baseDevice.id
-    }
-    if (device?.apiId) {
-      return device.apiId
-    }
-    if (device?.id) {
-      return device.id
-    }
-    return ''
-  }, [
-    baseDevice?.apiId,
-    baseDevice?.id,
-    device?.apiId,
-    device?.id,
-    resolvedDevice?.apiId,
-    resolvedDevice?.id,
-  ])
-
-  const canControlDevice = useMemo(
-    () => Boolean(isApiEnabled && deviceApiId),
-    [deviceApiId, isApiEnabled],
-  )
-
-  const resolveDeviceTime = useCallback((sourceDevice) => {
-    if (!sourceDevice) {
-      return new Date()
-    }
-
-    const directLocalTime =
-      typeof sourceDevice.localTime === 'string' ? sourceDevice.localTime : null
-    if (directLocalTime) {
-      const parsedDirect = new Date(directLocalTime)
-      if (!Number.isNaN(parsedDirect.getTime())) {
-        return parsedDirect
-      }
-    }
-
-    const status =
-      sourceDevice.status && typeof sourceDevice.status === 'object'
-        ? sourceDevice.status
-        : {}
-
-    const localTimeValue =
-      typeof status.localTime === 'string' ? status.localTime : null
-    if (localTimeValue) {
-      const parsedLocal = new Date(localTimeValue)
-      if (!Number.isNaN(parsedLocal.getTime())) {
-        return parsedLocal
-      }
-    }
-
-    const systemTimeValue =
-      typeof status.systemTime === 'string' ? status.systemTime : null
-    if (systemTimeValue) {
-      const parsedSystem = new Date(systemTimeValue)
-      if (!Number.isNaN(parsedSystem.getTime())) {
-        return parsedSystem
-      }
-    }
-
-    return new Date()
-  }, [])
-
-  useEffect(() => {
-    setDevice(resolvedDevice || null)
-    setDeviceTime(resolveDeviceTime(resolvedDevice))
-  }, [resolvedDevice, resolveDeviceTime])
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setDeviceTime((previous) => {
-        if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) {
-          return new Date()
-        }
-        return new Date(previous.getTime() + 60000)
-      })
-    }, 60000)
-
-    return () => window.clearInterval(intervalId)
-  }, [])
-
   const schedules = useMemo(() => device?.schedules || [], [device])
-
-  const activeChannelKey = useMemo(() => {
-    const activeSchedule = schedules.find((schedule) => schedule.isActive)
-    return activeSchedule ? activeSchedule.key : null
+  const activeSchedule = useMemo(() => {
+    if (!schedules.length) {
+      return null
+    }
+    return schedules.find((schedule) => schedule.isActive) || schedules[0]
   }, [schedules])
-
+  const activeChannelKey = activeSchedule ? activeSchedule.key : null
   const availableSchedules = useMemo(
     () => schedules.filter((schedule) => schedule.key !== activeChannelKey),
     [activeChannelKey, schedules],
   )
   const availableSchedulesCount = availableSchedules.length
 
+  const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   useEffect(() => {
-    if (!isScheduleMenuOpen) {
-      return undefined
+    if (!availableSchedulesCount) {
+      setScheduleMenuOpen(false)
     }
-
-    const handleClickOutside = (event) => {
-      if (
-        scheduleDropdownRef.current &&
-        !scheduleDropdownRef.current.contains(event.target)
-      ) {
-        setScheduleMenuOpen(false)
-      }
-    }
-
-    const handleEscape = (event) => {
-      if (event.key === 'Escape') {
-        setScheduleMenuOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleEscape)
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [isScheduleMenuOpen])
-
+  }, [availableSchedulesCount])
   useEffect(() => {
     setScheduleMenuOpen(false)
   }, [activeChannelKey])
 
-  useEffect(() => {
-    if (availableSchedulesCount === 0) {
-      setScheduleMenuOpen(false)
-    }
-  }, [availableSchedulesCount])
-
-  const activeSchedule = useMemo(() => {
-    if (!schedules.length) {
-      return null
-    }
-    const matched = schedules.find((schedule) => schedule.key === activeChannelKey)
-    return matched || schedules[0]
-  }, [activeChannelKey, schedules])
-
-  const sendDislikeNotification = useCallback(() => {
-    if (!isApiEnabled || !deviceApiId) {
-      return
-    }
-
-    const nowPlaying = device?.nowPlaying && typeof device.nowPlaying === 'object' ? device.nowPlaying : {}
-    const metadata =
-      nowPlaying?.metadata && typeof nowPlaying.metadata === 'object'
-        ? nowPlaying.metadata
-        : {}
-
-    const titleCandidates = [
-      typeof nowPlaying?.title === 'string' ? nowPlaying.title.trim() : '',
-      typeof metadata?.title === 'string' ? metadata.title.trim() : '',
-    ]
-    const trackTitle = titleCandidates.find((value) => value) || ''
-
-    const playlistName =
-      typeof activeSchedule?.label === 'string' ? activeSchedule.label.trim() : ''
-
-    if (!trackTitle && !playlistName) {
-      return
-    }
-
-    if (dislikeRequestControllerRef.current) {
-      dislikeRequestControllerRef.current.abort()
-    }
-
-    const abortController = new AbortController()
-    dislikeRequestControllerRef.current = abortController
-
-    const headers = new Headers({ 'Content-Type': 'application/json' })
-
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/dislike`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ trackTitle, playlistName }),
-      signal: abortController.signal,
-    })
-      .catch((err) => {
-        if (err?.name !== 'AbortError') {
-          // eslint-disable-next-line no-console
-          console.error('Failed to send dislike notification', err)
-        }
-      })
-      .finally(() => {
-        if (dislikeRequestControllerRef.current === abortController) {
-          dislikeRequestControllerRef.current = null
-        }
-      })
-  }, [activeSchedule?.label, device?.nowPlaying, deviceApiId, isApiEnabled])
-
-  const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
+  const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
+  const [showDislikeMessage, setShowDislikeMessage] = useState(false)
+  const dislikeTimeoutRef = useRef(null)
 
   useEffect(() => {
-    const initialVolume =
-      typeof device?.volume === 'number' && !Number.isNaN(device.volume)
-        ? device.volume
-        : 50
-    setIsMuted(Boolean(device?.isMuted) || initialVolume === 0)
-    setVolume(initialVolume)
-    setDisplayVolume(initialVolume)
-    if (initialVolume > 0) {
-      previousVolumeRef.current = initialVolume
+    return () => {
+      if (dislikeTimeoutRef.current) {
+        window.clearTimeout(dislikeTimeoutRef.current)
+      }
     }
-    volumeSyncReadyRef.current = false
+  }, [])
+
+  const initialVolume = useMemo(() => getInitialVolume(device), [device])
+  const [displayVolume, setDisplayVolume] = useState(initialVolume)
+  const [previousVolume, setPreviousVolume] = useState(
+    initialVolume > 0 ? initialVolume : 50,
+  )
+  const [isMuted, setIsMuted] = useState(
+    Boolean(device?.isMuted) || initialVolume === 0,
+  )
+
+  useEffect(() => {
+    const nextVolume = getInitialVolume(device)
+    setDisplayVolume(nextVolume)
+    setIsMuted(Boolean(device?.isMuted) || nextVolume === 0)
+    if (nextVolume > 0) {
+      setPreviousVolume(nextVolume)
+    }
   }, [device])
 
-  useEffect(() => {
-    volumeSyncReadyRef.current = false
-  }, [deviceApiId, isApiEnabled])
-
-  useEffect(() => {
-    if (!canControlDevice) {
-      return undefined
+  const updateVolume = (value) => {
+    const next = clamp(Math.round(value), 0, 100)
+    setDisplayVolume(next)
+    setIsMuted(next === 0)
+    if (next > 0) {
+      setPreviousVolume(next)
     }
+  }
 
-    if (typeof volume !== 'number' || Number.isNaN(volume)) {
-      return undefined
+  const handleToggleMute = () => {
+    if (isMuted) {
+      const restored = previousVolume > 0 ? previousVolume : 50
+      updateVolume(restored)
+      return
     }
-
-    if (!deviceApiId) {
-      return undefined
+    if (displayVolume > 0) {
+      setPreviousVolume(displayVolume)
     }
+    updateVolume(0)
+  }
 
-    if (!volumeSyncReadyRef.current) {
-      volumeSyncReadyRef.current = true
-      return undefined
+  const handleVolumeChange = (_, value) => {
+    const resolvedValue = Array.isArray(value) ? value[0] : value
+    if (typeof resolvedValue === 'number' && !Number.isNaN(resolvedValue)) {
+      updateVolume(resolvedValue)
     }
+  }
 
-    const abortController = new AbortController()
-    const headers = new Headers({ 'Content-Type': 'application/json' })
-
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/volume`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ volume }),
-      signal: abortController.signal,
-    }).catch((err) => {
-      if (err?.name !== 'AbortError') {
-        // eslint-disable-next-line no-console
-        console.error('Failed to update retail player volume', err)
-      }
-    })
-
-    return () => {
-      abortController.abort()
+  const handleToggleScheduleMenu = () => {
+    if (!availableSchedulesCount) {
+      return
     }
-  }, [canControlDevice, deviceApiId, volume])
+    setScheduleMenuOpen((prev) => !prev)
+  }
+
+  const handleSelectFromDropdown = () => {
+    setScheduleMenuOpen(false)
+  }
+
+  const handleDislike = () => {
+    setShowDislikeMessage(true)
+    if (dislikeTimeoutRef.current) {
+      window.clearTimeout(dislikeTimeoutRef.current)
+    }
+    dislikeTimeoutRef.current = window.setTimeout(() => {
+      setShowDislikeMessage(false)
+      dislikeTimeoutRef.current = null
+    }, 2000)
+  }
 
   const normalizedDeviceTrack = useMemo(() => {
     if (!device?.nowPlaying) {
@@ -912,9 +784,23 @@ const RetailPlayerDashboard = () => {
     return trackPool[index]
   }, [currentTrackIndex, trackPool])
 
-  const artworkUrl = device?.nowPlaying?.artworkUrl || null
-  const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
+  const resolvedArtworkUrl =
+    device?.nowPlaying?.artworkUrl || currentTrack?.artworkUrl || null
 
+  const handleSkip = () => {
+    if (!trackPool.length) {
+      return
+    }
+    setCurrentTrackIndex((previous) => (previous + 1) % trackPool.length)
+  }
+
+  const handleRefresh = () => {
+    refreshStatus()
+  }
+
+  const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
+
+  const deviceTime = useMemo(() => resolveDeviceTime(device), [device])
   const deviceTimeZone = useMemo(() => {
     if (device && typeof device.timeZone === 'string') {
       const trimmed = device.timeZone.trim()
@@ -922,17 +808,20 @@ const RetailPlayerDashboard = () => {
         return trimmed
       }
     }
-
-    const statusZone =
-      device?.status && typeof device.status === 'object' && typeof device.status.timeZone === 'string'
-        ? device.status.timeZone.trim()
-        : ''
-
-    return statusZone
+    if (
+      device?.status &&
+      typeof device.status === 'object' &&
+      typeof device.status.timeZone === 'string'
+    ) {
+      const trimmed = device.status.timeZone.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+    return undefined
   }, [device])
-
   const currentTimeLabel = useMemo(
-    () => formatTime(deviceTime, deviceTimeZone || undefined),
+    () => formatTime(deviceTime, deviceTimeZone),
     [deviceTime, deviceTimeZone],
   )
 
@@ -940,7 +829,6 @@ const RetailPlayerDashboard = () => {
     if (!device) {
       return []
     }
-
     return [
       {
         key: 'connected',
@@ -963,350 +851,6 @@ const RetailPlayerDashboard = () => {
       },
     ]
   }, [currentTimeLabel, device, isMuted])
-
-  const handleToggleScheduleMenu = useCallback(() => {
-    if (!availableSchedulesCount) {
-      return
-    }
-    setScheduleMenuOpen((prev) => !prev)
-  }, [availableSchedulesCount])
-
-  const handleSelectChannel = useCallback(
-    (schedule) => {
-      if (!schedule) {
-        return
-      }
-
-      const metadata =
-        schedule && typeof schedule === 'object' && schedule.metadata && typeof schedule.metadata === 'object'
-          ? schedule.metadata
-          : {}
-
-      const rawSchedule = schedule && typeof schedule === 'object' && schedule.raw && typeof schedule.raw === 'object'
-        ? schedule.raw
-        : {}
-
-      const channelIdCandidates = [
-        metadata.channelId,
-        metadata.channel_id,
-        metadata.channel,
-        metadata.id,
-        schedule.channelId,
-        schedule.channel_id,
-        schedule.id,
-        rawSchedule.id,
-        rawSchedule.channelId,
-        rawSchedule.channel_id,
-      ]
-
-      const selectedChannelId = channelIdCandidates
-        .map((candidate) => normalizeValue(candidate))
-        .find((value) => value)
-
-      if (!selectedChannelId) {
-        // eslint-disable-next-line no-console
-        console.error('Unable to determine channel id for selection', schedule)
-        return
-      }
-
-      if (!canControlDevice || !deviceApiId) {
-        return
-      }
-
-      if (channelRequestControllerRef.current) {
-        channelRequestControllerRef.current.abort()
-      }
-
-      const abortController = new AbortController()
-      channelRequestControllerRef.current = abortController
-
-      const headers = new Headers({ 'Content-Type': 'application/json' })
-      const selectedKey = schedule.key
-
-      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ channel: selectedChannelId }),
-        signal: abortController.signal,
-      })
-        .then(() => {
-          setDevice((previous) => {
-            if (!previous) {
-              return previous
-            }
-
-            const previousSchedules = Array.isArray(previous.schedules)
-              ? previous.schedules
-              : []
-            const nextSchedules = previousSchedules.map((item) => ({
-              ...item,
-              isActive: item.key === selectedKey,
-            }))
-
-            return {
-              ...previous,
-              schedules: nextSchedules,
-            }
-          })
-          refreshStatus()
-        })
-        .catch((err) => {
-          if (err?.name !== 'AbortError') {
-            // eslint-disable-next-line no-console
-            console.error('Failed to update retail player channel', err)
-          }
-        })
-        .finally(() => {
-          if (channelRequestControllerRef.current === abortController) {
-            channelRequestControllerRef.current = null
-          }
-        })
-    },
-    [canControlDevice, deviceApiId, refreshStatus],
-  )
-
-  const handleSelectFromDropdown = useCallback(
-    (schedule) => {
-      setScheduleMenuOpen(false)
-      handleSelectChannel(schedule)
-    },
-    [handleSelectChannel],
-  )
-
-  const clearVolumeTimeout = useCallback(() => {
-    if (volumeTimeoutRef.current) {
-      window.clearTimeout(volumeTimeoutRef.current)
-      volumeTimeoutRef.current = null
-    }
-  }, [])
-
-  const updateVolume = useCallback(
-    (nextValue) => {
-      setDisplayVolume((previous) => {
-        const rawNext = typeof nextValue === 'function' ? nextValue(previous) : nextValue
-        const clamped = clamp(Math.round(rawNext), 0, 100)
-        clearVolumeTimeout()
-        setIsMuted(clamped === 0)
-        if (clamped > 0) {
-          previousVolumeRef.current = clamped
-        }
-        volumeTimeoutRef.current = window.setTimeout(() => {
-          setVolume(clamped)
-          volumeTimeoutRef.current = null
-        }, 150)
-        return clamped
-      })
-    },
-    [clearVolumeTimeout, setIsMuted],
-  )
-
-  const handleToggleMute = useCallback(() => {
-    if (isMuted) {
-      const restoredVolume =
-        previousVolumeRef.current > 0 ? previousVolumeRef.current : 50
-      updateVolume(restoredVolume)
-      return
-    }
-
-    updateVolume((current) => {
-      if (current > 0) {
-        previousVolumeRef.current = current
-      }
-      return 0
-    })
-  }, [isMuted, updateVolume])
-
-  const handleVolumeChange = useCallback((_, newValue) => {
-    const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
-    if (typeof resolvedValue !== 'number' || Number.isNaN(resolvedValue)) {
-      return
-    }
-    updateVolume(resolvedValue)
-  }, [updateVolume])
-
-  const handleRefresh = useCallback(() => {
-    refreshStatus()
-    setDeviceTime(new Date())
-  }, [refreshStatus])
-
-  const handleAdjustVolume = useCallback(
-    (delta) => {
-      updateVolume((prev) => prev + delta)
-    },
-    [updateVolume],
-  )
-
-  const handleDislike = useCallback(() => {
-    sendDislikeNotification()
-    setShowDislikeMessage(true)
-    if (dislikeTimeoutRef.current) {
-      window.clearTimeout(dislikeTimeoutRef.current)
-    }
-    dislikeTimeoutRef.current = window.setTimeout(() => {
-      setShowDislikeMessage(false)
-      dislikeTimeoutRef.current = null
-    }, 2000)
-  }, [sendDislikeNotification])
-
-  const handleSkip = useCallback(() => {
-    if (!trackPool.length) {
-      return
-    }
-
-    setCurrentTrackIndex((previous) => (previous + 1) % trackPool.length)
-
-    if (!canControlDevice || !deviceApiId) {
-      return
-    }
-
-    const activeMetadata =
-      activeSchedule && typeof activeSchedule === 'object' && activeSchedule.metadata
-        ? activeSchedule.metadata
-        : {}
-
-    const channelIdCandidates = [
-      normalizeValue(activeMetadata?.channelId),
-      normalizeValue(activeMetadata?.channel_id),
-      normalizeValue(activeMetadata?.channel),
-      normalizeValue(device?.channel),
-    ]
-    const channelListCandidates = [
-      normalizeValue(baseDevice?.channelList),
-      normalizeValue(device?.channelList),
-    ]
-
-    const resolvedChannelId = channelIdCandidates.find((candidate) => candidate) || ''
-    const resolvedChannelListId = channelListCandidates.find((candidate) => candidate) || ''
-
-    if (!resolvedChannelId && !resolvedChannelListId) {
-      return
-    }
-
-    if (channelRequestControllerRef.current) {
-      channelRequestControllerRef.current.abort()
-    }
-
-    const abortController = new AbortController()
-    channelRequestControllerRef.current = abortController
-
-    const headers = new Headers({ 'Content-Type': 'application/json' })
-    const body = {}
-
-    if (resolvedChannelId) {
-      body.channel = resolvedChannelId
-    }
-    if (resolvedChannelListId) {
-      body.channelList = resolvedChannelListId
-    }
-
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel/toggle`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: abortController.signal,
-    })
-      .then(() => {
-        refreshStatus()
-      })
-      .catch((err) => {
-        if (err?.name !== 'AbortError') {
-          // eslint-disable-next-line no-console
-          console.error('Failed to toggle retail player channel', err)
-        }
-      })
-      .finally(() => {
-        if (channelRequestControllerRef.current === abortController) {
-          channelRequestControllerRef.current = null
-        }
-      })
-  }, [
-    activeSchedule,
-    baseDevice?.channelList,
-    canControlDevice,
-    device?.channel,
-    device?.channelList,
-    deviceApiId,
-    refreshStatus,
-    trackPool,
-  ])
-
-  const handleShortcutChannel = useCallback(
-    (index) => {
-      const schedule = availableSchedules[index]
-      if (!schedule) {
-        return
-      }
-      handleSelectChannel(schedule)
-    },
-    [availableSchedules, handleSelectChannel],
-  )
-
-  useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (!device) {
-        return
-      }
-
-      const target = event.target
-      const tagName = target && target.tagName
-      if (
-        tagName === 'INPUT' ||
-        tagName === 'TEXTAREA' ||
-        (target && target.isContentEditable)
-      ) {
-        return
-      }
-
-      switch (event.key) {
-        case 'm':
-        case 'M':
-          event.preventDefault()
-          handleToggleMute()
-          break
-        case '+':
-        case '=':
-          event.preventDefault()
-          handleAdjustVolume(5)
-          break
-        case '-':
-          event.preventDefault()
-          handleAdjustVolume(-5)
-          break
-        case '1':
-          event.preventDefault()
-          handleShortcutChannel(0)
-          break
-        case '2':
-          event.preventDefault()
-          handleShortcutChannel(1)
-          break
-        case '3':
-          event.preventDefault()
-          handleShortcutChannel(2)
-          break
-        default:
-          break
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [device, handleAdjustVolume, handleShortcutChannel, handleToggleMute])
-
-  useEffect(() => () => {
-    clearVolumeTimeout()
-    if (dislikeTimeoutRef.current) {
-      window.clearTimeout(dislikeTimeoutRef.current)
-    }
-    if (dislikeRequestControllerRef.current) {
-      dislikeRequestControllerRef.current.abort()
-      dislikeRequestControllerRef.current = null
-    }
-    if (channelRequestControllerRef.current) {
-      channelRequestControllerRef.current.abort()
-      channelRequestControllerRef.current = null
-    }
-  }, [clearVolumeTimeout])
 
   if (!device) {
     const heading = notFound
@@ -1506,7 +1050,6 @@ const RetailPlayerDashboard = () => {
         <section
           className={classes.list}
           aria-label="Available schedules"
-          ref={scheduleDropdownRef}
         >
           <div className={classes.dropdownWrapper}>
             <ButtonBase
@@ -1570,7 +1113,7 @@ const RetailPlayerDashboard = () => {
                       classes.listItemButton,
                       classes.dropdownOptionButton,
                     )}
-                    onClick={() => handleSelectFromDropdown(schedule)}
+                    onClick={handleSelectFromDropdown}
                     focusRipple
                     role="option"
                     aria-selected={isActive}
