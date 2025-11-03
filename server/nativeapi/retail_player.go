@@ -110,6 +110,18 @@ func (n *Router) addRetailPlayerRoute(r chi.Router) {
 	})
 }
 
+func (n *Router) addPublicRetailPlayerRoute(r chi.Router) {
+	r.Route("/public/retailplayer", func(r chi.Router) {
+		r.Get("/devices", n.handleRetailPlayerDevices())
+		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
+		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
+		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
+		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
+		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
+		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
+	})
+}
+
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
 
 func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {

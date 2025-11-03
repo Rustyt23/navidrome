@@ -5,9 +5,12 @@ import httpClient from '../dataProvider/httpClient'
 import { baseUrl } from '../utils'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
-
-const buildStatusUrl = (deviceId) =>
-  deviceId ? `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/status` : null
+import {
+  DEFAULT_RETAIL_PLAYER_API_BASE_PATH,
+  buildRetailPlayerChannelListPath,
+  buildRetailPlayerDevicePath,
+  normalizeRetailPlayerBasePath,
+} from './apiPaths'
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
@@ -583,13 +586,20 @@ const initialChannelState = {
   fetchedAt: null,
 }
 
-const useRetailPlayerDeviceStatus = (slugParam) => {
+const useRetailPlayerDeviceStatus = (slugParam, options = {}) => {
+  const basePath = useMemo(
+    () =>
+      normalizeRetailPlayerBasePath(
+        options.basePath || DEFAULT_RETAIL_PLAYER_API_BASE_PATH,
+      ),
+    [options.basePath],
+  )
   const {
     devices,
     error: devicesError,
     isLoading: devicesLoading,
     isApiEnabled,
-  } = useRetailPlayerDevices()
+  } = useRetailPlayerDevices({ basePath })
 
   const normalizedSlugKey = useMemo(() => {
     if (!slugParam) {
@@ -646,7 +656,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    const url = buildStatusUrl(deviceId)
+    const url = buildRetailPlayerDevicePath(basePath, deviceId, 'status')
     if (!url) {
       setStatusState(initialStatusState)
       return undefined
@@ -672,7 +682,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return () => {
       abortController.abort()
     }
-  }, [baseDevice?.apiId, devicesLoading, isApiEnabled, refreshIndex])
+  }, [baseDevice?.apiId, basePath, devicesLoading, isApiEnabled, refreshIndex])
 
   useEffect(() => {
     if (!isApiEnabled) {
@@ -690,7 +700,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    const url = `/api/retailplayer/channel-lists/${encodeURIComponent(channelListId)}/channels`
+    const url = buildRetailPlayerChannelListPath(basePath, channelListId, 'channels')
     const abortController = new AbortController()
     setChannelState((previous) => ({ ...previous, isLoading: true, error: null }))
 
@@ -721,7 +731,13 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return () => {
       abortController.abort()
     }
-  }, [baseDevice?.channelList, devicesLoading, isApiEnabled, refreshIndex])
+  }, [
+    baseDevice?.channelList,
+    basePath,
+    devicesLoading,
+    isApiEnabled,
+    refreshIndex,
+  ])
 
   const normalizedDevice = useMemo(
     () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),

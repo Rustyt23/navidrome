@@ -41,6 +41,7 @@ func (n *Router) routes() http.Handler {
 
 	// Public
 	n.RX(r, "/translation", newTranslationRepository, false)
+	n.addPublicRetailPlayerRoute(r)
 
 	// Protected
 	r.Group(func(r chi.Router) {

@@ -3,8 +3,11 @@ import config from '../config'
 import httpClient from '../dataProvider/httpClient'
 import RetailPlayerMockService from './RetailPlayerMockService'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
-
-const buildDevicesUrl = () => '/api/retailplayer/devices'
+import {
+  DEFAULT_RETAIL_PLAYER_API_BASE_PATH,
+  buildRetailPlayerApiPath,
+  normalizeRetailPlayerBasePath,
+} from './apiPaths'
 
 const mapDevice = (device) => {
   if (!device || typeof device !== 'object') {
@@ -37,8 +40,8 @@ const mapDevice = (device) => {
   }
 }
 
-const fetchRetailPlayerDevices = async (signal) => {
-  const url = buildDevicesUrl()
+const fetchRetailPlayerDevices = async (basePath, signal) => {
+  const url = buildRetailPlayerApiPath(basePath, 'devices')
 
   if (!url) {
     return { devices: null, enabled: false }
@@ -69,7 +72,10 @@ const fetchRetailPlayerDevices = async (signal) => {
   return { devices, enabled: true }
 }
 
-const useRetailPlayerDevices = () => {
+const useRetailPlayerDevices = (options = {}) => {
+  const basePath = normalizeRetailPlayerBasePath(
+    options.basePath || DEFAULT_RETAIL_PLAYER_API_BASE_PATH,
+  )
   const [devices, setDevices] = useState(() => {
     if (config.retailPlayerDevicesEnabled) {
       return []
@@ -83,17 +89,11 @@ const useRetailPlayerDevices = () => {
   )
 
   useEffect(() => {
-    const url = buildDevicesUrl()
-    if (!url) {
-      setIsApiEnabled(false)
-      return undefined
-    }
-
     const abortController = new AbortController()
     setIsLoading(true)
     setError(null)
 
-    fetchRetailPlayerDevices(abortController.signal)
+    fetchRetailPlayerDevices(basePath, abortController.signal)
       .then((result) => {
         const enabled = Boolean(result?.enabled)
         setIsApiEnabled(enabled)
@@ -115,7 +115,7 @@ const useRetailPlayerDevices = () => {
     return () => {
       abortController.abort()
     }
-  }, [])
+  }, [basePath])
 
   return {
     devices,

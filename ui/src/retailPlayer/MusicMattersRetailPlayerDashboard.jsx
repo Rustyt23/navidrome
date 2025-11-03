@@ -14,6 +14,10 @@ import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
+import {
+  buildRetailPlayerDevicePath,
+  normalizeRetailPlayerBasePath,
+} from './apiPaths'
 import httpClient from '../dataProvider/httpClient'
 
 const useFullscreenLayoutStyles = makeStyles({
@@ -49,6 +53,10 @@ const useFullscreenLayoutStyles = makeStyles({
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
+
+const MUSIC_MATTERS_RETAIL_PLAYER_BASE_PATH = normalizeRetailPlayerBasePath(
+  '/api/public/retailplayer',
+)
 
 const formatTime = (date, timeZone) => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
@@ -621,7 +629,9 @@ const MusicMattersRetailPlayerDashboard = () => {
     refresh: refreshStatus,
     notFound,
     isApiEnabled,
-  } = useRetailPlayerDeviceStatus(deviceSlug)
+  } = useRetailPlayerDeviceStatus(deviceSlug, {
+    basePath: MUSIC_MATTERS_RETAIL_PLAYER_BASE_PATH,
+  })
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
@@ -870,12 +880,19 @@ const MusicMattersRetailPlayerDashboard = () => {
 
     const headers = new Headers({ 'Content-Type': 'application/json' })
 
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/dislike`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ trackTitle, playlistName }),
-      signal: abortController.signal,
-    })
+    httpClient(
+      buildRetailPlayerDevicePath(
+        MUSIC_MATTERS_RETAIL_PLAYER_BASE_PATH,
+        deviceApiId,
+        'dislike',
+      ),
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ trackTitle, playlistName }),
+        signal: abortController.signal,
+      },
+    )
       .catch((err) => {
         if (err?.name !== 'AbortError') {
           // eslint-disable-next-line no-console
@@ -930,12 +947,19 @@ const MusicMattersRetailPlayerDashboard = () => {
     const abortController = new AbortController()
     const headers = new Headers({ 'Content-Type': 'application/json' })
 
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/volume`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ volume }),
-      signal: abortController.signal,
-    }).catch((err) => {
+    httpClient(
+      buildRetailPlayerDevicePath(
+        MUSIC_MATTERS_RETAIL_PLAYER_BASE_PATH,
+        deviceApiId,
+        'volume',
+      ),
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ volume }),
+        signal: abortController.signal,
+      },
+    ).catch((err) => {
       if (err?.name !== 'AbortError') {
         // eslint-disable-next-line no-console
         console.error('Failed to update retail player volume', err)
@@ -1158,12 +1182,19 @@ const MusicMattersRetailPlayerDashboard = () => {
       const headers = new Headers({ 'Content-Type': 'application/json' })
       const selectedKey = schedule.key
 
-      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ channel: selectedChannelId }),
-        signal: abortController.signal,
-      })
+      httpClient(
+        buildRetailPlayerDevicePath(
+          MUSIC_MATTERS_RETAIL_PLAYER_BASE_PATH,
+          deviceApiId,
+          'channel',
+        ),
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ channel: selectedChannelId }),
+          signal: abortController.signal,
+        },
+      )
         .then(() => {
           setDevice((previous) => {
             if (!previous) {
@@ -1334,12 +1365,20 @@ const MusicMattersRetailPlayerDashboard = () => {
       body.channelList = resolvedChannelListId
     }
 
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel/toggle`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: abortController.signal,
-    })
+    httpClient(
+      buildRetailPlayerDevicePath(
+        MUSIC_MATTERS_RETAIL_PLAYER_BASE_PATH,
+        deviceApiId,
+        'channel',
+        'toggle',
+      ),
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: abortController.signal,
+      },
+    )
       .then(() => {
         refreshStatus()
       })
