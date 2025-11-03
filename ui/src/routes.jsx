@@ -24,6 +24,12 @@ const routes = [
     render={() => <RetailPlayerDashboard />}
     key={'retailplayer-device'}
   />,
+  <Route
+    exact
+    path="/musicmatters/:deviceSlug"
+    render={() => <RetailPlayerDashboard />}
+    key={'musicmatters-device'}
+  />,
 ]
 
 export default routes

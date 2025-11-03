@@ -26,6 +26,18 @@ function storeAuthenticationInfo(authInfo) {
   localStorage.setItem('is-authenticated', 'true')
 }
 
+const isPublicRetailPlayerRoute = () => {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const { hash, pathname } = window.location
+  const rawPath = hash && hash.startsWith('#') ? hash.slice(1) : pathname || ''
+  const path = rawPath.split('?')[0]
+
+  return /^\/musicmatters\//.test(path)
+}
+
 const authProvider = {
   login: ({ username, password }) => {
     let url = baseUrl('/auth/login')
@@ -70,7 +82,7 @@ const authProvider = {
   },
 
   checkAuth: () =>
-    localStorage.getItem('is-authenticated')
+    localStorage.getItem('is-authenticated') || isPublicRetailPlayerRoute()
       ? Promise.resolve()
       : Promise.reject(),
 
