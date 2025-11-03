@@ -70,7 +70,7 @@ const useStyles = makeStyles((theme) => {
       display: 'flex',
       flexDirection: 'column',
       gap: theme.spacing(3.5),
-      padding: `${theme.spacing(5)}px ${theme.spacing(4)}px`,
+      padding: `${theme.spacing(1)}px ${theme.spacing(4)}px`,
       width: '100%',
       maxWidth: 1200,
       margin: '0 auto',
@@ -94,6 +94,7 @@ const useStyles = makeStyles((theme) => {
       flexWrap: 'wrap',
       width: '100%',
       maxWidth: 960,
+      paddingLeft: theme.spacing(2),
       [theme.breakpoints.down('sm')]: {
         justifyContent: 'center',
         textAlign: 'center',
@@ -557,25 +558,6 @@ const useStyles = makeStyles((theme) => {
   }
 })
 
-const dummyTracks = [
-  {
-    title: 'Neon Skyline',
-    artist: 'City Echo',
-    artworkUrl: null,
-  },
-  {
-    title: 'Golden Hours',
-    artist: 'Harbor Lights',
-    artworkUrl:
-      'https://images.unsplash.com/photo-1526285840434-67ff3760c121?auto=format&fit=crop&w=400&q=80',
-  },
-  {
-    title: 'Velvet Static',
-    artist: 'Analog Dream',
-    artworkUrl: null,
-  },
-]
-
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
   const { deviceSlug } = useParams()
@@ -991,12 +973,9 @@ const RetailPlayerDashboard = () => {
     return previousNowPlaying
   }, [normalizedDeviceTrack, previousNowPlaying])
 
-  const trackPool = useMemo(() => {
-    if (effectiveNowPlaying) {
-      return [effectiveNowPlaying, ...dummyTracks]
-    }
-    return dummyTracks
-  }, [effectiveNowPlaying])
+const trackPool = useMemo(() => {
+  return effectiveNowPlaying ? [effectiveNowPlaying] : []
+}, [effectiveNowPlaying])
 
   useEffect(() => {
     setCurrentTrackIndex(0)
@@ -1429,47 +1408,6 @@ const RetailPlayerDashboard = () => {
         <Typography component="h1" className={classes.title}>
           {device.name}
         </Typography>
-        <div className={classes.statusGroup}>
-          <ButtonBase
-            className={combineClasses(classes.statusIcon, classes.statusIconNeutral, classes.refreshButton)}
-            onClick={handleRefresh}
-            aria-label="Refresh"
-            focusRipple
-            disabled={statusLoading}
-          >
-            <CachedIcon fontSize="inherit" />
-          </ButtonBase>
-          {statusItems.map((statusItem) => {
-            if (statusItem.key === 'time') {
-              return (
-                <span
-                  key={statusItem.key}
-                  className={classes.timePill}
-                  aria-label={statusItem.labelForAria || 'Time'}
-                >
-                  {statusItem.label}
-                </span>
-              )
-            }
-
-            const StatusIcon = statusItem.icon
-            return (
-              <span
-                key={statusItem.key}
-                className={combineClasses(
-                  classes.statusIcon,
-                  statusItem.intent === 'success'
-                    ? classes.statusIconSuccess
-                    : classes.statusIconDanger,
-                )}
-                aria-label={statusItem.label}
-                role="img"
-              >
-                <StatusIcon fontSize="inherit" />
-              </span>
-            )
-          })}
-        </div>
       </header>
 
       <div className={classes.mainContent}>
