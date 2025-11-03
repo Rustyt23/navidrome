@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { Divider, makeStyles } from '@material-ui/core'
 import clsx from 'clsx'
@@ -15,6 +15,8 @@ import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
 import useRetailPlayerDevices from '../retailPlayer/useRetailPlayerDevices'
+import { BiCog } from 'react-icons/bi'
+import { useHistory } from 'react-router-dom'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -66,6 +68,7 @@ const Menu = ({ dense = false }) => {
   const resources = useSelector(getResources).filter(
     (r) => r.name !== 'radio' && r.name !== 'share',
   )
+  const history = useHistory()
 
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
@@ -127,6 +130,10 @@ const Menu = ({ dense = false }) => {
     isLoading: retailDevicesLoading,
   } = useRetailPlayerDevices()
 
+  const onRetailPlayerConfig = useCallback(() => {
+    history.push('/retailplayer/folders')
+  }, [history])
+
   const renderRetailPlayerDevices = () => {
     if (retailDevicesLoading) {
       return (
@@ -180,6 +187,8 @@ const Menu = ({ dense = false }) => {
       name="menu.retailPlayer.name"
       icon={<SpeakerGroupIcon />}
       dense={dense}
+      actionIcon={<BiCog />}
+      onAction={onRetailPlayerConfig}
     >
       {renderRetailPlayerDevices()}
     </SubMenu>

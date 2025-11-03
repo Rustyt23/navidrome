@@ -594,9 +594,35 @@
       "allDevices": "All Devices",
       "loading": "Loading devices…",
       "error": "Unable to load devices",
-      "empty": "No devices available"
+      "empty": "No devices available",
+      "manage": "Manage device folders"
     },
     "about": "About"
+  },
+  "retailPlayer": {
+    "folders": {
+      "title": "Retail Player Device Folders",
+      "create": "Create folder",
+      "rename": "Rename folder",
+      "delete": "Delete folder",
+      "deleteMessage": "Deleting \"%{name}\" will move any nested items back to the parent folder.",
+      "searchPlaceholder": "Search folders or devices",
+      "empty": "No folders or devices in this location yet.",
+      "loadError": "Unable to load retail player devices. Please try again later.",
+      "moveFolder": "Move folder",
+      "moveDevice": "Move device",
+      "destination": "Destination folder",
+      "root": "Root",
+      "viewDevice": "View device",
+      "columns": {
+        "type": "Type",
+        "name": "Name",
+        "ownerName": "Owner Name",
+        "updatedAt": "Updated",
+        "public": "Public",
+        "actions": "Actions"
+      }
+    }
   },
   "player": {
     "playListsText": "Play Queue",
