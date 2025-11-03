@@ -9,12 +9,13 @@ import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
-import { useParams } from 'react-router-dom'
+import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
+import ArrowBackIosIcon from '@material-ui/icons/ArrowBackIos'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -46,6 +47,7 @@ const formatTime = (date, timeZone) => {
 }
 
 const useStyles = makeStyles((theme) => {
+  const headerHeight = 60
   const successMain =
     (theme.palette.success && theme.palette.success.main) ||
     (theme.palette.secondary && theme.palette.secondary.main) ||
@@ -77,14 +79,89 @@ const useStyles = makeStyles((theme) => {
       boxSizing: 'border-box',
       minHeight: '100vh',
       alignItems: 'center',
+      paddingTop: headerHeight + theme.spacing(4),
       [theme.breakpoints.down('md')]: {
         padding: `${theme.spacing(4)}px ${theme.spacing(3)}px`,
         gap: theme.spacing(3),
         maxWidth: '100%',
+        paddingTop: headerHeight + theme.spacing(3),
       },
       [theme.breakpoints.down('sm')]: {
         padding: `${theme.spacing(3)}px ${theme.spacing(2.5)}px`,
         gap: theme.spacing(2.5),
+        paddingTop: headerHeight + theme.spacing(2.5),
+      },
+    },
+    topRibbon: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: headerHeight,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: `0 ${theme.spacing(4)}px`,
+      backgroundColor: alpha(theme.palette.background.paper, 0.9),
+      boxShadow: '0 6px 18px rgba(0, 0, 0, 0.35)',
+      zIndex: theme.zIndex.appBar + 1,
+      boxSizing: 'border-box',
+      backdropFilter: 'blur(6px)',
+      [theme.breakpoints.down('sm')]: {
+        padding: `0 ${theme.spacing(2.5)}px`,
+      },
+    },
+    topRibbonCenter: {
+      flex: 1,
+      minWidth: theme.spacing(2),
+    },
+    backButton: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 48,
+      height: 48,
+      borderRadius: '50%',
+      border: '1px solid rgba(255, 255, 255, 0.85)',
+      color: theme.palette.common.white,
+      transition: theme.transitions.create(['color', 'border-color', 'background-color'], {
+        duration: theme.transitions.duration.short,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      backgroundColor: 'transparent',
+      '&:hover, &:focus-visible': {
+        color: accentColor,
+        borderColor: accentColor,
+        backgroundColor: alpha(accentColor, 0.1),
+      },
+    },
+    backIcon: {
+      fontSize: theme.typography.pxToRem(20),
+    },
+    clockDisplay: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: `${theme.spacing(1)}px ${theme.spacing(2.5)}px`,
+      borderRadius: theme.shape.borderRadius * 2,
+      border: '1px solid rgba(255, 255, 255, 0.85)',
+      color: theme.palette.common.white,
+      fontWeight: theme.typography.fontWeightMedium,
+      fontSize: theme.typography.pxToRem(18),
+      letterSpacing: 0.5,
+      minWidth: theme.spacing(10),
+      justifySelf: 'flex-end',
+      transition: theme.transitions.create(['color', 'border-color', 'background-color'], {
+        duration: theme.transitions.duration.short,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      cursor: 'default',
+      userSelect: 'none',
+      fontFeatureSettings: '"tnum"',
+      '&:hover': {
+        color: accentColor,
+        borderColor: accentColor,
+        backgroundColor: alpha(accentColor, 0.12),
       },
     },
     header: {
@@ -549,6 +626,7 @@ const useStyles = makeStyles((theme) => {
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
+  const history = useHistory()
   const { deviceSlug } = useParams()
   const {
     device: resolvedDevice,
@@ -564,6 +642,7 @@ const RetailPlayerDashboard = () => {
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
+  const [localTime, setLocalTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
@@ -690,6 +769,16 @@ const RetailPlayerDashboard = () => {
     setDevice(resolvedDevice || null)
     setDeviceTime(resolveDeviceTime(resolvedDevice))
   }, [resolvedDevice, resolveDeviceTime])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setLocalTime(new Date())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -1005,6 +1094,8 @@ const trackPool = useMemo(() => {
     [deviceTime, deviceTimeZone],
   )
 
+  const localTimeLabel = useMemo(() => formatTime(localTime), [localTime])
+
   const statusItems = useMemo(() => {
     if (!device) {
       return []
@@ -1032,6 +1123,14 @@ const trackPool = useMemo(() => {
       },
     ]
   }, [currentTimeLabel, device, isMuted])
+
+  const handleBack = useCallback(() => {
+    if (history.length > 1) {
+      history.goBack()
+      return
+    }
+    history.push('/retailplayer')
+  }, [history])
 
   const handleToggleScheduleMenu = useCallback(() => {
     if (!availableSchedulesCount) {
@@ -1393,6 +1492,22 @@ const trackPool = useMemo(() => {
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
+
+      <header className={classes.topRibbon} role="banner">
+        <ButtonBase
+          className={classes.backButton}
+          onClick={handleBack}
+          focusRipple
+          aria-label="Go back"
+          title="Go back"
+        >
+          <ArrowBackIosIcon className={classes.backIcon} />
+        </ButtonBase>
+        <div className={classes.topRibbonCenter} aria-hidden="true" />
+        <div className={classes.clockDisplay} aria-live="polite">
+          {localTimeLabel}
+        </div>
+      </header>
 
       <div className={classes.mainContent}>
         <section className={classes.nowPlayingCard} aria-label="Now playing">
