@@ -104,6 +104,11 @@ const authProvider = {
 
   checkError: ({ status }) => {
     if (status === 401) {
+      if (isPublicRetailPlayerRoute()) {
+        ensurePublicRetailPlayerSession()
+        return Promise.resolve()
+      }
+
       removeItems()
       return Promise.reject()
     }
