@@ -194,6 +194,14 @@ const useStyles = makeStyles((theme) => {
         padding: theme.spacing(2.5),
       },
     },
+    locationLabel: {
+      width: '100%',
+      textAlign: 'center',
+      fontSize: theme.typography.pxToRem(20),
+      fontWeight: theme.typography.fontWeightMedium,
+      color: accentColor,
+      letterSpacing: 0.5,
+    },
     nowPlayingBody: {
       display: 'flex',
       flexDirection: 'column',
@@ -450,13 +458,14 @@ const useStyles = makeStyles((theme) => {
       display: 'flex',
       flexDirection: 'column',
       gap: theme.spacing(1.5),
-      flex: 1,
-      minWidth: 220,
+      width: '100%',
       maxWidth: 360,
-      alignSelf: 'stretch',
+      minWidth: 0,
+      alignSelf: 'center',
+      margin: '0 auto',
       position: 'relative',
       [theme.breakpoints.down('md')]: {
-        alignSelf: 'center',
+        maxWidth: 420,
       },
       [theme.breakpoints.down('sm')]: {
         width: '100%',
@@ -482,6 +491,8 @@ const useStyles = makeStyles((theme) => {
     },
     slider: {
       color: sliderMain,
+      width: '100%',
+      margin: '0 auto',
     },
     sliderTrack: {
       backgroundColor: sliderMain,
@@ -1382,14 +1393,17 @@ const trackPool = useMemo(() => {
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
-      <header className={classes.header}>
-        <Typography component="h1" className={classes.title}>
-          {device.name}
-        </Typography>
-      </header>
 
       <div className={classes.mainContent}>
         <section className={classes.nowPlayingCard} aria-label="Now playing">
+          <Typography
+            component="h1"
+            className={classes.locationLabel}
+            noWrap
+            title={device.name}
+          >
+            {device.name}
+          </Typography>
           <div className={classes.artworkWrapper} aria-label="Artwork">
             <div className={classes.artworkCircle}>
               <div className={classes.artworkContent}>
