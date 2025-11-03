@@ -26,6 +26,28 @@ const parseVolume = (value) => {
 
 const ensureArray = (value) => (Array.isArray(value) ? value : [])
 
+const parseActiveStreamInfo = (value) => {
+  const normalized = normalizeValue(value)
+  if (!normalized) {
+    return { title: '', artist: '' }
+  }
+
+  const withoutExtension = normalized.replace(/\.[^./\\]+$/, '')
+  const segments = withoutExtension.split(/\s*[-–—]\s*/)
+
+  if (segments.length >= 2) {
+    const [first, ...rest] = segments
+    const artist = normalizeValue(first)
+    const title = normalizeValue(rest.join(' - '))
+    return {
+      title: title || normalizeValue(withoutExtension),
+      artist,
+    }
+  }
+
+  return { title: normalizeValue(withoutExtension) || normalized, artist: '' }
+}
+
 const readNestedValue = (source, path) => {
   if (!source || typeof source !== 'object' || !path) {
     return undefined
@@ -190,8 +212,49 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     .filter(Boolean)
 
   const activeResource = normalizeValue(status.activeResource)
+  const normalizedActiveResource = activeResource.toLowerCase()
   const activeStreamName = normalizeValue(status.activeStreamName)
-  const streamName = activeStreamName || normalizeValue(status.activeStream)
+  const activeStream = normalizeValue(status.activeStream)
+  const streamName = activeStreamName || activeStream
+
+  const metadataCandidate =
+    streamMetadata.find((item) => {
+      if (!item || typeof item !== 'object') {
+        return false
+      }
+
+      const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
+      const hasTitle = normalizeValue(metadata.title)
+      const hasArtist = normalizeValue(metadata.artist)
+      if (!hasTitle && !hasArtist) {
+        return false
+      }
+
+      const itemResource = normalizeValue(item.activeResource).toLowerCase()
+      if (normalizedActiveResource && itemResource === normalizedActiveResource) {
+        return true
+      }
+
+      const itemChannelName = normalizeValue(item.channelName)
+      if (activeStreamName && itemChannelName && itemChannelName.toLowerCase() === activeStreamName.toLowerCase()) {
+        return true
+      }
+
+      const itemFilename = normalizeValue(item.filename)
+      if (streamName && itemFilename && itemFilename.toLowerCase() === streamName.toLowerCase()) {
+        return true
+      }
+
+      return true
+    }) ||
+    streamMetadata.find((item) => {
+      if (!item || typeof item !== 'object') {
+        return false
+      }
+      const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
+      return Boolean(normalizeValue(metadata.title) || normalizeValue(metadata.artist))
+    }) ||
+    null
 
   const schedulesWithActive = normalizedSchedules.map((schedule, index) => {
     const metadata = schedule.metadata ? { ...schedule.metadata } : {}
@@ -336,8 +399,35 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
   const activeSchedule = schedules.find((schedule) => schedule.isActive) || schedules[0]
 
-  const metadata = activeSchedule?.metadata || {}
-  const metadataTitle = pickFirstStringValue(metadata, [
+  const activeScheduleMetadata =
+    activeSchedule && activeSchedule.metadata && typeof activeSchedule.metadata === 'object'
+      ? activeSchedule.metadata
+      : {}
+  const streamMetadataDetails =
+    metadataCandidate && metadataCandidate.metadata && typeof metadataCandidate.metadata === 'object'
+      ? metadataCandidate.metadata
+      : {}
+
+  const combinedMetadata = { ...activeScheduleMetadata }
+  Object.entries(streamMetadataDetails).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      return
+    }
+
+    if (typeof value === 'object') {
+      combinedMetadata[key] = value
+      return
+    }
+
+    const normalized = normalizeValue(value)
+    if (normalized) {
+      combinedMetadata[key] = normalized
+    } else if (!(key in combinedMetadata)) {
+      combinedMetadata[key] = value
+    }
+  })
+
+  const metadataTitle = pickFirstStringValue(combinedMetadata, [
     'trackTitle',
     'track_title',
     'track.title',
@@ -375,7 +465,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     normalizeValue(status.activeStream) ||
     baseDevice.name
 
-  const metadataArtist = pickFirstStringValue(metadata, [
+  const metadataArtist = pickFirstStringValue(combinedMetadata, [
     'trackArtist',
     'track_artist',
     'track.artist',
@@ -406,14 +496,36 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'artist',
   ])
   const scheduleArtist = normalizeValue(activeSchedule?.artist)
-  const nowPlayingArtist =
+  const { title: parsedStreamTitle, artist: parsedStreamArtist } = parseActiveStreamInfo(streamName)
+
+  let nowPlayingTitle =
+    metadataTitle ||
+    statusTitle ||
+    parsedStreamTitle ||
+    scheduleLabel ||
+    streamName ||
+    baseDevice.name
+
+  let nowPlayingArtist =
     metadataArtist ||
     statusArtist ||
+    parsedStreamArtist ||
     scheduleArtist ||
     normalizeValue(baseDevice.channel) ||
     'Retail Player'
 
-  const volume = metadata.volume ?? parseVolume(status.volume)
+  const metadataArtworkUrl = normalizeValue(combinedMetadata.artworkUrl)
+  const metadataAlbum = normalizeValue(combinedMetadata.album)
+
+  const isLoadingNowPlaying =
+    normalizedActiveResource === 'none' && !streamName && !metadataTitle && !metadataArtist
+
+  if (isLoadingNowPlaying) {
+    nowPlayingTitle = 'Loading'
+    nowPlayingArtist = ''
+  }
+
+  const volume = combinedMetadata.volume ?? parseVolume(status.volume)
 
   const scheduleStatus = normalizeValue(status.scheduleStatus).toLowerCase()
   const isConnected =
@@ -444,14 +556,18 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     volume: Number.isFinite(volume) ? volume : 50,
     schedules,
     nowPlaying: {
-      title: nowPlayingTitle || 'Now Playing',
-      artist: nowPlayingArtist || 'Retail Player',
-      album: normalizeValue(metadata.album),
-      artworkUrl: normalizeValue(metadata.artworkUrl),
+      title: nowPlayingTitle || (isLoadingNowPlaying ? 'Loading' : 'Now Playing'),
+      artist: nowPlayingArtist || (isLoadingNowPlaying ? '' : 'Retail Player'),
+      album: metadataAlbum || normalizeValue(activeScheduleMetadata.album),
+      artworkUrl:
+        metadataArtworkUrl ||
+        normalizeValue(activeScheduleMetadata.artworkUrl) ||
+        normalizeValue(streamMetadataDetails.artworkUrl),
       streamName,
       artworkId,
       mediaFileId,
-      metadata,
+      metadata: { ...combinedMetadata },
+      isLoading: isLoadingNowPlaying,
     },
     status: normalizedStatus,
     streamMetadata,

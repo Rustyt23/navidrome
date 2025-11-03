@@ -603,11 +603,29 @@ const RetailPlayerDashboard = () => {
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
+  const [previousNowPlaying, setPreviousNowPlaying] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
+
+  const deviceTrackKey = useMemo(() => {
+    if (!device) {
+      return ''
+    }
+
+    return (
+      normalizeValue(device.apiId) ||
+      normalizeValue(device.id) ||
+      normalizeValue(device.slug) ||
+      normalizeValue(device.macAddress)
+    )
+  }, [device])
+
+  useEffect(() => {
+    setPreviousNowPlaying(null)
+  }, [deviceTrackKey])
 
   useEffect(() => {
     if (!isApiEnabled) {
@@ -889,34 +907,90 @@ const RetailPlayerDashboard = () => {
     if (!device?.nowPlaying) {
       return null
     }
+
     if (typeof device.nowPlaying === 'object' && device.nowPlaying !== null) {
+      const nowPlaying = device.nowPlaying
+      const normalizedTitle = normalizeValue(nowPlaying.title)
+      const normalizedArtist = normalizeValue(nowPlaying.artist)
+      const normalizedArtwork = normalizeValue(nowPlaying.artworkUrl)
+      const isLoading = Boolean(nowPlaying.isLoading)
+
       return {
-        title: device.nowPlaying.title || 'Now Playing',
-        artist: device.nowPlaying.artist || device.channel || 'Retail Player',
-        artworkUrl: device.nowPlaying.artworkUrl || null,
+        title:
+          normalizedTitle ||
+          (isLoading ? 'Loading' : device.channel || nowPlaying.streamName || 'Now Playing'),
+        artist:
+          normalizedArtist || (isLoading ? '' : device.channel || 'Retail Player'),
+        artworkUrl: normalizedArtwork || null,
+        isLoading,
       }
     }
+
     if (typeof device.nowPlaying === 'string') {
       const [titlePart, artistPart] = device.nowPlaying.split('|')
       return {
         title: titlePart ? titlePart.trim() : device.nowPlaying,
         artist: artistPart ? artistPart.trim() : device.channel || 'Retail Player',
         artworkUrl: null,
+        isLoading: false,
       }
     }
+
     return null
   }, [device])
 
-  const trackPool = useMemo(() => {
+  useEffect(() => {
+    if (!normalizedDeviceTrack || normalizedDeviceTrack.isLoading) {
+      return
+    }
+
+    const nextTrack = {
+      title: normalizedDeviceTrack.title || 'Now Playing',
+      artist: normalizedDeviceTrack.artist || device?.channel || 'Retail Player',
+      artworkUrl: normalizedDeviceTrack.artworkUrl || null,
+    }
+
+    setPreviousNowPlaying((previous) => {
+      if (
+        previous &&
+        previous.title === nextTrack.title &&
+        previous.artist === nextTrack.artist &&
+        previous.artworkUrl === nextTrack.artworkUrl
+      ) {
+        return previous
+      }
+      return nextTrack
+    })
+  }, [device?.channel, normalizedDeviceTrack])
+
+  const effectiveNowPlaying = useMemo(() => {
     if (normalizedDeviceTrack) {
-      return [normalizedDeviceTrack, ...dummyTracks]
+      if (normalizedDeviceTrack.isLoading) {
+        if (previousNowPlaying) {
+          return previousNowPlaying
+        }
+        return {
+          title: normalizedDeviceTrack.title || 'Loading',
+          artist: normalizedDeviceTrack.artist || '',
+          artworkUrl: normalizedDeviceTrack.artworkUrl || null,
+        }
+      }
+      return normalizedDeviceTrack
+    }
+
+    return previousNowPlaying
+  }, [normalizedDeviceTrack, previousNowPlaying])
+
+  const trackPool = useMemo(() => {
+    if (effectiveNowPlaying) {
+      return [effectiveNowPlaying, ...dummyTracks]
     }
     return dummyTracks
-  }, [normalizedDeviceTrack])
+  }, [effectiveNowPlaying])
 
   useEffect(() => {
     setCurrentTrackIndex(0)
-  }, [normalizedDeviceTrack])
+  }, [effectiveNowPlaying])
 
   const currentTrack = useMemo(() => {
     if (!trackPool.length) {
@@ -926,7 +1000,10 @@ const RetailPlayerDashboard = () => {
     return trackPool[index]
   }, [currentTrackIndex, trackPool])
 
-  const artworkUrl = device?.nowPlaying?.artworkUrl || null
+  const artworkUrl =
+    (effectiveNowPlaying && effectiveNowPlaying.artworkUrl) ||
+    normalizeValue(device?.nowPlaying?.artworkUrl) ||
+    null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
   const deviceTimeZone = useMemo(() => {
