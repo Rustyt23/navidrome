@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { makeStyles } from '@material-ui/core/styles'
+import { alpha, makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
@@ -172,7 +172,7 @@ const useStyles = makeStyles((theme) => {
     },
     nowPlayingCard: {
       borderRadius: theme.shape.borderRadius * 1.5,
-      backgroundColor: theme.palette.background.paper,
+      backgroundColor: alpha(theme.palette.background.paper, 0.3),
       border: `1px solid ${theme.palette.divider}`,
       padding: theme.spacing(3),
       display: 'flex',
