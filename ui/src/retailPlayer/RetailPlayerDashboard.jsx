@@ -197,10 +197,10 @@ const useStyles = makeStyles((theme) => {
     locationLabel: {
       width: '100%',
       textAlign: 'center',
-      fontSize: theme.typography.pxToRem(20),
-      fontWeight: theme.typography.fontWeightMedium,
+      fontSize: theme.typography.pxToRem(26),
+      fontWeight: theme.typography.fontWeightBold,
       color: accentColor,
-      letterSpacing: 0.5,
+      letterSpacing: 0.8,
     },
     nowPlayingBody: {
       display: 'flex',
