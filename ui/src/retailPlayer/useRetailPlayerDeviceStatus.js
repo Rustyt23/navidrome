@@ -721,7 +721,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return () => {
       abortController.abort()
     }
-  }, [baseDevice?.channelList, devicesLoading, isApiEnabled, refreshIndex])
+  }, [baseDevice?.channelList, devicesLoading, isApiEnabled])
 
   const normalizedDevice = useMemo(
     () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
