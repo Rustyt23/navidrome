@@ -603,11 +603,43 @@ const RetailPlayerDashboard = () => {
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
+  const [previousNowPlaying, setPreviousNowPlaying] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
+
+  const deviceTrackKey = useMemo(() => {
+    if (!device) {
+      return ''
+    }
+
+    return (
+      normalizeValue(device.apiId) ||
+      normalizeValue(device.id) ||
+      normalizeValue(device.slug) ||
+      normalizeValue(device.macAddress)
+    )
+  }, [device])
+
+  useEffect(() => {
+    setPreviousNowPlaying(null)
+  }, [deviceTrackKey])
+
+  useEffect(() => {
+    if (!isApiEnabled) {
+      return undefined
+    }
+
+    const intervalId = window.setInterval(() => {
+      refreshStatus()
+    }, 3000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [isApiEnabled, refreshStatus])
 
   const deviceApiId = useMemo(() => {
     if (resolvedDevice?.apiId) {
@@ -708,9 +740,19 @@ const RetailPlayerDashboard = () => {
     return activeSchedule ? activeSchedule.key : null
   }, [schedules])
 
+  const [pendingActiveChannelKey, setPendingActiveChannelKey] = useState(null)
+
+  useEffect(() => {
+    if (pendingActiveChannelKey && activeChannelKey === pendingActiveChannelKey) {
+      setPendingActiveChannelKey(null)
+    }
+  }, [activeChannelKey, pendingActiveChannelKey])
+
+  const effectiveActiveChannelKey = pendingActiveChannelKey || activeChannelKey
+
   const availableSchedules = useMemo(
-    () => schedules.filter((schedule) => schedule.key !== activeChannelKey),
-    [activeChannelKey, schedules],
+    () => schedules.filter((schedule) => schedule.key !== effectiveActiveChannelKey),
+    [effectiveActiveChannelKey, schedules],
   )
   const availableSchedulesCount = availableSchedules.length
 
@@ -757,9 +799,9 @@ const RetailPlayerDashboard = () => {
     if (!schedules.length) {
       return null
     }
-    const matched = schedules.find((schedule) => schedule.key === activeChannelKey)
+    const matched = schedules.find((schedule) => schedule.key === effectiveActiveChannelKey)
     return matched || schedules[0]
-  }, [activeChannelKey, schedules])
+  }, [effectiveActiveChannelKey, schedules])
 
   const sendDislikeNotification = useCallback(() => {
     if (!isApiEnabled || !deviceApiId) {
@@ -875,34 +917,90 @@ const RetailPlayerDashboard = () => {
     if (!device?.nowPlaying) {
       return null
     }
+
     if (typeof device.nowPlaying === 'object' && device.nowPlaying !== null) {
+      const nowPlaying = device.nowPlaying
+      const normalizedTitle = normalizeValue(nowPlaying.title)
+      const normalizedArtist = normalizeValue(nowPlaying.artist)
+      const normalizedArtwork = normalizeValue(nowPlaying.artworkUrl)
+      const isLoading = Boolean(nowPlaying.isLoading)
+
       return {
-        title: device.nowPlaying.title || 'Now Playing',
-        artist: device.nowPlaying.artist || device.channel || 'Retail Player',
-        artworkUrl: device.nowPlaying.artworkUrl || null,
+        title:
+          normalizedTitle ||
+          (isLoading ? 'Loading' : device.channel || nowPlaying.streamName || 'Now Playing'),
+        artist:
+          normalizedArtist || (isLoading ? '' : device.channel || 'Retail Player'),
+        artworkUrl: normalizedArtwork || null,
+        isLoading,
       }
     }
+
     if (typeof device.nowPlaying === 'string') {
       const [titlePart, artistPart] = device.nowPlaying.split('|')
       return {
         title: titlePart ? titlePart.trim() : device.nowPlaying,
         artist: artistPart ? artistPart.trim() : device.channel || 'Retail Player',
         artworkUrl: null,
+        isLoading: false,
       }
     }
+
     return null
   }, [device])
 
-  const trackPool = useMemo(() => {
+  useEffect(() => {
+    if (!normalizedDeviceTrack || normalizedDeviceTrack.isLoading) {
+      return
+    }
+
+    const nextTrack = {
+      title: normalizedDeviceTrack.title || 'Now Playing',
+      artist: normalizedDeviceTrack.artist || device?.channel || 'Retail Player',
+      artworkUrl: normalizedDeviceTrack.artworkUrl || null,
+    }
+
+    setPreviousNowPlaying((previous) => {
+      if (
+        previous &&
+        previous.title === nextTrack.title &&
+        previous.artist === nextTrack.artist &&
+        previous.artworkUrl === nextTrack.artworkUrl
+      ) {
+        return previous
+      }
+      return nextTrack
+    })
+  }, [device?.channel, normalizedDeviceTrack])
+
+  const effectiveNowPlaying = useMemo(() => {
     if (normalizedDeviceTrack) {
-      return [normalizedDeviceTrack, ...dummyTracks]
+      if (normalizedDeviceTrack.isLoading) {
+        if (previousNowPlaying) {
+          return previousNowPlaying
+        }
+        return {
+          title: normalizedDeviceTrack.title || 'Loading',
+          artist: normalizedDeviceTrack.artist || '',
+          artworkUrl: normalizedDeviceTrack.artworkUrl || null,
+        }
+      }
+      return normalizedDeviceTrack
+    }
+
+    return previousNowPlaying
+  }, [normalizedDeviceTrack, previousNowPlaying])
+
+  const trackPool = useMemo(() => {
+    if (effectiveNowPlaying) {
+      return [effectiveNowPlaying, ...dummyTracks]
     }
     return dummyTracks
-  }, [normalizedDeviceTrack])
+  }, [effectiveNowPlaying])
 
   useEffect(() => {
     setCurrentTrackIndex(0)
-  }, [normalizedDeviceTrack])
+  }, [effectiveNowPlaying])
 
   const currentTrack = useMemo(() => {
     if (!trackPool.length) {
@@ -912,7 +1010,10 @@ const RetailPlayerDashboard = () => {
     return trackPool[index]
   }, [currentTrackIndex, trackPool])
 
-  const artworkUrl = device?.nowPlaying?.artworkUrl || null
+  const artworkUrl =
+    (effectiveNowPlaying && effectiveNowPlaying.artworkUrl) ||
+    normalizeValue(device?.nowPlaying?.artworkUrl) ||
+    null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
   const deviceTimeZone = useMemo(() => {
@@ -1023,6 +1124,8 @@ const RetailPlayerDashboard = () => {
       const headers = new Headers({ 'Content-Type': 'application/json' })
       const selectedKey = schedule.key
 
+      setPendingActiveChannelKey(selectedKey)
+
       httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
         method: 'POST',
         headers,
@@ -1030,24 +1133,6 @@ const RetailPlayerDashboard = () => {
         signal: abortController.signal,
       })
         .then(() => {
-          setDevice((previous) => {
-            if (!previous) {
-              return previous
-            }
-
-            const previousSchedules = Array.isArray(previous.schedules)
-              ? previous.schedules
-              : []
-            const nextSchedules = previousSchedules.map((item) => ({
-              ...item,
-              isActive: item.key === selectedKey,
-            }))
-
-            return {
-              ...previous,
-              schedules: nextSchedules,
-            }
-          })
           refreshStatus()
         })
         .catch((err) => {
@@ -1055,6 +1140,7 @@ const RetailPlayerDashboard = () => {
             // eslint-disable-next-line no-console
             console.error('Failed to update retail player channel', err)
           }
+          setPendingActiveChannelKey(null)
         })
         .finally(() => {
           if (channelRequestControllerRef.current === abortController) {
@@ -1562,7 +1648,7 @@ const RetailPlayerDashboard = () => {
               aria-hidden={!isScheduleMenuOpen}
             >
               {availableSchedules.map((schedule) => {
-                const isActive = schedule.key === activeChannelKey
+                const isActive = schedule.key === effectiveActiveChannelKey
                 return (
                   <ButtonBase
                     key={schedule.key}
