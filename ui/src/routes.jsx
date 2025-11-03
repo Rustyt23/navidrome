@@ -2,6 +2,7 @@ import React from 'react'
 import { Redirect, Route } from 'react-router-dom'
 import Personal from './personal/Personal'
 import RetailPlayerDashboard from './retailPlayer/RetailPlayerDashboard'
+import MusicMattersRetailPlayerDashboard from './retailPlayer/MusicMattersRetailPlayerDashboard'
 import RetailPlayerDevicesList from './retailPlayer/RetailPlayerDevicesList'
 
 const routes = [
@@ -23,6 +24,12 @@ const routes = [
     path="/retailplayer/:deviceSlug"
     render={() => <RetailPlayerDashboard />}
     key={'retailplayer-device'}
+  />,
+  <Route
+    exact
+    path="/musicmatters/:deviceSlug"
+    render={() => <MusicMattersRetailPlayerDashboard />}
+    key={'musicmatters-device'}
   />,
 ]
 
