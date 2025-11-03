@@ -9,7 +9,7 @@ import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
-import ArrowBackIosIcon from '@material-ui/icons/ArrowBackIos'
+import ArrowBackIcon from '@material-ui/icons/ArrowBack'
 import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
@@ -67,13 +67,15 @@ const useStyles = makeStyles((theme) => {
     (theme.palette.action && theme.palette.action.disabledBackground) ||
     theme.palette.background.paper
 
+  const headerOffset = headerHeight + theme.spacing(0.8)
+
   return {
     root: {
       display: 'flex',
       flexDirection: 'column',
       gap: theme.spacing(3.5),
       padding: `${theme.spacing(1)}px ${theme.spacing(4)}px`,
-      paddingTop: headerHeight + theme.spacing(2),
+      paddingTop: headerOffset,
       width: '100%',
       maxWidth: '50vw',
       margin: '0 auto',
@@ -136,8 +138,7 @@ const useStyles = makeStyles((theme) => {
       },
     },
     headerBackIcon: {
-      fontSize: theme.typography.pxToRem(20),
-      marginLeft: theme.direction === 'rtl' ? theme.spacing(0.75) : -theme.spacing(0.5),
+      fontSize: theme.typography.pxToRem(24),
     },
     headerCenter: {
       flex: 1,
@@ -1508,7 +1509,7 @@ const trackPool = useMemo(() => {
           aria-label="Go back"
           focusRipple
         >
-          <ArrowBackIosIcon className={classes.headerBackIcon} />
+          <ArrowBackIcon className={classes.headerBackIcon} />
         </ButtonBase>
         <div className={classes.headerCenter} aria-hidden="true" />
         <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
