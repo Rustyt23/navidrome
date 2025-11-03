@@ -9,7 +9,8 @@ import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import DescriptionIcon from '@material-ui/icons/Description'
 import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
-import { useParams } from 'react-router-dom'
+import ArrowBackIcon from '@material-ui/icons/ArrowBack'
+import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
@@ -46,6 +47,7 @@ const formatTime = (date, timeZone) => {
 }
 
 const useStyles = makeStyles((theme) => {
+  const headerHeight = 60
   const successMain =
     (theme.palette.success && theme.palette.success.main) ||
     (theme.palette.secondary && theme.palette.secondary.main) ||
@@ -65,12 +67,15 @@ const useStyles = makeStyles((theme) => {
     (theme.palette.action && theme.palette.action.disabledBackground) ||
     theme.palette.background.paper
 
+  const headerOffset = headerHeight + theme.spacing(0.4)
+
   return {
     root: {
       display: 'flex',
       flexDirection: 'column',
       gap: theme.spacing(3.5),
       padding: `${theme.spacing(1)}px ${theme.spacing(4)}px`,
+      paddingTop: headerOffset,
       width: '100%',
       maxWidth: '50vw',
       margin: '0 auto',
@@ -85,6 +90,83 @@ const useStyles = makeStyles((theme) => {
       [theme.breakpoints.down('sm')]: {
         padding: `${theme.spacing(3)}px ${theme.spacing(2.5)}px`,
         gap: theme.spacing(2.5),
+      },
+    },
+    headerBar: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: headerHeight,
+      display: 'flex',
+      alignItems: 'center',
+      padding: `0 ${theme.spacing(4)}px`,
+      backgroundColor:
+        alpha(theme.palette.background.paper || theme.palette.background.default, 0.92) ||
+        theme.palette.background.default,
+      boxShadow: '0 6px 16px rgba(0, 0, 0, 0.35)',
+      zIndex: (theme.zIndex && theme.zIndex.appBar) || 1100,
+      backdropFilter: 'blur(6px)',
+      boxSizing: 'border-box',
+      [theme.breakpoints.down('sm')]: {
+        padding: `0 ${theme.spacing(2.5)}px`,
+      },
+    },
+    headerBackButton: {
+      width: 44,
+      height: 44,
+      borderRadius: '50%',
+      border: `2px solid ${alpha(theme.palette.common.white, 0.85)}`,
+      color: theme.palette.common.white,
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: theme.transitions.create(['color', 'border-color', 'background-color'], {
+        duration: theme.transitions.duration.shorter,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      padding: 0,
+      cursor: 'pointer',
+      '&:hover, &:focus-visible': {
+        color: accentColor,
+        borderColor: accentColor,
+        backgroundColor: alpha(accentColor, 0.12),
+      },
+      [theme.breakpoints.down('xs')]: {
+        width: 40,
+        height: 40,
+      },
+    },
+    headerBackIcon: {
+      fontSize: theme.typography.pxToRem(24),
+    },
+    headerCenter: {
+      flex: 1,
+    },
+    headerClock: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: `${theme.spacing(0.5)}px ${theme.spacing(2)}px`,
+      borderRadius: theme.shape.borderRadius * 2.5,
+      border: `2px solid ${alpha(theme.palette.common.white, 0.85)}`,
+      color: theme.palette.common.white,
+      fontWeight: theme.typography.fontWeightMedium,
+      fontSize: theme.typography.pxToRem(18),
+      letterSpacing: theme.spacing(0.25),
+      transition: theme.transitions.create(['color', 'border-color', 'background-color'], {
+        duration: theme.transitions.duration.shorter,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      backgroundColor: alpha(theme.palette.common.white, 0.04),
+      '&:hover, &:focus-visible': {
+        color: accentColor,
+        borderColor: accentColor,
+        backgroundColor: alpha(accentColor, 0.12),
+      },
+      [theme.breakpoints.down('xs')]: {
+        fontSize: theme.typography.pxToRem(16),
+        padding: `${theme.spacing(0.25)}px ${theme.spacing(1.5)}px`,
       },
     },
     header: {
@@ -169,6 +251,9 @@ const useStyles = makeStyles((theme) => {
       maxWidth: 960,
       margin: '0 auto',
       alignItems: 'center',
+      [theme.breakpoints.up('md')]: {
+        marginTop: theme.spacing(2),
+      },
     },
     nowPlayingCard: {
       borderRadius: theme.shape.borderRadius * 1.5,
@@ -549,6 +634,7 @@ const useStyles = makeStyles((theme) => {
 
 const RetailPlayerDashboard = () => {
   const classes = useStyles()
+  const history = useHistory()
   const { deviceSlug } = useParams()
   const {
     device: resolvedDevice,
@@ -564,6 +650,7 @@ const RetailPlayerDashboard = () => {
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
+  const [currentTime, setCurrentTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
@@ -580,6 +667,16 @@ const RetailPlayerDashboard = () => {
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -1005,6 +1102,8 @@ const trackPool = useMemo(() => {
     [deviceTime, deviceTimeZone],
   )
 
+  const headerTimeLabel = useMemo(() => formatTime(currentTime), [currentTime])
+
   const statusItems = useMemo(() => {
     if (!device) {
       return []
@@ -1189,6 +1288,15 @@ const trackPool = useMemo(() => {
     },
     [updateVolume],
   )
+
+  const handleBack = useCallback(() => {
+    if (history.length > 1) {
+      history.goBack()
+      return
+    }
+
+    history.push('/retailplayer/devices')
+  }, [history])
 
   const handleDislike = useCallback(() => {
     sendDislikeNotification()
@@ -1393,6 +1501,21 @@ const trackPool = useMemo(() => {
   return (
     <div className={classes.root}>
       <Title title="Retail Player" />
+
+      <header className={classes.headerBar}>
+        <ButtonBase
+          className={classes.headerBackButton}
+          onClick={handleBack}
+          aria-label="Go back"
+          focusRipple
+        >
+          <ArrowBackIcon className={classes.headerBackIcon} />
+        </ButtonBase>
+        <div className={classes.headerCenter} aria-hidden="true" />
+        <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
+          {headerTimeLabel}
+        </div>
+      </header>
 
       <div className={classes.mainContent}>
         <section className={classes.nowPlayingCard} aria-label="Now playing">
