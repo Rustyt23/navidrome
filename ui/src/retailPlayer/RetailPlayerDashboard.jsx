@@ -67,7 +67,7 @@ const useStyles = makeStyles((theme) => {
     (theme.palette.action && theme.palette.action.disabledBackground) ||
     theme.palette.background.paper
 
-  const headerOffset = headerHeight + theme.spacing(0.8)
+  const headerOffset = headerHeight + theme.spacing(0.4)
 
   return {
     root: {
