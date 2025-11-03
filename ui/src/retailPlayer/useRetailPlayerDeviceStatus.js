@@ -457,13 +457,6 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'title',
   ])
   const scheduleLabel = normalizeValue(activeSchedule?.label)
-  const nowPlayingTitle =
-    metadataTitle ||
-    statusTitle ||
-    scheduleLabel ||
-    normalizeValue(status.activeStreamName) ||
-    normalizeValue(status.activeStream) ||
-    baseDevice.name
 
   const metadataArtist = pickFirstStringValue(combinedMetadata, [
     'trackArtist',
