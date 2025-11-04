@@ -26,7 +26,7 @@ import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import EditIcon from '@material-ui/icons/Edit'
 import DeleteIcon from '@material-ui/icons/Delete'
 import OpenInNewIcon from '@material-ui/icons/OpenInNew'
-import DriveFileMoveIcon from '@material-ui/icons/DriveFileMove'
+import MoveToInboxIcon from '@material-ui/icons/MoveToInbox'
 import Switch from '@material-ui/core/Switch'
 import { useHistory } from 'react-router-dom'
 import { Title, useTranslate } from 'react-admin'
@@ -413,7 +413,7 @@ const RetailPlayerFolderPage = () => {
                                   })
                                 }
                               >
-                                <DriveFileMoveIcon fontSize="small" />
+                                <MoveToInboxIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                             {item.type === 'folder' ? (
