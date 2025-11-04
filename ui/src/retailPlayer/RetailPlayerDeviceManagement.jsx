@@ -24,8 +24,11 @@ import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
 import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
+import Breadcrumbs from '@material-ui/core/Breadcrumbs'
+import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
 import PropTypes from 'prop-types'
+import { useHistory } from 'react-router-dom'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 
 const useStyles = makeStyles((theme) => ({
@@ -127,6 +130,16 @@ const useStyles = makeStyles((theme) => ({
   folderRow: {
     backgroundColor: theme.palette.action.selected,
   },
+  interactiveRow: {
+    cursor: 'pointer',
+    '&:hover': {
+      backgroundColor: theme.palette.action.hover,
+    },
+    '&:focus': {
+      outline: `2px solid ${theme.palette.primary.main}`,
+      outlineOffset: -2,
+    },
+  },
   nameCell: {
     display: 'flex',
     alignItems: 'center',
@@ -174,6 +187,26 @@ const useStyles = makeStyles((theme) => ({
     [theme.breakpoints.down('sm')]: {
       gridArea: 'actions',
     },
+  },
+  breadcrumbBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: theme.spacing(1),
+    padding: theme.spacing(1.5, 2),
+    borderBottom: `1px solid ${theme.palette.divider}`,
+    backgroundColor: theme.palette.background.default,
+  },
+  breadcrumbs: {
+    '& .MuiBreadcrumbs-separator': {
+      color: theme.palette.text.secondary,
+    },
+  },
+  breadcrumbLink: {
+    color: theme.palette.primary.main,
+    cursor: 'pointer',
+    fontWeight: theme.typography.fontWeightMedium,
   },
   emptyState: {
     padding: theme.spacing(4),
@@ -446,6 +479,7 @@ DeviceDialog.defaultProps = {
 const RetailPlayerDeviceManagement = () => {
   const classes = useStyles()
   const theme = useTheme()
+  const history = useHistory()
   const {
     state: { tree, folders, devices, loading, error },
     actions: { createFolder, updateFolder, createDevice, updateDevice },
@@ -453,6 +487,7 @@ const RetailPlayerDeviceManagement = () => {
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [folderDialog, setFolderDialog] = useState({ open: false, target: null })
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
+  const [activeFolderId, setActiveFolderId] = useState(null)
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -474,6 +509,62 @@ const RetailPlayerDeviceManagement = () => {
     })
     return map
   }, [devices])
+
+  const findFolderNode = useCallback((nodes, targetId) => {
+    if (!targetId) {
+      return null
+    }
+    for (let index = 0; index < nodes.length; index += 1) {
+      const node = nodes[index]
+      if (node.type !== 'folder') {
+        // eslint-disable-next-line no-continue
+        continue
+      }
+      if (node.id === targetId) {
+        return node
+      }
+      const childResult = findFolderNode(node.children || [], targetId)
+      if (childResult) {
+        return childResult
+      }
+    }
+    return null
+  }, [])
+
+  const activeFolderNode = useMemo(
+    () => findFolderNode(tree, activeFolderId),
+    [findFolderNode, tree, activeFolderId],
+  )
+
+  useEffect(() => {
+    if (activeFolderId && !activeFolderNode) {
+      setActiveFolderId(null)
+    }
+  }, [activeFolderId, activeFolderNode])
+
+  const activeFolderPath = useMemo(() => {
+    if (!activeFolderId) {
+      return []
+    }
+    const path = []
+    let currentId = activeFolderId
+    const seen = new Set()
+    while (currentId) {
+      if (seen.has(currentId)) {
+        break
+      }
+      seen.add(currentId)
+      const folder = folderMap.get(currentId)
+      if (!folder) {
+        break
+      }
+      path.unshift(folder)
+      currentId = folder.parentId || null
+    }
+    return path
+  }, [activeFolderId, folderMap])
+
+  const visibleNodes = activeFolderNode ? activeFolderNode.children || [] : tree
 
   const openMenu = (event) => {
     setMenuAnchor(event.currentTarget)
@@ -531,6 +622,36 @@ const RetailPlayerDeviceManagement = () => {
     handleDeviceDialogClose()
   }
 
+  const handleNavigateToDevice = useCallback(
+    (device) => {
+      if (!device) {
+        return
+      }
+      const slug = device.slug || device.name || device.id
+      if (!slug) {
+        return
+      }
+      const encodedSlug = encodeURIComponent(slug)
+      history.push(`/retailplayer/${encodedSlug}`)
+    },
+    [history],
+  )
+
+  const handleEnterFolder = useCallback((folderId) => {
+    if (!folderId) {
+      setActiveFolderId(null)
+      return
+    }
+    setActiveFolderId(folderId)
+  }, [])
+
+  const handleRowKeyDown = (event, action) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      action()
+    }
+  }
+
   const countDevices = useCallback((node) => {
     if (!node || !Array.isArray(node.children)) {
       return 0
@@ -552,7 +673,12 @@ const RetailPlayerDeviceManagement = () => {
         return [
           <div
             key={`folder-row-${node.id}`}
-            className={clsx(classes.row, classes.folderRow)}
+            className={clsx(classes.row, classes.folderRow, classes.interactiveRow)}
+            role="button"
+            tabIndex={0}
+            onClick={() => handleEnterFolder(node.id)}
+            onKeyDown={(event) => handleRowKeyDown(event, () => handleEnterFolder(node.id))}
+            aria-label={`Open folder ${node.name}`}
           >
             <div className={classes.nameCell} style={indentStyle}>
               <FolderIcon className={classes.nameIcon} />
@@ -572,7 +698,10 @@ const RetailPlayerDeviceManagement = () => {
               <Tooltip title="Edit folder">
                 <IconButton
                   size="small"
-                  onClick={() => handleEditFolder(node.id)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleEditFolder(node.id)
+                  }}
                   aria-label={`Edit folder ${node.name}`}
                 >
                   <EditIcon fontSize="small" />
@@ -585,7 +714,15 @@ const RetailPlayerDeviceManagement = () => {
       }
       const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
       return [
-        <div key={`device-row-${node.id}`} className={classes.row}>
+        <div
+          key={`device-row-${node.id}`}
+          className={clsx(classes.row, classes.interactiveRow)}
+          role="button"
+          tabIndex={0}
+          onClick={() => handleNavigateToDevice(node)}
+          onKeyDown={(event) => handleRowKeyDown(event, () => handleNavigateToDevice(node))}
+          aria-label={`Open device ${node.name}`}
+        >
           <div className={classes.nameCell} style={indentStyle}>
             <SpeakerGroupIcon className={classes.nameIcon} />
             <div className={classes.nameLabel}>
@@ -608,7 +745,10 @@ const RetailPlayerDeviceManagement = () => {
             <Tooltip title="Edit device">
               <IconButton
                 size="small"
-                onClick={() => handleEditDevice(node.id)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  handleEditDevice(node.id)
+                }}
                 aria-label={`Edit device ${node.name}`}
               >
                 <EditIcon fontSize="small" />
@@ -656,6 +796,45 @@ const RetailPlayerDeviceManagement = () => {
         </div>
       </div>
       <Paper className={classes.panel} elevation={0}>
+        {activeFolderNode ? (
+          <div className={classes.breadcrumbBar}>
+            <Breadcrumbs
+              aria-label="Folder navigation"
+              className={classes.breadcrumbs}
+              maxItems={4}
+            >
+              <Link
+                color="inherit"
+                onClick={() => setActiveFolderId(null)}
+                className={classes.breadcrumbLink}
+                component="button"
+              >
+                All devices
+              </Link>
+              {activeFolderPath.map((folder, index) => {
+                const isLast = index === activeFolderPath.length - 1
+                if (isLast) {
+                  return (
+                    <Typography key={folder.id} color="textPrimary">
+                      {folder.name}
+                    </Typography>
+                  )
+                }
+                return (
+                  <Link
+                    key={folder.id}
+                    color="inherit"
+                    onClick={() => setActiveFolderId(folder.id)}
+                    className={classes.breadcrumbLink}
+                    component="button"
+                  >
+                    {folder.name}
+                  </Link>
+                )
+              })}
+            </Breadcrumbs>
+          </div>
+        ) : null}
         <div className={classes.listHeader}>
           <span className={classes.headerName}>Name</span>
           <span className={classes.headerType}>Type</span>
@@ -674,14 +853,20 @@ const RetailPlayerDeviceManagement = () => {
               We could not load retail player devices right now. Please try again.
             </Typography>
           </div>
-        ) : tree.length ? (
-          renderRows(tree)
+        ) : visibleNodes.length ? (
+          renderRows(visibleNodes)
         ) : (
           <div className={classes.emptyState}>
-            <Typography variant="body2">
-              No devices found yet. Use the Create menu to add folders or local
-              devices.
-            </Typography>
+            {activeFolderNode ? (
+              <Typography variant="body2">
+                This folder does not contain any devices yet.
+              </Typography>
+            ) : (
+              <Typography variant="body2">
+                No devices found yet. Use the Create menu to add folders or local
+                devices.
+              </Typography>
+            )}
           </div>
         )}
       </Paper>
