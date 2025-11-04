@@ -11,6 +11,8 @@ import {
   FormHelperText,
   IconButton,
   InputLabel,
+  ListItemIcon,
+  ListItemText,
   Menu,
   MenuItem,
   Paper,
@@ -793,11 +795,6 @@ const RetailPlayerDeviceManagement = () => {
               <Typography variant="body1" className={classes.nameTitle}>
                 {node.name}
               </Typography>
-              {node.organization ? (
-                <Typography variant="caption" color="textSecondary">
-                  {node.organization}
-                </Typography>
-              ) : null}
             </div>
           </div>
           <div className={classes.typeCell}>Device</div>
@@ -828,10 +825,6 @@ const RetailPlayerDeviceManagement = () => {
           <Typography component="h1" variant="h4">
             Retail Player Devices
           </Typography>
-          <Typography variant="body2" color="textSecondary">
-            Organize retail player endpoints into folders for quick access and future
-            device management.
-          </Typography>
         </div>
         <div className={classes.actions}>
           <Button
@@ -851,8 +844,18 @@ const RetailPlayerDeviceManagement = () => {
             open={Boolean(menuAnchor)}
             onClose={closeMenu}
           >
-            <MenuItem onClick={handleCreateFolder}>Create Folder</MenuItem>
-            <MenuItem onClick={handleCreateDevice}>Create Device</MenuItem>
+            <MenuItem onClick={handleCreateFolder}>
+              <ListItemIcon>
+                <FolderIcon fontSize="small" className={classes.nameIcon} />
+              </ListItemIcon>
+              <ListItemText primary="Create Folder" />
+            </MenuItem>
+            <MenuItem onClick={handleCreateDevice}>
+              <ListItemIcon>
+                <SpeakerGroupIcon fontSize="small" className={classes.nameIcon} />
+              </ListItemIcon>
+              <ListItemText primary="Create Device" />
+            </MenuItem>
           </Menu>
         </div>
       </div>
@@ -905,9 +908,6 @@ const RetailPlayerDeviceManagement = () => {
               onChange={handleSelectAllChange}
               inputProps={{ 'aria-label': 'Select all retail player items' }}
             />
-            <Typography variant="caption" className={classes.headerLabel}>
-              Select All
-            </Typography>
           </div>
           <span>Name</span>
           <span>Type</span>
