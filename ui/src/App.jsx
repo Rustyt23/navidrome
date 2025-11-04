@@ -47,6 +47,7 @@ import missing from './missing/index.js'
 import PlaylistCreate from './playlist/PlaylistCreate'
 import PlaylistShow from './playlist/PlaylistShow'
 import PlaylistEdit from './playlist/PlaylistEdit'
+import RetailPlayerDeviceStoreProvider from './retailPlayer/RetailPlayerDeviceStoreContext'
 
 const history = createHashHistory()
 if (!shareInfo && history.location.pathname === '/') history.replace('/song')
@@ -81,7 +82,9 @@ const adminStore = createAdminStore({
 
 const App = () => (
   <Provider store={adminStore}>
-    <Admin />
+    <RetailPlayerDeviceStoreProvider>
+      <Admin />
+    </RetailPlayerDeviceStoreProvider>
   </Provider>
 )
 

@@ -1,12 +1,24 @@
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { Divider, makeStyles } from '@material-ui/core'
+import {
+  Collapse,
+  Divider,
+  ListItemIcon,
+  ListItemText,
+  makeStyles,
+  useTheme,
+} from '@material-ui/core'
 import clsx from 'clsx'
 import { useTranslate, MenuItemLink, getResources } from 'react-admin'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import AlbumIcon from '@material-ui/icons/Album'
 import MenuItem from '@material-ui/core/MenuItem'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
+import ChevronRightIcon from '@material-ui/icons/ChevronRight'
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
+import FolderIcon from '@material-ui/icons/Folder'
+import { useHistory } from 'react-router-dom'
+import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
@@ -14,7 +26,7 @@ import PlaylistsSubMenu from './PlaylistsSubMenu'
 import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
-import useRetailPlayerDevices from '../retailPlayer/useRetailPlayerDevices'
+import { useRetailPlayerDeviceStore } from '../retailPlayer/RetailPlayerDeviceStoreContext'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -44,6 +56,44 @@ const useStyles = makeStyles((theme) => ({
       fontSize: theme.typography.pxToRem(13),
     },
   },
+  folderItem: {
+    paddingTop: theme.spacing(0.5),
+    paddingBottom: theme.spacing(0.5),
+    fontSize: theme.typography.pxToRem(13),
+    '& .MuiListItemIcon-root': {
+      minWidth: theme.spacing(4),
+    },
+    '& .MuiTypography-body1': {
+      fontSize: theme.typography.pxToRem(13),
+      color: theme.palette.text.secondary,
+    },
+  },
+  folderChildren: {
+    '& > *': {
+      width: '100%',
+    },
+  },
+  deviceItem: {
+    paddingTop: theme.spacing(0.5),
+    paddingBottom: theme.spacing(0.5),
+    fontSize: theme.typography.pxToRem(13),
+    '& .MuiListItemIcon-root': {
+      minWidth: theme.spacing(4),
+      color: theme.palette.text.primary,
+    },
+    '& .RaMenuItemLink-primaryText': {
+      fontSize: theme.typography.pxToRem(13),
+      color: theme.palette.text.primary,
+    },
+  },
+  nestedDeviceItem: {
+    '& .MuiListItemIcon-root': {
+      color: theme.palette.secondary.main,
+    },
+    '& .RaMenuItemLink-primaryText': {
+      color: theme.palette.secondary.main,
+    },
+  },
 }))
 
 const translatedResourceName = (resource, translate) =>
@@ -63,9 +113,11 @@ const Menu = ({ dense = false }) => {
   const translate = useTranslate()
   const queue = useSelector((state) => state.player?.queue)
   const classes = useStyles({ addPadding: queue.length > 0 })
+  const theme = useTheme()
   const resources = useSelector(getResources).filter(
     (r) => r.name !== 'radio' && r.name !== 'share',
   )
+  const history = useHistory()
 
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
@@ -122,10 +174,107 @@ const Menu = ({ dense = false }) => {
     resource.hasList && resource.options && resource.options.subMenu === subMenu
 
   const {
-    devices: retailDevices,
-    error: retailDevicesError,
-    isLoading: retailDevicesLoading,
-  } = useRetailPlayerDevices()
+    state: {
+      tree: retailTree,
+      loading: retailDevicesLoading,
+      error: retailDevicesError,
+    },
+  } = useRetailPlayerDeviceStore()
+
+  const [openFolders, setOpenFolders] = useState({})
+
+  const toggleFolder = useCallback((folderId) => {
+    setOpenFolders((prev) => ({
+      ...prev,
+      [folderId]: !prev[folderId],
+    }))
+  }, [])
+
+  const goToRetailPlayerSettings = useCallback(() => {
+    history.push('/retail-player/devices')
+  }, [history])
+
+  const renderDeviceLink = useCallback(
+    (node, depth) => {
+      const slug = node.slug || node.name || node.id
+      const encodedSlug = encodeURIComponent(slug)
+      const padding = theme.spacing(4 + depth * 2)
+      const isNested = depth > 0
+      return (
+        <MenuItemLink
+          key={`retailplayer-${node.apiId || node.id}`}
+          to={`/retailplayer/${encodedSlug}`}
+          activeClassName={classes.active}
+          primaryText={node.name}
+          leftIcon={<SpeakerGroupIcon fontSize="small" />}
+          sidebarIsOpen={open}
+          dense={dense}
+          exact
+          className={clsx(classes.deviceItem, isNested && classes.nestedDeviceItem)}
+          style={{ paddingLeft: padding }}
+        />
+      )
+    },
+    [
+      classes.active,
+      classes.deviceItem,
+      classes.nestedDeviceItem,
+      dense,
+      open,
+      theme,
+    ],
+  )
+
+  const renderRetailPlayerNodes = useCallback(
+    (nodes, depth = 0) =>
+      nodes.map((node) => {
+        if (node.type === 'folder') {
+          const isOpen = openFolders[node.id] ?? true
+          const padding = theme.spacing(4 + depth * 2)
+          const childPadding = theme.spacing(2)
+          return (
+            <React.Fragment key={`retailfolder-${node.id}`}>
+              <MenuItem
+                dense={dense}
+                className={classes.folderItem}
+                style={{ paddingLeft: padding }}
+                onClick={() => toggleFolder(node.id)}
+              >
+                <ListItemIcon>
+                  {isOpen ? (
+                    <ExpandMoreIcon fontSize="small" />
+                  ) : (
+                    <ChevronRightIcon fontSize="small" />
+                  )}
+                </ListItemIcon>
+                <ListItemIcon>
+                  <FolderIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary={node.name} />
+              </MenuItem>
+              <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                <div
+                  className={classes.folderChildren}
+                  style={{ paddingLeft: childPadding }}
+                >
+                  {renderRetailPlayerNodes(node.children || [], depth + 1)}
+                </div>
+              </Collapse>
+            </React.Fragment>
+          )
+        }
+        return renderDeviceLink(node, depth)
+      }),
+    [
+      classes.folderChildren,
+      classes.folderItem,
+      dense,
+      openFolders,
+      renderDeviceLink,
+      theme,
+      toggleFolder,
+    ],
+  )
 
   const renderRetailPlayerDevices = () => {
     if (retailDevicesLoading) {
@@ -146,7 +295,7 @@ const Menu = ({ dense = false }) => {
       )
     }
 
-    if (!retailDevices.length) {
+    if (!retailTree.length) {
       return (
         <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
           {translate('menu.retailPlayer.empty', { _: 'No devices available' })}
@@ -154,22 +303,7 @@ const Menu = ({ dense = false }) => {
       )
     }
 
-    return retailDevices.map((device) => {
-      const slug = device.slug || device.name || device.id
-      const encodedSlug = encodeURIComponent(slug)
-      return (
-        <MenuItemLink
-          key={`retailplayer-${device.apiId || device.id}`}
-          to={`/retailplayer/${encodedSlug}`}
-          activeClassName={classes.active}
-          primaryText={device.name}
-          sidebarIsOpen={open}
-          dense={dense}
-          exact
-          className={classes.retailPlayerSubItem}
-        />
-      )
-    })
+    return renderRetailPlayerNodes(retailTree)
   }
 
   const renderRetailPlayerMenu = () => (
@@ -180,6 +314,8 @@ const Menu = ({ dense = false }) => {
       name="menu.retailPlayer.name"
       icon={<SpeakerGroupIcon />}
       dense={dense}
+      actionIcon={<BiCog />}
+      onAction={goToRetailPlayerSettings}
     >
       {renderRetailPlayerDevices()}
     </SubMenu>
