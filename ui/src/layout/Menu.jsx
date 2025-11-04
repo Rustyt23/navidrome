@@ -79,11 +79,11 @@ const useStyles = makeStyles((theme) => ({
     fontSize: theme.typography.pxToRem(13),
     '& .RaMenuItemLink-icon': {
       minWidth: theme.spacing(4),
-      color: theme.palette.primary.main,
+      color: theme.palette.common.white,
     },
   },
   deviceIcon: {
-    color: theme.palette.primary.main,
+    color: theme.palette.common.white,
   },
 }))
 

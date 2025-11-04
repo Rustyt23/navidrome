@@ -221,28 +221,19 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
-const FolderDialog = ({
-  open,
-  onClose,
-  onSubmit,
-  parentOptions,
-  initialValues,
-  disableParent,
-}) => {
+const FolderDialog = ({ open, onClose, onSubmit, initialValues }) => {
   const classes = useStyles()
   const [name, setName] = useState(initialValues?.name || '')
-  const [parentId, setParentId] = useState(initialValues?.parentId || '')
 
   useEffect(() => {
     setName(initialValues?.name || '')
-    setParentId(initialValues?.parentId || '')
   }, [initialValues, open])
 
   const handleSubmit = () => {
     if (!name.trim()) {
       return
     }
-    onSubmit({ name: name.trim(), parentId: parentId || null })
+    onSubmit({ name: name.trim() })
   }
 
   return (
@@ -258,29 +249,6 @@ const FolderDialog = ({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-          <FormControl variant="outlined" fullWidth disabled={disableParent}>
-            <InputLabel id="folder-parent-label">Parent Folder</InputLabel>
-            <Select
-              labelId="folder-parent-label"
-              value={parentId}
-              onChange={(event) => setParentId(event.target.value)}
-              label="Parent Folder"
-            >
-              <MenuItem value="">
-                <em>None</em>
-              </MenuItem>
-              {parentOptions.map((option) => (
-                <MenuItem key={option.id} value={option.id}>
-                  {option.name}
-                </MenuItem>
-              ))}
-            </Select>
-            {disableParent && (
-              <FormHelperText>
-                Parent folders cannot be changed for existing groups yet.
-              </FormHelperText>
-            )}
-          </FormControl>
         </div>
       </DialogContent>
       <DialogActions>
@@ -297,23 +265,14 @@ FolderDialog.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onSubmit: PropTypes.func.isRequired,
-  parentOptions: PropTypes.arrayOf(
-    PropTypes.shape({
-      id: PropTypes.string.isRequired,
-      name: PropTypes.string.isRequired,
-    }),
-  ).isRequired,
   initialValues: PropTypes.shape({
     id: PropTypes.string,
     name: PropTypes.string,
-    parentId: PropTypes.string,
   }),
-  disableParent: PropTypes.bool,
 }
 
 FolderDialog.defaultProps = {
   initialValues: null,
-  disableParent: false,
 }
 
 const DeviceDialog = ({
@@ -323,31 +282,57 @@ const DeviceDialog = ({
   parentOptions,
   initialValues,
 }) => {
+  const normalizeInitialFolders = useCallback((values) => {
+    if (!values) {
+      return []
+    }
+    if (Array.isArray(values.folderIds)) {
+      return values.folderIds.filter(Boolean)
+    }
+    if (values.folderId) {
+      return [values.folderId].filter(Boolean)
+    }
+    return []
+  }, [])
+
   const [form, setForm] = useState(() => ({
     name: initialValues?.name || '',
-    folderId: initialValues?.folderId || '',
+    folderIds: normalizeInitialFolders(initialValues),
   }))
 
   useEffect(() => {
     setForm({
       name: initialValues?.name || '',
-      folderId: initialValues?.folderId || '',
+      folderIds: normalizeInitialFolders(initialValues),
     })
-  }, [initialValues, open])
+  }, [initialValues, open, normalizeInitialFolders])
 
   const isRemote = initialValues?.source !== 'local'
 
-  const handleChange = (field) => (event) => {
-    setForm((prev) => ({ ...prev, [field]: event.target.value }))
+  const handleNameChange = (event) => {
+    setForm((prev) => ({ ...prev, name: event.target.value }))
+  }
+
+  const handleFolderChange = (event) => {
+    const value = event.target.value
+    const nextValue = Array.isArray(value)
+      ? value.filter(Boolean)
+      : value
+      ? [value]
+      : []
+    setForm((prev) => ({ ...prev, folderIds: nextValue }))
   }
 
   const handleSubmit = () => {
     if (!form.name.trim()) {
       return
     }
+    const normalizedFolderIds = Array.from(new Set(form.folderIds.filter(Boolean)))
+    const primaryFolderId = normalizedFolderIds[0] || null
     onSubmit({
       name: form.name.trim(),
-      folderId: form.folderId || null,
+      folderIds: normalizedFolderIds,
+      folderId: primaryFolderId,
     })
   }
 
@@ -366,7 +351,7 @@ const DeviceDialog = ({
             fullWidth
             variant="outlined"
             value={form.name}
-            onChange={handleChange('name')}
+            onChange={handleNameChange}
             disabled={isRemote}
             helperText={
               isRemote
@@ -378,16 +363,27 @@ const DeviceDialog = ({
             <InputLabel id="device-folder-label">Folder</InputLabel>
             <Select
               labelId="device-folder-label"
-              value={form.folderId}
-              onChange={handleChange('folderId')}
+              multiple
+              value={form.folderIds}
+              onChange={handleFolderChange}
               label="Folder"
+              renderValue={(selected) => {
+                if (!Array.isArray(selected) || !selected.length) {
+                  return 'None'
+                }
+                const labels = parentOptions
+                  .filter((option) => selected.includes(option.id))
+                  .map((option) => option.name)
+                return labels.join(', ')
+              }}
             >
-              <MenuItem value="">
-                <em>None</em>
-              </MenuItem>
               {parentOptions.map((option) => (
                 <MenuItem key={option.id} value={option.id}>
-                  {option.name}
+                  <Checkbox
+                    color="primary"
+                    checked={form.folderIds.includes(option.id)}
+                  />
+                  <ListItemText primary={option.name} />
                 </MenuItem>
               ))}
             </Select>
@@ -420,6 +416,7 @@ DeviceDialog.propTypes = {
   initialValues: PropTypes.shape({
     id: PropTypes.string,
     name: PropTypes.string,
+    folderIds: PropTypes.arrayOf(PropTypes.string),
     folderId: PropTypes.string,
     source: PropTypes.string,
   }),
@@ -438,7 +435,11 @@ const RetailPlayerDeviceManagement = () => {
     actions: { createFolder, updateFolder, createDevice, updateDevice },
   } = useRetailPlayerDeviceStore()
   const [menuAnchor, setMenuAnchor] = useState(null)
-  const [folderDialog, setFolderDialog] = useState({ open: false, target: null })
+  const [folderDialog, setFolderDialog] = useState({
+    open: false,
+    target: null,
+    parentId: null,
+  })
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
@@ -532,7 +533,7 @@ const RetailPlayerDeviceManagement = () => {
 
   const handleCreateFolder = () => {
     closeMenu()
-    setFolderDialog({ open: true, target: null })
+    setFolderDialog({ open: true, target: null, parentId: activeFolderId })
   }
 
   const handleCreateDevice = () => {
@@ -553,7 +554,7 @@ const RetailPlayerDeviceManagement = () => {
   }
 
   const handleFolderDialogClose = () => {
-    setFolderDialog({ open: false, target: null })
+    setFolderDialog({ open: false, target: null, parentId: null })
   }
 
   const handleDeviceDialogClose = () => {
@@ -564,7 +565,7 @@ const RetailPlayerDeviceManagement = () => {
     if (folderDialog.target) {
       updateFolder({ id: folderDialog.target.id, name: values.name })
     } else {
-      createFolder(values)
+      createFolder({ ...values, parentId: folderDialog.parentId || null })
     }
     handleFolderDialogClose()
   }
@@ -601,22 +602,13 @@ const RetailPlayerDeviceManagement = () => {
     setActiveFolderId(folderId)
   }, [])
 
-  const visibleNodeIds = useMemo(() => {
-    const ids = []
-    const collect = (nodes) => {
-      nodes.forEach((node) => {
-        if (!node || !node.id) {
-          return
-        }
-        ids.push(node.id)
-        if (Array.isArray(node.children) && node.children.length) {
-          collect(node.children)
-        }
-      })
-    }
-    collect(visibleNodes)
-    return ids
-  }, [visibleNodes])
+  const visibleNodeIds = useMemo(
+    () =>
+      (visibleNodes || [])
+        .map((node) => node?.id)
+        .filter((id, index, arr) => id && arr.indexOf(id) === index),
+    [visibleNodes],
+  )
 
   const allSelected =
     visibleNodeIds.length > 0 && visibleNodeIds.every((id) => selectedIds.has(id))
@@ -669,14 +661,12 @@ const RetailPlayerDeviceManagement = () => {
     }, 0)
   }, [])
 
-  const renderRows = (nodes, depth = 0) =>
-    nodes.flatMap((node) => {
+  const renderRows = (nodes) =>
+    nodes.map((node) => {
       if (node.type === 'folder') {
-        const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
-        const folderChildren = renderRows(node.children || [], depth + 1)
         const deviceCount = countDevices(node)
         const isSelected = selectedIds.has(node.id)
-        return [
+        return (
           <div
             key={`folder-row-${node.id}`}
             className={clsx(
@@ -703,7 +693,7 @@ const RetailPlayerDeviceManagement = () => {
                 inputProps={{ 'aria-label': `Select folder ${node.name}` }}
               />
             </div>
-            <div className={classes.nameCell} style={indentStyle}>
+            <div className={classes.nameCell}>
               <FolderIcon className={classes.nameIcon} />
               <div className={classes.nameLabel}>
                 <Typography variant="body1" className={classes.nameTitle}>
@@ -727,15 +717,14 @@ const RetailPlayerDeviceManagement = () => {
                 </IconButton>
               </Tooltip>
             </div>
-          </div>,
-          ...folderChildren,
-        ]
+          </div>
+        )
       }
-      const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
       const isSelected = selectedIds.has(node.id)
-      return [
+      const rowKey = node.treeKey || node.id
+      return (
         <div
-          key={`device-row-${node.id}`}
+          key={`device-row-${rowKey}`}
           className={clsx(
             classes.row,
             classes.interactiveRow,
@@ -759,7 +748,7 @@ const RetailPlayerDeviceManagement = () => {
               inputProps={{ 'aria-label': `Select device ${node.name}` }}
             />
           </div>
-          <div className={classes.nameCell} style={indentStyle}>
+          <div className={classes.nameCell}>
             <SpeakerGroupIcon className={classes.nameIcon} />
             <div className={classes.nameLabel}>
               <Typography variant="body1" className={classes.nameTitle}>
@@ -783,8 +772,8 @@ const RetailPlayerDeviceManagement = () => {
               </IconButton>
             </Tooltip>
           </div>
-        </div>,
-      ]
+        </div>
+      )
     })
 
   return (
@@ -917,9 +906,7 @@ const RetailPlayerDeviceManagement = () => {
         open={folderDialog.open}
         onClose={handleFolderDialogClose}
         onSubmit={handleFolderSubmit}
-        parentOptions={folderOptions}
         initialValues={folderDialog.target}
-        disableParent={Boolean(folderDialog.target)}
       />
       <DeviceDialog
         open={deviceDialog.open}
