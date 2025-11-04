@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
+  Checkbox,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -9,7 +10,10 @@ import {
   FormControl,
   FormHelperText,
   IconButton,
+  InputAdornment,
   InputLabel,
+  ListItemIcon,
+  ListItemText,
   Menu,
   MenuItem,
   Paper,
@@ -19,11 +23,13 @@ import {
   Typography,
 } from '@material-ui/core'
 import { makeStyles, useTheme } from '@material-ui/core/styles'
+import { fade } from '@material-ui/core/styles/colorManipulator'
 import { Title } from 'react-admin'
 import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
 import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
+import SearchIcon from '@material-ui/icons/Search'
 import Breadcrumbs from '@material-ui/core/Breadcrumbs'
 import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
@@ -37,6 +43,7 @@ const useStyles = makeStyles((theme) => ({
     maxWidth: 1200,
     margin: '0 auto',
     width: '100%',
+    boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(3),
@@ -50,7 +57,7 @@ const useStyles = makeStyles((theme) => ({
   },
   header: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: theme.spacing(2),
     flexWrap: 'wrap',
@@ -59,6 +66,13 @@ const useStyles = makeStyles((theme) => ({
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(1),
+  },
+  headerControls: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1.5),
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
   },
   actions: {
     display: 'flex',
@@ -74,83 +88,80 @@ const useStyles = makeStyles((theme) => ({
   listHeader: {
     display: 'grid',
     gridTemplateColumns:
-      'minmax(220px, 2fr) minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(100px, 0.8fr)',
-    padding: theme.spacing(1.5, 2),
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
+    paddingTop: theme.spacing(0.5),
+    paddingBottom: theme.spacing(0.5),
+    paddingLeft: theme.spacing(0.5),
+    paddingRight: theme.spacing(0.5),
     backgroundColor: theme.palette.action.hover,
     color: theme.palette.text.secondary,
     fontSize: theme.typography.pxToRem(12),
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: theme.typography.fontWeightMedium,
+    alignItems: 'center',
+    gap: theme.spacing(1),
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: 'minmax(200px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr)',
-      gridTemplateAreas: "'name type actions' 'channel channelList actions'",
-      rowGap: theme.spacing(1),
+      gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+      fontSize: theme.typography.pxToRem(11),
+      letterSpacing: 0.6,
     },
   },
-  headerName: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'name',
-    },
+  headerSelect: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
   },
-  headerType: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'type',
-    },
-  },
-  headerChannel: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channel',
-    },
-  },
-  headerChannelList: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channelList',
-    },
+  headerLabel: {
+    textTransform: 'uppercase',
   },
   headerActions: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'actions',
-      justifySelf: 'flex-end',
-    },
+    justifySelf: 'flex-end',
   },
   row: {
     display: 'grid',
     gridTemplateColumns:
-      'minmax(220px, 2fr) minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(100px, 0.8fr)',
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
     alignItems: 'center',
-    padding: theme.spacing(1.5, 2),
+    paddingTop: theme.spacing(0.25),
+    paddingBottom: theme.spacing(0.25),
+    paddingLeft: theme.spacing(0.25),
+    paddingRight: theme.spacing(0.25),
     borderTop: `1px solid ${theme.palette.divider}`,
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: 'minmax(200px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr)',
-      gridTemplateAreas: "'name type actions' 'channel channelList actions'",
+      gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
       rowGap: theme.spacing(1),
     },
   },
   folderRow: {
-    backgroundColor: theme.palette.action.selected,
+    backgroundColor: fade(theme.palette.primary.main, 0.04),
   },
   interactiveRow: {
     cursor: 'pointer',
     '&:hover': {
-      backgroundColor: theme.palette.action.hover,
+      backgroundColor: fade(theme.palette.primary.main, 0.08),
     },
     '&:focus': {
       outline: `2px solid ${theme.palette.primary.main}`,
       outlineOffset: -2,
     },
   },
+  selectedRow: {
+    backgroundColor: fade(theme.palette.primary.main, 0.12),
+  },
+  selectCell: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   nameCell: {
     display: 'flex',
     alignItems: 'center',
     gap: theme.spacing(1.5),
     fontWeight: theme.typography.fontWeightMedium,
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'name',
-    },
   },
   nameIcon: {
-    color: theme.palette.text.secondary,
+    color: theme.palette.primary.main,
     fontSize: theme.typography.pxToRem(18),
   },
   nameLabel: {
@@ -158,35 +169,29 @@ const useStyles = makeStyles((theme) => ({
     flexDirection: 'column',
     gap: theme.spacing(0.5),
   },
+  searchField: {
+    minWidth: 220,
+    '& .MuiOutlinedInput-root': {
+      backgroundColor: theme.palette.background.default,
+    },
+  },
+  nameTitle: {
+    color: theme.palette.common.white,
+    fontWeight: theme.typography.fontWeightMedium,
+  },
   typeCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'type',
-    },
   },
-  metaCell: {
+  countCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channel',
-    },
-  },
-  metaSecondary: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channelList',
-    },
+    textAlign: 'center',
   },
   actionsCell: {
     display: 'flex',
     gap: theme.spacing(1),
     justifyContent: 'flex-end',
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'actions',
-    },
   },
   breadcrumbBar: {
     display: 'flex',
@@ -237,28 +242,19 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
-const FolderDialog = ({
-  open,
-  onClose,
-  onSubmit,
-  parentOptions,
-  initialValues,
-  disableParent,
-}) => {
+const FolderDialog = ({ open, onClose, onSubmit, initialValues }) => {
   const classes = useStyles()
   const [name, setName] = useState(initialValues?.name || '')
-  const [parentId, setParentId] = useState(initialValues?.parentId || '')
 
   useEffect(() => {
     setName(initialValues?.name || '')
-    setParentId(initialValues?.parentId || '')
   }, [initialValues, open])
 
   const handleSubmit = () => {
     if (!name.trim()) {
       return
     }
-    onSubmit({ name: name.trim(), parentId: parentId || null })
+    onSubmit({ name: name.trim() })
   }
 
   return (
@@ -274,29 +270,6 @@ const FolderDialog = ({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-          <FormControl variant="outlined" fullWidth disabled={disableParent}>
-            <InputLabel id="folder-parent-label">Parent Folder</InputLabel>
-            <Select
-              labelId="folder-parent-label"
-              value={parentId}
-              onChange={(event) => setParentId(event.target.value)}
-              label="Parent Folder"
-            >
-              <MenuItem value="">
-                <em>None</em>
-              </MenuItem>
-              {parentOptions.map((option) => (
-                <MenuItem key={option.id} value={option.id}>
-                  {option.name}
-                </MenuItem>
-              ))}
-            </Select>
-            {disableParent && (
-              <FormHelperText>
-                Parent folders cannot be changed for existing groups yet.
-              </FormHelperText>
-            )}
-          </FormControl>
         </div>
       </DialogContent>
       <DialogActions>
@@ -313,23 +286,14 @@ FolderDialog.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onSubmit: PropTypes.func.isRequired,
-  parentOptions: PropTypes.arrayOf(
-    PropTypes.shape({
-      id: PropTypes.string.isRequired,
-      name: PropTypes.string.isRequired,
-    }),
-  ).isRequired,
   initialValues: PropTypes.shape({
     id: PropTypes.string,
     name: PropTypes.string,
-    parentId: PropTypes.string,
   }),
-  disableParent: PropTypes.bool,
 }
 
 FolderDialog.defaultProps = {
   initialValues: null,
-  disableParent: false,
 }
 
 const DeviceDialog = ({
@@ -339,38 +303,57 @@ const DeviceDialog = ({
   parentOptions,
   initialValues,
 }) => {
+  const normalizeInitialFolders = useCallback((values) => {
+    if (!values) {
+      return []
+    }
+    if (Array.isArray(values.folderIds)) {
+      return values.folderIds.filter(Boolean)
+    }
+    if (values.folderId) {
+      return [values.folderId].filter(Boolean)
+    }
+    return []
+  }, [])
+
   const [form, setForm] = useState(() => ({
     name: initialValues?.name || '',
-    channel: initialValues?.channel || '',
-    channelList: initialValues?.channelList || '',
-    organization: initialValues?.organization || '',
-    folderId: initialValues?.folderId || '',
+    folderIds: normalizeInitialFolders(initialValues),
   }))
 
   useEffect(() => {
     setForm({
       name: initialValues?.name || '',
-      channel: initialValues?.channel || '',
-      channelList: initialValues?.channelList || '',
-      organization: initialValues?.organization || '',
-      folderId: initialValues?.folderId || '',
+      folderIds: normalizeInitialFolders(initialValues),
     })
-  }, [initialValues, open])
+  }, [initialValues, open, normalizeInitialFolders])
 
   const isRemote = initialValues?.source !== 'local'
 
-  const handleChange = (field) => (event) => {
-    setForm((prev) => ({ ...prev, [field]: event.target.value }))
+  const handleNameChange = (event) => {
+    setForm((prev) => ({ ...prev, name: event.target.value }))
+  }
+
+  const handleFolderChange = (event) => {
+    const value = event.target.value
+    const nextValue = Array.isArray(value)
+      ? value.filter(Boolean)
+      : value
+      ? [value]
+      : []
+    setForm((prev) => ({ ...prev, folderIds: nextValue }))
   }
 
   const handleSubmit = () => {
     if (!form.name.trim()) {
       return
     }
+    const normalizedFolderIds = Array.from(new Set(form.folderIds.filter(Boolean)))
+    const primaryFolderId = normalizedFolderIds[0] || null
     onSubmit({
-      ...form,
       name: form.name.trim(),
-      folderId: form.folderId || null,
+      folderIds: normalizedFolderIds,
+      folderId: primaryFolderId,
     })
   }
 
@@ -389,7 +372,7 @@ const DeviceDialog = ({
             fullWidth
             variant="outlined"
             value={form.name}
-            onChange={handleChange('name')}
+            onChange={handleNameChange}
             disabled={isRemote}
             helperText={
               isRemote
@@ -397,41 +380,31 @@ const DeviceDialog = ({
                 : 'Give the device a friendly label for identification.'
             }
           />
-          <TextField
-            label="Channel"
-            fullWidth
-            variant="outlined"
-            value={form.channel}
-            onChange={handleChange('channel')}
-          />
-          <TextField
-            label="Channel List"
-            fullWidth
-            variant="outlined"
-            value={form.channelList}
-            onChange={handleChange('channelList')}
-          />
-          <TextField
-            label="Organization"
-            fullWidth
-            variant="outlined"
-            value={form.organization}
-            onChange={handleChange('organization')}
-          />
           <FormControl variant="outlined" fullWidth>
             <InputLabel id="device-folder-label">Folder</InputLabel>
             <Select
               labelId="device-folder-label"
-              value={form.folderId}
-              onChange={handleChange('folderId')}
+              multiple
+              value={form.folderIds}
+              onChange={handleFolderChange}
               label="Folder"
+              renderValue={(selected) => {
+                if (!Array.isArray(selected) || !selected.length) {
+                  return 'None'
+                }
+                const labels = parentOptions
+                  .filter((option) => selected.includes(option.id))
+                  .map((option) => option.name)
+                return labels.join(', ')
+              }}
             >
-              <MenuItem value="">
-                <em>None</em>
-              </MenuItem>
               {parentOptions.map((option) => (
                 <MenuItem key={option.id} value={option.id}>
-                  {option.name}
+                  <Checkbox
+                    color="primary"
+                    checked={form.folderIds.includes(option.id)}
+                  />
+                  <ListItemText primary={option.name} />
                 </MenuItem>
               ))}
             </Select>
@@ -464,9 +437,7 @@ DeviceDialog.propTypes = {
   initialValues: PropTypes.shape({
     id: PropTypes.string,
     name: PropTypes.string,
-    channel: PropTypes.string,
-    channelList: PropTypes.string,
-    organization: PropTypes.string,
+    folderIds: PropTypes.arrayOf(PropTypes.string),
     folderId: PropTypes.string,
     source: PropTypes.string,
   }),
@@ -485,9 +456,15 @@ const RetailPlayerDeviceManagement = () => {
     actions: { createFolder, updateFolder, createDevice, updateDevice },
   } = useRetailPlayerDeviceStore()
   const [menuAnchor, setMenuAnchor] = useState(null)
-  const [folderDialog, setFolderDialog] = useState({ open: false, target: null })
+  const [folderDialog, setFolderDialog] = useState({
+    open: false,
+    target: null,
+    parentId: null,
+  })
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
   const [activeFolderId, setActiveFolderId] = useState(null)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [searchTerm, setSearchTerm] = useState('')
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -517,7 +494,6 @@ const RetailPlayerDeviceManagement = () => {
     for (let index = 0; index < nodes.length; index += 1) {
       const node = nodes[index]
       if (node.type !== 'folder') {
-        // eslint-disable-next-line no-continue
         continue
       }
       if (node.id === targetId) {
@@ -564,7 +540,45 @@ const RetailPlayerDeviceManagement = () => {
     return path
   }, [activeFolderId, folderMap])
 
-  const visibleNodes = activeFolderNode ? activeFolderNode.children || [] : tree
+  const baseVisibleNodes = useMemo(
+    () => (activeFolderNode ? activeFolderNode.children || [] : tree),
+    [activeFolderNode, tree],
+  )
+
+  const normalizedSearchTerm = useMemo(
+    () => searchTerm.trim().toLowerCase(),
+    [searchTerm],
+  )
+
+  const visibleNodes = useMemo(() => {
+    if (!normalizedSearchTerm) {
+      return baseVisibleNodes
+    }
+
+    const matches = []
+    const visit = (nodes) => {
+      if (!Array.isArray(nodes) || !nodes.length) {
+        return
+      }
+      nodes.forEach((node) => {
+        if (!node) {
+          return
+        }
+        const label = (node.name || '').toLowerCase()
+        if (label.includes(normalizedSearchTerm)) {
+          matches.push(node)
+        }
+        if (node.type === 'folder' && Array.isArray(node.children)) {
+          visit(node.children)
+        }
+      })
+    }
+
+    visit(tree)
+    return matches
+  }, [baseVisibleNodes, normalizedSearchTerm, tree])
+
+  const showingSearchResults = normalizedSearchTerm.length > 0
 
   const openMenu = (event) => {
     setMenuAnchor(event.currentTarget)
@@ -576,7 +590,7 @@ const RetailPlayerDeviceManagement = () => {
 
   const handleCreateFolder = () => {
     closeMenu()
-    setFolderDialog({ open: true, target: null })
+    setFolderDialog({ open: true, target: null, parentId: activeFolderId })
   }
 
   const handleCreateDevice = () => {
@@ -597,7 +611,7 @@ const RetailPlayerDeviceManagement = () => {
   }
 
   const handleFolderDialogClose = () => {
-    setFolderDialog({ open: false, target: null })
+    setFolderDialog({ open: false, target: null, parentId: null })
   }
 
   const handleDeviceDialogClose = () => {
@@ -608,7 +622,7 @@ const RetailPlayerDeviceManagement = () => {
     if (folderDialog.target) {
       updateFolder({ id: folderDialog.target.id, name: values.name })
     } else {
-      createFolder(values)
+      createFolder({ ...values, parentId: folderDialog.parentId || null })
     }
     handleFolderDialogClose()
   }
@@ -637,12 +651,56 @@ const RetailPlayerDeviceManagement = () => {
     [history],
   )
 
-  const handleEnterFolder = useCallback((folderId) => {
-    if (!folderId) {
-      setActiveFolderId(null)
+  const handleEnterFolder = useCallback(
+    (folderId) => {
+      setSearchTerm('')
+      if (!folderId) {
+        setActiveFolderId(null)
+        return
+      }
+      setActiveFolderId(folderId)
+    },
+    [setActiveFolderId, setSearchTerm],
+  )
+
+  const visibleNodeIds = useMemo(
+    () =>
+      (visibleNodes || [])
+        .map((node) => node?.id)
+        .filter((id, index, arr) => id && arr.indexOf(id) === index),
+    [visibleNodes],
+  )
+
+  const allSelected =
+    visibleNodeIds.length > 0 && visibleNodeIds.every((id) => selectedIds.has(id))
+  const someSelected = !allSelected && visibleNodeIds.some((id) => selectedIds.has(id))
+
+  const handleSelectAllChange = (event) => {
+    const { checked } = event.target
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        visibleNodeIds.forEach((id) => next.add(id))
+      } else {
+        visibleNodeIds.forEach((id) => next.delete(id))
+      }
+      return next
+    })
+  }
+
+  const toggleNodeSelection = useCallback((nodeId) => {
+    if (!nodeId) {
       return
     }
-    setActiveFolderId(folderId)
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(nodeId)) {
+        next.delete(nodeId)
+      } else {
+        next.add(nodeId)
+      }
+      return next
+    })
   }, [])
 
   const handleRowKeyDown = (event, action) => {
@@ -664,36 +722,48 @@ const RetailPlayerDeviceManagement = () => {
     }, 0)
   }, [])
 
-  const renderRows = (nodes, depth = 0) =>
-    nodes.flatMap((node) => {
+  const renderRows = (nodes) =>
+    nodes.map((node) => {
       if (node.type === 'folder') {
-        const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
-        const folderChildren = renderRows(node.children || [], depth + 1)
         const deviceCount = countDevices(node)
-        return [
+        const isSelected = selectedIds.has(node.id)
+        return (
           <div
             key={`folder-row-${node.id}`}
-            className={clsx(classes.row, classes.folderRow, classes.interactiveRow)}
+            className={clsx(
+              classes.row,
+              classes.folderRow,
+              classes.interactiveRow,
+              isSelected && classes.selectedRow,
+            )}
             role="button"
             tabIndex={0}
             onClick={() => handleEnterFolder(node.id)}
             onKeyDown={(event) => handleRowKeyDown(event, () => handleEnterFolder(node.id))}
             aria-label={`Open folder ${node.name}`}
           >
-            <div className={classes.nameCell} style={indentStyle}>
+            <div className={classes.selectCell}>
+              <Checkbox
+                color="primary"
+                checked={isSelected}
+                onChange={(event) => {
+                  event.stopPropagation()
+                  toggleNodeSelection(node.id)
+                }}
+                onClick={(event) => event.stopPropagation()}
+                inputProps={{ 'aria-label': `Select folder ${node.name}` }}
+              />
+            </div>
+            <div className={classes.nameCell}>
               <FolderIcon className={classes.nameIcon} />
               <div className={classes.nameLabel}>
-                <Typography variant="body1" color="textPrimary">
+                <Typography variant="body1" className={classes.nameTitle}>
                   {node.name}
-                </Typography>
-                <Typography variant="caption" color="textSecondary">
-                  {`${deviceCount} device${deviceCount === 1 ? '' : 's'}`}
                 </Typography>
               </div>
             </div>
             <div className={classes.typeCell}>Folder</div>
-            <div className={classes.metaCell}>—</div>
-            <div className={clsx(classes.metaCell, classes.metaSecondary)}>—</div>
+            <div className={classes.countCell}>{deviceCount}</div>
             <div className={classes.actionsCell}>
               <Tooltip title="Edit folder">
                 <IconButton
@@ -708,39 +778,47 @@ const RetailPlayerDeviceManagement = () => {
                 </IconButton>
               </Tooltip>
             </div>
-          </div>,
-          ...folderChildren,
-        ]
+          </div>
+        )
       }
-      const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
-      return [
+      const isSelected = selectedIds.has(node.id)
+      const rowKey = node.treeKey || node.id
+      return (
         <div
-          key={`device-row-${node.id}`}
-          className={clsx(classes.row, classes.interactiveRow)}
+          key={`device-row-${rowKey}`}
+          className={clsx(
+            classes.row,
+            classes.interactiveRow,
+            isSelected && classes.selectedRow,
+          )}
           role="button"
           tabIndex={0}
           onClick={() => handleNavigateToDevice(node)}
           onKeyDown={(event) => handleRowKeyDown(event, () => handleNavigateToDevice(node))}
           aria-label={`Open device ${node.name}`}
         >
-          <div className={classes.nameCell} style={indentStyle}>
+          <div className={classes.selectCell}>
+            <Checkbox
+              color="primary"
+              checked={isSelected}
+              onChange={(event) => {
+                event.stopPropagation()
+                toggleNodeSelection(node.id)
+              }}
+              onClick={(event) => event.stopPropagation()}
+              inputProps={{ 'aria-label': `Select device ${node.name}` }}
+            />
+          </div>
+          <div className={classes.nameCell}>
             <SpeakerGroupIcon className={classes.nameIcon} />
             <div className={classes.nameLabel}>
-              <Typography variant="body1" color="textPrimary">
+              <Typography variant="body1" className={classes.nameTitle}>
                 {node.name}
               </Typography>
-              {node.organization ? (
-                <Typography variant="caption" color="textSecondary">
-                  {node.organization}
-                </Typography>
-              ) : null}
             </div>
           </div>
           <div className={classes.typeCell}>Device</div>
-          <div className={classes.metaCell}>{node.channel || '—'}</div>
-          <div className={clsx(classes.metaCell, classes.metaSecondary)}>
-            {node.channelList || '—'}
-          </div>
+          <div className={classes.countCell}>—</div>
           <div className={classes.actionsCell}>
             <Tooltip title="Edit device">
               <IconButton
@@ -755,8 +833,8 @@ const RetailPlayerDeviceManagement = () => {
               </IconButton>
             </Tooltip>
           </div>
-        </div>,
-      ]
+        </div>
+      )
     })
 
   return (
@@ -767,32 +845,56 @@ const RetailPlayerDeviceManagement = () => {
           <Typography component="h1" variant="h4">
             Retail Player Devices
           </Typography>
-          <Typography variant="body2" color="textSecondary">
-            Organize retail player endpoints into folders for quick access and future
-            device management.
-          </Typography>
         </div>
-        <div className={classes.actions}>
-          <Button
-            color="primary"
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={openMenu}
-            aria-haspopup="true"
-            aria-controls="retail-device-create-menu"
-          >
-            Create
-          </Button>
-          <Menu
-            id="retail-device-create-menu"
-            anchorEl={menuAnchor}
-            keepMounted
-            open={Boolean(menuAnchor)}
-            onClose={closeMenu}
-          >
-            <MenuItem onClick={handleCreateFolder}>Create Folder</MenuItem>
-            <MenuItem onClick={handleCreateDevice}>Create Device</MenuItem>
-          </Menu>
+        <div className={classes.headerControls}>
+          <TextField
+            className={classes.searchField}
+            variant="outlined"
+            size="small"
+            placeholder="Search folders and devices"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+            inputProps={{ 'aria-label': 'Search retail player items' }}
+          />
+          <div className={classes.actions}>
+            <Button
+              color="primary"
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openMenu}
+              aria-haspopup="true"
+              aria-controls="retail-device-create-menu"
+            >
+              Create
+            </Button>
+            <Menu
+              id="retail-device-create-menu"
+              anchorEl={menuAnchor}
+              keepMounted
+              open={Boolean(menuAnchor)}
+              onClose={closeMenu}
+            >
+              <MenuItem onClick={handleCreateFolder}>
+                <ListItemIcon>
+                  <FolderIcon fontSize="small" className={classes.nameIcon} />
+                </ListItemIcon>
+                <ListItemText primary="Create Folder" />
+              </MenuItem>
+              <MenuItem onClick={handleCreateDevice}>
+                <ListItemIcon>
+                  <SpeakerGroupIcon fontSize="small" className={classes.nameIcon} />
+                </ListItemIcon>
+                <ListItemText primary="Create Device" />
+              </MenuItem>
+            </Menu>
+          </div>
         </div>
       </div>
       <Paper className={classes.panel} elevation={0}>
@@ -805,7 +907,7 @@ const RetailPlayerDeviceManagement = () => {
             >
               <Link
                 color="inherit"
-                onClick={() => setActiveFolderId(null)}
+                onClick={() => handleEnterFolder(null)}
                 className={classes.breadcrumbLink}
                 component="button"
               >
@@ -824,7 +926,7 @@ const RetailPlayerDeviceManagement = () => {
                   <Link
                     key={folder.id}
                     color="inherit"
-                    onClick={() => setActiveFolderId(folder.id)}
+                    onClick={() => handleEnterFolder(folder.id)}
                     className={classes.breadcrumbLink}
                     component="button"
                   >
@@ -836,11 +938,19 @@ const RetailPlayerDeviceManagement = () => {
           </div>
         ) : null}
         <div className={classes.listHeader}>
-          <span className={classes.headerName}>Name</span>
-          <span className={classes.headerType}>Type</span>
-          <span className={classes.headerChannel}>Channel</span>
-          <span className={classes.headerChannelList}>Channel List</span>
-          <span className={classes.headerActions}>Actions</span>
+          <div className={classes.headerSelect}>
+            <Checkbox
+              color="primary"
+              checked={allSelected}
+              indeterminate={someSelected}
+              onChange={handleSelectAllChange}
+              inputProps={{ 'aria-label': 'Select all retail player items' }}
+            />
+          </div>
+          <span>Name</span>
+          <span>Type</span>
+          <span>No. of Devices</span>
+          <span className={classes.headerActions}>Edit</span>
         </div>
         {loading ? (
           <div className={classes.loaderState}>
@@ -855,6 +965,12 @@ const RetailPlayerDeviceManagement = () => {
           </div>
         ) : visibleNodes.length ? (
           renderRows(visibleNodes)
+        ) : showingSearchResults ? (
+          <div className={classes.emptyState}>
+            <Typography variant="body2">
+              {`No results found for “${searchTerm.trim()}”.`}
+            </Typography>
+          </div>
         ) : (
           <div className={classes.emptyState}>
             {activeFolderNode ? (
@@ -875,9 +991,7 @@ const RetailPlayerDeviceManagement = () => {
         open={folderDialog.open}
         onClose={handleFolderDialogClose}
         onSubmit={handleFolderSubmit}
-        parentOptions={folderOptions}
         initialValues={folderDialog.target}
-        disableParent={Boolean(folderDialog.target)}
       />
       <DeviceDialog
         open={deviceDialog.open}

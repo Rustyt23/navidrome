@@ -65,7 +65,7 @@ const useStyles = makeStyles((theme) => ({
     },
     '& .MuiTypography-body1': {
       fontSize: theme.typography.pxToRem(13),
-      color: theme.palette.text.secondary,
+      color: theme.palette.primary.main,
     },
   },
   folderChildren: {
@@ -77,6 +77,16 @@ const useStyles = makeStyles((theme) => ({
     paddingTop: theme.spacing(0.5),
     paddingBottom: theme.spacing(0.5),
     fontSize: theme.typography.pxToRem(13),
+    '& .RaMenuItemLink-icon': {
+      minWidth: theme.spacing(4),
+      color: theme.palette.common.white,
+    },
+    '& .RaMenuItemLink-primaryText': {
+      color: theme.palette.primary.main,
+    },
+  },
+  deviceIcon: {
+    color: theme.palette.common.white,
   },
 }))
 
@@ -189,6 +199,9 @@ const Menu = ({ dense = false }) => {
           to={`/retailplayer/${encodedSlug}`}
           activeClassName={classes.active}
           primaryText={node.name}
+          leftIcon={
+            <SpeakerGroupIcon fontSize="small" className={classes.deviceIcon} />
+          }
           sidebarIsOpen={open}
           dense={dense}
           exact
@@ -197,14 +210,14 @@ const Menu = ({ dense = false }) => {
         />
       )
     },
-    [classes.active, classes.deviceItem, dense, open, theme],
+    [classes.active, classes.deviceIcon, classes.deviceItem, dense, open, theme],
   )
 
   const renderRetailPlayerNodes = useCallback(
     (nodes, depth = 0) =>
       nodes.map((node) => {
         if (node.type === 'folder') {
-          const isOpen = openFolders[node.id] ?? true
+          const isOpen = openFolders[node.id] ?? false
           const padding = theme.spacing(4 + depth * 2)
           const childPadding = theme.spacing(2)
           return (

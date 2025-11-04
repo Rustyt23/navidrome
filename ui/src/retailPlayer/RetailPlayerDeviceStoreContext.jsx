@@ -29,6 +29,14 @@ const ensureFolderId = (value) => {
   return null
 }
 
+const normalizeFolderIds = (value) => {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map(ensureFolderId).filter(Boolean)))
+  }
+  const single = ensureFolderId(value)
+  return single ? [single] : []
+}
+
 const baseDeviceShape = (device, existing) => {
   const normalizedName = normalizeValue(device?.name)
   const normalizedSlug = normalizeValue(device?.slug)
@@ -36,6 +44,15 @@ const baseDeviceShape = (device, existing) => {
   const normalizedChannelList = normalizeValue(device?.channelList)
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
+
+  const existingFolderIds = normalizeFolderIds(
+    existing?.folderIds ?? existing?.folderId,
+  )
+  const incomingFolderIds = normalizeFolderIds(
+    device?.folderIds ?? device?.folderId ?? device?.folders,
+  )
+  const folderIds = incomingFolderIds.length ? incomingFolderIds : existingFolderIds
+  const primaryFolderId = folderIds.length ? folderIds[0] : null
 
   const slug =
     normalizedSlug ||
@@ -51,7 +68,8 @@ const baseDeviceShape = (device, existing) => {
     channelList: normalizedChannelList || '',
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',
-    folderId: ensureFolderId(existing?.folderId),
+    folderIds,
+    folderId: primaryFolderId,
     source: existing?.source === 'local' ? 'local' : 'remote',
     attributes: existing?.attributes || {},
   }
@@ -78,10 +96,7 @@ const reducer = (state, action) => {
       const nextDevices = incoming.map((device) => {
         const key = normalizeValue(device?.apiId || device?.id)
         const existing = key ? existingByKey.get(key) : null
-        return {
-          ...baseDeviceShape(device, existing || undefined),
-          folderId: ensureFolderId(existing?.folderId),
-        }
+        return baseDeviceShape(device, existing || undefined)
       })
 
       const localDevices = state.devices.filter((device) => device.source === 'local')
@@ -131,11 +146,23 @@ const reducer = (state, action) => {
         channel,
         channelList,
         organization,
+        folderIds: payloadFolderIds,
         folderId,
         attributes,
       } = action.payload || {}
       const normalizedName = normalizeValue(name) || 'New Device'
       const slug = deviceSlugKey(normalizedName) || uuidv4()
+      let normalizedFolderIds = []
+      if (Array.isArray(payloadFolderIds)) {
+        normalizedFolderIds = normalizeFolderIds(payloadFolderIds)
+      } else if (payloadFolderIds) {
+        normalizedFolderIds = normalizeFolderIds(payloadFolderIds)
+      } else {
+        normalizedFolderIds = normalizeFolderIds(folderId)
+      }
+      const primaryFolderId = normalizedFolderIds.length
+        ? normalizedFolderIds[0]
+        : null
       const device = {
         id: uuidv4(),
         apiId: null,
@@ -146,7 +173,8 @@ const reducer = (state, action) => {
         channelList: normalizeValue(channelList) || '',
         organization: normalizeValue(organization) || '',
         timeZone: '',
-        folderId: ensureFolderId(folderId),
+        folderIds: normalizedFolderIds,
+        folderId: primaryFolderId,
         source: 'local',
         attributes: attributes && typeof attributes === 'object' ? { ...attributes } : {},
       }
@@ -157,8 +185,15 @@ const reducer = (state, action) => {
       }
     }
     case 'UPDATE_DEVICE': {
-      const { id, name, channel, channelList, organization, folderId } =
-        action.payload || {}
+      const {
+        id,
+        name,
+        channel,
+        channelList,
+        organization,
+        folderIds,
+        folderId,
+      } = action.payload || {}
       if (!id) {
         return state
       }
@@ -167,6 +202,13 @@ const reducer = (state, action) => {
           return device
         }
         const isLocal = device.source === 'local'
+        let nextFolderIds = device.folderIds || []
+        if (folderIds !== undefined) {
+          nextFolderIds = normalizeFolderIds(folderIds)
+        } else if (folderId !== undefined) {
+          nextFolderIds = normalizeFolderIds(folderId)
+        }
+        const primaryFolderId = nextFolderIds.length ? nextFolderIds[0] : null
         return {
           ...device,
           name: isLocal ? normalizeValue(name) || device.name : device.name,
@@ -174,24 +216,30 @@ const reducer = (state, action) => {
           channelList: normalizeValue(channelList) || device.channelList,
           organization:
             normalizeValue(organization) || device.organization,
-          folderId:
-            ensureFolderId(folderId) !== undefined
-              ? ensureFolderId(folderId)
-              : device.folderId,
+          folderIds: nextFolderIds,
+          folderId: primaryFolderId,
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
     }
     case 'ASSIGN_DEVICE_FOLDER': {
-      const { id, folderId } = action.payload || {}
+      const { id, folderIds, folderId } = action.payload || {}
       if (!id) {
         return state
       }
+      const normalizedFolderIds =
+        folderIds !== undefined
+          ? normalizeFolderIds(folderIds)
+          : normalizeFolderIds(folderId)
       const nextDevices = state.devices.map((device) => {
         if (device.id !== id) {
           return device
         }
-        return { ...device, folderId: ensureFolderId(folderId) }
+        return {
+          ...device,
+          folderIds: normalizedFolderIds,
+          folderId: normalizedFolderIds.length ? normalizedFolderIds[0] : null,
+        }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
     }
@@ -222,15 +270,28 @@ const buildTree = (folders, devices) => {
   })
 
   const attachDevice = (device) => {
-    const node = {
-      ...device,
-      type: 'device',
+    const folderIds = normalizeFolderIds(device.folderIds || device.folderId)
+    if (!folderIds.length) {
+      rootNodes.push({
+        ...device,
+        type: 'device',
+        treeKey: `${device.id}-root`,
+      })
+      return
     }
-    if (device.folderId && folderMap.has(device.folderId)) {
-      folderMap.get(device.folderId).children.push(node)
-    } else {
-      rootNodes.push(node)
-    }
+    const uniqueIds = Array.from(new Set(folderIds))
+    uniqueIds.forEach((folderId) => {
+      const node = {
+        ...device,
+        type: 'device',
+        treeKey: `${device.id}-${folderId}`,
+      }
+      if (folderMap.has(folderId)) {
+        folderMap.get(folderId).children.push(node)
+      } else {
+        rootNodes.push(node)
+      }
+    })
   }
 
   devices.forEach(attachDevice)
