@@ -10,6 +10,7 @@ import {
   FormControl,
   FormHelperText,
   IconButton,
+  InputAdornment,
   InputLabel,
   ListItemIcon,
   ListItemText,
@@ -28,6 +29,7 @@ import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
 import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
+import SearchIcon from '@material-ui/icons/Search'
 import Breadcrumbs from '@material-ui/core/Breadcrumbs'
 import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
@@ -55,7 +57,7 @@ const useStyles = makeStyles((theme) => ({
   },
   header: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: theme.spacing(2),
     flexWrap: 'wrap',
@@ -64,6 +66,13 @@ const useStyles = makeStyles((theme) => ({
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(1),
+  },
+  headerControls: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1.5),
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
   },
   actions: {
     display: 'flex',
@@ -80,7 +89,10 @@ const useStyles = makeStyles((theme) => ({
     display: 'grid',
     gridTemplateColumns:
       '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
-    padding: theme.spacing(1.5, 2),
+    paddingTop: theme.spacing(0.5),
+    paddingBottom: theme.spacing(0.5),
+    paddingLeft: theme.spacing(0.5),
+    paddingRight: theme.spacing(0.5),
     backgroundColor: theme.palette.action.hover,
     color: theme.palette.text.secondary,
     fontSize: theme.typography.pxToRem(12),
@@ -111,7 +123,10 @@ const useStyles = makeStyles((theme) => ({
     gridTemplateColumns:
       '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
     alignItems: 'center',
-    padding: theme.spacing(1.5, 2),
+    paddingTop: theme.spacing(0.25),
+    paddingBottom: theme.spacing(0.25),
+    paddingLeft: theme.spacing(0.25),
+    paddingRight: theme.spacing(0.25),
     borderTop: `1px solid ${theme.palette.divider}`,
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
@@ -153,6 +168,12 @@ const useStyles = makeStyles((theme) => ({
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(0.5),
+  },
+  searchField: {
+    minWidth: 220,
+    '& .MuiOutlinedInput-root': {
+      backgroundColor: theme.palette.background.default,
+    },
   },
   nameTitle: {
     color: theme.palette.common.white,
@@ -443,6 +464,7 @@ const RetailPlayerDeviceManagement = () => {
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [searchTerm, setSearchTerm] = useState('')
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -518,10 +540,45 @@ const RetailPlayerDeviceManagement = () => {
     return path
   }, [activeFolderId, folderMap])
 
-  const visibleNodes = useMemo(
+  const baseVisibleNodes = useMemo(
     () => (activeFolderNode ? activeFolderNode.children || [] : tree),
     [activeFolderNode, tree],
   )
+
+  const normalizedSearchTerm = useMemo(
+    () => searchTerm.trim().toLowerCase(),
+    [searchTerm],
+  )
+
+  const visibleNodes = useMemo(() => {
+    if (!normalizedSearchTerm) {
+      return baseVisibleNodes
+    }
+
+    const matches = []
+    const visit = (nodes) => {
+      if (!Array.isArray(nodes) || !nodes.length) {
+        return
+      }
+      nodes.forEach((node) => {
+        if (!node) {
+          return
+        }
+        const label = (node.name || '').toLowerCase()
+        if (label.includes(normalizedSearchTerm)) {
+          matches.push(node)
+        }
+        if (node.type === 'folder' && Array.isArray(node.children)) {
+          visit(node.children)
+        }
+      })
+    }
+
+    visit(tree)
+    return matches
+  }, [baseVisibleNodes, normalizedSearchTerm, tree])
+
+  const showingSearchResults = normalizedSearchTerm.length > 0
 
   const openMenu = (event) => {
     setMenuAnchor(event.currentTarget)
@@ -594,13 +651,17 @@ const RetailPlayerDeviceManagement = () => {
     [history],
   )
 
-  const handleEnterFolder = useCallback((folderId) => {
-    if (!folderId) {
-      setActiveFolderId(null)
-      return
-    }
-    setActiveFolderId(folderId)
-  }, [])
+  const handleEnterFolder = useCallback(
+    (folderId) => {
+      setSearchTerm('')
+      if (!folderId) {
+        setActiveFolderId(null)
+        return
+      }
+      setActiveFolderId(folderId)
+    },
+    [setActiveFolderId, setSearchTerm],
+  )
 
   const visibleNodeIds = useMemo(
     () =>
@@ -785,37 +846,55 @@ const RetailPlayerDeviceManagement = () => {
             Retail Player Devices
           </Typography>
         </div>
-        <div className={classes.actions}>
-          <Button
-            color="primary"
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={openMenu}
-            aria-haspopup="true"
-            aria-controls="retail-device-create-menu"
-          >
-            Create
-          </Button>
-          <Menu
-            id="retail-device-create-menu"
-            anchorEl={menuAnchor}
-            keepMounted
-            open={Boolean(menuAnchor)}
-            onClose={closeMenu}
-          >
-            <MenuItem onClick={handleCreateFolder}>
-              <ListItemIcon>
-                <FolderIcon fontSize="small" className={classes.nameIcon} />
-              </ListItemIcon>
-              <ListItemText primary="Create Folder" />
-            </MenuItem>
-            <MenuItem onClick={handleCreateDevice}>
-              <ListItemIcon>
-                <SpeakerGroupIcon fontSize="small" className={classes.nameIcon} />
-              </ListItemIcon>
-              <ListItemText primary="Create Device" />
-            </MenuItem>
-          </Menu>
+        <div className={classes.headerControls}>
+          <TextField
+            className={classes.searchField}
+            variant="outlined"
+            size="small"
+            placeholder="Search folders and devices"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+            inputProps={{ 'aria-label': 'Search retail player items' }}
+          />
+          <div className={classes.actions}>
+            <Button
+              color="primary"
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openMenu}
+              aria-haspopup="true"
+              aria-controls="retail-device-create-menu"
+            >
+              Create
+            </Button>
+            <Menu
+              id="retail-device-create-menu"
+              anchorEl={menuAnchor}
+              keepMounted
+              open={Boolean(menuAnchor)}
+              onClose={closeMenu}
+            >
+              <MenuItem onClick={handleCreateFolder}>
+                <ListItemIcon>
+                  <FolderIcon fontSize="small" className={classes.nameIcon} />
+                </ListItemIcon>
+                <ListItemText primary="Create Folder" />
+              </MenuItem>
+              <MenuItem onClick={handleCreateDevice}>
+                <ListItemIcon>
+                  <SpeakerGroupIcon fontSize="small" className={classes.nameIcon} />
+                </ListItemIcon>
+                <ListItemText primary="Create Device" />
+              </MenuItem>
+            </Menu>
+          </div>
         </div>
       </div>
       <Paper className={classes.panel} elevation={0}>
@@ -828,7 +907,7 @@ const RetailPlayerDeviceManagement = () => {
             >
               <Link
                 color="inherit"
-                onClick={() => setActiveFolderId(null)}
+                onClick={() => handleEnterFolder(null)}
                 className={classes.breadcrumbLink}
                 component="button"
               >
@@ -847,7 +926,7 @@ const RetailPlayerDeviceManagement = () => {
                   <Link
                     key={folder.id}
                     color="inherit"
-                    onClick={() => setActiveFolderId(folder.id)}
+                    onClick={() => handleEnterFolder(folder.id)}
                     className={classes.breadcrumbLink}
                     component="button"
                   >
@@ -886,6 +965,12 @@ const RetailPlayerDeviceManagement = () => {
           </div>
         ) : visibleNodes.length ? (
           renderRows(visibleNodes)
+        ) : showingSearchResults ? (
+          <div className={classes.emptyState}>
+            <Typography variant="body2">
+              {`No results found for “${searchTerm.trim()}”.`}
+            </Typography>
+          </div>
         ) : (
           <div className={classes.emptyState}>
             {activeFolderNode ? (

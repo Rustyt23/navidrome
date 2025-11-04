@@ -65,7 +65,7 @@ const useStyles = makeStyles((theme) => ({
     },
     '& .MuiTypography-body1': {
       fontSize: theme.typography.pxToRem(13),
-      color: theme.palette.text.secondary,
+      color: theme.palette.primary.main,
     },
   },
   folderChildren: {
@@ -80,6 +80,9 @@ const useStyles = makeStyles((theme) => ({
     '& .RaMenuItemLink-icon': {
       minWidth: theme.spacing(4),
       color: theme.palette.common.white,
+    },
+    '& .RaMenuItemLink-primaryText': {
+      color: theme.palette.primary.main,
     },
   },
   deviceIcon: {
@@ -214,7 +217,7 @@ const Menu = ({ dense = false }) => {
     (nodes, depth = 0) =>
       nodes.map((node) => {
         if (node.type === 'folder') {
-          const isOpen = openFolders[node.id] ?? true
+          const isOpen = openFolders[node.id] ?? false
           const padding = theme.spacing(4 + depth * 2)
           const childPadding = theme.spacing(2)
           return (
