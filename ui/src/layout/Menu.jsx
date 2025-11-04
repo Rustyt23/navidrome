@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { Divider, makeStyles } from '@material-ui/core'
 import clsx from 'clsx'
@@ -7,6 +7,7 @@ import ViewListIcon from '@material-ui/icons/ViewList'
 import AlbumIcon from '@material-ui/icons/Album'
 import MenuItem from '@material-ui/core/MenuItem'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
+import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
@@ -15,6 +16,7 @@ import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
 import useRetailPlayerDevices from '../retailPlayer/useRetailPlayerDevices'
+import { useHistory } from 'react-router-dom'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -66,6 +68,7 @@ const Menu = ({ dense = false }) => {
   const resources = useSelector(getResources).filter(
     (r) => r.name !== 'radio' && r.name !== 'share',
   )
+  const history = useHistory()
 
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
@@ -172,6 +175,10 @@ const Menu = ({ dense = false }) => {
     })
   }
 
+  const handleRetailPlayerSettings = useCallback(() => {
+    history.push('/retailplayer/folder')
+  }, [history])
+
   const renderRetailPlayerMenu = () => (
     <SubMenu
       handleToggle={() => handleToggle('menuRetailPlayer')}
@@ -180,6 +187,8 @@ const Menu = ({ dense = false }) => {
       name="menu.retailPlayer.name"
       icon={<SpeakerGroupIcon />}
       dense={dense}
+      actionIcon={<BiCog />}
+      onAction={handleRetailPlayerSettings}
     >
       {renderRetailPlayerDevices()}
     </SubMenu>

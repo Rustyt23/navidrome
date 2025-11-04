@@ -3,6 +3,7 @@ import { Redirect, Route } from 'react-router-dom'
 import Personal from './personal/Personal'
 import RetailPlayerDashboard from './retailPlayer/RetailPlayerDashboard'
 import RetailPlayerDevicesList from './retailPlayer/RetailPlayerDevicesList'
+import RetailPlayerFolderList from './retailPlayer/RetailPlayerFolderList'
 
 const routes = [
   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
@@ -11,6 +12,12 @@ const routes = [
     path="/retailplayer"
     render={() => <Redirect to="/retailplayer/devices" />}
     key={'retailplayer-redirect'}
+  />,
+  <Route
+    exact
+    path="/retailplayer/folder"
+    render={() => <RetailPlayerFolderList />}
+    key={'retailplayer-folder'}
   />,
   <Route
     exact
