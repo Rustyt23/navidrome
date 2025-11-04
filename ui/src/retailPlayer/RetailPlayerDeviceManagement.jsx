@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
+  Checkbox,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -19,6 +20,7 @@ import {
   Typography,
 } from '@material-ui/core'
 import { makeStyles, useTheme } from '@material-ui/core/styles'
+import { fade } from '@material-ui/core/styles/colorManipulator'
 import { Title } from 'react-admin'
 import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
@@ -74,7 +76,7 @@ const useStyles = makeStyles((theme) => ({
   listHeader: {
     display: 'grid',
     gridTemplateColumns:
-      'minmax(220px, 2fr) minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(100px, 0.8fr)',
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
     padding: theme.spacing(1.5, 2),
     backgroundColor: theme.palette.action.hover,
     color: theme.palette.text.secondary,
@@ -82,75 +84,66 @@ const useStyles = makeStyles((theme) => ({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: theme.typography.fontWeightMedium,
+    alignItems: 'center',
+    gap: theme.spacing(1),
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: 'minmax(200px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr)',
-      gridTemplateAreas: "'name type actions' 'channel channelList actions'",
-      rowGap: theme.spacing(1),
+      gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+      fontSize: theme.typography.pxToRem(11),
+      letterSpacing: 0.6,
     },
   },
-  headerName: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'name',
-    },
+  headerSelect: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
   },
-  headerType: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'type',
-    },
-  },
-  headerChannel: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channel',
-    },
-  },
-  headerChannelList: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channelList',
-    },
+  headerLabel: {
+    textTransform: 'uppercase',
   },
   headerActions: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'actions',
-      justifySelf: 'flex-end',
-    },
+    justifySelf: 'flex-end',
   },
   row: {
     display: 'grid',
     gridTemplateColumns:
-      'minmax(220px, 2fr) minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(100px, 0.8fr)',
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
     alignItems: 'center',
     padding: theme.spacing(1.5, 2),
     borderTop: `1px solid ${theme.palette.divider}`,
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: 'minmax(200px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr)',
-      gridTemplateAreas: "'name type actions' 'channel channelList actions'",
+      gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
       rowGap: theme.spacing(1),
     },
   },
   folderRow: {
-    backgroundColor: theme.palette.action.selected,
+    backgroundColor: fade(theme.palette.primary.main, 0.04),
   },
   interactiveRow: {
     cursor: 'pointer',
     '&:hover': {
-      backgroundColor: theme.palette.action.hover,
+      backgroundColor: fade(theme.palette.primary.main, 0.08),
     },
     '&:focus': {
       outline: `2px solid ${theme.palette.primary.main}`,
       outlineOffset: -2,
     },
   },
+  selectedRow: {
+    backgroundColor: fade(theme.palette.primary.main, 0.12),
+  },
+  selectCell: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   nameCell: {
     display: 'flex',
     alignItems: 'center',
     gap: theme.spacing(1.5),
     fontWeight: theme.typography.fontWeightMedium,
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'name',
-    },
   },
   nameIcon: {
-    color: theme.palette.text.secondary,
+    color: theme.palette.primary.main,
     fontSize: theme.typography.pxToRem(18),
   },
   nameLabel: {
@@ -158,35 +151,23 @@ const useStyles = makeStyles((theme) => ({
     flexDirection: 'column',
     gap: theme.spacing(0.5),
   },
+  nameTitle: {
+    color: theme.palette.primary.main,
+    fontWeight: theme.typography.fontWeightMedium,
+  },
   typeCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'type',
-    },
   },
-  metaCell: {
+  countCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channel',
-    },
-  },
-  metaSecondary: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channelList',
-    },
+    textAlign: 'center',
   },
   actionsCell: {
     display: 'flex',
     gap: theme.spacing(1),
     justifyContent: 'flex-end',
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'actions',
-    },
   },
   breadcrumbBar: {
     display: 'flex',
@@ -488,6 +469,7 @@ const RetailPlayerDeviceManagement = () => {
   const [folderDialog, setFolderDialog] = useState({ open: false, target: null })
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
   const [activeFolderId, setActiveFolderId] = useState(null)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -517,7 +499,6 @@ const RetailPlayerDeviceManagement = () => {
     for (let index = 0; index < nodes.length; index += 1) {
       const node = nodes[index]
       if (node.type !== 'folder') {
-        // eslint-disable-next-line no-continue
         continue
       }
       if (node.id === targetId) {
@@ -564,7 +545,10 @@ const RetailPlayerDeviceManagement = () => {
     return path
   }, [activeFolderId, folderMap])
 
-  const visibleNodes = activeFolderNode ? activeFolderNode.children || [] : tree
+  const visibleNodes = useMemo(
+    () => (activeFolderNode ? activeFolderNode.children || [] : tree),
+    [activeFolderNode, tree],
+  )
 
   const openMenu = (event) => {
     setMenuAnchor(event.currentTarget)
@@ -645,6 +629,55 @@ const RetailPlayerDeviceManagement = () => {
     setActiveFolderId(folderId)
   }, [])
 
+  const visibleNodeIds = useMemo(() => {
+    const ids = []
+    const collect = (nodes) => {
+      nodes.forEach((node) => {
+        if (!node || !node.id) {
+          return
+        }
+        ids.push(node.id)
+        if (Array.isArray(node.children) && node.children.length) {
+          collect(node.children)
+        }
+      })
+    }
+    collect(visibleNodes)
+    return ids
+  }, [visibleNodes])
+
+  const allSelected =
+    visibleNodeIds.length > 0 && visibleNodeIds.every((id) => selectedIds.has(id))
+  const someSelected = !allSelected && visibleNodeIds.some((id) => selectedIds.has(id))
+
+  const handleSelectAllChange = (event) => {
+    const { checked } = event.target
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        visibleNodeIds.forEach((id) => next.add(id))
+      } else {
+        visibleNodeIds.forEach((id) => next.delete(id))
+      }
+      return next
+    })
+  }
+
+  const toggleNodeSelection = useCallback((nodeId) => {
+    if (!nodeId) {
+      return
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(nodeId)) {
+        next.delete(nodeId)
+      } else {
+        next.add(nodeId)
+      }
+      return next
+    })
+  }, [])
+
   const handleRowKeyDown = (event, action) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
@@ -670,30 +703,44 @@ const RetailPlayerDeviceManagement = () => {
         const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
         const folderChildren = renderRows(node.children || [], depth + 1)
         const deviceCount = countDevices(node)
+        const isSelected = selectedIds.has(node.id)
         return [
           <div
             key={`folder-row-${node.id}`}
-            className={clsx(classes.row, classes.folderRow, classes.interactiveRow)}
+            className={clsx(
+              classes.row,
+              classes.folderRow,
+              classes.interactiveRow,
+              isSelected && classes.selectedRow,
+            )}
             role="button"
             tabIndex={0}
             onClick={() => handleEnterFolder(node.id)}
             onKeyDown={(event) => handleRowKeyDown(event, () => handleEnterFolder(node.id))}
             aria-label={`Open folder ${node.name}`}
           >
+            <div className={classes.selectCell}>
+              <Checkbox
+                color="primary"
+                checked={isSelected}
+                onChange={(event) => {
+                  event.stopPropagation()
+                  toggleNodeSelection(node.id)
+                }}
+                onClick={(event) => event.stopPropagation()}
+                inputProps={{ 'aria-label': `Select folder ${node.name}` }}
+              />
+            </div>
             <div className={classes.nameCell} style={indentStyle}>
               <FolderIcon className={classes.nameIcon} />
               <div className={classes.nameLabel}>
-                <Typography variant="body1" color="textPrimary">
+                <Typography variant="body1" className={classes.nameTitle}>
                   {node.name}
-                </Typography>
-                <Typography variant="caption" color="textSecondary">
-                  {`${deviceCount} device${deviceCount === 1 ? '' : 's'}`}
                 </Typography>
               </div>
             </div>
             <div className={classes.typeCell}>Folder</div>
-            <div className={classes.metaCell}>—</div>
-            <div className={clsx(classes.metaCell, classes.metaSecondary)}>—</div>
+            <div className={classes.countCell}>{deviceCount}</div>
             <div className={classes.actionsCell}>
               <Tooltip title="Edit folder">
                 <IconButton
@@ -713,20 +760,37 @@ const RetailPlayerDeviceManagement = () => {
         ]
       }
       const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
+      const isSelected = selectedIds.has(node.id)
       return [
         <div
           key={`device-row-${node.id}`}
-          className={clsx(classes.row, classes.interactiveRow)}
+          className={clsx(
+            classes.row,
+            classes.interactiveRow,
+            isSelected && classes.selectedRow,
+          )}
           role="button"
           tabIndex={0}
           onClick={() => handleNavigateToDevice(node)}
           onKeyDown={(event) => handleRowKeyDown(event, () => handleNavigateToDevice(node))}
           aria-label={`Open device ${node.name}`}
         >
+          <div className={classes.selectCell}>
+            <Checkbox
+              color="primary"
+              checked={isSelected}
+              onChange={(event) => {
+                event.stopPropagation()
+                toggleNodeSelection(node.id)
+              }}
+              onClick={(event) => event.stopPropagation()}
+              inputProps={{ 'aria-label': `Select device ${node.name}` }}
+            />
+          </div>
           <div className={classes.nameCell} style={indentStyle}>
             <SpeakerGroupIcon className={classes.nameIcon} />
             <div className={classes.nameLabel}>
-              <Typography variant="body1" color="textPrimary">
+              <Typography variant="body1" className={classes.nameTitle}>
                 {node.name}
               </Typography>
               {node.organization ? (
@@ -737,10 +801,7 @@ const RetailPlayerDeviceManagement = () => {
             </div>
           </div>
           <div className={classes.typeCell}>Device</div>
-          <div className={classes.metaCell}>{node.channel || '—'}</div>
-          <div className={clsx(classes.metaCell, classes.metaSecondary)}>
-            {node.channelList || '—'}
-          </div>
+          <div className={classes.countCell}>—</div>
           <div className={classes.actionsCell}>
             <Tooltip title="Edit device">
               <IconButton
@@ -836,11 +897,22 @@ const RetailPlayerDeviceManagement = () => {
           </div>
         ) : null}
         <div className={classes.listHeader}>
-          <span className={classes.headerName}>Name</span>
-          <span className={classes.headerType}>Type</span>
-          <span className={classes.headerChannel}>Channel</span>
-          <span className={classes.headerChannelList}>Channel List</span>
-          <span className={classes.headerActions}>Actions</span>
+          <div className={classes.headerSelect}>
+            <Checkbox
+              color="primary"
+              checked={allSelected}
+              indeterminate={someSelected}
+              onChange={handleSelectAllChange}
+              inputProps={{ 'aria-label': 'Select all retail player items' }}
+            />
+            <Typography variant="caption" className={classes.headerLabel}>
+              Select All
+            </Typography>
+          </div>
+          <span>Name</span>
+          <span>Type</span>
+          <span>No. of Devices</span>
+          <span className={classes.headerActions}>Edit</span>
         </div>
         {loading ? (
           <div className={classes.loaderState}>
