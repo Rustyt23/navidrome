@@ -77,6 +77,22 @@ const useStyles = makeStyles((theme) => ({
     paddingTop: theme.spacing(0.5),
     paddingBottom: theme.spacing(0.5),
     fontSize: theme.typography.pxToRem(13),
+    '& .MuiListItemIcon-root': {
+      minWidth: theme.spacing(4),
+      color: theme.palette.text.primary,
+    },
+    '& .RaMenuItemLink-primaryText': {
+      fontSize: theme.typography.pxToRem(13),
+      color: theme.palette.text.primary,
+    },
+  },
+  nestedDeviceItem: {
+    '& .MuiListItemIcon-root': {
+      color: theme.palette.secondary.main,
+    },
+    '& .RaMenuItemLink-primaryText': {
+      color: theme.palette.secondary.main,
+    },
   },
 }))
 
@@ -183,21 +199,30 @@ const Menu = ({ dense = false }) => {
       const slug = node.slug || node.name || node.id
       const encodedSlug = encodeURIComponent(slug)
       const padding = theme.spacing(4 + depth * 2)
+      const isNested = depth > 0
       return (
         <MenuItemLink
           key={`retailplayer-${node.apiId || node.id}`}
           to={`/retailplayer/${encodedSlug}`}
           activeClassName={classes.active}
           primaryText={node.name}
+          leftIcon={<SpeakerGroupIcon fontSize="small" />}
           sidebarIsOpen={open}
           dense={dense}
           exact
-          className={classes.deviceItem}
+          className={clsx(classes.deviceItem, isNested && classes.nestedDeviceItem)}
           style={{ paddingLeft: padding }}
         />
       )
     },
-    [classes.active, classes.deviceItem, dense, open, theme],
+    [
+      classes.active,
+      classes.deviceItem,
+      classes.nestedDeviceItem,
+      dense,
+      open,
+      theme,
+    ],
   )
 
   const renderRetailPlayerNodes = useCallback(

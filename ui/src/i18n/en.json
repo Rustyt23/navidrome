@@ -232,6 +232,25 @@
         "noPlaylists": "No playlists available"
       }
     },
+    "retailDevice": {
+      "fields": {
+        "serial": "#",
+        "name": "Name",
+        "type": "Type",
+        "channel": "Channel",
+        "channelList": "Channel List",
+        "organization": "Organization",
+        "timeZone": "Time Zone",
+        "source": "Source",
+        "actions": "Actions"
+      },
+      "values": {
+        "folder": "Folder",
+        "device": "Device",
+        "local": "Local",
+        "remote": "Remote"
+      }
+    },
     "discovery": {
       "name": "Discovery |||| Discoveries",
       "fields": {

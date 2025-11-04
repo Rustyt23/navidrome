@@ -19,7 +19,7 @@ import {
   Typography,
 } from '@material-ui/core'
 import { makeStyles, useTheme } from '@material-ui/core/styles'
-import { Title } from 'react-admin'
+import { Title, useTranslate } from 'react-admin'
 import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
 import FolderIcon from '@material-ui/icons/Folder'
@@ -29,6 +29,8 @@ import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
 import PropTypes from 'prop-types'
 import { useHistory } from 'react-router-dom'
+import { useSelector } from 'react-redux'
+import { ToggleFieldsMenu, useSelectedFields } from '../common'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 
 const useStyles = makeStyles((theme) => ({
@@ -68,13 +70,12 @@ const useStyles = makeStyles((theme) => ({
   panel: {
     borderRadius: theme.shape.borderRadius,
     border: `1px solid ${theme.palette.divider}`,
-    overflow: 'hidden',
+    overflowX: 'auto',
+    overflowY: 'hidden',
     backgroundColor: theme.palette.background.paper,
   },
   listHeader: {
     display: 'grid',
-    gridTemplateColumns:
-      'minmax(220px, 2fr) minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(100px, 0.8fr)',
     padding: theme.spacing(1.5, 2),
     backgroundColor: theme.palette.action.hover,
     color: theme.palette.text.secondary,
@@ -82,50 +83,37 @@ const useStyles = makeStyles((theme) => ({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: theme.typography.fontWeightMedium,
-    [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: 'minmax(200px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr)',
-      gridTemplateAreas: "'name type actions' 'channel channelList actions'",
-      rowGap: theme.spacing(1),
-    },
+    alignItems: 'center',
+  },
+  headerSerial: {
+    textAlign: 'center',
+    color: theme.palette.text.secondary,
   },
   headerName: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'name',
-    },
+    display: 'flex',
+    alignItems: 'center',
   },
   headerType: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'type',
-    },
+    display: 'flex',
+    alignItems: 'center',
   },
   headerChannel: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channel',
-    },
+    display: 'flex',
+    alignItems: 'center',
   },
   headerChannelList: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channelList',
-    },
+    display: 'flex',
+    alignItems: 'center',
   },
   headerActions: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'actions',
-      justifySelf: 'flex-end',
-    },
+    display: 'flex',
+    justifyContent: 'flex-end',
   },
   row: {
     display: 'grid',
-    gridTemplateColumns:
-      'minmax(220px, 2fr) minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(100px, 0.8fr)',
     alignItems: 'center',
     padding: theme.spacing(1.5, 2),
     borderTop: `1px solid ${theme.palette.divider}`,
-    [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: 'minmax(200px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr)',
-      gridTemplateAreas: "'name type actions' 'channel channelList actions'",
-      rowGap: theme.spacing(1),
-    },
   },
   folderRow: {
     backgroundColor: theme.palette.action.selected,
@@ -145,9 +133,6 @@ const useStyles = makeStyles((theme) => ({
     alignItems: 'center',
     gap: theme.spacing(1.5),
     fontWeight: theme.typography.fontWeightMedium,
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'name',
-    },
   },
   nameIcon: {
     color: theme.palette.text.secondary,
@@ -161,9 +146,6 @@ const useStyles = makeStyles((theme) => ({
   typeCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'type',
-    },
   },
   metaCell: {
     fontSize: theme.typography.pxToRem(14),
@@ -171,22 +153,16 @@ const useStyles = makeStyles((theme) => ({
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channel',
-    },
-  },
-  metaSecondary: {
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'channelList',
-    },
   },
   actionsCell: {
     display: 'flex',
     gap: theme.spacing(1),
     justifyContent: 'flex-end',
-    [theme.breakpoints.down('sm')]: {
-      gridArea: 'actions',
-    },
+  },
+  serialCell: {
+    fontVariantNumeric: 'tabular-nums',
+    textAlign: 'center',
+    color: theme.palette.text.secondary,
   },
   breadcrumbBar: {
     display: 'flex',
@@ -236,6 +212,17 @@ const useStyles = makeStyles((theme) => ({
     },
   },
 }))
+
+const RETAIL_DEVICE_RESOURCE = 'retailDevice'
+const RETAIL_DEVICE_COLUMNS = [
+  'type',
+  'channel',
+  'channelList',
+  'organization',
+  'timeZone',
+  'source',
+]
+const RETAIL_DEVICE_DEFAULT_OFF = ['timeZone', 'source']
 
 const FolderDialog = ({
   open,
@@ -480,6 +467,7 @@ const RetailPlayerDeviceManagement = () => {
   const classes = useStyles()
   const theme = useTheme()
   const history = useHistory()
+  const translate = useTranslate()
   const {
     state: { tree, folders, devices, loading, error },
     actions: { createFolder, updateFolder, createDevice, updateDevice },
@@ -565,6 +553,126 @@ const RetailPlayerDeviceManagement = () => {
   }, [activeFolderId, folderMap])
 
   const visibleNodes = activeFolderNode ? activeFolderNode.children || [] : tree
+
+  const columnDefinitions = useMemo(() => {
+    const dash = '—'
+    return {
+      type: {
+        label: translate('resources.retailDevice.fields.type', { _: 'Type' }),
+        cellClass: classes.typeCell,
+        headerClass: classes.headerType,
+        width: 'minmax(120px, 1fr)',
+        render: (node) =>
+          node.type === 'folder'
+            ? translate('resources.retailDevice.values.folder', { _: 'Folder' })
+            : translate('resources.retailDevice.values.device', { _: 'Device' }),
+      },
+      channel: {
+        label: translate('resources.retailDevice.fields.channel', { _: 'Channel' }),
+        cellClass: classes.metaCell,
+        headerClass: classes.headerChannel,
+        width: 'minmax(140px, 1fr)',
+        render: (node) => (node.type === 'device' ? node.channel || dash : dash),
+      },
+      channelList: {
+        label: translate('resources.retailDevice.fields.channelList', {
+          _: 'Channel List',
+        }),
+        cellClass: classes.metaCell,
+        headerClass: classes.headerChannelList,
+        width: 'minmax(160px, 1fr)',
+        render: (node) => (node.type === 'device' ? node.channelList || dash : dash),
+      },
+      organization: {
+        label: translate('resources.retailDevice.fields.organization', {
+          _: 'Organization',
+        }),
+        cellClass: classes.metaCell,
+        headerClass: classes.headerChannelList,
+        width: 'minmax(180px, 1.2fr)',
+        render: (node) => (node.type === 'device' ? node.organization || dash : dash),
+      },
+      timeZone: {
+        label: translate('resources.retailDevice.fields.timeZone', {
+          _: 'Time Zone',
+        }),
+        cellClass: classes.metaCell,
+        headerClass: classes.headerChannelList,
+        width: 'minmax(160px, 1fr)',
+        render: (node) => (node.type === 'device' ? node.timeZone || dash : dash),
+      },
+      source: {
+        label: translate('resources.retailDevice.fields.source', { _: 'Source' }),
+        cellClass: classes.metaCell,
+        headerClass: classes.headerChannelList,
+        width: 'minmax(140px, 1fr)',
+        render: (node) =>
+          node.type === 'device'
+            ? translate(`resources.retailDevice.values.${
+                node.source === 'local' ? 'local' : 'remote'
+              }`, {
+                _: node.source === 'local' ? 'Local' : 'Remote',
+              })
+            : dash,
+      },
+    }
+  }, [classes.headerChannel, classes.headerChannelList, classes.headerType, classes.metaCell, classes.typeCell, translate])
+
+  const placeholderColumns = useMemo(() => {
+    const placeholders = {}
+    RETAIL_DEVICE_COLUMNS.forEach((key) => {
+      placeholders[key] = <span />
+    })
+    return placeholders
+  }, [])
+
+  useSelectedFields({
+    resource: RETAIL_DEVICE_RESOURCE,
+    columns: placeholderColumns,
+    defaultOff: RETAIL_DEVICE_DEFAULT_OFF,
+  })
+
+  const toggleableFields =
+    useSelector((state) => state.settings.toggleableFields?.[RETAIL_DEVICE_RESOURCE]) || {}
+  const columnsOrderSetting =
+    useSelector((state) => state.settings.columnsOrder?.[RETAIL_DEVICE_RESOURCE]) ||
+    RETAIL_DEVICE_COLUMNS
+
+  const visibleColumnKeys = useMemo(() => {
+    const orderedKeys = Array.isArray(columnsOrderSetting)
+      ? columnsOrderSetting.filter((key) => RETAIL_DEVICE_COLUMNS.includes(key))
+      : RETAIL_DEVICE_COLUMNS
+    return orderedKeys.filter((key) => toggleableFields[key])
+  }, [columnsOrderSetting, toggleableFields])
+
+  const gridTemplateColumns = useMemo(() => {
+    const dynamicColumns = visibleColumnKeys.map((key) => {
+      const definition = columnDefinitions[key]
+      return definition?.width || 'minmax(140px, 1fr)'
+    })
+    return [
+      'minmax(56px, 0.4fr)',
+      'minmax(240px, 2.2fr)',
+      ...dynamicColumns,
+      'minmax(120px, 0.8fr)',
+    ].join(' ')
+  }, [columnDefinitions, visibleColumnKeys])
+
+  const gridStyle = useMemo(
+    () => ({ gridTemplateColumns, minWidth: 720 }),
+    [gridTemplateColumns],
+  )
+
+  const showOrganizationCaption = useMemo(
+    () => !visibleColumnKeys.includes('organization'),
+    [visibleColumnKeys],
+  )
+
+  const serialLabel = translate('resources.retailDevice.fields.serial', { _: '#' })
+  const nameLabel = translate('resources.retailDevice.fields.name', { _: 'Name' })
+  const actionsLabel = translate('resources.retailDevice.fields.actions', {
+    _: 'Actions',
+  })
 
   const openMenu = (event) => {
     setMenuAnchor(event.currentTarget)
@@ -664,22 +772,48 @@ const RetailPlayerDeviceManagement = () => {
     }, 0)
   }, [])
 
+  let serialCounter = 0
+
+  const renderColumnCells = (node) =>
+    visibleColumnKeys.map((columnKey) => {
+      const definition = columnDefinitions[columnKey]
+      if (!definition) {
+        return null
+      }
+      return (
+        <div
+          key={`${node.id}-${columnKey}`}
+          className={definition.cellClass || classes.metaCell}
+        >
+          {definition.render(node)}
+        </div>
+      )
+    })
+
+  const getSerial = () => {
+    serialCounter += 1
+    return serialCounter
+  }
+
   const renderRows = (nodes, depth = 0) =>
     nodes.flatMap((node) => {
+      const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
+      const serialValue = getSerial()
       if (node.type === 'folder') {
-        const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
         const folderChildren = renderRows(node.children || [], depth + 1)
         const deviceCount = countDevices(node)
         return [
           <div
             key={`folder-row-${node.id}`}
             className={clsx(classes.row, classes.folderRow, classes.interactiveRow)}
+            style={gridStyle}
             role="button"
             tabIndex={0}
             onClick={() => handleEnterFolder(node.id)}
             onKeyDown={(event) => handleRowKeyDown(event, () => handleEnterFolder(node.id))}
             aria-label={`Open folder ${node.name}`}
           >
+            <div className={classes.serialCell}>{serialValue}</div>
             <div className={classes.nameCell} style={indentStyle}>
               <FolderIcon className={classes.nameIcon} />
               <div className={classes.nameLabel}>
@@ -691,9 +825,7 @@ const RetailPlayerDeviceManagement = () => {
                 </Typography>
               </div>
             </div>
-            <div className={classes.typeCell}>Folder</div>
-            <div className={classes.metaCell}>—</div>
-            <div className={clsx(classes.metaCell, classes.metaSecondary)}>—</div>
+            {renderColumnCells(node)}
             <div className={classes.actionsCell}>
               <Tooltip title="Edit folder">
                 <IconButton
@@ -712,35 +844,32 @@ const RetailPlayerDeviceManagement = () => {
           ...folderChildren,
         ]
       }
-      const indentStyle = { paddingLeft: theme.spacing(depth * 2) }
       return [
         <div
           key={`device-row-${node.id}`}
           className={clsx(classes.row, classes.interactiveRow)}
+          style={gridStyle}
           role="button"
           tabIndex={0}
           onClick={() => handleNavigateToDevice(node)}
           onKeyDown={(event) => handleRowKeyDown(event, () => handleNavigateToDevice(node))}
           aria-label={`Open device ${node.name}`}
         >
+          <div className={classes.serialCell}>{serialValue}</div>
           <div className={classes.nameCell} style={indentStyle}>
             <SpeakerGroupIcon className={classes.nameIcon} />
             <div className={classes.nameLabel}>
               <Typography variant="body1" color="textPrimary">
                 {node.name}
               </Typography>
-              {node.organization ? (
+              {showOrganizationCaption && node.organization ? (
                 <Typography variant="caption" color="textSecondary">
                   {node.organization}
                 </Typography>
               ) : null}
             </div>
           </div>
-          <div className={classes.typeCell}>Device</div>
-          <div className={classes.metaCell}>{node.channel || '—'}</div>
-          <div className={clsx(classes.metaCell, classes.metaSecondary)}>
-            {node.channelList || '—'}
-          </div>
+          {renderColumnCells(node)}
           <div className={classes.actionsCell}>
             <Tooltip title="Edit device">
               <IconButton
@@ -773,6 +902,7 @@ const RetailPlayerDeviceManagement = () => {
           </Typography>
         </div>
         <div className={classes.actions}>
+          <ToggleFieldsMenu resource={RETAIL_DEVICE_RESOURCE} />
           <Button
             color="primary"
             variant="contained"
@@ -835,12 +965,24 @@ const RetailPlayerDeviceManagement = () => {
             </Breadcrumbs>
           </div>
         ) : null}
-        <div className={classes.listHeader}>
-          <span className={classes.headerName}>Name</span>
-          <span className={classes.headerType}>Type</span>
-          <span className={classes.headerChannel}>Channel</span>
-          <span className={classes.headerChannelList}>Channel List</span>
-          <span className={classes.headerActions}>Actions</span>
+        <div className={classes.listHeader} style={gridStyle}>
+          <span className={classes.headerSerial}>{serialLabel}</span>
+          <span className={classes.headerName}>{nameLabel}</span>
+          {visibleColumnKeys.map((columnKey) => {
+            const definition = columnDefinitions[columnKey]
+            if (!definition) {
+              return null
+            }
+            return (
+              <span
+                key={`header-${columnKey}`}
+                className={definition.headerClass || classes.headerChannelList}
+              >
+                {definition.label}
+              </span>
+            )
+          })}
+          <span className={classes.headerActions}>{actionsLabel}</span>
         </div>
         {loading ? (
           <div className={classes.loaderState}>
