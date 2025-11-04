@@ -41,6 +41,7 @@ const useStyles = makeStyles((theme) => ({
     maxWidth: 1200,
     margin: '0 auto',
     width: '100%',
+    boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(3),
@@ -154,7 +155,7 @@ const useStyles = makeStyles((theme) => ({
     gap: theme.spacing(0.5),
   },
   nameTitle: {
-    color: theme.palette.primary.main,
+    color: theme.palette.common.white,
     fontWeight: theme.typography.fontWeightMedium,
   },
   typeCell: {
@@ -324,18 +325,12 @@ const DeviceDialog = ({
 }) => {
   const [form, setForm] = useState(() => ({
     name: initialValues?.name || '',
-    channel: initialValues?.channel || '',
-    channelList: initialValues?.channelList || '',
-    organization: initialValues?.organization || '',
     folderId: initialValues?.folderId || '',
   }))
 
   useEffect(() => {
     setForm({
       name: initialValues?.name || '',
-      channel: initialValues?.channel || '',
-      channelList: initialValues?.channelList || '',
-      organization: initialValues?.organization || '',
       folderId: initialValues?.folderId || '',
     })
   }, [initialValues, open])
@@ -351,7 +346,6 @@ const DeviceDialog = ({
       return
     }
     onSubmit({
-      ...form,
       name: form.name.trim(),
       folderId: form.folderId || null,
     })
@@ -379,27 +373,6 @@ const DeviceDialog = ({
                 ? 'Name is managed by the device integration.'
                 : 'Give the device a friendly label for identification.'
             }
-          />
-          <TextField
-            label="Channel"
-            fullWidth
-            variant="outlined"
-            value={form.channel}
-            onChange={handleChange('channel')}
-          />
-          <TextField
-            label="Channel List"
-            fullWidth
-            variant="outlined"
-            value={form.channelList}
-            onChange={handleChange('channelList')}
-          />
-          <TextField
-            label="Organization"
-            fullWidth
-            variant="outlined"
-            value={form.organization}
-            onChange={handleChange('organization')}
           />
           <FormControl variant="outlined" fullWidth>
             <InputLabel id="device-folder-label">Folder</InputLabel>
@@ -447,9 +420,6 @@ DeviceDialog.propTypes = {
   initialValues: PropTypes.shape({
     id: PropTypes.string,
     name: PropTypes.string,
-    channel: PropTypes.string,
-    channelList: PropTypes.string,
-    organization: PropTypes.string,
     folderId: PropTypes.string,
     source: PropTypes.string,
   }),
