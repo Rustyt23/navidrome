@@ -1,6 +1,7 @@
 import jsonServerProvider from 'ra-data-json-server'
 import httpClient from './httpClient'
 import { REST_URL } from '../consts'
+import { resolveRetailPlayerDevices } from '../retailPlayer/deviceApi'
 
 const dataProvider = jsonServerProvider(REST_URL, httpClient)
 
@@ -88,6 +89,56 @@ const callDeleteMany = (resource, params) => {
   }).then((response) => ({ data: response.json.ids || [] }))
 }
 
+const getRetailPlayerDeviceList = async (params) => {
+  const { filter = {}, sort = {}, pagination = {} } = params || {}
+  const { devices } = await resolveRetailPlayerDevices()
+  const search = typeof filter.q === 'string' ? filter.q.trim().toLowerCase() : ''
+
+  const filtered = devices.filter((device) => {
+    if (!search) return true
+    const fields = [
+      device.name,
+      device.channel,
+      device.channelList,
+      device.organization,
+      device.timeZone,
+    ]
+    return fields.some((value) =>
+      typeof value === 'string' && value.toLowerCase().includes(search),
+    )
+  })
+
+  const sortField = sort.field || 'name'
+  const sortOrder = String(sort.order || 'ASC').toUpperCase() === 'DESC' ? -1 : 1
+
+  const sorted = filtered.slice().sort((a, b) => {
+    const aValue = a?.[sortField]
+    const bValue = b?.[sortField]
+
+    if (aValue == null && bValue == null) return 0
+    if (aValue == null) return -1 * sortOrder
+    if (bValue == null) return sortOrder
+
+    if (typeof aValue === 'number' && typeof bValue === 'number') {
+      return (aValue - bValue) * sortOrder
+    }
+
+    return String(aValue).localeCompare(String(bValue), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }) * sortOrder
+  })
+
+  const { page = 1, perPage = 25 } = pagination
+  const start = (page - 1) * perPage
+  const end = start + perPage
+
+  return {
+    data: sorted.slice(start, end),
+    total: sorted.length,
+  }
+}
+
 // Helper function to handle user-library associations
 const handleUserLibraryAssociation = async (userId, libraryIds) => {
   if (!libraryIds || libraryIds.length === 0) {
@@ -153,6 +204,12 @@ const emitFoldersChanged = (detail) => {
 const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
+    if (resource === 'retailplayerDevice') {
+      return getRetailPlayerDeviceList(params).then((result) => ({
+        data: result.data,
+        total: result.total,
+      }))
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getList(r, p)
   },
