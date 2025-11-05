@@ -59,13 +59,18 @@ const useStyles = makeStyles((theme) => ({
   folderItem: {
     paddingTop: theme.spacing(0.5),
     paddingBottom: theme.spacing(0.5),
-    fontSize: theme.typography.pxToRem(13),
+    fontSize: theme.typography.pxToRem(14),
     '& .MuiListItemIcon-root': {
       minWidth: theme.spacing(4),
     },
+
+  '& .MuiListItemIcon-root svg': {
+    fontSize: theme.typography.pxToRem(16), 
+   },
+
     '& .MuiTypography-body1': {
-      fontSize: theme.typography.pxToRem(13),
-      color: theme.palette.primary.main,
+      fontSize: theme.typography.pxToRem(14),
+      color: theme.palette.common.white,
     },
   },
   folderChildren: {
@@ -76,7 +81,7 @@ const useStyles = makeStyles((theme) => ({
   deviceItem: {
     paddingTop: theme.spacing(0.5),
     paddingBottom: theme.spacing(0.5),
-    fontSize: theme.typography.pxToRem(13),
+    fontSize: theme.typography.pxToRem(12),
     '& .RaMenuItemLink-icon': {
       minWidth: theme.spacing(4),
       color: theme.palette.common.white,
@@ -87,6 +92,7 @@ const useStyles = makeStyles((theme) => ({
   },
   deviceIcon: {
     color: theme.palette.common.white,
+    fontSize: theme.typography.pxToRem(16),
   },
 }))
 

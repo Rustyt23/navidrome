@@ -42,14 +42,14 @@ import AddToFolderDialog from './AddToFolderDialog'
 
 const useStyles = makeStyles((theme) => ({
   root: {
-    padding: theme.spacing(5),
+    padding: theme.spacing(1, 5, 5, 5),
     maxWidth: 1200,
     margin: '0 auto',
     width: '100%',
     boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
-    gap: theme.spacing(3),
+    gap: theme.spacing(2),
     [theme.breakpoints.down('md')]: {
       padding: theme.spacing(4),
     },
@@ -87,15 +87,15 @@ const useStyles = makeStyles((theme) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: theme.spacing(2),
-    padding: theme.spacing(1.5, 2.5),
-    margin: theme.spacing(2, 2, 1, 2),
+    padding: theme.spacing(1, 2.5),
+    margin: theme.spacing(2, 2, 2, 2),
     borderRadius: theme.shape.borderRadius,
     background: `linear-gradient(135deg, ${fade(theme.palette.primary.dark, 0.9)}, ${fade(
       theme.palette.primary.main,
       0.9,
     )})`,
     color: theme.palette.primary.contrastText,
-    boxShadow: `0 6px 18px ${fade(theme.palette.primary.main, 0.35)}`,
+    boxShadow: `0 6px 8px ${fade(theme.palette.primary.main, 0.35)}`,
     flexWrap: 'wrap',
     [theme.breakpoints.down('xs')]: {
       flexDirection: 'column',
@@ -107,6 +107,7 @@ const useStyles = makeStyles((theme) => ({
     fontWeight: theme.typography.fontWeightBold,
     letterSpacing: 1,
     textTransform: 'uppercase',
+    fontSize: theme.typography.pxToRem(12),
   },
   selectionActions: {
     display: 'flex',
@@ -115,19 +116,34 @@ const useStyles = makeStyles((theme) => ({
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
   },
+
+  selectionActionButton: {
+    fontSize: theme.typography.pxToRem(12),
+    padding: theme.spacing(0.5, 1.25),
+    minHeight: 32,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+
   selectionPrimaryButton: {
-    color: theme.palette.primary.contrastText,
-    backgroundColor: fade(theme.palette.common.white, 0.18),
+  
+    color: fade(theme.palette.common.white, 0.92),
+    backgroundColor: 'transparent',
+    border: 'none',
     '&:hover': {
-      backgroundColor: fade(theme.palette.common.white, 0.28),
+      backgroundColor: fade(theme.palette.error.main, 0.16),
+
+
     },
   },
   selectionDeleteButton: {
-    borderColor: fade(theme.palette.common.white, 0.6),
-    color: theme.palette.common.white,
-    '&:hover': {
-      borderColor: theme.palette.common.white,
-      backgroundColor: fade(theme.palette.error.main, 0.16),
+    
+  color: fade(theme.palette.common.white, 0.92),
+  backgroundColor: 'transparent',
+  border: 'none',
+  '&:hover': {
+    backgroundColor: fade(theme.palette.error.main, 0.16),
+
     },
   },
   panel: {
@@ -140,18 +156,18 @@ const useStyles = makeStyles((theme) => ({
     display: 'grid',
     gridTemplateColumns:
       '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
-    paddingTop: theme.spacing(0.5),
-    paddingBottom: theme.spacing(0.5),
-    paddingLeft: theme.spacing(0.5),
-    paddingRight: theme.spacing(0.5),
+    paddingTop: theme.spacing(0),
+    paddingBottom: theme.spacing(0),
+    paddingLeft: theme.spacing(1.7),
+    paddingRight: theme.spacing(2),
     backgroundColor: theme.palette.action.hover,
     color: theme.palette.text.secondary,
-    fontSize: theme.typography.pxToRem(12),
+    fontSize: theme.typography.pxToRem(14),
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: theme.typography.fontWeightMedium,
     alignItems: 'center',
-    gap: theme.spacing(1),
+    gap: theme.spacing (1),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
       fontSize: theme.typography.pxToRem(11),
@@ -169,21 +185,33 @@ const useStyles = makeStyles((theme) => ({
   headerActions: {
     justifySelf: 'flex-end',
   },
-  row: {
-    display: 'grid',
-    gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
-    alignItems: 'center',
-    paddingTop: theme.spacing(0.25),
-    paddingBottom: theme.spacing(0.25),
-    paddingLeft: theme.spacing(0.25),
-    paddingRight: theme.spacing(0.25),
-    borderTop: `1px solid ${theme.palette.divider}`,
-    [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
-      rowGap: theme.spacing(1),
-    },
+
+row: {
+  display: 'grid',
+  gridTemplateColumns:
+    '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
+  alignItems: 'center',
+  padding: '1px 2px',
+
+
+  borderTop: `1px solid ${theme.palette.divider}`,
+  minHeight: 28, // 🔥 ensures consistent compact row height
+  '& .MuiTypography-body1': {
+    fontSize: '0.8rem', // reduce font size inside cell
+    lineHeight: 1.2,
   },
+  '& .MuiIconButton-root': {
+    padding: 2, // shrink edit icon area
+  },
+  '& .MuiCheckbox-root': {
+    padding: 2, // shrink checkbox hit area
+  },
+  [theme.breakpoints.down('sm')]: {
+    gridTemplateColumns:
+      '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+  },
+},
+
   folderRow: {
     backgroundColor: fade(theme.palette.primary.main, 0.04),
   },
@@ -213,7 +241,7 @@ const useStyles = makeStyles((theme) => ({
   },
   nameIcon: {
     color: theme.palette.primary.main,
-    fontSize: theme.typography.pxToRem(18),
+    fontSize: theme.typography.pxToRem(16.5),
   },
   nameLabel: {
     display: 'flex',
@@ -1009,6 +1037,7 @@ const RetailPlayerDeviceManagement = () => {
                 }}
                 onClick={(event) => event.stopPropagation()}
                 inputProps={{ 'aria-label': `Select folder ${node.name}` }}
+                style={{ transform: 'scale(0.8)' }} 
               />
             </div>
             <div className={classes.nameCell}>
@@ -1031,7 +1060,7 @@ const RetailPlayerDeviceManagement = () => {
                   }}
                   aria-label={`Edit folder ${node.name}`}
                 >
-                  <EditIcon fontSize="small" />
+                  <EditIcon style={{ fontSize: 15 }} />
                 </IconButton>
               </Tooltip>
             </div>
@@ -1064,6 +1093,7 @@ const RetailPlayerDeviceManagement = () => {
               }}
               onClick={(event) => event.stopPropagation()}
               inputProps={{ 'aria-label': `Select device ${node.name}` }}
+              style={{ transform: 'scale(0.8)' }}
             />
           </div>
           <div className={classes.nameCell}>
@@ -1086,7 +1116,7 @@ const RetailPlayerDeviceManagement = () => {
                 }}
                 aria-label={`Edit device ${node.name}`}
               >
-                <EditIcon fontSize="small" />
+                <EditIcon style={{ fontSize: 15 }} />
               </IconButton>
             </Tooltip>
           </div>
@@ -1237,6 +1267,7 @@ const RetailPlayerDeviceManagement = () => {
               indeterminate={someSelected}
               onChange={handleSelectAllChange}
               inputProps={{ 'aria-label': 'Select all retail player items' }}
+              style={{ transform: 'scale(0.8)' }} 
             />
           </div>
           <span>Name</span>
