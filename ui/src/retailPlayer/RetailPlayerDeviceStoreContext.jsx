@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useMemo,
   useReducer,
+  useState,
 } from 'react'
 import PropTypes from 'prop-types'
 import { v4 as uuidv4 } from 'uuid'
@@ -412,6 +413,7 @@ const buildTree = (folders, devices) => {
 
 const RetailPlayerDeviceStoreProvider = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState)
+  const [dragState, setDragState] = useState(null)
   const {
     devices: remoteDevices,
     error,
@@ -472,6 +474,124 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
     dispatch({ type: 'DELETE_NODES', payload })
   }, [])
 
+  const startDrag = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') {
+      setDragState(null)
+      return
+    }
+    const { id, type, source } = payload
+    if (!id || !type) {
+      setDragState(null)
+      return
+    }
+    setDragState({ id, type, source: source || null })
+  }, [])
+
+  const endDrag = useCallback(() => {
+    setDragState(null)
+  }, [])
+
+  const canMoveNodeToFolder = useCallback(
+    ({ nodeId, nodeType, targetFolderId }) => {
+      if (!nodeId || !nodeType) {
+        return false
+      }
+
+      const targetId = ensureFolderId(targetFolderId)
+
+      if (nodeType === 'folder') {
+        const folderMap = new Map()
+        state.folders.forEach((folder) => {
+          folderMap.set(folder.id, folder)
+        })
+
+        if (!folderMap.has(nodeId)) {
+          return false
+        }
+
+        if (targetId && !folderMap.has(targetId)) {
+          return false
+        }
+
+        if (targetId === nodeId) {
+          return false
+        }
+
+        if (targetId) {
+          let current = targetId
+          const seen = new Set()
+          while (current) {
+            if (current === nodeId) {
+              return false
+            }
+            if (seen.has(current)) {
+              break
+            }
+            seen.add(current)
+            const next = ensureFolderId(folderMap.get(current)?.parentId)
+            current = next
+          }
+        }
+
+        const currentParent = ensureFolderId(folderMap.get(nodeId)?.parentId)
+        if ((currentParent || null) === (targetId || null)) {
+          return false
+        }
+
+        return true
+      }
+
+      if (nodeType === 'device') {
+        const device = state.devices.find((item) => item.id === nodeId)
+        if (!device) {
+          return false
+        }
+
+        const currentFolderIds = normalizeFolderIds(device.folderIds || device.folderId)
+        const nextFolderIds = targetId ? [targetId] : []
+
+        if (
+          currentFolderIds.length === nextFolderIds.length &&
+          currentFolderIds.every((value, index) => value === nextFolderIds[index])
+        ) {
+          return false
+        }
+
+        if (targetId && !state.folders.some((folder) => folder.id === targetId)) {
+          return false
+        }
+
+        return true
+      }
+
+      return false
+    },
+    [state.devices, state.folders],
+  )
+
+  const moveNodeToFolder = useCallback(
+    ({ nodeId, nodeType, targetFolderId }) => {
+      if (!canMoveNodeToFolder({ nodeId, nodeType, targetFolderId })) {
+        return false
+      }
+
+      const targetId = ensureFolderId(targetFolderId)
+
+      if (nodeType === 'folder') {
+        updateFolder({ id: nodeId, parentId: targetId || null })
+        return true
+      }
+
+      if (nodeType === 'device') {
+        updateDevice({ id: nodeId, folderIds: targetId ? [targetId] : [] })
+        return true
+      }
+
+      return false
+    },
+    [canMoveNodeToFolder, updateDevice, updateFolder],
+  )
+
   const value = useMemo(
     () => ({
       state: { ...state, tree },
@@ -482,6 +602,13 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         updateDevice,
         assignDeviceToFolder,
         deleteNodes,
+        canMoveNodeToFolder,
+        moveNodeToFolder,
+      },
+      interactions: {
+        dragState,
+        startDrag,
+        endDrag,
       },
     }),
     [
@@ -493,6 +620,11 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
       updateDevice,
       assignDeviceToFolder,
       deleteNodes,
+      canMoveNodeToFolder,
+      moveNodeToFolder,
+      dragState,
+      startDrag,
+      endDrag,
     ],
   )
 

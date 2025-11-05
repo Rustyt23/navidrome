@@ -40,6 +40,8 @@ import { useHistory } from 'react-router-dom'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 import AddToFolderDialog from './AddToFolderDialog'
 
+const RETAIL_DRAG_DATA_FORMAT = 'application/navidrome-retail-node'
+
 const useStyles = makeStyles((theme) => ({
   root: {
     padding: theme.spacing(5),
@@ -86,8 +88,8 @@ const useStyles = makeStyles((theme) => ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: theme.spacing(2),
-    padding: theme.spacing(1.5, 2.5),
+    gap: theme.spacing(1),
+    padding: theme.spacing(1, 1.5),
     margin: theme.spacing(2, 2, 1, 2),
     borderRadius: theme.shape.borderRadius,
     background: `linear-gradient(135deg, ${fade(theme.palette.primary.dark, 0.9)}, ${fade(
@@ -107,26 +109,35 @@ const useStyles = makeStyles((theme) => ({
     fontWeight: theme.typography.fontWeightBold,
     letterSpacing: 1,
     textTransform: 'uppercase',
+    fontSize: theme.typography.pxToRem(12),
   },
   selectionActions: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(1),
+    gap: theme.spacing(0.75),
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
   },
+  selectionActionButton: {
+    fontSize: theme.typography.pxToRem(12),
+    padding: theme.spacing(0.5, 1.25),
+    minHeight: 32,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
   selectionPrimaryButton: {
-    color: theme.palette.primary.contrastText,
-    backgroundColor: fade(theme.palette.common.white, 0.18),
+    color: fade(theme.palette.common.white, 0.92),
+    backgroundColor: 'transparent',
+    border: 'none',
     '&:hover': {
-      backgroundColor: fade(theme.palette.common.white, 0.28),
+      backgroundColor: fade(theme.palette.common.white, 0.16),
     },
   },
   selectionDeleteButton: {
-    borderColor: fade(theme.palette.common.white, 0.6),
-    color: theme.palette.common.white,
+    color: fade(theme.palette.common.white, 0.92),
+    backgroundColor: 'transparent',
+    border: 'none',
     '&:hover': {
-      borderColor: theme.palette.common.white,
       backgroundColor: fade(theme.palette.error.main, 0.16),
     },
   },
@@ -140,10 +151,10 @@ const useStyles = makeStyles((theme) => ({
     display: 'grid',
     gridTemplateColumns:
       '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
-    paddingTop: theme.spacing(0.5),
-    paddingBottom: theme.spacing(0.5),
-    paddingLeft: theme.spacing(0.5),
-    paddingRight: theme.spacing(0.5),
+    paddingTop: theme.spacing(0.25),
+    paddingBottom: theme.spacing(0.25),
+    paddingLeft: theme.spacing(0.25),
+    paddingRight: theme.spacing(0.25),
     backgroundColor: theme.palette.action.hover,
     color: theme.palette.text.secondary,
     fontSize: theme.typography.pxToRem(12),
@@ -174,15 +185,30 @@ const useStyles = makeStyles((theme) => ({
     gridTemplateColumns:
       '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
     alignItems: 'center',
-    paddingTop: theme.spacing(0.25),
-    paddingBottom: theme.spacing(0.25),
-    paddingLeft: theme.spacing(0.25),
-    paddingRight: theme.spacing(0.25),
+    paddingTop: 1,
+    paddingBottom: 1,
+    paddingLeft: theme.spacing(0.5),
+    paddingRight: theme.spacing(0.5),
     borderTop: `1px solid ${theme.palette.divider}`,
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
       rowGap: theme.spacing(1),
     },
+  },
+  dropTarget: {
+    position: 'relative',
+    borderRadius: theme.shape.borderRadius,
+    boxShadow: `inset 0 0 0 1px ${fade(theme.palette.primary.light, 0.4)}`,
+    transition: theme.transitions.create(['background-color', 'box-shadow'], {
+      duration: theme.transitions.duration.shortest,
+    }),
+  },
+  dropTargetActive: {
+    boxShadow: `inset 0 0 0 2px ${theme.palette.primary.main}`,
+    backgroundColor: fade(theme.palette.primary.main, 0.16),
+  },
+  draggableRow: {
+    cursor: 'grab',
   },
   folderRow: {
     backgroundColor: fade(theme.palette.primary.main, 0.04),
@@ -504,7 +530,16 @@ const RetailPlayerDeviceManagement = () => {
   const history = useHistory()
   const {
     state: { tree, folders, devices, loading, error },
-    actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
+    actions: {
+      createFolder,
+      updateFolder,
+      createDevice,
+      updateDevice,
+      deleteNodes,
+      canMoveNodeToFolder,
+      moveNodeToFolder,
+    },
+    interactions: { dragState, startDrag, endDrag } = {},
   } = useRetailPlayerDeviceStore()
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [folderDialog, setFolderDialog] = useState({
@@ -518,6 +553,7 @@ const RetailPlayerDeviceManagement = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [dragOverFolderId, setDragOverFolderId] = useState(null)
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -622,6 +658,156 @@ const RetailPlayerDeviceManagement = () => {
       return changed ? next : prev
     })
   }, [folders, devices])
+
+  useEffect(() => {
+    if (!dragState) {
+      setDragOverFolderId(null)
+    }
+  }, [dragState])
+
+  const parseDragData = useCallback((event) => {
+    if (!event?.dataTransfer) {
+      return null
+    }
+    const formats = [
+      RETAIL_DRAG_DATA_FORMAT,
+      'application/json',
+      'text/plain',
+    ]
+    for (let index = 0; index < formats.length; index += 1) {
+      const format = formats[index]
+      try {
+        const raw = event.dataTransfer.getData(format)
+        if (!raw) {
+          continue
+        }
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && parsed.id && parsed.type) {
+          return { id: parsed.id, type: parsed.type }
+        }
+      } catch (error) {
+        // Ignore malformed payloads
+      }
+    }
+    return null
+  }, [])
+
+  const resolveDragPayload = useCallback(
+    (event) => dragState || parseDragData(event),
+    [dragState, parseDragData],
+  )
+
+  const handleDragStart = useCallback(
+    (event, node) => {
+      if (!node?.id || !node?.type) {
+        return
+      }
+      const payload = { id: node.id, type: node.type, source: 'management' }
+      if (startDrag) {
+        startDrag(payload)
+      }
+      if (event?.dataTransfer) {
+        const serialized = JSON.stringify({ id: node.id, type: node.type })
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData(RETAIL_DRAG_DATA_FORMAT, serialized)
+        event.dataTransfer.setData('application/json', serialized)
+        if (node.name) {
+          event.dataTransfer.setData('text/plain', node.name)
+        }
+      }
+    },
+    [startDrag],
+  )
+
+  const handleDragEnd = useCallback(() => {
+    setDragOverFolderId(null)
+    if (endDrag) {
+      endDrag()
+    }
+  }, [endDrag])
+
+  const canDropOnFolder = useCallback(
+    (folderId, payloadOverride) => {
+      const payload = payloadOverride || dragState
+      if (!folderId || !payload?.id || !payload?.type) {
+        return false
+      }
+      return canMoveNodeToFolder({
+        nodeId: payload.id,
+        nodeType: payload.type,
+        targetFolderId: folderId,
+      })
+    },
+    [dragState, canMoveNodeToFolder],
+  )
+
+  const handleFolderDragEnter = useCallback(
+    (event, folderId) => {
+      const payload = resolveDragPayload(event)
+      if (canDropOnFolder(folderId, payload)) {
+        event.preventDefault()
+        setDragOverFolderId(folderId)
+      }
+    },
+    [canDropOnFolder, resolveDragPayload],
+  )
+
+  const handleFolderDragOver = useCallback(
+    (event, folderId) => {
+      const payload = resolveDragPayload(event)
+      if (canDropOnFolder(folderId, payload)) {
+        event.preventDefault()
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'move'
+        }
+        if (dragOverFolderId !== folderId) {
+          setDragOverFolderId(folderId)
+        }
+      } else if (event?.dataTransfer) {
+        event.dataTransfer.dropEffect = 'none'
+      }
+    },
+    [canDropOnFolder, resolveDragPayload, dragOverFolderId],
+  )
+
+  const handleFolderDragLeave = useCallback(
+    (event, folderId) => {
+      const related = event?.relatedTarget
+      if (
+        related &&
+        event?.currentTarget instanceof HTMLElement &&
+        event.currentTarget.contains(related)
+      ) {
+        return
+      }
+      if (dragOverFolderId === folderId) {
+        setDragOverFolderId(null)
+      }
+    },
+    [dragOverFolderId],
+  )
+
+  const handleFolderDrop = useCallback(
+    (event, folderId) => {
+      const payload = resolveDragPayload(event)
+      const canDrop = canDropOnFolder(folderId, payload)
+      setDragOverFolderId(null)
+      if (!canDrop || !payload) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      moveNodeToFolder({
+        nodeId: payload.id,
+        nodeType: payload.type,
+        targetFolderId: folderId,
+      })
+      if (endDrag) {
+        endDrag()
+      }
+    },
+    [canDropOnFolder, resolveDragPayload, moveNodeToFolder, endDrag],
+  )
 
   const handleAddToFolderDialogClose = useCallback(() => {
     setAddToFolderDialogOpen(false)
@@ -984,6 +1170,8 @@ const RetailPlayerDeviceManagement = () => {
       if (node.type === 'folder') {
         const deviceCount = countDevices(node)
         const isSelected = selectedIds.has(node.id)
+        const dropEligible = canDropOnFolder(node.id)
+        const isActiveDropTarget = dropEligible && dragOverFolderId === node.id
         return (
           <div
             key={`folder-row-${node.id}`}
@@ -991,13 +1179,29 @@ const RetailPlayerDeviceManagement = () => {
               classes.row,
               classes.folderRow,
               classes.interactiveRow,
+              classes.draggableRow,
               isSelected && classes.selectedRow,
+              dropEligible && classes.dropTarget,
+              isActiveDropTarget && classes.dropTargetActive,
             )}
             role="button"
             tabIndex={0}
+            draggable
             onClick={() => handleEnterFolder(node.id)}
             onKeyDown={(event) => handleRowKeyDown(event, () => handleEnterFolder(node.id))}
             aria-label={`Open folder ${node.name}`}
+            onDragStart={(event) =>
+              handleDragStart(event, {
+                id: node.id,
+                type: 'folder',
+                name: node.name,
+              })
+            }
+            onDragEnd={handleDragEnd}
+            onDragEnter={(event) => handleFolderDragEnter(event, node.id)}
+            onDragOver={(event) => handleFolderDragOver(event, node.id)}
+            onDragLeave={(event) => handleFolderDragLeave(event, node.id)}
+            onDrop={(event) => handleFolderDrop(event, node.id)}
           >
             <div className={classes.selectCell}>
               <Checkbox
@@ -1046,6 +1250,7 @@ const RetailPlayerDeviceManagement = () => {
           className={clsx(
             classes.row,
             classes.interactiveRow,
+            classes.draggableRow,
             isSelected && classes.selectedRow,
           )}
           role="button"
@@ -1053,6 +1258,15 @@ const RetailPlayerDeviceManagement = () => {
           onClick={() => handleNavigateToDevice(node)}
           onKeyDown={(event) => handleRowKeyDown(event, () => handleNavigateToDevice(node))}
           aria-label={`Open device ${node.name}`}
+          draggable
+          onDragStart={(event) =>
+            handleDragStart(event, {
+              id: node.id,
+              type: 'device',
+              name: node.name,
+            })
+          }
+          onDragEnd={handleDragEnd}
         >
           <div className={classes.selectCell}>
             <Checkbox
@@ -1201,7 +1415,7 @@ const RetailPlayerDeviceManagement = () => {
             aria-live="polite"
           >
             <Typography
-              variant="subtitle2"
+              variant="body2"
               component="p"
               className={classes.selectionSummary}
             >
@@ -1209,18 +1423,24 @@ const RetailPlayerDeviceManagement = () => {
             </Typography>
             <div className={classes.selectionActions}>
               <Button
-                variant="contained"
-                color="secondary"
-                className={classes.selectionPrimaryButton}
+                variant="text"
+                color="inherit"
+                className={clsx(
+                  classes.selectionActionButton,
+                  classes.selectionPrimaryButton,
+                )}
                 startIcon={<FolderIcon />}
                 onClick={() => setAddToFolderDialogOpen(true)}
               >
                 Add to Folder
               </Button>
               <Button
-                variant="outlined"
+                variant="text"
                 color="inherit"
-                className={classes.selectionDeleteButton}
+                className={clsx(
+                  classes.selectionActionButton,
+                  classes.selectionDeleteButton,
+                )}
                 startIcon={<DeleteOutlineIcon />}
                 onClick={() => setDeleteDialogOpen(true)}
               >

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import {
   Collapse,
@@ -27,6 +27,7 @@ import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
 import { useRetailPlayerDeviceStore } from '../retailPlayer/RetailPlayerDeviceStoreContext'
+import { fade } from '@material-ui/core/styles/colorManipulator'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -88,7 +89,23 @@ const useStyles = makeStyles((theme) => ({
   deviceIcon: {
     color: theme.palette.common.white,
   },
+  draggableItem: {
+    cursor: 'grab',
+  },
+  folderDropTarget: {
+    borderRadius: theme.shape.borderRadius / 2,
+    boxShadow: `inset 0 0 0 1px ${fade(theme.palette.primary.light, 0.4)}`,
+    transition: theme.transitions.create(['background-color', 'box-shadow'], {
+      duration: theme.transitions.duration.shortest,
+    }),
+  },
+  folderDropActive: {
+    backgroundColor: fade(theme.palette.primary.main, 0.2),
+    boxShadow: `inset 0 0 0 2px ${theme.palette.primary.main}`,
+  },
 }))
+
+const RETAIL_DRAG_DATA_FORMAT = 'application/navidrome-retail-node'
 
 const translatedResourceName = (resource, translate) =>
   translate(`resources.${resource.name}.name`, {
@@ -173,9 +190,13 @@ const Menu = ({ dense = false }) => {
       loading: retailDevicesLoading,
       error: retailDevicesError,
     },
+    actions: { canMoveNodeToFolder, moveNodeToFolder } = {},
+    interactions: { dragState, startDrag, endDrag } = {},
   } = useRetailPlayerDeviceStore()
 
   const [openFolders, setOpenFolders] = useState({})
+  const [sidebarDropTargetId, setSidebarDropTargetId] = useState(null)
+  const ignoreClickRef = useRef(false)
 
   const toggleFolder = useCallback((folderId) => {
     setOpenFolders((prev) => ({
@@ -184,9 +205,180 @@ const Menu = ({ dense = false }) => {
     }))
   }, [])
 
+  useEffect(() => {
+    if (!dragState) {
+      setSidebarDropTargetId(null)
+    }
+  }, [dragState])
+
   const goToRetailPlayerSettings = useCallback(() => {
     history.push('/retail-player/devices')
   }, [history])
+
+  const parseDragData = useCallback((event) => {
+    if (!event?.dataTransfer) {
+      return null
+    }
+    const formats = [
+      RETAIL_DRAG_DATA_FORMAT,
+      'application/json',
+      'text/plain',
+    ]
+    for (let index = 0; index < formats.length; index += 1) {
+      const format = formats[index]
+      try {
+        const raw = event.dataTransfer.getData(format)
+        if (!raw) {
+          continue
+        }
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && parsed.id && parsed.type) {
+          return { id: parsed.id, type: parsed.type }
+        }
+      } catch (error) {
+        // ignore malformed payloads
+      }
+    }
+    return null
+  }, [])
+
+  const resolveDragPayload = useCallback(
+    (event) => dragState || parseDragData(event),
+    [dragState, parseDragData],
+  )
+
+  const canDropOnSidebarFolder = useCallback(
+    (folderId, payloadOverride) => {
+      const payload = payloadOverride || dragState
+      if (!folderId || !payload?.id || !payload?.type) {
+        return false
+      }
+      if (!canMoveNodeToFolder) {
+        return false
+      }
+      return canMoveNodeToFolder({
+        nodeId: payload.id,
+        nodeType: payload.type,
+        targetFolderId: folderId,
+      })
+    },
+    [dragState, canMoveNodeToFolder],
+  )
+
+  const handleSidebarDragStart = useCallback(
+    (event, node) => {
+      if (!node?.id || !node?.type) {
+        return
+      }
+      ignoreClickRef.current = true
+      if (startDrag) {
+        startDrag({ id: node.id, type: node.type, source: 'menu' })
+      }
+      if (event?.dataTransfer) {
+        const serialized = JSON.stringify({ id: node.id, type: node.type })
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData(RETAIL_DRAG_DATA_FORMAT, serialized)
+        event.dataTransfer.setData('application/json', serialized)
+        if (node.name) {
+          event.dataTransfer.setData('text/plain', node.name)
+        }
+      }
+    },
+    [startDrag],
+  )
+
+  const handleSidebarDragEnd = useCallback(() => {
+    setSidebarDropTargetId(null)
+    if (endDrag) {
+      endDrag()
+    }
+    setTimeout(() => {
+      ignoreClickRef.current = false
+    }, 120)
+  }, [endDrag])
+
+  const handleFolderClick = useCallback(
+    (event, folderId) => {
+      if (ignoreClickRef.current) {
+        ignoreClickRef.current = false
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+      toggleFolder(folderId)
+    },
+    [toggleFolder],
+  )
+
+  const handleSidebarDragEnter = useCallback(
+    (event, folderId) => {
+      const payload = resolveDragPayload(event)
+      if (canDropOnSidebarFolder(folderId, payload)) {
+        event.preventDefault()
+        setSidebarDropTargetId(folderId)
+      }
+    },
+    [canDropOnSidebarFolder, resolveDragPayload],
+  )
+
+  const handleSidebarDragOver = useCallback(
+    (event, folderId) => {
+      const payload = resolveDragPayload(event)
+      if (canDropOnSidebarFolder(folderId, payload)) {
+        event.preventDefault()
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'move'
+        }
+        if (sidebarDropTargetId !== folderId) {
+          setSidebarDropTargetId(folderId)
+        }
+      } else if (event?.dataTransfer) {
+        event.dataTransfer.dropEffect = 'none'
+      }
+    },
+    [canDropOnSidebarFolder, resolveDragPayload, sidebarDropTargetId],
+  )
+
+  const handleSidebarDragLeave = useCallback(
+    (event, folderId) => {
+      const related = event?.relatedTarget
+      if (
+        related &&
+        event?.currentTarget instanceof HTMLElement &&
+        event.currentTarget.contains(related)
+      ) {
+        return
+      }
+      if (sidebarDropTargetId === folderId) {
+        setSidebarDropTargetId(null)
+      }
+    },
+    [sidebarDropTargetId],
+  )
+
+  const handleSidebarDrop = useCallback(
+    (event, folderId) => {
+      const payload = resolveDragPayload(event)
+      const canDrop = canDropOnSidebarFolder(folderId, payload)
+      setSidebarDropTargetId(null)
+      if (!canDrop || !payload) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      if (moveNodeToFolder) {
+        moveNodeToFolder({
+          nodeId: payload.id,
+          nodeType: payload.type,
+          targetFolderId: folderId,
+        })
+      }
+      if (endDrag) {
+        endDrag()
+      }
+    },
+    [canDropOnSidebarFolder, resolveDragPayload, moveNodeToFolder, endDrag],
+  )
 
   const renderDeviceLink = useCallback(
     (node, depth) => {
@@ -205,12 +397,31 @@ const Menu = ({ dense = false }) => {
           sidebarIsOpen={open}
           dense={dense}
           exact
-          className={classes.deviceItem}
+          className={clsx(classes.deviceItem, classes.draggableItem)}
           style={{ paddingLeft: padding }}
+          draggable
+          onDragStart={(event) =>
+            handleSidebarDragStart(event, {
+              id: node.id,
+              type: 'device',
+              name: node.name,
+            })
+          }
+          onDragEnd={handleSidebarDragEnd}
         />
       )
     },
-    [classes.active, classes.deviceIcon, classes.deviceItem, dense, open, theme],
+    [
+      classes.active,
+      classes.deviceIcon,
+      classes.deviceItem,
+      classes.draggableItem,
+      dense,
+      handleSidebarDragEnd,
+      handleSidebarDragStart,
+      open,
+      theme,
+    ],
   )
 
   const renderRetailPlayerNodes = useCallback(
@@ -220,13 +431,34 @@ const Menu = ({ dense = false }) => {
           const isOpen = openFolders[node.id] ?? false
           const padding = theme.spacing(4 + depth * 2)
           const childPadding = theme.spacing(2)
+          const dropEligible = canDropOnSidebarFolder(node.id)
+          const isActiveDropTarget =
+            dropEligible && sidebarDropTargetId === node.id
           return (
             <React.Fragment key={`retailfolder-${node.id}`}>
               <MenuItem
                 dense={dense}
-                className={classes.folderItem}
+                className={clsx(
+                  classes.folderItem,
+                  classes.draggableItem,
+                  dropEligible && classes.folderDropTarget,
+                  isActiveDropTarget && classes.folderDropActive,
+                )}
                 style={{ paddingLeft: padding }}
-                onClick={() => toggleFolder(node.id)}
+                onClick={(event) => handleFolderClick(event, node.id)}
+                draggable
+                onDragStart={(event) =>
+                  handleSidebarDragStart(event, {
+                    id: node.id,
+                    type: 'folder',
+                    name: node.name,
+                  })
+                }
+                onDragEnd={handleSidebarDragEnd}
+                onDragEnter={(event) => handleSidebarDragEnter(event, node.id)}
+                onDragOver={(event) => handleSidebarDragOver(event, node.id)}
+                onDragLeave={(event) => handleSidebarDragLeave(event, node.id)}
+                onDrop={(event) => handleSidebarDrop(event, node.id)}
               >
                 <ListItemIcon>
                   {isOpen ? (
@@ -256,11 +488,22 @@ const Menu = ({ dense = false }) => {
     [
       classes.folderChildren,
       classes.folderItem,
+      classes.draggableItem,
+      classes.folderDropTarget,
+      classes.folderDropActive,
       dense,
+      handleFolderClick,
+      handleSidebarDragEnd,
+      handleSidebarDragEnter,
+      handleSidebarDragLeave,
+      handleSidebarDragOver,
+      handleSidebarDragStart,
+      handleSidebarDrop,
+      canDropOnSidebarFolder,
       openFolders,
       renderDeviceLink,
+      sidebarDropTargetId,
       theme,
-      toggleFolder,
     ],
   )
 
