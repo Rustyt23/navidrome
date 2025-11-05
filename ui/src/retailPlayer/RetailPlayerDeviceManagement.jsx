@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  DialogContentText,
   DialogTitle,
   FormControl,
   FormHelperText,
@@ -30,12 +31,14 @@ import EditIcon from '@material-ui/icons/Edit'
 import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
+import DeleteOutlineIcon from '@material-ui/icons/DeleteOutline'
 import Breadcrumbs from '@material-ui/core/Breadcrumbs'
 import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
 import PropTypes from 'prop-types'
 import { useHistory } from 'react-router-dom'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
+import AddToFolderDialog from './AddToFolderDialog'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -78,6 +81,54 @@ const useStyles = makeStyles((theme) => ({
     display: 'flex',
     alignItems: 'center',
     gap: theme.spacing(1),
+  },
+  selectionRibbon: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing(2),
+    padding: theme.spacing(1.5, 2.5),
+    margin: theme.spacing(2, 2, 1, 2),
+    borderRadius: theme.shape.borderRadius,
+    background: `linear-gradient(135deg, ${fade(theme.palette.primary.dark, 0.9)}, ${fade(
+      theme.palette.primary.main,
+      0.9,
+    )})`,
+    color: theme.palette.primary.contrastText,
+    boxShadow: `0 6px 18px ${fade(theme.palette.primary.main, 0.35)}`,
+    flexWrap: 'wrap',
+    [theme.breakpoints.down('xs')]: {
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      gap: theme.spacing(1.25),
+    },
+  },
+  selectionSummary: {
+    fontWeight: theme.typography.fontWeightBold,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  selectionActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  selectionPrimaryButton: {
+    color: theme.palette.primary.contrastText,
+    backgroundColor: fade(theme.palette.common.white, 0.18),
+    '&:hover': {
+      backgroundColor: fade(theme.palette.common.white, 0.28),
+    },
+  },
+  selectionDeleteButton: {
+    borderColor: fade(theme.palette.common.white, 0.6),
+    color: theme.palette.common.white,
+    '&:hover': {
+      borderColor: theme.palette.common.white,
+      backgroundColor: fade(theme.palette.error.main, 0.16),
+    },
   },
   panel: {
     borderRadius: theme.shape.borderRadius,
@@ -453,7 +504,7 @@ const RetailPlayerDeviceManagement = () => {
   const history = useHistory()
   const {
     state: { tree, folders, devices, loading, error },
-    actions: { createFolder, updateFolder, createDevice, updateDevice },
+    actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
   } = useRetailPlayerDeviceStore()
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [folderDialog, setFolderDialog] = useState({
@@ -465,6 +516,8 @@ const RetailPlayerDeviceManagement = () => {
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [searchTerm, setSearchTerm] = useState('')
+  const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -486,6 +539,210 @@ const RetailPlayerDeviceManagement = () => {
     })
     return map
   }, [devices])
+
+  const folderChildrenMap = useMemo(() => {
+    const map = new Map()
+    folders.forEach((folder) => {
+      if (!folder.parentId) {
+        return
+      }
+      if (!map.has(folder.parentId)) {
+        map.set(folder.parentId, [])
+      }
+      map.get(folder.parentId).push(folder.id)
+    })
+    return map
+  }, [folders])
+
+  const collectDescendantFolderIds = useCallback(
+    (rootId) => {
+      const descendants = new Set()
+      if (!rootId) {
+        return descendants
+      }
+      const queue = [...(folderChildrenMap.get(rootId) || [])]
+      while (queue.length) {
+        const current = queue.shift()
+        if (!current || descendants.has(current)) {
+          continue
+        }
+        descendants.add(current)
+        const children = folderChildrenMap.get(current)
+        if (Array.isArray(children) && children.length) {
+          queue.push(...children)
+        }
+      }
+      return descendants
+    },
+    [folderChildrenMap],
+  )
+
+  const selectedFolderIds = useMemo(
+    () =>
+      Array.from(selectedIds).filter((id) => id && folderMap.has(id)),
+    [selectedIds, folderMap],
+  )
+
+  const selectedDeviceIds = useMemo(
+    () =>
+      Array.from(selectedIds).filter((id) => id && deviceMap.has(id)),
+    [selectedIds, deviceMap],
+  )
+
+  const selectedCount = selectedFolderIds.length + selectedDeviceIds.length
+
+  const excludedFolderIds = useMemo(() => {
+    const excluded = new Set(selectedFolderIds)
+    selectedFolderIds.forEach((folderId) => {
+      collectDescendantFolderIds(folderId).forEach((descendantId) => {
+        excluded.add(descendantId)
+      })
+    })
+    return Array.from(excluded)
+  }, [selectedFolderIds, collectDescendantFolderIds])
+
+  const showSelectionRibbon = selectedCount > 0
+
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (!prev || prev.size === 0) {
+        return prev
+      }
+      const validFolderIds = new Set(folders.map((folder) => folder.id))
+      const validDeviceIds = new Set(devices.map((device) => device.id))
+      const next = new Set()
+      let changed = false
+      prev.forEach((id) => {
+        if (validFolderIds.has(id) || validDeviceIds.has(id)) {
+          next.add(id)
+        } else {
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [folders, devices])
+
+  const handleAddToFolderDialogClose = useCallback(() => {
+    setAddToFolderDialogOpen(false)
+  }, [])
+
+  const handleAddToFolderConfirm = useCallback(
+    ({ folderIds: incomingFolderIds, newFolderName }) => {
+      const folderIdSet = new Set(
+        Array.isArray(incomingFolderIds)
+          ? incomingFolderIds
+              .map((value) => (typeof value === 'string' ? value : null))
+              .filter(Boolean)
+          : [],
+      )
+
+      const trimmedNewFolderName =
+        typeof newFolderName === 'string' ? newFolderName.trim() : ''
+
+      if (trimmedNewFolderName) {
+        const parentForNewFolder =
+          folderIdSet.size > 0
+            ? Array.from(folderIdSet)[0]
+            : activeFolderId || null
+        const newFolder = createFolder({
+          name: trimmedNewFolderName,
+          parentId: parentForNewFolder,
+        })
+        if (newFolder && newFolder.id) {
+          folderIdSet.add(newFolder.id)
+        }
+      }
+
+      const targetFolderIds = Array.from(folderIdSet)
+      if (!targetFolderIds.length) {
+        setAddToFolderDialogOpen(false)
+        return
+      }
+
+      selectedDeviceIds.forEach((deviceId) => {
+        const device = deviceMap.get(deviceId)
+        if (!device) {
+          return
+        }
+        const existingIds = Array.isArray(device.folderIds)
+          ? device.folderIds
+          : []
+        const mergedIds = Array.from(new Set([...existingIds, ...targetFolderIds]))
+        const changed =
+          mergedIds.length !== existingIds.length ||
+          mergedIds.some((id, index) => id !== existingIds[index])
+        if (changed) {
+          updateDevice({ id: deviceId, folderIds: mergedIds })
+        }
+      })
+
+      const parentFolderId = targetFolderIds[0] || null
+      if (parentFolderId) {
+        selectedFolderIds.forEach((folderId) => {
+          if (folderId === parentFolderId) {
+            return
+          }
+          const folder = folderMap.get(folderId)
+          if (folder && folder.parentId === parentFolderId) {
+            return
+          }
+          updateFolder({ id: folderId, parentId: parentFolderId })
+        })
+      }
+
+      setAddToFolderDialogOpen(false)
+      setSelectedIds(new Set())
+    },
+    [
+      activeFolderId,
+      createFolder,
+      deviceMap,
+      folderMap,
+      selectedDeviceIds,
+      selectedFolderIds,
+      updateDevice,
+      updateFolder,
+    ],
+  )
+
+  const handleDeleteDialogClose = useCallback(() => {
+    setDeleteDialogOpen(false)
+  }, [])
+
+  const handleDeleteConfirm = useCallback(() => {
+    if (!selectedFolderIds.length && !selectedDeviceIds.length) {
+      setDeleteDialogOpen(false)
+      return
+    }
+
+    deleteNodes({
+      folderIds: selectedFolderIds,
+      deviceIds: selectedDeviceIds,
+    })
+
+    const deletedFolderSet = new Set(selectedFolderIds)
+    selectedFolderIds.forEach((folderId) => {
+      collectDescendantFolderIds(folderId).forEach((descendantId) => {
+        deletedFolderSet.add(descendantId)
+      })
+    })
+
+    setActiveFolderId((previous) => {
+      if (previous && deletedFolderSet.has(previous)) {
+        return null
+      }
+      return previous
+    })
+
+    setDeleteDialogOpen(false)
+    setSelectedIds(new Set())
+  }, [
+    collectDescendantFolderIds,
+    deleteNodes,
+    selectedDeviceIds,
+    selectedFolderIds,
+  ])
 
   const findFolderNode = useCallback((nodes, targetId) => {
     if (!targetId) {
@@ -937,6 +1194,41 @@ const RetailPlayerDeviceManagement = () => {
             </Breadcrumbs>
           </div>
         ) : null}
+        {showSelectionRibbon ? (
+          <div
+            className={classes.selectionRibbon}
+            role="status"
+            aria-live="polite"
+          >
+            <Typography
+              variant="subtitle2"
+              component="p"
+              className={classes.selectionSummary}
+            >
+              {`${selectedCount} item${selectedCount === 1 ? '' : 's'} selected`}
+            </Typography>
+            <div className={classes.selectionActions}>
+              <Button
+                variant="contained"
+                color="secondary"
+                className={classes.selectionPrimaryButton}
+                startIcon={<FolderIcon />}
+                onClick={() => setAddToFolderDialogOpen(true)}
+              >
+                Add to Folder
+              </Button>
+              <Button
+                variant="outlined"
+                color="inherit"
+                className={classes.selectionDeleteButton}
+                startIcon={<DeleteOutlineIcon />}
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <div className={classes.listHeader}>
           <div className={classes.headerSelect}>
             <Checkbox
@@ -986,6 +1278,45 @@ const RetailPlayerDeviceManagement = () => {
           </div>
         )}
       </Paper>
+
+      <AddToFolderDialog
+        open={addToFolderDialogOpen}
+        folders={folders}
+        excludeFolderIds={excludedFolderIds}
+        selectedCount={selectedCount}
+        onClose={handleAddToFolderDialogClose}
+        onConfirm={handleAddToFolderConfirm}
+      />
+
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteDialogClose}
+        maxWidth="xs"
+        fullWidth
+        aria-labelledby="retail-player-delete-dialog-title"
+      >
+        <DialogTitle id="retail-player-delete-dialog-title">
+          Delete Selected Items
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {selectedCount === 1
+              ? 'Are you sure you want to delete this item? This action cannot be undone.'
+              : `Are you sure you want to delete these ${selectedCount} items? This action cannot be undone.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteDialogClose}>Cancel</Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="secondary"
+            variant="contained"
+            startIcon={<DeleteOutlineIcon />}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <FolderDialog
         open={folderDialog.open}
