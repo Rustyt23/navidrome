@@ -108,10 +108,10 @@ const reducer = (state, action) => {
       }
     }
     case 'CREATE_FOLDER': {
-      const { name, parentId } = action.payload || {}
+      const { id: providedId, name, parentId } = action.payload || {}
       const now = new Date().toISOString()
       const folder = {
-        id: uuidv4(),
+        id: ensureFolderId(providedId) || uuidv4(),
         name: normalizeValue(name) || 'New Folder',
         parentId: ensureFolderId(parentId),
         createdAt: now,
@@ -124,17 +124,27 @@ const reducer = (state, action) => {
       }
     }
     case 'UPDATE_FOLDER': {
-      const { id, name } = action.payload || {}
+      const { id, name, parentId } = action.payload || {}
       if (!id) {
         return state
       }
+      const hasParentUpdate = Object.prototype.hasOwnProperty.call(
+        action.payload || {},
+        'parentId',
+      )
       const nextFolders = state.folders.map((folder) => {
         if (folder.id !== id) {
           return folder
         }
+        const normalizedParentId = hasParentUpdate
+          ? ensureFolderId(parentId) !== folder.id
+            ? ensureFolderId(parentId)
+            : null
+          : folder.parentId
         return {
           ...folder,
           name: normalizeValue(name) || folder.name,
+          parentId: hasParentUpdate ? normalizedParentId : folder.parentId,
           updatedAt: new Date().toISOString(),
         }
       })
@@ -242,6 +252,86 @@ const reducer = (state, action) => {
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
+    }
+    case 'DELETE_NODES': {
+      const { folderIds: rawFolderIds, deviceIds: rawDeviceIds } = action.payload || {}
+      const folderIdSet = new Set(
+        Array.isArray(rawFolderIds)
+          ? rawFolderIds.map(ensureFolderId).filter(Boolean)
+          : [],
+      )
+      const deviceIdSet = new Set(
+        Array.isArray(rawDeviceIds)
+          ? rawDeviceIds
+              .map((value) => (typeof value === 'string' ? value : null))
+              .filter(Boolean)
+          : [],
+      )
+
+      if (folderIdSet.size === 0 && deviceIdSet.size === 0) {
+        return state
+      }
+
+      const childrenByParent = new Map()
+      state.folders.forEach((folder) => {
+        const parent = ensureFolderId(folder.parentId)
+        if (!parent) {
+          return
+        }
+        if (!childrenByParent.has(parent)) {
+          childrenByParent.set(parent, [])
+        }
+        childrenByParent.get(parent).push(folder.id)
+      })
+
+      const collectDescendants = (folderId) => {
+        const queue = [...(childrenByParent.get(folderId) || [])]
+        while (queue.length) {
+          const current = queue.shift()
+          if (!current || folderIdSet.has(current)) {
+            continue
+          }
+          folderIdSet.add(current)
+          const children = childrenByParent.get(current)
+          if (Array.isArray(children) && children.length) {
+            queue.push(...children)
+          }
+        }
+      }
+
+      Array.from(folderIdSet).forEach((folderId) => {
+        collectDescendants(folderId)
+      })
+
+      const nextFolders = state.folders.filter(
+        (folder) => !folderIdSet.has(folder.id),
+      )
+
+      const nextDevices = state.devices
+        .filter((device) => !deviceIdSet.has(device.id))
+        .map((device) => {
+          if (!Array.isArray(device.folderIds) || device.folderIds.length === 0) {
+            return device
+          }
+          const filteredFolderIds = device.folderIds.filter(
+            (folderId) => !folderIdSet.has(folderId),
+          )
+          if (filteredFolderIds.length === device.folderIds.length) {
+            return device
+          }
+          return {
+            ...device,
+            folderIds: filteredFolderIds,
+            folderId: filteredFolderIds.length ? filteredFolderIds[0] : null,
+          }
+        })
+
+      return {
+        ...state,
+        folders: nextFolders,
+        devices: nextDevices,
+        lastUpdated: Date.now(),
+      }
     }
     default:
       return state
@@ -353,7 +443,13 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
   )
 
   const createFolder = useCallback((payload) => {
-    dispatch({ type: 'CREATE_FOLDER', payload })
+    const basePayload = payload && typeof payload === 'object' ? payload : {}
+    const folderPayload = {
+      ...basePayload,
+      id: ensureFolderId(basePayload.id) || uuidv4(),
+    }
+    dispatch({ type: 'CREATE_FOLDER', payload: folderPayload })
+    return folderPayload
   }, [])
 
   const updateFolder = useCallback((payload) => {
@@ -372,6 +468,10 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
     dispatch({ type: 'ASSIGN_DEVICE_FOLDER', payload })
   }, [])
 
+  const deleteNodes = useCallback((payload) => {
+    dispatch({ type: 'DELETE_NODES', payload })
+  }, [])
+
   const value = useMemo(
     () => ({
       state: { ...state, tree },
@@ -381,9 +481,19 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         createDevice,
         updateDevice,
         assignDeviceToFolder,
+        deleteNodes,
       },
     }),
-    [state, tree, createFolder, updateFolder, createDevice, updateDevice, assignDeviceToFolder],
+    [
+      state,
+      tree,
+      createFolder,
+      updateFolder,
+      createDevice,
+      updateDevice,
+      assignDeviceToFolder,
+      deleteNodes,
+    ],
   )
 
   return (
@@ -407,6 +517,7 @@ const useRetailPlayerDeviceStore = () => {
   return context
 }
 
-export { RetailPlayerDeviceStoreProvider, useRetailPlayerDeviceStore }
+// eslint-disable-next-line react-refresh/only-export-components
+export { useRetailPlayerDeviceStore }
 
 export default RetailPlayerDeviceStoreProvider
