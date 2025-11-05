@@ -3,7 +3,8 @@ import { useDataProvider } from 'react-admin'
 import subsonic from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
 import { baseUrl } from '../utils'
-import useRetailPlayerDevices from './useRetailPlayerDevices'
+import config from '../config'
+import RetailPlayerMockService from './RetailPlayerMockService'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
 
 const buildStatusUrl = (deviceId) =>
@@ -111,6 +112,55 @@ const mapChannelListResponse = (payload) =>
       }
     })
     .filter(Boolean)
+
+const mapResponseDevice = (device) => {
+  if (!device || typeof device !== 'object') {
+    return null
+  }
+
+  const rawId = normalizeValue(device.id)
+  const fallbackId =
+    rawId || normalizeValue(device.macAddress) || normalizeValue(device.ordinal)
+
+  const resolvedId = fallbackId || normalizeValue(device.name)
+
+  if (!resolvedId) {
+    return null
+  }
+
+  const slugSource = buildDeviceSlug({ ...device, id: resolvedId }) || resolvedId
+  const name = normalizeValue(device.name) || resolvedId
+
+  return {
+    id: resolvedId,
+    apiId: rawId || resolvedId,
+    name,
+    slug: slugSource,
+    slugKey: deviceSlugKey(slugSource),
+    channel: normalizeValue(device.channel),
+    channelList: normalizeValue(device.channelList),
+    organization: normalizeValue(device.organization),
+    timeZone: normalizeValue(device.timeZone),
+  }
+}
+
+const selectDeviceBySlug = (devices, slugKey) => {
+  if (!Array.isArray(devices) || !devices.length) {
+    return null
+  }
+
+  if (!slugKey) {
+    return devices[0]
+  }
+
+  return (
+    devices.find((device) => device.slugKey === slugKey) ||
+    devices.find((device) => deviceSlugKey(device.slug || device.name) === slugKey) ||
+    devices.find((device) => deviceSlugKey(device.apiId) === slugKey) ||
+    devices.find((device) => deviceSlugKey(device.id) === slugKey) ||
+    null
+  )
+}
 
 const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   if (!baseDevice) {
@@ -584,43 +634,30 @@ const initialChannelState = {
 }
 
 const useRetailPlayerDeviceStatus = (slugParam) => {
-  const {
-    devices,
-    error: devicesError,
-    isLoading: devicesLoading,
-    isApiEnabled,
-  } = useRetailPlayerDevices()
+  const isApiEnabled = Boolean(config.retailPlayerDevicesEnabled)
 
-  const normalizedSlugKey = useMemo(() => {
+  const deviceIdentifier = useMemo(() => {
     if (!slugParam) {
       return ''
     }
     try {
-      return deviceSlugKey(decodeURIComponent(slugParam))
+      return decodeURIComponent(slugParam)
     } catch (err) {
-      return deviceSlugKey(slugParam)
+      return slugParam
     }
   }, [slugParam])
 
-  const baseDevice = useMemo(() => {
-    if (!devices.length) {
-      return null
-    }
-    if (!normalizedSlugKey) {
-      return devices[0]
-    }
+  const normalizedSlugKey = useMemo(() => deviceSlugKey(deviceIdentifier), [deviceIdentifier])
 
-    return (
-      devices.find((device) => {
-        const deviceKey = device.slugKey || deviceSlugKey(device.slug || device.name || device.id)
-        return deviceKey === normalizedSlugKey
-      }) ||
-      devices.find((device) => deviceSlugKey(device.name) === normalizedSlugKey) ||
-      devices.find((device) => deviceSlugKey(device.apiId) === normalizedSlugKey) ||
-      devices.find((device) => deviceSlugKey(device.id) === normalizedSlugKey) ||
-      null
-    )
-  }, [devices, normalizedSlugKey])
+  const [baseDevice, setBaseDevice] = useState(() => {
+    if (!isApiEnabled) {
+      const devices = RetailPlayerMockService.listDevices()
+      return selectDeviceBySlug(devices, normalizedSlugKey)
+    }
+    return null
+  })
+  const [devicesError, setDevicesError] = useState(null)
+  const [devicesLoading, setDevicesLoading] = useState(false)
 
   const [statusState, setStatusState] = useState(initialStatusState)
   const [refreshIndex, setRefreshIndex] = useState(0)
@@ -632,27 +669,97 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
   useEffect(() => {
     if (!isApiEnabled) {
+      setDevicesLoading(false)
+      setDevicesError(null)
+
+      const devices = RetailPlayerMockService.listDevices()
+      const selectedDevice = selectDeviceBySlug(devices, normalizedSlugKey)
+      setBaseDevice(selectedDevice || null)
+
+      if (!selectedDevice) {
+        setStatusState(initialStatusState)
+        setChannelState(initialChannelState)
+        return undefined
+      }
+
+      const mockDevice = RetailPlayerMockService.getDevice(selectedDevice.apiId)
+      if (!mockDevice) {
+        setStatusState(initialStatusState)
+        setChannelState(initialChannelState)
+        return undefined
+      }
+
+      const resolvedChannel =
+        normalizeValue(mockDevice.channel) || normalizeValue(selectedDevice.channel)
+
+      const statusPayload = {
+        status: {
+          channel: resolvedChannel,
+          activeStreamName: resolvedChannel,
+          volume: mockDevice.volume,
+          isMuted: mockDevice.isMuted,
+          isConnected: mockDevice.isConnected,
+          hasSignal: mockDevice.hasSignal,
+        },
+        streamMetadata: [],
+      }
+
+      const channelPayload = Array.isArray(mockDevice.schedules)
+        ? mockDevice.schedules
+            .map((schedule) => {
+              if (!schedule || typeof schedule !== 'object') {
+                return null
+              }
+              const id = normalizeValue(schedule.key) || normalizeValue(schedule.label)
+              const name = normalizeValue(schedule.label) || normalizeValue(schedule.key)
+              if (!id && !name) {
+                return null
+              }
+              return { id: id || name, name: name || id }
+            })
+            .filter(Boolean)
+        : []
+
+      setStatusState({
+        data: statusPayload,
+        error: null,
+        isLoading: false,
+        fetchedAt: new Date(),
+      })
+      setChannelState({
+        data: channelPayload,
+        error: null,
+        isLoading: false,
+        fetchedAt: new Date(),
+      })
+
+      return undefined
+    }
+
+    const identifier = normalizeValue(deviceIdentifier)
+    if (!identifier) {
+      setBaseDevice(null)
       setStatusState(initialStatusState)
+      setChannelState(initialChannelState)
+      setDevicesLoading(false)
+      setDevicesError(null)
       return undefined
     }
 
-    if (devicesLoading) {
-      return undefined
-    }
-
-    const deviceId = normalizeValue(baseDevice?.apiId)
-    if (!deviceId) {
-      setStatusState(initialStatusState)
-      return undefined
-    }
-
-    const url = buildStatusUrl(deviceId)
+    const url = buildStatusUrl(identifier)
     if (!url) {
+      setBaseDevice(null)
       setStatusState(initialStatusState)
+      setChannelState(initialChannelState)
+      setDevicesLoading(false)
+      setDevicesError(null)
       return undefined
     }
 
     const abortController = new AbortController()
+    setDevicesLoading(true)
+    setDevicesError(null)
+    setChannelState({ data: [], error: null, isLoading: true, fetchedAt: null })
     setStatusState((previous) => ({ ...previous, isLoading: true, error: null }))
 
     httpClient(url, { signal: abortController.signal })
@@ -660,23 +767,58 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         if (abortController.signal.aborted) {
           return
         }
-        setStatusState({ data: json, error: null, isLoading: false, fetchedAt: new Date() })
+
+        const mappedDevice = mapResponseDevice(json?.device)
+        const fallbackDevice =
+          mappedDevice ||
+          mapResponseDevice({
+            id: identifier,
+            name: identifier,
+            channel: '',
+            channelList: '',
+            organization: '',
+            timeZone: '',
+          })
+
+        setBaseDevice(fallbackDevice)
+        setStatusState({
+          data: json,
+          error: null,
+          isLoading: false,
+          fetchedAt: new Date(),
+        })
+        setDevicesLoading(false)
+        setDevicesError(null)
       })
       .catch((err) => {
         if (abortController.signal.aborted) {
           return
         }
-        setStatusState({ data: null, error: err, isLoading: false, fetchedAt: new Date() })
+
+        setBaseDevice(null)
+        setChannelState(initialChannelState)
+        setStatusState({
+          data: null,
+          error: err,
+          isLoading: false,
+          fetchedAt: new Date(),
+        })
+        setDevicesLoading(false)
+        if (err?.status && err.status !== 404) {
+          setDevicesError(err)
+        } else {
+          setDevicesError(null)
+        }
       })
 
     return () => {
       abortController.abort()
+      setDevicesLoading(false)
     }
-  }, [baseDevice?.apiId, devicesLoading, isApiEnabled, refreshIndex])
+  }, [deviceIdentifier, isApiEnabled, normalizedSlugKey, refreshIndex])
 
   useEffect(() => {
     if (!isApiEnabled) {
-      setChannelState(initialChannelState)
       return undefined
     }
 
