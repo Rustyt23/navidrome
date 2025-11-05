@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo } from 'react'
 import {
   BulkActionsToolbar,
   ListToolbar,
@@ -22,6 +22,7 @@ import {
   SongContextMenu,
   SongDatagrid,
   SongTitleField,
+  SongSimpleList,
   QualityInfo,
   useSelectedFields,
   useResourceRefresh,
@@ -35,6 +36,65 @@ import { playTracks } from '../actions'
 import PlaylistSongBulkActions from './PlaylistSongBulkActions'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 import config from '../config'
+
+export const selectPlaylistTrackIds = ({
+  idsToSelect,
+  pageIds = [],
+  selectedIds = [],
+  contextTotal,
+  filterValues = {},
+  playlistId,
+  currentSort,
+  dataProvider,
+  onSelect,
+}) => {
+  if (!onSelect) {
+    return Promise.resolve()
+  }
+
+  if (!Array.isArray(idsToSelect)) {
+    onSelect(idsToSelect)
+    return Promise.resolve()
+  }
+
+  const newlyAddedIds = idsToSelect.filter((id) => !selectedIds.includes(id))
+
+  const isSelectingCurrentPage =
+    newlyAddedIds.length > 0 && newlyAddedIds.every((id) => pageIds.includes(id))
+
+  const shouldLoadAllIds =
+    isSelectingCurrentPage && typeof contextTotal === 'number' && contextTotal > idsToSelect.length
+
+  if (!shouldLoadAllIds) {
+    onSelect(idsToSelect)
+    return Promise.resolve()
+  }
+
+  const filter = { ...filterValues, playlist_id: playlistId }
+  const sort =
+    currentSort && currentSort.field ? currentSort : { field: 'id', order: 'ASC' }
+
+  return dataProvider
+    .getList('playlistTrack', {
+      filter,
+      pagination: {
+        page: 1,
+        // perPage: 0 tells the API to return the full playlist regardless of the
+        // pagination limit so that the "Select all" checkbox truly selects
+        // every track, not only the ones visible on the current page.
+        perPage: 0,
+      },
+      sort: sort,
+    })
+    .then(({ data: records }) => {
+      const preservedIds = idsToSelect.filter((id) => !pageIds.includes(id))
+      const allIds = records.map((record) => record.id)
+      onSelect([...new Set([...preservedIds, ...allIds])])
+    })
+    .catch(() => {
+      onSelect(idsToSelect)
+    })
+}
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -114,6 +174,7 @@ const PlaylistSongs = ({
   const ids = contextIds
   const data = contextData
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
+  const isMobile = useMediaQuery('(max-width:768px)')
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
   const dataProvider = useDataProvider()
@@ -144,86 +205,20 @@ const PlaylistSongs = ({
     total: contextTotal,
   } = listContext
 
-  const [loadedRecords, setLoadedRecords] = useState({})
-
-  useEffect(() => {
-    setLoadedRecords({})
-  }, [playlistId])
-  
   const handleSelect = useCallback(
-    (idsToSelect) => {
-      if (!contextOnSelect) {
-        return
-      }
-
-      if (!Array.isArray(idsToSelect)) {
-        contextOnSelect(idsToSelect)
-        return
-      }
-
-      const pageIds = ids || []
-      const newlyAddedIds = idsToSelect.filter(
-        (id) => !selectedIds.includes(id),
-      )
-
-      const isSelectingCurrentPage =
-        newlyAddedIds.length > 0 &&
-        newlyAddedIds.every((id) => pageIds.includes(id))
-
-      const isSelectingEntirePage =
-        Array.isArray(pageIds) &&
-        pageIds.length > 0 &&
-        pageIds.every((id) => idsToSelect.includes(id))
-
-      const shouldLoadAllIds =
-        isSelectingCurrentPage &&
-        isSelectingEntirePage &&
-        typeof contextTotal === 'number' &&
-        contextTotal > idsToSelect.length
-
-      if (shouldLoadAllIds) {
-        const filter = { ...filterValues, playlist_id: playlistId }
-        const sort =
-          currentSort && currentSort.field
-            ? currentSort
-            : { field: 'id', order: 'ASC' }
-
-        dataProvider
-          .getList('playlistTrack', {
-            filter,
-            pagination: {
-              page: 1,
-              perPage:
-                contextTotal && contextTotal > 0
-                  ? contextTotal
-                  : idsToSelect.length,
-            },
-            sort: sort,
-          })
-          .then(({ data: records }) => {
-            const recordsById = records.reduce((acc, record) => {
-              acc[record.id] = record
-              return acc
-            }, {})
-            setLoadedRecords((prev) => ({ ...prev, ...recordsById }))
-
-            const preservedIds = idsToSelect.filter(
-              (id) => !pageIds.includes(id),
-            )
-            const allIds = records.map((record) => record.id)
-            contextOnSelect([...new Set([...preservedIds, ...allIds])])
-          })
-          .catch(() => {
-            contextOnSelect(idsToSelect)
-          })
-
-        return
-      }
-
-      contextOnSelect(idsToSelect)
-    },
+    (idsToSelect) =>
+      selectPlaylistTrackIds({
+        idsToSelect,
+        pageIds: ids,
+        selectedIds,
+        contextTotal,
+        filterValues,
+        playlistId,
+        currentSort,
+        dataProvider,
+        onSelect: contextOnSelect,
+      }),
     [
-      contextOnSelect,
       ids,
       selectedIds,
       contextTotal,
@@ -231,18 +226,17 @@ const PlaylistSongs = ({
       playlistId,
       currentSort,
       dataProvider,
+      contextOnSelect,
     ],
   )
 
   const filteredListContext = useMemo(
     () => ({
       ...listContext,
-      data: { ...contextData, ...loadedRecords },
       selectedIds,
       onSelect: handleSelect,
     }),
-    [listContext, selectedIds, handleSelect, contextData, loadedRecords],
-
+    [listContext, selectedIds, handleSelect],
   )
 
   const onAddToPlaylist = useCallback(
@@ -386,27 +380,40 @@ const PlaylistSongs = ({
               />
             </BulkActionsToolbar>
             {showDuplicatesOnly && listContext.loading && <LinearProgress />}
-            <ReorderableList
-              readOnly={readOnly}
-              onDragEnd={handleDragEnd}
-              nodeSelector={'tr'}
-              handleSelector={'.draggable'}
-            >
-              <SongDatagrid
-                rowClick={handleRowClick}
+            {isMobile ? (
+              <SongSimpleList
                 {...filteredListContext}
                 hasBulkActions={!readOnly}
-                contextAlwaysVisible={!isDesktop}
-                classes={{ row: classes.row }}
+                selectedIds={selectedIds}
+                contextMenuProps={{
+                  onAddToPlaylist,
+                  showLove: true,
+                  className: classes.contextMenu,
+                }}
+              />
+            ) : (
+              <ReorderableList
+                readOnly={readOnly}
+                onDragEnd={handleDragEnd}
+                nodeSelector={'tr'}
+                handleSelector={'.draggable'}
               >
-                {columns}
-                <SongContextMenu
-                  onAddToPlaylist={onAddToPlaylist}
-                  showLove={true}
-                  className={classes.contextMenu}
-                />
-              </SongDatagrid>
-            </ReorderableList>
+                <SongDatagrid
+                  rowClick={handleRowClick}
+                  {...filteredListContext}
+                  hasBulkActions={!readOnly}
+                  contextAlwaysVisible={!isDesktop}
+                  classes={{ row: classes.row }}
+                >
+                  {columns}
+                  <SongContextMenu
+                    onAddToPlaylist={onAddToPlaylist}
+                    showLove={true}
+                    className={classes.contextMenu}
+                  />
+                </SongDatagrid>
+              </ReorderableList>
+            )}
           </Card>
         </div>
       </ListContextProvider>

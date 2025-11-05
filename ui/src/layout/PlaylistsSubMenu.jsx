@@ -158,28 +158,162 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
 
   const parentIdForDnD = pls.parent_id ?? ''
 
+  const handledNativeTracksRef = useRef(null)
+
+  const submitAddPayload = useCallback(
+    async (payload) => {
+      return dataProvider
+        .addToPlaylist(pls.id, payload)
+        .then((res) =>
+          notify('message.songsAddedToPlaylist', 'info', {
+            smart_count: res?.data?.added,
+          }),
+        )
+        .catch(() => notify('ra.page.error', 'warning'))
+    },
+    [dataProvider, notify, pls.id],
+  )
+
+  const addTrackIdsToPlaylist = useCallback(
+    async (ids) => {
+      const normalized = Array.from(
+        new Set((Array.isArray(ids) ? ids : []).filter(Boolean)),
+      )
+      if (!normalized.length) {
+        return
+      }
+
+      let payload = { ids: normalized }
+      try {
+        const filtered = await filterSongDropPayload(pls.id, payload)
+        if (!filtered) {
+          notify('Skipped duplicate song.', { type: 'info' })
+          return
+        }
+        payload = filtered
+      } catch (error) {
+        // Ignore filter errors and let the backend handle any duplicates
+      }
+
+      return submitAddPayload(payload)
+    },
+    [notify, pls.id, submitAddPayload],
+  )
+
+  const hasTrackData = useCallback((dt) => {
+    const types = Array.from(dt?.types || [])
+    return (
+      types.includes('application/x-navidrome-tracks') || types.includes('text/plain')
+    )
+  }, [])
+
+  const extractTrackIdsFromDataTransfer = useCallback((dt) => {
+    if (!dt) {
+      return []
+    }
+
+    let parsedIds = []
+    const jsonPayload = dt.getData('application/x-navidrome-tracks')
+    if (jsonPayload) {
+      try {
+        const parsed = JSON.parse(jsonPayload)
+        if (parsed?.kind === 'tracks' && Array.isArray(parsed?.ids)) {
+          parsedIds = parsed.ids
+        }
+      } catch (error) {
+        // Ignore malformed JSON payloads and fall back to text/plain
+      }
+    }
+
+    if (!parsedIds.length) {
+      const textPayload = dt.getData('text/plain')
+      if (textPayload) {
+        parsedIds = textPayload
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean)
+      }
+    }
+
+    const seen = new Set()
+    const deduped = []
+    parsedIds.forEach((id) => {
+      if (!id || seen.has(id)) {
+        return
+      }
+      seen.add(id)
+      deduped.push(id)
+    })
+
+    return deduped
+  }, [])
+
+  const handleNativeDragOver = useCallback(
+    (event) => {
+      if (!hasTrackData(event?.dataTransfer)) {
+        return
+      }
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    },
+    [hasTrackData],
+  )
+
+  const handleNativeDrop = useCallback(
+    async (event) => {
+      const dt = event?.dataTransfer
+      if (!dt || !hasTrackData(dt)) {
+        return
+      }
+
+      const ids = extractTrackIdsFromDataTransfer(dt)
+      if (!ids.length) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      dt.dropEffect = 'copy'
+      // playlist drop: parse JSON payload of track IDs and add in batch
+      handledNativeTracksRef.current = ids
+      try {
+        await addTrackIdsToPlaylist(ids)
+      } finally {
+        // Keep reference for React DnD drop handler to avoid duplicate inserts
+      }
+    },
+    [addTrackIdsToPlaylist, extractTrackIdsFromDataTransfer, hasTrackData],
+  )
+
   const handleDrop = useCallback(
-    async (item) => {
-      let payload = item
-      if (Array.isArray(item?.ids) && item.ids.length) {
-        try {
-          const filtered = await filterSongDropPayload(pls.id, item)
-          if (!filtered) {
-            notify('Skipped duplicate song.', { type: 'info' })
-            return
-          }
-          payload = filtered
-        } catch (error) {
-          // Ignore filter errors and let the backend handle any duplicates
+    async (item, monitor) => {
+      const itemType = monitor?.getItemType?.()
+
+      if (itemType === DraggableTypes.SONG) {
+        const handledIds = handledNativeTracksRef.current
+        if (
+          handledIds &&
+          Array.isArray(item?.ids) &&
+          handledIds.length === item.ids.length &&
+          handledIds.every((id, index) => id === item.ids[index])
+        ) {
+          handledNativeTracksRef.current = null
+          return
+        }
+        handledNativeTracksRef.current = null
+
+        if (Array.isArray(item?.ids) && item.ids.length) {
+          return addTrackIdsToPlaylist(item.ids)
         }
       }
 
-      return dataProvider
-        .addToPlaylist(pls.id, payload)
-        .then((res) => notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added }))
-        .catch(() => notify('ra.page.error', 'warning'))
+      if (Array.isArray(item?.ids) && item.ids.length) {
+        return addTrackIdsToPlaylist(item.ids)
+      }
+
+      return submitAddPayload(item)
     },
-    [dataProvider, notify, pls.id]
+    [addTrackIdsToPlaylist, submitAddPayload],
   )
 
   const { dragDropRef, isDragging } = useDragAndDrop(
@@ -196,6 +330,8 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
       className={`${classes.listItem} ${classes.depth}`}
       ref={dragDropRef}
       style={{ opacity: isDragging ? 0.5 : 1 }}
+      onDragOver={handleNativeDragOver}
+      onDrop={handleNativeDrop}
     >
       <span className={classes.spacer} />
       <ListItemIcon className={classes.listItemIcon}><RiPlayListFill /></ListItemIcon>

@@ -1,9 +1,18 @@
-import React, { isValidElement, useMemo, useCallback, forwardRef } from 'react'
+import React, {
+  isValidElement,
+  useMemo,
+  useCallback,
+  forwardRef,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import {
   Datagrid,
   PureDatagridBody,
   PureDatagridRow,
+  useListContext,
   useTranslate,
 } from 'react-admin'
 import {
@@ -34,7 +43,12 @@ const useStyles = makeStyles((theme) => ({
     marginRight: '4px',
   },
   row: {
-    cursor: 'pointer',
+    cursor: 'grab',
+    WebkitUserDrag: 'element',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+    MozUserSelect: 'none',
+    msUserSelect: 'none',
     // ↓ shrink row height by reducing vertical padding on all table cells
     '& td, & th, & .MuiTableCell-root': {
       paddingTop: 3,
@@ -73,6 +87,10 @@ const useStyles = makeStyles((theme) => ({
       pointerEvents: 'none',
     },
   },
+  rowDragging: {
+    cursor: 'grabbing',
+    userSelect: 'none',
+  },
   headerStyle: {
     '& thead': {
       boxShadow: '0px 3px 3px rgba(0, 0, 0, 0.15)',
@@ -85,6 +103,20 @@ const useStyles = makeStyles((theme) => ({
   contextMenu: (props) => ({
     visibility: props?.isDesktop ? 'hidden' : 'visible',
   }),
+  dragPreview: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    zIndex: 99999,
+    padding: '8px 12px',
+    borderRadius: 8,
+    background: 'rgba(40, 40, 40, 0.92)',
+    color: '#fff',
+    fontSize: 13,
+    lineHeight: 1,
+    boxShadow: '0 6px 24px rgba(0, 0, 0, 0.25)',
+    pointerEvents: 'none',
+  },
 }))
 
 const DiscSubtitleRow = forwardRef(
@@ -149,6 +181,9 @@ export const SongDatagridRow = ({
   const fields = React.Children.toArray(children).filter((c) =>
     isValidElement(c),
   )
+  const [isDragging, setIsDragging] = useState(false)
+  const rowRef = useRef(null)
+  const dragPreviewRef = useRef(null)
 
   const [, dragDiscRef] = useDrag(
     () => ({
@@ -166,14 +201,201 @@ export const SongDatagridRow = ({
     [record],
   )
 
+  const listContext = useListContext()
+  const resourceName = rest?.resource
+  const selectedIdsFromStore = useSelector(
+    (state) =>
+      (resourceName &&
+        state?.admin?.resources?.[resourceName]?.list?.selectedIds) ||
+      [],
+  )
+  const resourceRecordsFromStore = useSelector(
+    (state) =>
+      (resourceName && state?.admin?.resources?.[resourceName]?.data) || {},
+  )
+
+  const recordId = record?.id
+  const trackId = record?.mediaFileId || recordId
+
+  const getDragTrackIds = useCallback(() => {
+    const contextSelectedIds =
+      (listContext && Array.isArray(listContext.selectedIds)
+        ? listContext.selectedIds
+        : []) || []
+    const selection = contextSelectedIds.length
+      ? contextSelectedIds
+      : Array.isArray(selectedIdsFromStore)
+      ? selectedIdsFromStore
+      : []
+    const isSelected = recordId != null && selection.includes(recordId)
+    const baseIds = isSelected ? selection : [recordId]
+    const seen = new Set()
+    const ids = []
+
+    baseIds.forEach((id) => {
+      if (id == null) {
+        return
+      }
+      const dataRecord =
+        (listContext?.data && listContext.data[id]) ||
+        resourceRecordsFromStore?.[id]
+      const value =
+        dataRecord?.mediaFileId ||
+        dataRecord?.mediafileId ||
+        dataRecord?.id ||
+        (id === recordId ? trackId : id)
+      if (!value || seen.has(value)) {
+        return
+      }
+      seen.add(value)
+      ids.push(value)
+    })
+
+    if (!ids.length && trackId && !seen.has(trackId)) {
+      ids.push(trackId)
+    }
+
+    return ids
+  }, [
+    listContext,
+    selectedIdsFromStore,
+    recordId,
+    resourceRecordsFromStore,
+    trackId,
+  ])
+
   const [, dragSongRef] = useDrag(
     () => ({
       type: DraggableTypes.SONG,
-      item: { ids: [record?.mediaFileId || record?.id] },
+      item: () => ({ ids: getDragTrackIds() }),
       options: { dropEffect: 'copy' },
     }),
-    [record],
+    [getDragTrackIds],
   )
+
+  useEffect(() => {
+    const node = rowRef.current
+    if (!node) {
+      return undefined
+    }
+    const preventTextSelection = (event) => {
+      if (
+        event?.target?.closest(
+          'button,input,textarea,select,a,[data-no-drag]',
+        )
+      ) {
+        return
+      }
+      event.preventDefault()
+    }
+    node.addEventListener('selectstart', preventTextSelection)
+
+    const interactiveSelector =
+      'button,input,textarea,select,a,[data-no-drag]'
+    const interactiveElements = Array.from(
+      node.querySelectorAll(interactiveSelector),
+    )
+    const handleChildDragStart = (event) => {
+      event.stopPropagation()
+    }
+    interactiveElements.forEach((element) => {
+      element.setAttribute('draggable', 'false')
+      element.addEventListener('dragstart', handleChildDragStart)
+    })
+    return () => {
+      node.removeEventListener('selectstart', preventTextSelection)
+      interactiveElements.forEach((element) => {
+        element.removeEventListener('dragstart', handleChildDragStart)
+      })
+    }
+  }, [record?.id])
+
+  const handleDragStart = useCallback(
+    (event) => {
+      if (event?.target?.closest('button,input,textarea,select,a,[data-no-drag]')) {
+        return
+      }
+      if (!event?.dataTransfer) {
+        return
+      }
+      const ids = Array.from(new Set(getDragTrackIds()?.filter(Boolean) || []))
+      if (!ids.length) {
+        return
+      }
+      const payload = { kind: 'tracks', ids }
+      try {
+        event.dataTransfer.setData(
+          'application/x-navidrome-tracks',
+          JSON.stringify(payload),
+        )
+      } catch (error) {
+        // Ignore serialization errors and fall back to text/plain
+      }
+      event.dataTransfer.setData('text/plain', ids.join(','))
+      // multi-select drag payload: include all selected track IDs
+      event.dataTransfer.effectAllowed = 'copy'
+
+      const label =
+        ids.length > 1 ? `${ids.length} items` : record?.title || '1 item'
+      const ghost = document.createElement('div')
+      ghost.className = classes.dragPreview
+      ghost.textContent = label
+      document.body.appendChild(ghost)
+      dragPreviewRef.current = ghost
+      if (typeof event.dataTransfer.setDragImage === 'function') {
+        const { width, height } = ghost.getBoundingClientRect()
+        event.dataTransfer.setDragImage(ghost, width / 2, height / 2)
+      }
+      setTimeout(() => {
+        if (dragPreviewRef.current === ghost) {
+          ghost.remove()
+          dragPreviewRef.current = null
+        }
+      }, 0)
+      setIsDragging(true)
+    },
+    [classes.dragPreview, getDragTrackIds, record?.title],
+  )
+
+  const handleDragEnd = useCallback(() => {
+    if (dragPreviewRef.current) {
+      dragPreviewRef.current.remove()
+      dragPreviewRef.current = null
+    }
+    setIsDragging(false)
+  }, [dragPreviewRef])
+
+  const setRowRef = useCallback(
+    (node) => {
+      rowRef.current = node
+      if (!record?.missing) {
+        dragSongRef(node)
+      }
+    },
+    [dragSongRef, record?.missing],
+  )
+
+  useEffect(() => {
+    const node = rowRef.current
+    if (!node || record?.missing) {
+      return undefined
+    }
+
+    const startListener = (event) => {
+      handleDragStart(event)
+    }
+    const endListener = (event) => {
+      handleDragEnd(event)
+    }
+
+    node.addEventListener('dragstart', startListener)
+    node.addEventListener('dragend', endListener)
+
+    return () => {
+      node.removeEventListener('dragstart', startListener)
+      node.removeEventListener('dragend', endListener)
+    }
+  }, [handleDragStart, handleDragEnd, record?.missing])
 
   if (!record || !record.title) {
     return null
@@ -189,6 +411,7 @@ export const SongDatagridRow = ({
     classes.row,
     record.missing && classes.missingRow,
     isCurrent && classes.currentRow,
+    isDragging && classes.rowDragging,
   )
   const childCount = fields.length
   return (
@@ -203,11 +426,12 @@ export const SongDatagridRow = ({
         />
       )}
       <PureDatagridRow
-        ref={record?.missing ? undefined : dragSongRef}
+        ref={setRowRef}
         record={record}
         {...rest}
         rowClick={rowClick}
         className={computedClasses}
+        draggable={!record?.missing}
       >
         {fields}
       </PureDatagridRow>
