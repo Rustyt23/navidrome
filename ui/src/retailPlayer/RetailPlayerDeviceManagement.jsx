@@ -878,11 +878,6 @@ const RetailPlayerDeviceManagement = () => {
     setFolderDialog({ open: true, target: null, parentId: activeFolderId })
   }
 
-  const handleCreateDevice = () => {
-    closeMenu()
-    setDeviceDialog({ open: true, target: null })
-  }
-
   const handleEditFolder = (folderId) => {
     const folder = folderMap.get(folderId)
     if (!folder) return
@@ -1173,12 +1168,6 @@ const RetailPlayerDeviceManagement = () => {
                   <FolderIcon fontSize="small" className={classes.nameIcon} />
                 </ListItemIcon>
                 <ListItemText primary="Create Folder" />
-              </MenuItem>
-              <MenuItem onClick={handleCreateDevice}>
-                <ListItemIcon>
-                  <SpeakerGroupIcon fontSize="small" className={classes.nameIcon} />
-                </ListItemIcon>
-                <ListItemText primary="Create Device" />
               </MenuItem>
             </Menu>
           </div>

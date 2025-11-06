@@ -232,13 +232,27 @@ const MissingTracksPanel = () => {
               if (!entry) {
                 return `unknown-${fallbackIndex}`
               }
-              return (
-                entry.id ||
-                entry.path ||
-                entry.trackPath ||
-                `${entry.title || ''}-${entry.artist || ''}` ||
-                `unknown-${fallbackIndex}`
-              )
+
+              const stringValue = (value) => {
+                if (value === undefined || value === null) {
+                  return ''
+                }
+                return `${value}`.trim()
+              }
+
+              const lowerStringValue = (value) => stringValue(value).toLocaleLowerCase()
+
+              const candidates = [
+                lowerStringValue(entry.path),
+                lowerStringValue(entry.trackPath),
+                lowerStringValue(entry.trackId),
+                stringValue(entry.id),
+                stringValue(`${entry.title || ''}-${entry.artist || ''}`),
+              ]
+
+              const key = candidates.find((candidate) => candidate.length > 0)
+
+              return key || `unknown-${fallbackIndex}`
             }
 
             const addEntry = (entry, indexOffset = 0) => {
@@ -332,16 +346,6 @@ const MissingTracksPanel = () => {
     [translate],
   )
 
-  const getEntrySecondaryLabel = useCallback((entry) => {
-    if (!entry) {
-      return ''
-    }
-    const details = [entry.libraryName, entry.album || entry.albumName]
-      .map((value) => (typeof value === 'string' ? value.trim() : ''))
-      .filter(Boolean)
-    return details.join(' • ')
-  }, [])
-
   useEffect(() => {
     fetchEntries(0, false)
   }, [fetchEntries])
@@ -410,8 +414,6 @@ const MissingTracksPanel = () => {
                     <ListItem key={key} className={classes.listItem}>
                       <ListItemText
                         primary={getEntryLabel(entry)}
-                        secondary={getEntrySecondaryLabel(entry)}
-                        secondaryTypographyProps={{ variant: 'body2', color: 'textSecondary' }}
                       />
                     </ListItem>
                   )
