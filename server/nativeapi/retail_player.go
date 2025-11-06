@@ -21,6 +21,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/utils"
 )
 
@@ -98,25 +99,56 @@ type retailPlayerConfig struct {
 	AdditionalHeaders map[string]string
 }
 
-func (n *Router) addRetailPlayerRoute(r chi.Router) {
+func (n *Router) addRetailPlayerRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
-		r.Get("/devices", n.handleRetailPlayerDevices())
-		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
-		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
-	})
-}
 
-func (n *Router) addPublicRetailPlayerRoute(r chi.Router) {
-	r.Route("/retailplayer", func(r chi.Router) {
-		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
-		r.Get("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceCurrentChannel())
-		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
-		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
-		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
+		// ===== Public routes (NO authentication) =====
+		// These must NOT require server.Authenticator.
+		// They are used by guests to view/control a single device page.
+		r.Get("/devices/{deviceId}/status", n.handleRetailPlayerDeviceStatus())
+		r.Post("/devices/{deviceId}/channel/toggle", n.handleRetailPlayerDeviceChannelToggle())
+		r.Get("/channel-lists/{listId}/channels", n.handleRetailPlayerChannelList())
+		r.Get("/devices/{deviceId}/channel", n.handleRetailPlayerDeviceChannelInfo())
+		r.Post("/devices/{deviceId}/volume", n.handleRetailPlayerDeviceVolume())
+
+		// ===== Private / authenticated routes =====
+		// Keep the existing protected/legacy/internal Retail Player endpoints here.
+		r.Group(func(r chi.Router) {
+			// Require normal Navidrome auth for anything that should remain protected.
+			r.Use(server.Authenticator(n.ds))
+			r.Use(server.JWTRefresher)
+			r.Use(server.UpdateLastAccessMiddleware(n.ds))
+
+			// ADD the existing private/protected Retail Player routes here.
+			// For example, anything that used to be registered in addRetailPlayerPrivateRoutes(...)
+			// should move into this group.
+			//
+			// NOTE: Do not duplicate the public handlers above. Only include the
+			// routes that are supposed to stay restricted.
+			r.Get("/devices", n.handleRetailPlayerDevices())
+			r.Post("/devices/{deviceId}/channel", n.handleRetailPlayerDeviceChannel())
+			r.Post("/devices/{deviceId}/dislike", n.handleRetailPlayerDeviceDislike())
+		})
 	})
 }
 
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
+
+func retailPlayerDeviceIDParam(r *http.Request) string {
+	if deviceID := strings.TrimSpace(chi.URLParam(r, "deviceId")); deviceID != "" {
+		return deviceID
+	}
+
+	return strings.TrimSpace(chi.URLParam(r, "deviceID"))
+}
+
+func retailPlayerChannelListIDParam(r *http.Request) string {
+	if listID := strings.TrimSpace(chi.URLParam(r, "listId")); listID != "" {
+		return listID
+	}
+
+	return strings.TrimSpace(chi.URLParam(r, "channelListID"))
+}
 
 func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +185,7 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 			return
 		}
 
-		rawDeviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		rawDeviceID := retailPlayerDeviceIDParam(r)
 		if rawDeviceID == "" {
 			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
 			return
@@ -202,7 +234,7 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 	}
 }
 
-func (n *Router) handleRetailPlayerDeviceCurrentChannel() http.HandlerFunc {
+func (n *Router) handleRetailPlayerDeviceChannelInfo() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
@@ -211,7 +243,7 @@ func (n *Router) handleRetailPlayerDeviceCurrentChannel() http.HandlerFunc {
 			return
 		}
 
-		rawDeviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		rawDeviceID := retailPlayerDeviceIDParam(r)
 		if rawDeviceID == "" {
 			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
 			return
@@ -245,7 +277,7 @@ func (n *Router) handleRetailPlayerDeviceCurrentChannel() http.HandlerFunc {
 	}
 }
 
-func (n *Router) handleRetailPlayerChannelListChannels() http.HandlerFunc {
+func (n *Router) handleRetailPlayerChannelList() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
@@ -254,7 +286,7 @@ func (n *Router) handleRetailPlayerChannelListChannels() http.HandlerFunc {
 			return
 		}
 
-		channelListID := strings.TrimSpace(chi.URLParam(r, "channelListID"))
+		channelListID := retailPlayerChannelListIDParam(r)
 		if channelListID == "" {
 			http.Error(w, "Retail player channel list id is required", http.StatusBadRequest)
 			return
@@ -303,7 +335,7 @@ func (n *Router) handleRetailPlayerDeviceVolume() http.HandlerFunc {
 			return
 		}
 
-		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		deviceID := retailPlayerDeviceIDParam(r)
 		if deviceID == "" {
 			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
 			return
@@ -368,7 +400,7 @@ func (n *Router) handleRetailPlayerDeviceChannel() http.HandlerFunc {
 			return
 		}
 
-		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		deviceID := retailPlayerDeviceIDParam(r)
 		if deviceID == "" {
 			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
 			return
@@ -413,7 +445,7 @@ func (n *Router) handleRetailPlayerDeviceChannel() http.HandlerFunc {
 	}
 }
 
-func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
+func (n *Router) handleRetailPlayerDeviceChannelToggle() http.HandlerFunc {
 	type toggleRequest struct {
 		Channel          string `json:"channel,omitempty"`
 		ChannelList      string `json:"channelList,omitempty"`
@@ -428,7 +460,7 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 			return
 		}
 
-		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		deviceID := retailPlayerDeviceIDParam(r)
 		if deviceID == "" {
 			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
 			return
@@ -597,7 +629,7 @@ func (n *Router) handleRetailPlayerDeviceDislike() http.HandlerFunc {
 			return
 		}
 
-		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		deviceID := retailPlayerDeviceIDParam(r)
 		if deviceID == "" {
 			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
 			return
