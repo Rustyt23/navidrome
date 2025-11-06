@@ -173,7 +173,7 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 		}
 
 		log.Info(ctx, "Fetching retail player device status from remote API", "deviceID", device.ID, "identifier", deviceIdentifier)
-		response, err := n.fetchRetailPlayerDeviceStatus(ctx, device.ID)
+		payload, err := n.fetchRetailPlayerDeviceStatus(ctx, device.ID)
 		if err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
 				log.Info(ctx, "Retail player device not found", "deviceID", device.ID)
@@ -186,7 +186,10 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 			return
 		}
 
-		response.Device = &device
+		response := retailPlayerDeviceStatusResponse{
+			Device:                          &device,
+			retailPlayerDeviceStatusPayload: payload,
+		}
 
 		log.Info(ctx, "Retail player device status fetched", "deviceID", device.ID, "identifier", deviceIdentifier)
 
@@ -971,11 +974,15 @@ func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID str
 	return retailPlayerChannelsResponse{Channels: channels}, nil
 }
 
-type retailPlayerDeviceStatusResponse struct {
-	Device         *retailPlayerDevice        `json:"device,omitempty"`
+type retailPlayerDeviceStatusPayload struct {
 	Status         map[string]any             `json:"status"`
 	StreamMetadata []map[string]any           `json:"streamMetadata"`
 	Artwork        *retailPlayerStatusArtwork `json:"artwork,omitempty"`
+}
+
+type retailPlayerDeviceStatusResponse struct {
+	Device *retailPlayerDevice `json:"device,omitempty"`
+	retailPlayerDeviceStatusPayload
 }
 
 type retailPlayerCommandRequest struct {
@@ -1054,15 +1061,15 @@ func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID str
 	return trimmedBody, nil
 }
 
-func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retailPlayerDeviceStatusResponse, error) {
+func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retailPlayerDeviceStatusPayload, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
-		return retailPlayerDeviceStatusResponse{}, errors.New("retail player API not configured")
+		return retailPlayerDeviceStatusPayload{}, errors.New("retail player API not configured")
 	}
 
 	trimmedID := strings.TrimSpace(deviceID)
 	if trimmedID == "" {
-		return retailPlayerDeviceStatusResponse{}, errors.New("retail player device id is empty")
+		return retailPlayerDeviceStatusPayload{}, errors.New("retail player device id is empty")
 	}
 
 	requestConfig := retailPlayerConfig{
@@ -1075,25 +1082,25 @@ func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID str
 
 	req, err := buildRetailPlayerRequest(ctx, requestConfig, trimmedID, "status")
 	if err != nil {
-		return retailPlayerDeviceStatusResponse{}, err
+		return retailPlayerDeviceStatusPayload{}, err
 	}
 
 	resp, err := retailPlayerHTTPClient.Do(req)
 	if err != nil {
-		return retailPlayerDeviceStatusResponse{}, err
+		return retailPlayerDeviceStatusPayload{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return retailPlayerDeviceStatusResponse{}, errRetailPlayerDeviceNotFound
+		return retailPlayerDeviceStatusPayload{}, errRetailPlayerDeviceNotFound
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return retailPlayerDeviceStatusResponse{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+		return retailPlayerDeviceStatusPayload{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
 	}
 
-	var payload retailPlayerDeviceStatusResponse
+	var payload retailPlayerDeviceStatusPayload
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return retailPlayerDeviceStatusResponse{}, err
+		return retailPlayerDeviceStatusPayload{}, err
 	}
 
 	n.populateRetailPlayerStatusArtwork(ctx, &payload)
@@ -1101,7 +1108,7 @@ func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID str
 	return payload, nil
 }
 
-func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, payload *retailPlayerDeviceStatusResponse) {
+func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, payload *retailPlayerDeviceStatusPayload) {
 	if payload == nil {
 		return
 	}
