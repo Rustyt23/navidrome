@@ -1133,7 +1133,7 @@ const RetailPlayerDeviceManagement = () => {
             className={classes.searchField}
             variant="outlined"
             size="small"
-            placeholder="Search folders and devices"
+            placeholder="Search"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
             InputProps={{
