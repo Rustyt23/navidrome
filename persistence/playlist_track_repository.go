@@ -177,6 +177,7 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 			"order_album_artist_name": "order_album_artist_name",
 			"order_album_name":        "order_album_name",
 			"order_title":             "order_title",
+			"created_at":              "playlist_tracks.created_at",
 		},
 		"f") // TODO I don't like this solution, but I won't change it now as it's not the focus of BFR.
 

@@ -203,7 +203,7 @@ const SongList = (props) => {
         />
       ),
       bpm: isDesktop && <NumberField source="bpm" />,
-      genre: <TextField source="genre" />,
+      genre: <TextField source="genre" sortBy="genre" />,
       mood: isDesktop && (
         <FunctionField
           source="mood"
@@ -211,7 +211,7 @@ const SongList = (props) => {
           sortable={false}
         />
       ),
-      comment: <TextField source="comment" />,
+      comment: <TextField source="comment" sortBy="comment" />,
       path: <PathField source="path" />,
       createdAt: (
         <DateField source="createdAt" sortBy="recently_added" showTime />

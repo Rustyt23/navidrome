@@ -299,13 +299,17 @@ const PlaylistSongs = ({
         <DateField source="playDate" sortByOrder={'DESC'} showTime />
       ),
       createdAt: (
-        <DateField source="createdAt" showTime sortable={false} />
+        <DateField
+          source="createdAt"
+          sortBy="playlist_tracks.created_at"
+          showTime
+        />
       ),
       quality: isDesktop && <QualityInfo source="quality" sortable={false} />,
       channels: isDesktop && <NumberField source="channels" />,
       bpm: isDesktop && <NumberField source="bpm" />,
-      genre: <TextField source="genre" />,
-      comment: <TextField source="comment" />,
+      genre: <TextField source="genre" sortBy="genre" />,
+      comment: <TextField source="comment" sortBy="comment" />,
       path: <PathField source="path" />,
       rating: config.enableStarRating && (
         <RatingField
