@@ -13,9 +13,7 @@ import {
   IconButton,
   InputAdornment,
   InputLabel,
-  ListItemIcon,
   ListItemText,
-  Menu,
   MenuItem,
   Paper,
   Select,
@@ -534,7 +532,6 @@ const RetailPlayerDeviceManagement = () => {
     state: { tree, folders, devices, loading, error },
     actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
   } = useRetailPlayerDeviceStore()
-  const [menuAnchor, setMenuAnchor] = useState(null)
   const [folderDialog, setFolderDialog] = useState({
     open: false,
     target: null,
@@ -865,16 +862,7 @@ const RetailPlayerDeviceManagement = () => {
 
   const showingSearchResults = normalizedSearchTerm.length > 0
 
-  const openMenu = (event) => {
-    setMenuAnchor(event.currentTarget)
-  }
-
-  const closeMenu = () => {
-    setMenuAnchor(null)
-  }
-
   const handleCreateFolder = () => {
-    closeMenu()
     setFolderDialog({ open: true, target: null, parentId: activeFolderId })
   }
 
@@ -1150,26 +1138,10 @@ const RetailPlayerDeviceManagement = () => {
               color="primary"
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={openMenu}
-              aria-haspopup="true"
-              aria-controls="retail-device-create-menu"
+              onClick={handleCreateFolder}
             >
-              Create
+              Create Folder
             </Button>
-            <Menu
-              id="retail-device-create-menu"
-              anchorEl={menuAnchor}
-              keepMounted
-              open={Boolean(menuAnchor)}
-              onClose={closeMenu}
-            >
-              <MenuItem onClick={handleCreateFolder}>
-                <ListItemIcon>
-                  <FolderIcon fontSize="small" className={classes.nameIcon} />
-                </ListItemIcon>
-                <ListItemText primary="Create Folder" />
-              </MenuItem>
-            </Menu>
           </div>
         </div>
       </div>
