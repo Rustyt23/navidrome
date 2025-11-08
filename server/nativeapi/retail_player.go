@@ -196,7 +196,7 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 			deviceIdentifier = rawDeviceID
 		}
 
-		device, err := resolveRetailPlayerDevice(ctx, deviceIdentifier)
+		device, err := n.resolveRetailPlayerDevice(ctx, deviceIdentifier)
 		if err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
 				log.Info(ctx, "Retail player device not found", "identifier", deviceIdentifier)
@@ -254,7 +254,7 @@ func (n *Router) handleRetailPlayerDeviceChannelInfo() http.HandlerFunc {
 			deviceIdentifier = rawDeviceID
 		}
 
-		device, err := resolveRetailPlayerDevice(ctx, deviceIdentifier)
+		device, err := n.resolveRetailPlayerDevice(ctx, deviceIdentifier)
 		if err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
 				log.Info(ctx, "Retail player device not found", "identifier", deviceIdentifier)
@@ -671,7 +671,7 @@ func (n *Router) handleRetailPlayerDeviceDislike() http.HandlerFunc {
 	}
 }
 
-func resolveRetailPlayerDevice(ctx context.Context, identifier string) (retailPlayerDevice, error) {
+func (n *Router) resolveRetailPlayerDevice(ctx context.Context, identifier string) (retailPlayerDevice, error) {
 	trimmed := strings.TrimSpace(identifier)
 	if trimmed == "" {
 		return retailPlayerDevice{}, errors.New("retail player device identifier is empty")
@@ -685,12 +685,35 @@ func resolveRetailPlayerDevice(ctx context.Context, identifier string) (retailPl
 		return retailPlayerDevice{}, err
 	}
 
+	slugKey := deviceSlugKey(trimmed)
+
+	if slugKey != "" && n.ds != nil {
+		repo := n.ds.RetailPlayerDeviceMapping(ctx)
+		if repo != nil {
+			mapping, mapErr := repo.FindBySlugKey(slugKey)
+			if mapErr == nil && mapping != nil {
+				mappedID := strings.TrimSpace(mapping.DeviceID)
+				if mappedID != "" {
+					log.Info(ctx, "Retail player device resolved via mapping", "identifier", trimmed, "slugKey", slugKey, "mappedDeviceID", mappedID)
+					device, fetchErr := fetchRetailPlayerDevice(ctx, mappedID)
+					if fetchErr == nil {
+						return device, nil
+					}
+					if fetchErr != nil && !errors.Is(fetchErr, errRetailPlayerDeviceNotFound) {
+						return retailPlayerDevice{}, fetchErr
+					}
+				}
+			} else if mapErr != nil && !errors.Is(mapErr, model.ErrNotFound) {
+				return retailPlayerDevice{}, mapErr
+			}
+		}
+	}
+
 	response, err := fetchRetailPlayerDevices(ctx)
 	if err != nil {
 		return retailPlayerDevice{}, err
 	}
 
-	slugKey := deviceSlugKey(trimmed)
 	identifierVariants := buildDeviceIdentifierVariants(trimmed)
 
 	for _, candidate := range response.Data {
@@ -898,7 +921,7 @@ func fetchRetailPlayerDevice(ctx context.Context, deviceID string) (retailPlayer
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest {
 		return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
