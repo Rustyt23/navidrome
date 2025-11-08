@@ -149,29 +149,44 @@ func (n *Router) handleRetailPlayerDeviceLookup() http.HandlerFunc {
 			return
 		}
 
-		rawSlug := strings.TrimSpace(chi.URLParam(r, "deviceSlug"))
-		if rawSlug == "" {
+		rawSlugParam := strings.TrimSpace(chi.URLParam(r, "deviceSlug"))
+		if rawSlugParam == "" {
 			http.Error(w, "Retail player device slug is required", http.StatusBadRequest)
 			return
 		}
 
-		slugKey := retailPlayerDeviceSlugKey(rawSlug)
+		decodedSlug, err := url.PathUnescape(rawSlugParam)
+		if err != nil {
+			log.Warn(ctx, "Unable to decode retail player device slug", "slug", rawSlugParam, "err", err)
+			decodedSlug = rawSlugParam
+		}
+
+		normalizedSlug := strings.TrimSpace(decodedSlug)
+		if normalizedSlug == "" {
+			http.Error(w, "Retail player device slug is invalid", http.StatusBadRequest)
+			return
+		}
+
+		slugKey := retailPlayerDeviceSlugKey(normalizedSlug)
+		if slugKey == "" && rawSlugParam != normalizedSlug {
+			slugKey = retailPlayerDeviceSlugKey(rawSlugParam)
+		}
 		if slugKey == "" {
 			http.Error(w, "Retail player device slug is invalid", http.StatusBadRequest)
 			return
 		}
 
-		log.Info(ctx, "Looking up retail player device", "slug", rawSlug, "slugKey", slugKey)
+		log.Info(ctx, "Looking up retail player device", "slug", normalizedSlug, "slugKey", slugKey)
 
 		device, err := lookupRetailPlayerDevice(ctx, slugKey)
 		if err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
-				log.Info(ctx, "Retail player device not found during lookup", "slug", rawSlug, "slugKey", slugKey)
+				log.Info(ctx, "Retail player device not found during lookup", "slug", normalizedSlug, "slugKey", slugKey)
 				http.Error(w, "Retail player device not found", http.StatusNotFound)
 				return
 			}
 
-			log.Error(ctx, "Unable to lookup retail player device", "slug", rawSlug, "err", err)
+			log.Error(ctx, "Unable to lookup retail player device", "slug", normalizedSlug, "rawSlug", rawSlugParam, "err", err)
 			http.Error(w, "Unable to lookup retail player device", http.StatusBadGateway)
 			return
 		}
