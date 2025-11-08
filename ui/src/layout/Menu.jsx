@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
 import {
   Collapse,
@@ -113,34 +113,6 @@ const useStyles = makeStyles((theme) => ({
   dragging: {
     opacity: 0.55,
   },
-  dragPreview: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    zIndex: theme.zIndex.modal + 1,
-    pointerEvents: 'none',
-    padding: theme.spacing(1, 2),
-    borderRadius: theme.shape.borderRadius,
-    backgroundColor: fade(theme.palette.background.paper, 0.92),
-    color: theme.palette.text.primary,
-    boxShadow: theme.shadows[8],
-    border: `1px solid ${fade(theme.palette.primary.main, 0.3)}`,
-    minWidth: 160,
-    maxWidth: 260,
-  },
-  dragPreviewName: {
-    fontWeight: theme.typography.fontWeightMedium,
-    fontSize: theme.typography.pxToRem(14),
-    lineHeight: 1.2,
-    whiteSpace: 'nowrap',
-  },
-  dragPreviewMeta: {
-    marginTop: theme.spacing(0.5),
-    fontSize: theme.typography.pxToRem(12),
-    color: fade(theme.palette.text.secondary, 0.9),
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-  },
 }))
 
 const RetailPlayerDeviceMenuItem = ({
@@ -156,6 +128,17 @@ const RetailPlayerDeviceMenuItem = ({
   const encodedSlug = encodeURIComponent(slug)
   const padding = theme.spacing(4 + depth * 2)
 
+  const transparentDragImage = useMemo(() => {
+    if (typeof window === 'undefined' || typeof window.Image === 'undefined') {
+      return null
+    }
+
+    const img = new window.Image()
+    img.src =
+      'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+    return img
+  }, [])
+
   const [{ isDragging }, dragRef] = useDrag(
     () => ({
       type: RetailPlayerDndItemTypes.DEVICE,
@@ -168,60 +151,23 @@ const RetailPlayerDeviceMenuItem = ({
     [node?.id],
   )
 
-  const dragPreviewRef = useRef(null)
-
-  const removeDragPreview = useCallback(() => {
-    if (dragPreviewRef.current) {
-      dragPreviewRef.current.remove()
-      dragPreviewRef.current = null
-    }
-  }, [])
-
   const handleDragStart = useCallback(
     (event) => {
       if (!event?.dataTransfer) {
         return
       }
 
-      const preview = document.createElement('div')
-      preview.className = classes.dragPreview
-
-      const nameElement = document.createElement('div')
-      nameElement.className = classes.dragPreviewName
-      nameElement.textContent = node?.name || 'Retail Player Device'
-
-      const metaElement = document.createElement('div')
-      metaElement.className = classes.dragPreviewMeta
-      metaElement.textContent = 'Retail Player Device'
-
-      preview.appendChild(nameElement)
-      preview.appendChild(metaElement)
-
-      document.body.appendChild(preview)
-      dragPreviewRef.current = preview
-
-      if (typeof event.dataTransfer.setDragImage === 'function') {
-        const { width, height } = preview.getBoundingClientRect()
-        event.dataTransfer.setDragImage(preview, width / 2, height / 2)
+      if (
+        transparentDragImage &&
+        typeof event.dataTransfer.setDragImage === 'function'
+      ) {
+        event.dataTransfer.setDragImage(transparentDragImage, 0, 0)
       }
 
       event.dataTransfer.setData('text/plain', node?.name || '')
-
-      setTimeout(() => {
-        if (dragPreviewRef.current === preview) {
-          preview.remove()
-          dragPreviewRef.current = null
-        }
-      }, 0)
     },
-    [classes.dragPreview, classes.dragPreviewMeta, classes.dragPreviewName, node?.name],
+    [node?.name, transparentDragImage],
   )
-
-  const handleDragEnd = useCallback(() => {
-    removeDragPreview()
-  }, [removeDragPreview])
-
-  useEffect(() => removeDragPreview, [removeDragPreview])
 
   return (
     <div
@@ -231,7 +177,6 @@ const RetailPlayerDeviceMenuItem = ({
         isDragging && classes.dragging,
       )}
       onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
     >
       <MenuItemLink
         to={`/retailplayer/${encodedSlug}`}
