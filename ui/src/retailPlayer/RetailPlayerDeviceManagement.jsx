@@ -550,6 +550,14 @@ const RetailPlayerDeviceManagement = () => {
       updateDevice,
       deleteNodes,
     },
+    dragState: {
+      draggedDevice,
+      setDraggedDevice,
+      dropTargetFolderId,
+      setDropTargetFolderId,
+      lastDeviceDrop,
+      setLastDeviceDrop,
+    },
   } = useRetailPlayerDeviceStore()
   const [folderDialog, setFolderDialog] = useState({
     open: false,
@@ -562,8 +570,6 @@ const RetailPlayerDeviceManagement = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [draggedDevice, setDraggedDevice] = useState(null)
-  const [dropTargetFolderId, setDropTargetFolderId] = useState(null)
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -670,6 +676,20 @@ const RetailPlayerDeviceManagement = () => {
       return changed ? next : prev
     })
   }, [folders, devices])
+
+  useEffect(() => {
+    if (!lastDeviceDrop?.deviceId) {
+      return
+    }
+    setSelectedIds((previous) => {
+      if (!previous || !previous.has(lastDeviceDrop.deviceId)) {
+        return previous
+      }
+      const next = new Set(previous)
+      next.delete(lastDeviceDrop.deviceId)
+      return next
+    })
+  }, [lastDeviceDrop])
 
   const handleAddToFolderDialogClose = useCallback(() => {
     setAddToFolderDialogOpen(false)
@@ -1099,7 +1119,7 @@ const RetailPlayerDeviceManagement = () => {
       event.preventDefault()
       setDropTargetFolderId(folderId)
     },
-    [draggedDeviceId, canDropDeviceOnFolder],
+    [draggedDeviceId, canDropDeviceOnFolder, setDropTargetFolderId],
   )
 
   const handleFolderDragLeave = useCallback((event, folderId) => {
@@ -1131,8 +1151,9 @@ const RetailPlayerDeviceManagement = () => {
         return
       }
       updateDevice({ id: deviceId, folderIds: [folderId] })
+      setLastDeviceDrop({ deviceId, folderId, timestamp: Date.now() })
     },
-    [deviceMap, updateDevice],
+    [deviceMap, updateDevice, setLastDeviceDrop],
   )
 
   const handleFolderDrop = useCallback(
