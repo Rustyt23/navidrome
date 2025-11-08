@@ -21,29 +21,106 @@ const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
-const formatTime = (date, timeZone) => {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return '--:--'
+const parseLocalTimeOffset = (value) => {
+  if (typeof value !== 'string') {
+    return { offsetMinutes: null, label: '' }
   }
 
-  try {
-    return new Intl.DateTimeFormat([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      ...(timeZone ? { timeZone } : {}),
-    })
-      .format(date)
-      .replace(/^24:/, '00:')
-  } catch (err) {
-    return date
-      .toLocaleTimeString([], {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return { offsetMinutes: null, label: '' }
+  }
+
+  const match = trimmed.match(/([+-]\d{2}:\d{2}|Z)$/)
+  if (!match) {
+    return { offsetMinutes: null, label: '' }
+  }
+
+  const token = match[1]
+  if (token === 'Z') {
+    return { offsetMinutes: 0, label: 'UTC' }
+  }
+
+  const sign = token.startsWith('-') ? -1 : 1
+  const [hoursPart, minutesPart] = token.slice(1).split(':')
+  const hours = Number.parseInt(hoursPart, 10)
+  const minutes = Number.parseInt(minutesPart, 10)
+
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return { offsetMinutes: null, label: '' }
+  }
+
+  const offsetMinutes = sign * (hours * 60 + minutes)
+  return { offsetMinutes, label: `UTC${token}` }
+}
+
+const extractDatePartsFromString = (value) => {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const dateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const timeMatch = value.match(/T(\d{2}):(\d{2})/)
+
+  if (!dateMatch || !timeMatch) {
+    return null
+  }
+
+  return {
+    year: dateMatch[1],
+    month: dateMatch[2],
+    day: dateMatch[3],
+    hour: timeMatch[1],
+    minute: timeMatch[2],
+  }
+}
+
+const computeDeviceTimeParts = (date, timeZone, offsetMinutes, rawLocalTime) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const normalizedTimeZone = typeof timeZone === 'string' ? timeZone.trim() : ''
+
+  if (normalizedTimeZone) {
+    try {
+      const formatter = new Intl.DateTimeFormat([], {
+        timeZone: normalizedTimeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
       })
-      .replace(/^24:/, '00:')
+      const parts = formatter.formatToParts(date)
+      const getPart = (type) => parts.find((part) => part.type === type)?.value
+      const year = getPart('year')
+      const month = getPart('month')
+      const day = getPart('day')
+      const hour = getPart('hour')
+      const minute = getPart('minute')
+
+      if (year && month && day && hour && minute) {
+        return { year, month, day, hour, minute }
+      }
+    } catch (err) {
+      // Fallback to offset or raw string parsing below
+    }
   }
+
+  if (Number.isFinite(offsetMinutes)) {
+    const adjusted = new Date(date.getTime() + offsetMinutes * 60000)
+    const year = String(adjusted.getUTCFullYear())
+    const month = String(adjusted.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(adjusted.getUTCDate()).padStart(2, '0')
+    const hour = String(adjusted.getUTCHours()).padStart(2, '0')
+    const minute = String(adjusted.getUTCMinutes()).padStart(2, '0')
+
+    return { year, month, day, hour, minute }
+  }
+
+  return extractDatePartsFromString(rawLocalTime)
 }
 
 const useStyles = makeStyles((theme) => {
@@ -168,6 +245,66 @@ const useStyles = makeStyles((theme) => {
         fontSize: theme.typography.pxToRem(16),
         padding: `${theme.spacing(0.25)}px ${theme.spacing(1.5)}px`,
       },
+    },
+    headerClockWrapper: {
+      position: 'relative',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    timeTooltip: {
+      position: 'absolute',
+      top: '100%',
+      left: '50%',
+      transform: 'translate(-50%, -8px)',
+      backgroundColor: alpha(theme.palette.common.black, 0.78),
+      color: theme.palette.common.white,
+      padding: `${theme.spacing(1)}px ${theme.spacing(1.5)}px`,
+      borderRadius: theme.shape.borderRadius,
+      boxShadow: '0 12px 24px rgba(0, 0, 0, 0.45)',
+      opacity: 0,
+      pointerEvents: 'none',
+      transition: theme.transitions.create(['opacity', 'transform'], {
+        duration: theme.transitions.duration.shorter,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      minWidth: 220,
+      textAlign: 'left',
+      fontSize: theme.typography.pxToRem(14),
+      lineHeight: 1.4,
+      zIndex: (theme.zIndex && theme.zIndex.tooltip) || 1500,
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: 0,
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        borderWidth: 6,
+        borderStyle: 'solid',
+        borderColor: `transparent transparent ${alpha(theme.palette.common.black, 0.78)} transparent`,
+      },
+    },
+    timeTooltipVisible: {
+      opacity: 1,
+      transform: 'translate(-50%, 6px)',
+    },
+    timeTooltipRow: {
+      display: 'flex',
+      alignItems: 'baseline',
+      gap: theme.spacing(0.5),
+    },
+    timeTooltipLabel: {
+      fontWeight: theme.typography.fontWeightMedium,
+      color: alpha(theme.palette.common.white, 0.85),
+    },
+    timeTooltipValue: {
+      color: theme.palette.common.white,
+    },
+    timeTooltipTimeValue: {
+      marginTop: theme.spacing(0.5),
+      color: theme.palette.common.white,
+      fontVariantNumeric: 'tabular-nums',
+      letterSpacing: 0.4,
     },
     header: {
       display: 'flex',
@@ -650,7 +787,6 @@ const RetailPlayerDashboard = () => {
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
-  const [currentTime, setCurrentTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
@@ -664,19 +800,15 @@ const RetailPlayerDashboard = () => {
   const [previousNowPlaying, setPreviousNowPlaying] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
+  const [isTimeTooltipVisible, setTimeTooltipVisible] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
 
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-
-    return () => {
-      window.clearInterval(intervalId)
-    }
-  }, [])
+  const timeTooltipId = useMemo(
+    () => `device-time-tooltip-${deviceSlug || 'current'}`,
+    [deviceSlug],
+  )
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -1097,12 +1229,103 @@ const trackPool = useMemo(() => {
     return statusZone
   }, [device])
 
-  const currentTimeLabel = useMemo(
-    () => formatTime(deviceTime, deviceTimeZone || undefined),
-    [deviceTime, deviceTimeZone],
+  const deviceStatus = useMemo(
+    () => (device && typeof device.status === 'object' ? device.status : null),
+    [device],
   )
 
-  const headerTimeLabel = useMemo(() => formatTime(currentTime), [currentTime])
+  const statusLocalTime = useMemo(() => {
+    if (deviceStatus && typeof deviceStatus.localTime === 'string') {
+      const trimmed = deviceStatus.localTime.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+
+    if (typeof device?.localTime === 'string') {
+      const trimmed = device.localTime.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+
+    return ''
+  }, [device, deviceStatus])
+
+  const scheduleStateLabel = useMemo(() => {
+    if (deviceStatus && typeof deviceStatus.scheduleState === 'string') {
+      const trimmed = deviceStatus.scheduleState.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+
+    return 'Unknown'
+  }, [deviceStatus])
+
+  const timeZoneOffsetInfo = useMemo(
+    () => parseLocalTimeOffset(statusLocalTime),
+    [statusLocalTime],
+  )
+
+  const resolvedTimeZoneLabel = useMemo(() => {
+    const normalizedZone = normalizeValue(deviceTimeZone)
+    if (normalizedZone) {
+      return normalizedZone
+    }
+    return timeZoneOffsetInfo.label || ''
+  }, [deviceTimeZone, timeZoneOffsetInfo.label])
+
+  const deviceTimeParts = useMemo(
+    () =>
+      computeDeviceTimeParts(
+        deviceTime,
+        normalizeValue(deviceTimeZone) || '',
+        timeZoneOffsetInfo.offsetMinutes,
+        statusLocalTime,
+      ),
+    [deviceTime, deviceTimeZone, statusLocalTime, timeZoneOffsetInfo.offsetMinutes],
+  )
+
+  const deviceTimeLabel = useMemo(() => {
+    if (!deviceTimeParts) {
+      return '--:--'
+    }
+
+    return `${deviceTimeParts.hour}:${deviceTimeParts.minute}`
+  }, [deviceTimeParts])
+
+  const tooltipTimeLabel = useMemo(() => {
+    if (!deviceTimeParts) {
+      return ''
+    }
+
+    const base = `${deviceTimeParts.year}-${deviceTimeParts.month}-${deviceTimeParts.day} ${deviceTimeParts.hour}:${deviceTimeParts.minute}h`
+
+    return resolvedTimeZoneLabel ? `${base} ${resolvedTimeZoneLabel}` : base
+  }, [deviceTimeParts, resolvedTimeZoneLabel])
+
+  const timeAriaLabel = useMemo(() => {
+    if (tooltipTimeLabel) {
+      return `Local time ${tooltipTimeLabel}`
+    }
+    return 'Local time unavailable'
+  }, [tooltipTimeLabel])
+
+  const handleShowTimeTooltip = useCallback(() => {
+    setTimeTooltipVisible(true)
+  }, [])
+
+  const handleHideTimeTooltip = useCallback(() => {
+    setTimeTooltipVisible(false)
+  }, [])
+
+  const handleTimeKeyDown = useCallback((event) => {
+    if (event.key === 'Escape' || event.key === 'Esc') {
+      event.stopPropagation()
+      setTimeTooltipVisible(false)
+    }
+  }, [])
 
   const statusItems = useMemo(() => {
     if (!device) {
@@ -1116,7 +1339,7 @@ const trackPool = useMemo(() => {
         intent: device.isConnected ? 'success' : 'danger',
         label: 'Connected',
       },
-      { key: 'time', label: currentTimeLabel, labelForAria: 'Time' },
+      { key: 'time', label: deviceTimeLabel, labelForAria: timeAriaLabel },
       {
         key: 'signal',
         icon: SignalWifi4BarIcon,
@@ -1130,7 +1353,7 @@ const trackPool = useMemo(() => {
         label: isMuted ? 'Muted' : 'Audio Enabled',
       },
     ]
-  }, [currentTimeLabel, device, isMuted])
+  }, [device, deviceTimeLabel, isMuted, timeAriaLabel])
 
   const handleToggleScheduleMenu = useCallback(() => {
     if (!availableSchedulesCount) {
@@ -1512,8 +1735,43 @@ const trackPool = useMemo(() => {
           <ArrowBackIcon className={classes.headerBackIcon} />
         </ButtonBase>
         <div className={classes.headerCenter} aria-hidden="true" />
-        <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
-          {headerTimeLabel}
+        <div
+          className={classes.headerClockWrapper}
+          onMouseEnter={handleShowTimeTooltip}
+          onMouseLeave={handleHideTimeTooltip}
+        >
+          <div
+            className={classes.headerClock}
+            aria-live="polite"
+            aria-label={timeAriaLabel}
+            aria-describedby={timeTooltipId}
+            tabIndex={0}
+            onFocus={handleShowTimeTooltip}
+            onBlur={handleHideTimeTooltip}
+            onKeyDown={handleTimeKeyDown}
+          >
+            {deviceTimeLabel}
+          </div>
+          <div
+            id={timeTooltipId}
+            className={combineClasses(
+              classes.timeTooltip,
+              isTimeTooltipVisible ? classes.timeTooltipVisible : null,
+            )}
+            role="tooltip"
+            aria-hidden={!isTimeTooltipVisible}
+          >
+            <Typography variant="body2" component="div" className={classes.timeTooltipRow}>
+              <span className={classes.timeTooltipLabel}>Schedule state:</span>
+              <span className={classes.timeTooltipValue}>{scheduleStateLabel}</span>
+            </Typography>
+            <Typography variant="body2" component="div" className={classes.timeTooltipRow}>
+              <span className={classes.timeTooltipLabel}>Local time:</span>
+            </Typography>
+            <Typography variant="body2" component="div" className={classes.timeTooltipTimeValue}>
+              {tooltipTimeLabel || 'Unavailable'}
+            </Typography>
+          </div>
         </div>
       </header>
 
