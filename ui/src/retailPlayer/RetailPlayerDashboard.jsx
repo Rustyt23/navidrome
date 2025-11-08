@@ -1110,15 +1110,25 @@ const trackPool = useMemo(() => {
     : 'Unknown'
 
   const tooltipLocalTimeLabel = useMemo(() => {
-    const statusLocalTime =
+    const deviceLocalTimeString = normalizeValue(device?.localTime)
+    const statusLocalTimeString = normalizeValue(
       device?.status && typeof device.status.localTime === 'string'
         ? device.status.localTime
-        : ''
+        : '',
+    )
+    const rawLocalTimeString = deviceLocalTimeString || statusLocalTimeString
 
     let baseDate = null
 
-    if (statusLocalTime) {
-      const parsed = new Date(statusLocalTime)
+    if (rawLocalTimeString) {
+      const parsed = new Date(rawLocalTimeString)
+      if (!Number.isNaN(parsed.getTime())) {
+        baseDate = parsed
+      }
+    }
+
+    if (!baseDate && statusLocalTimeString) {
+      const parsed = new Date(statusLocalTimeString)
       if (!Number.isNaN(parsed.getTime())) {
         baseDate = parsed
       }
@@ -1186,8 +1196,35 @@ const trackPool = useMemo(() => {
       }
     }
 
-    return formatWithZone(zone) || formatWithZone(null) || 'Unknown'
-  }, [device?.status, deviceTime, deviceTimeZone])
+    const parseIsoOffset = (value) => {
+      if (!value) {
+        return ''
+      }
+      const match = value.match(/([+-]\d{2}:\d{2}|Z)$/)
+      if (!match) {
+        return ''
+      }
+      if (match[1] === 'Z') {
+        return 'UTC'
+      }
+      return `UTC${match[1]}`
+    }
+
+    if (zone) {
+      const formattedWithZone = formatWithZone(zone)
+      if (formattedWithZone) {
+        return formattedWithZone
+      }
+    }
+
+    const fallbackLabel = formatWithZone(null)
+    if (fallbackLabel) {
+      const zoneLabel = zone || parseIsoOffset(rawLocalTimeString || statusLocalTimeString)
+      return zoneLabel ? `${fallbackLabel} ${zoneLabel}` : fallbackLabel
+    }
+
+    return 'Unknown'
+  }, [device?.localTime, device?.status, deviceTime, deviceTimeZone])
 
   const headerTimeLabel = currentTimeLabel
 
