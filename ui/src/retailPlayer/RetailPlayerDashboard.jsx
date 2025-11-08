@@ -925,19 +925,23 @@ const RetailPlayerDashboard = () => {
 
   const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
 
+  const deviceVolume = useMemo(() => {
+    if (typeof device?.volume === 'number' && !Number.isNaN(device.volume)) {
+      return device.volume
+    }
+
+    return 50
+  }, [device?.volume])
+
   useEffect(() => {
-    const initialVolume =
-      typeof device?.volume === 'number' && !Number.isNaN(device.volume)
-        ? device.volume
-        : 50
-    setIsMuted(Boolean(device?.isMuted) || initialVolume === 0)
-    setVolume(initialVolume)
-    setDisplayVolume(initialVolume)
-    if (initialVolume > 0) {
-      previousVolumeRef.current = initialVolume
+    setIsMuted(Boolean(device?.isMuted) || deviceVolume === 0)
+    setVolume(deviceVolume)
+    setDisplayVolume(deviceVolume)
+    if (deviceVolume > 0) {
+      previousVolumeRef.current = deviceVolume
     }
     volumeSyncReadyRef.current = false
-  }, [device])
+  }, [device?.apiId, device?.id, device?.isMuted, deviceVolume])
 
   useEffect(() => {
     volumeSyncReadyRef.current = false
