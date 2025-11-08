@@ -1,6 +1,5 @@
 import React from 'react'
 import { makeStyles } from '@material-ui/core'
-import { fade } from '@material-ui/core/styles/colorManipulator'
 import { useDragLayer } from 'react-dnd'
 
 import { RETAIL_PLAYER_DND_TYPES } from './useRetailPlayerDnD'
@@ -19,11 +18,11 @@ const useStyles = makeStyles((theme) => ({
     transformOrigin: 'top left',
   },
   preview: {
-    backgroundColor: fade(theme.palette.common.black, 0.75),
-    color: theme.palette.common.white,
-    fontWeight: theme.typography.fontWeightBold,
+    backgroundColor: 'rgba(255, 43, 138, 0.45)', // hardcoded pink (#FF2B8A) with transparency
+    color: '#FFFFFF',
+    fontWeight: '400', // normal text
     borderRadius: theme.shape.borderRadius * 2,
-    boxShadow: '0 18px 40px rgba(0, 0, 0, 0.35)',
+    boxShadow: '0 18px 40px rgba(0, 0, 0, 0.25)',
     padding: theme.spacing(1, 2.5),
     minWidth: 120,
     maxWidth: 320,
@@ -39,9 +38,7 @@ const useStyles = makeStyles((theme) => ({
 
 const getItemStyles = (currentOffset) => {
   if (!currentOffset) {
-    return {
-      display: 'none',
-    }
+    return { display: 'none' }
   }
 
   const { x, y } = currentOffset
