@@ -98,15 +98,20 @@ type retailPlayerConfig struct {
 	AdditionalHeaders map[string]string
 }
 
-func (n *Router) addRetailPlayerRoute(r chi.Router) {
+func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
-		r.Get("/devices", n.handleRetailPlayerDevices())
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
 		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
 		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
 		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
+	})
+}
+
+func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
+	r.Route("/retailplayer", func(r chi.Router) {
+		r.Get("/devices", n.handleRetailPlayerDevices())
 	})
 }
 
@@ -147,31 +152,75 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 			return
 		}
 
-		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
-		if deviceID == "" {
+		deviceIdentifier := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceIdentifier == "" {
 			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
 			return
 		}
 
-		log.Info(ctx, "Fetching retail player device status from remote API", "deviceID", deviceID)
-		response, err := n.fetchRetailPlayerDeviceStatus(ctx, deviceID)
+		log.Info(ctx, "Fetching retail player device status from remote API", "identifier", deviceIdentifier)
+
+		resolvedID := deviceIdentifier
+		device, err := fetchRetailPlayerDevice(ctx, resolvedID)
 		if err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
-				log.Info(ctx, "Retail player device not found", "deviceID", deviceID)
+				log.Info(ctx, "Retail player device not found by id, attempting lookup", "identifier", deviceIdentifier)
+				device, err = lookupRetailPlayerDevice(ctx, deviceIdentifier)
+				if err != nil {
+					if errors.Is(err, errRetailPlayerDeviceNotFound) {
+						log.Info(ctx, "Retail player device not found", "identifier", deviceIdentifier)
+						http.Error(w, "Retail player device not found", http.StatusNotFound)
+						return
+					}
+
+					log.Error(ctx, "Unable to lookup retail player device", "identifier", deviceIdentifier, "err", err)
+					http.Error(w, "Unable to fetch retail player device status", http.StatusBadGateway)
+					return
+				}
+				resolvedID = strings.TrimSpace(device.ID)
+			} else {
+				log.Error(ctx, "Unable to fetch retail player device metadata", "identifier", deviceIdentifier, "err", err)
+				http.Error(w, "Unable to fetch retail player device status", http.StatusBadGateway)
+				return
+			}
+		}
+
+		if resolvedID == "" {
+			log.Info(ctx, "Retail player device missing resolved id", "identifier", deviceIdentifier)
+			http.Error(w, "Retail player device not found", http.StatusNotFound)
+			return
+		}
+
+		response, err := n.fetchRetailPlayerDeviceStatus(ctx, resolvedID)
+		if err != nil {
+			if errors.Is(err, errRetailPlayerDeviceNotFound) {
+				log.Info(ctx, "Retail player device not found while fetching status", "identifier", deviceIdentifier, "resolvedID", resolvedID)
 				http.Error(w, "Retail player device not found", http.StatusNotFound)
 				return
 			}
 
-			log.Error(ctx, "Unable to fetch retail player device status", "deviceID", deviceID, "err", err)
+			log.Error(ctx, "Unable to fetch retail player device status", "identifier", deviceIdentifier, "resolvedID", resolvedID, "err", err)
 			http.Error(w, "Unable to fetch retail player device status", http.StatusBadGateway)
 			return
 		}
 
-		log.Info(ctx, "Retail player device status fetched", "deviceID", deviceID)
+		if device.ID == "" {
+			if metadata, metadataErr := fetchRetailPlayerDevice(ctx, resolvedID); metadataErr == nil {
+				device = metadata
+			} else {
+				log.Debug(ctx, "Unable to fetch device metadata after status", "identifier", deviceIdentifier, "resolvedID", resolvedID, "err", metadataErr)
+			}
+		}
+
+		if device.ID != "" {
+			response.Device = &device
+		}
+
+		log.Info(ctx, "Retail player device status fetched", "identifier", deviceIdentifier, "resolvedID", resolvedID)
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Error(ctx, "Unable to encode retail player device status response", "deviceID", deviceID, "err", err)
+			log.Error(ctx, "Unable to encode retail player device status response", "identifier", deviceIdentifier, "resolvedID", resolvedID, "err", err)
 		}
 	}
 }
@@ -625,6 +674,83 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 	}, nil
 }
 
+func lookupRetailPlayerDevice(ctx context.Context, identifier string) (retailPlayerDevice, error) {
+	normalizedIdentifier := strings.TrimSpace(identifier)
+	if normalizedIdentifier == "" {
+		return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
+	}
+
+	slugKey := retailPlayerDeviceSlugKey(normalizedIdentifier)
+	lowerIdentifier := strings.ToLower(normalizedIdentifier)
+
+	response, err := fetchRetailPlayerDevices(ctx)
+	if err != nil {
+		return retailPlayerDevice{}, err
+	}
+
+	for _, device := range response.Data {
+		if strings.EqualFold(strings.TrimSpace(device.ID), normalizedIdentifier) {
+			return device, nil
+		}
+		if strings.EqualFold(strings.TrimSpace(device.Name), normalizedIdentifier) {
+			return device, nil
+		}
+
+		if slugKey == "" {
+			continue
+		}
+
+		if retailPlayerDeviceSlugKey(device.Name) == slugKey {
+			return device, nil
+		}
+
+		if retailPlayerDeviceSlugKey(device.ID) == slugKey {
+			return device, nil
+		}
+
+		if lowerIdentifier != "" {
+			if retailPlayerDeviceSlugKey(device.Channel) == slugKey {
+				return device, nil
+			}
+			if retailPlayerDeviceSlugKey(device.ChannelList) == slugKey {
+				return device, nil
+			}
+			if retailPlayerDeviceSlugKey(device.Organization) == slugKey {
+				return device, nil
+			}
+		}
+	}
+
+	return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
+}
+
+func retailPlayerDeviceSlugKey(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(trimmed))
+
+	lastWasHyphen := false
+	for _, r := range trimmed {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+			lastWasHyphen = false
+			continue
+		}
+
+		if !lastWasHyphen && builder.Len() > 0 {
+			builder.WriteRune('-')
+			lastWasHyphen = true
+		}
+	}
+
+	result := strings.Trim(builder.String(), "-")
+	return result
+}
+
 func fetchRetailPlayerDevice(ctx context.Context, deviceID string) (retailPlayerDevice, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
@@ -748,6 +874,7 @@ type retailPlayerDeviceStatusResponse struct {
 	Status         map[string]any             `json:"status"`
 	StreamMetadata []map[string]any           `json:"streamMetadata"`
 	Artwork        *retailPlayerStatusArtwork `json:"artwork,omitempty"`
+	Device         *retailPlayerDevice        `json:"device,omitempty"`
 }
 
 type retailPlayerCommandRequest struct {
