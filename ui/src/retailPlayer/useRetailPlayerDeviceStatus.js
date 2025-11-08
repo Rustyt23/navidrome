@@ -634,8 +634,6 @@ const initialChannelState = {
 }
 
 const useRetailPlayerDeviceStatus = (slugParam) => {
-  const isApiEnabled = Boolean(config.retailPlayerDevicesEnabled)
-
   const deviceIdentifier = useMemo(() => {
     if (!slugParam) {
       return ''
@@ -649,8 +647,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
   const normalizedSlugKey = useMemo(() => deviceSlugKey(deviceIdentifier), [deviceIdentifier])
 
+  const [apiCapability, setApiCapability] = useState(() => ({
+    isEnabled: Boolean(config.retailPlayerDevicesEnabled),
+    hasChecked: Boolean(config.retailPlayerDevicesEnabled),
+  }))
+
+  const shouldAttemptApi = apiCapability.isEnabled || !apiCapability.hasChecked
+
   const [baseDevice, setBaseDevice] = useState(() => {
-    if (!isApiEnabled) {
+    if (!shouldAttemptApi) {
       const devices = RetailPlayerMockService.listDevices()
       return selectDeviceBySlug(devices, normalizedSlugKey)
     }
@@ -667,72 +672,76 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     setRefreshIndex((previous) => previous + 1)
   }, [])
 
+  const applyMockDeviceState = useCallback(() => {
+    const devices = RetailPlayerMockService.listDevices()
+    const selectedDevice = selectDeviceBySlug(devices, normalizedSlugKey)
+    setBaseDevice(selectedDevice || null)
+
+    if (!selectedDevice) {
+      setStatusState(initialStatusState)
+      setChannelState(initialChannelState)
+      return false
+    }
+
+    const mockDevice = RetailPlayerMockService.getDevice(selectedDevice.apiId)
+    if (!mockDevice) {
+      setStatusState(initialStatusState)
+      setChannelState(initialChannelState)
+      return false
+    }
+
+    const resolvedChannel =
+      normalizeValue(mockDevice.channel) || normalizeValue(selectedDevice.channel)
+
+    const statusPayload = {
+      status: {
+        channel: resolvedChannel,
+        activeStreamName: resolvedChannel,
+        volume: mockDevice.volume,
+        isMuted: mockDevice.isMuted,
+        isConnected: mockDevice.isConnected,
+        hasSignal: mockDevice.hasSignal,
+      },
+      streamMetadata: [],
+    }
+
+    const channelPayload = Array.isArray(mockDevice.schedules)
+      ? mockDevice.schedules
+          .map((schedule) => {
+            if (!schedule || typeof schedule !== 'object') {
+              return null
+            }
+            const id = normalizeValue(schedule.key) || normalizeValue(schedule.label)
+            const name = normalizeValue(schedule.label) || normalizeValue(schedule.key)
+            if (!id && !name) {
+              return null
+            }
+            return { id: id || name, name: name || id }
+          })
+          .filter(Boolean)
+      : []
+
+    setStatusState({
+      data: statusPayload,
+      error: null,
+      isLoading: false,
+      fetchedAt: new Date(),
+    })
+    setChannelState({
+      data: channelPayload,
+      error: null,
+      isLoading: false,
+      fetchedAt: new Date(),
+    })
+
+    return true
+  }, [normalizedSlugKey])
+
   useEffect(() => {
-    if (!isApiEnabled) {
+    if (!shouldAttemptApi) {
       setDevicesLoading(false)
       setDevicesError(null)
-
-      const devices = RetailPlayerMockService.listDevices()
-      const selectedDevice = selectDeviceBySlug(devices, normalizedSlugKey)
-      setBaseDevice(selectedDevice || null)
-
-      if (!selectedDevice) {
-        setStatusState(initialStatusState)
-        setChannelState(initialChannelState)
-        return undefined
-      }
-
-      const mockDevice = RetailPlayerMockService.getDevice(selectedDevice.apiId)
-      if (!mockDevice) {
-        setStatusState(initialStatusState)
-        setChannelState(initialChannelState)
-        return undefined
-      }
-
-      const resolvedChannel =
-        normalizeValue(mockDevice.channel) || normalizeValue(selectedDevice.channel)
-
-      const statusPayload = {
-        status: {
-          channel: resolvedChannel,
-          activeStreamName: resolvedChannel,
-          volume: mockDevice.volume,
-          isMuted: mockDevice.isMuted,
-          isConnected: mockDevice.isConnected,
-          hasSignal: mockDevice.hasSignal,
-        },
-        streamMetadata: [],
-      }
-
-      const channelPayload = Array.isArray(mockDevice.schedules)
-        ? mockDevice.schedules
-            .map((schedule) => {
-              if (!schedule || typeof schedule !== 'object') {
-                return null
-              }
-              const id = normalizeValue(schedule.key) || normalizeValue(schedule.label)
-              const name = normalizeValue(schedule.label) || normalizeValue(schedule.key)
-              if (!id && !name) {
-                return null
-              }
-              return { id: id || name, name: name || id }
-            })
-            .filter(Boolean)
-        : []
-
-      setStatusState({
-        data: statusPayload,
-        error: null,
-        isLoading: false,
-        fetchedAt: new Date(),
-      })
-      setChannelState({
-        data: channelPayload,
-        error: null,
-        isLoading: false,
-        fetchedAt: new Date(),
-      })
-
+      applyMockDeviceState()
       return undefined
     }
 
@@ -768,6 +777,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
           return
         }
 
+        setApiCapability({ isEnabled: true, hasChecked: true })
+
         const mappedDevice = mapResponseDevice(json?.device)
         const fallbackDevice =
           mappedDevice ||
@@ -795,6 +806,21 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
           return
         }
 
+        const status = typeof err?.status === 'number' ? err.status : null
+        const message = normalizeValue(err?.body?.message || err?.body).toLowerCase()
+        const integrationDisabled =
+          status === 404 && message.includes('retail player integration disabled')
+
+        if (integrationDisabled) {
+          setApiCapability({ isEnabled: false, hasChecked: true })
+          applyMockDeviceState()
+          setDevicesLoading(false)
+          setDevicesError(null)
+          return
+        }
+
+        setApiCapability({ isEnabled: true, hasChecked: true })
+
         setBaseDevice(null)
         setChannelState(initialChannelState)
         setStatusState({
@@ -804,7 +830,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
           fetchedAt: new Date(),
         })
         setDevicesLoading(false)
-        if (err?.status && err.status !== 404) {
+        if (status && status !== 404) {
           setDevicesError(err)
         } else {
           setDevicesError(null)
@@ -815,10 +841,16 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       abortController.abort()
       setDevicesLoading(false)
     }
-  }, [deviceIdentifier, isApiEnabled, normalizedSlugKey, refreshIndex])
+  }, [
+    applyMockDeviceState,
+    deviceIdentifier,
+    normalizedSlugKey,
+    refreshIndex,
+    shouldAttemptApi,
+  ])
 
   useEffect(() => {
-    if (!isApiEnabled) {
+    if (!apiCapability.isEnabled) {
       return undefined
     }
 
@@ -863,7 +895,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return () => {
       abortController.abort()
     }
-  }, [baseDevice?.channelList, devicesLoading, isApiEnabled])
+  }, [apiCapability.isEnabled, baseDevice?.channelList, devicesLoading])
 
   const normalizedDevice = useMemo(
     () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
@@ -1009,7 +1041,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     devicesError,
     channelListError: channelState.error,
     notFound,
-    isApiEnabled,
+    isApiEnabled: apiCapability.isEnabled,
     lastUpdated: statusState.fetchedAt,
   }
 }
