@@ -289,7 +289,7 @@ const PlaylistSongs = ({
                 return ''
               }
               if (typeof value === 'string') {
-                return value.replace(/^_/, '')
+                return value.replace(/^_+/, '')
               }
               return value
             }}
