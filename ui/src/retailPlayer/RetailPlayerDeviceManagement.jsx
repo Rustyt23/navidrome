@@ -35,8 +35,10 @@ import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
 import PropTypes from 'prop-types'
 import { useHistory } from 'react-router-dom'
+import { useDrag, useDrop } from 'react-dnd'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 import AddToFolderDialog from './AddToFolderDialog'
+import { RetailPlayerDndItemTypes } from './dndTypes'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -223,6 +225,19 @@ row: {
       outlineOffset: -2,
     },
   },
+  dropTarget: {
+    transition: 'background-color 120ms ease, box-shadow 120ms ease',
+  },
+  dropAllowed: {
+    backgroundColor: fade(theme.palette.primary.main, 0.08),
+  },
+  dropActive: {
+    backgroundColor: fade(theme.palette.primary.main, 0.16),
+    boxShadow: `inset 0 0 0 2px ${fade(theme.palette.primary.main, 0.32)}`,
+  },
+  dragging: {
+    opacity: 0.55,
+  },
   selectedRow: {
     backgroundColor: fade(theme.palette.primary.main, 0.12),
   },
@@ -318,6 +333,213 @@ row: {
     },
   },
 }))
+
+const FolderRow = ({
+  node,
+  deviceCount,
+  classes,
+  isSelected,
+  onEnterFolder,
+  onEditFolder,
+  onToggleSelection,
+  onDropDevice,
+}) => {
+  const [{ isOver, canDrop }, dropRef] = useDrop(
+    () => ({
+      accept: RetailPlayerDndItemTypes.DEVICE,
+      canDrop: (item) => Boolean(item?.deviceId) && Boolean(node?.id),
+      drop: (item, monitor) => {
+        if (!monitor.didDrop() && item?.deviceId && node?.id) {
+          onDropDevice(item.deviceId, node.id)
+        }
+      },
+      collect: (monitor) => ({
+        isOver: monitor.isOver({ shallow: true }),
+        canDrop: monitor.canDrop(),
+      }),
+    }),
+    [node?.id, onDropDevice],
+  )
+
+  const handleCheckboxClick = (event) => {
+    event.stopPropagation()
+    onToggleSelection(node?.id)
+  }
+
+  const rowClassName = clsx(
+    classes.row,
+    classes.folderRow,
+    classes.interactiveRow,
+    classes.dropTarget,
+    isSelected && classes.selectedRow,
+    canDrop && classes.dropAllowed,
+    isOver && classes.dropActive,
+  )
+
+  return (
+    <div
+      ref={dropRef}
+      className={rowClassName}
+      role="button"
+      tabIndex={0}
+      onClick={() => onEnterFolder(node?.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onEnterFolder(node?.id)
+        }
+      }}
+      aria-label={`Open folder ${node?.name}`}
+    >
+      <div className={classes.selectCell}>
+        <Checkbox
+          color="primary"
+          checked={isSelected}
+          onChange={handleCheckboxClick}
+          onClick={handleCheckboxClick}
+          inputProps={{ 'aria-label': `Select folder ${node?.name}` }}
+          style={{ transform: 'scale(0.8)' }}
+        />
+      </div>
+      <div className={classes.nameCell}>
+        <FolderIcon className={classes.nameIcon} />
+        <div className={classes.nameLabel}>
+          <Typography variant="body1" className={classes.nameTitle}>
+            {node?.name}
+          </Typography>
+        </div>
+      </div>
+      <div className={classes.typeCell}>Folder</div>
+      <div className={classes.countCell}>{deviceCount}</div>
+      <div className={classes.actionsCell}>
+        <Tooltip title="Edit folder">
+          <IconButton
+            size="small"
+            onClick={(event) => {
+              event.stopPropagation()
+              onEditFolder(node?.id)
+            }}
+            aria-label={`Edit folder ${node?.name}`}
+          >
+            <EditIcon style={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
+      </div>
+    </div>
+  )
+}
+
+FolderRow.propTypes = {
+  node: PropTypes.shape({
+    id: PropTypes.string,
+    name: PropTypes.string,
+  }).isRequired,
+  deviceCount: PropTypes.number.isRequired,
+  classes: PropTypes.object.isRequired,
+  isSelected: PropTypes.bool.isRequired,
+  onEnterFolder: PropTypes.func.isRequired,
+  onEditFolder: PropTypes.func.isRequired,
+  onToggleSelection: PropTypes.func.isRequired,
+  onDropDevice: PropTypes.func.isRequired,
+}
+
+const DeviceRow = ({
+  node,
+  classes,
+  isSelected,
+  onNavigate,
+  onEditDevice,
+  onToggleSelection,
+}) => {
+  const [{ isDragging }, dragRef] = useDrag(
+    () => ({
+      type: RetailPlayerDndItemTypes.DEVICE,
+      canDrag: () => Boolean(node?.id),
+      item: { deviceId: node?.id },
+      collect: (monitor) => ({
+        isDragging: monitor.isDragging(),
+      }),
+    }),
+    [node?.id],
+  )
+
+  const handleCheckboxClick = (event) => {
+    event.stopPropagation()
+    onToggleSelection(node?.id)
+  }
+
+  const className = clsx(
+    classes.row,
+    classes.interactiveRow,
+    isSelected && classes.selectedRow,
+    isDragging && classes.dragging,
+  )
+
+  return (
+    <div
+      ref={dragRef}
+      className={className}
+      role="button"
+      tabIndex={0}
+      onClick={() => onNavigate(node)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onNavigate(node)
+        }
+      }}
+      aria-label={`Open device ${node?.name}`}
+    >
+      <div className={classes.selectCell}>
+        <Checkbox
+          color="primary"
+          checked={isSelected}
+          onChange={handleCheckboxClick}
+          onClick={handleCheckboxClick}
+          inputProps={{ 'aria-label': `Select device ${node?.name}` }}
+          style={{ transform: 'scale(0.8)' }}
+        />
+      </div>
+      <div className={classes.nameCell}>
+        <SpeakerGroupIcon className={classes.nameIcon} />
+        <div className={classes.nameLabel}>
+          <Typography variant="body1" className={classes.nameTitle}>
+            {node?.name}
+          </Typography>
+        </div>
+      </div>
+      <div className={classes.typeCell}>Device</div>
+      <div className={classes.countCell}>—</div>
+      <div className={classes.actionsCell}>
+        <Tooltip title="Edit device">
+          <IconButton
+            size="small"
+            onClick={(event) => {
+              event.stopPropagation()
+              onEditDevice(node?.id)
+            }}
+            aria-label={`Edit device ${node?.name}`}
+          >
+            <EditIcon style={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
+      </div>
+    </div>
+  )
+}
+
+DeviceRow.propTypes = {
+  node: PropTypes.shape({
+    id: PropTypes.string,
+    name: PropTypes.string,
+    treeKey: PropTypes.string,
+  }).isRequired,
+  classes: PropTypes.object.isRequired,
+  isSelected: PropTypes.bool.isRequired,
+  onNavigate: PropTypes.func.isRequired,
+  onEditDevice: PropTypes.func.isRequired,
+  onToggleSelection: PropTypes.func.isRequired,
+}
 
 const FolderDialog = ({ open, onClose, onSubmit, initialValues }) => {
   const classes = useStyles()
@@ -530,7 +752,14 @@ const RetailPlayerDeviceManagement = () => {
   const history = useHistory()
   const {
     state: { tree, folders, devices, loading, error },
-    actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
+    actions: {
+      createFolder,
+      updateFolder,
+      createDevice,
+      updateDevice,
+      deleteNodes,
+      assignDeviceToFolder,
+    },
   } = useRetailPlayerDeviceStore()
   const [folderDialog, setFolderDialog] = useState({
     open: false,
@@ -971,13 +1200,6 @@ const RetailPlayerDeviceManagement = () => {
     })
   }, [])
 
-  const handleRowKeyDown = (event, action) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      action()
-    }
-  }
-
   const countDevices = useCallback((node) => {
     if (!node || !Array.isArray(node.children)) {
       return 0
@@ -990,121 +1212,44 @@ const RetailPlayerDeviceManagement = () => {
     }, 0)
   }, [])
 
+  const handleDeviceDropOnFolder = useCallback(
+    (deviceId, folderId) => {
+      if (!deviceId || !folderId) {
+        return
+      }
+      assignDeviceToFolder({ id: deviceId, folderIds: [folderId] })
+    },
+    [assignDeviceToFolder],
+  )
+
   const renderRows = (nodes) =>
     nodes.map((node) => {
       if (node.type === 'folder') {
-        const deviceCount = countDevices(node)
-        const isSelected = selectedIds.has(node.id)
         return (
-          <div
+          <FolderRow
             key={`folder-row-${node.id}`}
-            className={clsx(
-              classes.row,
-              classes.folderRow,
-              classes.interactiveRow,
-              isSelected && classes.selectedRow,
-            )}
-            role="button"
-            tabIndex={0}
-            onClick={() => handleEnterFolder(node.id)}
-            onKeyDown={(event) => handleRowKeyDown(event, () => handleEnterFolder(node.id))}
-            aria-label={`Open folder ${node.name}`}
-          >
-            <div className={classes.selectCell}>
-              <Checkbox
-                color="primary"
-                checked={isSelected}
-                onChange={(event) => {
-                  event.stopPropagation()
-                  toggleNodeSelection(node.id)
-                }}
-                onClick={(event) => event.stopPropagation()}
-                inputProps={{ 'aria-label': `Select folder ${node.name}` }}
-                style={{ transform: 'scale(0.8)' }} 
-              />
-            </div>
-            <div className={classes.nameCell}>
-              <FolderIcon className={classes.nameIcon} />
-              <div className={classes.nameLabel}>
-                <Typography variant="body1" className={classes.nameTitle}>
-                  {node.name}
-                </Typography>
-              </div>
-            </div>
-            <div className={classes.typeCell}>Folder</div>
-            <div className={classes.countCell}>{deviceCount}</div>
-            <div className={classes.actionsCell}>
-              <Tooltip title="Edit folder">
-                <IconButton
-                  size="small"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    handleEditFolder(node.id)
-                  }}
-                  aria-label={`Edit folder ${node.name}`}
-                >
-                  <EditIcon style={{ fontSize: 15 }} />
-                </IconButton>
-              </Tooltip>
-            </div>
-          </div>
+            node={node}
+            deviceCount={countDevices(node)}
+            classes={classes}
+            isSelected={selectedIds.has(node.id)}
+            onEnterFolder={handleEnterFolder}
+            onEditFolder={handleEditFolder}
+            onToggleSelection={toggleNodeSelection}
+            onDropDevice={handleDeviceDropOnFolder}
+          />
         )
       }
-      const isSelected = selectedIds.has(node.id)
-      const rowKey = node.treeKey || node.id
-      return (
-        <div
-          key={`device-row-${rowKey}`}
-          className={clsx(
-            classes.row,
-            classes.interactiveRow,
-            isSelected && classes.selectedRow,
-          )}
-          role="button"
-          tabIndex={0}
-          onClick={() => handleNavigateToDevice(node)}
-          onKeyDown={(event) => handleRowKeyDown(event, () => handleNavigateToDevice(node))}
-          aria-label={`Open device ${node.name}`}
-        >
-          <div className={classes.selectCell}>
-            <Checkbox
-              color="primary"
-              checked={isSelected}
-              onChange={(event) => {
-                event.stopPropagation()
-                toggleNodeSelection(node.id)
-              }}
-              onClick={(event) => event.stopPropagation()}
-              inputProps={{ 'aria-label': `Select device ${node.name}` }}
-              style={{ transform: 'scale(0.8)' }}
-            />
-          </div>
-          <div className={classes.nameCell}>
-            <SpeakerGroupIcon className={classes.nameIcon} />
-            <div className={classes.nameLabel}>
-              <Typography variant="body1" className={classes.nameTitle}>
-                {node.name}
-              </Typography>
-            </div>
-          </div>
-          <div className={classes.typeCell}>Device</div>
-          <div className={classes.countCell}>—</div>
-          <div className={classes.actionsCell}>
-            <Tooltip title="Edit device">
-              <IconButton
-                size="small"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  handleEditDevice(node.id)
-                }}
-                aria-label={`Edit device ${node.name}`}
-              >
-                <EditIcon style={{ fontSize: 15 }} />
-              </IconButton>
-            </Tooltip>
-          </div>
-        </div>
-      )
+        return (
+          <DeviceRow
+            key={`device-row-${node.treeKey || node.id}`}
+            node={node}
+            classes={classes}
+            isSelected={selectedIds.has(node.id)}
+            onNavigate={handleNavigateToDevice}
+            onEditDevice={handleEditDevice}
+            onToggleSelection={toggleNodeSelection}
+          />
+        )
     })
 
   return (
