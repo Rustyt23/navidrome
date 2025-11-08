@@ -4,6 +4,7 @@ import { ButtonBase, Slider, Typography } from '@material-ui/core'
 import Tooltip from '@material-ui/core/Tooltip'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
+import LinkOffIcon from '@material-ui/icons/LinkOff'
 import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
 import VolumeOffIcon from '@material-ui/icons/VolumeOff'
 import VolumeUpIcon from '@material-ui/icons/VolumeUp'
@@ -147,29 +148,34 @@ const useStyles = makeStyles((theme) => {
     headerStatusGroup: {
       display: 'inline-flex',
       alignItems: 'center',
-      gap: theme.spacing(1.25),
+      gap: theme.spacing(1.5),
     },
-    headerStatusIndicator: {
-      width: 14,
-      height: 14,
-      borderRadius: '50%',
+    headerStatusIcon: {
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
-      boxShadow: `0 0 0 2px ${alpha(theme.palette.common.white, 0.65)}`,
-      transition: theme.transitions.create(['background-color', 'box-shadow', 'transform'], {
+      padding: theme.spacing(0.5),
+      borderRadius: theme.shape.borderRadius,
+      color: alpha(theme.palette.common.white, 0.8),
+      transition: theme.transitions.create(['color', 'transform'], {
         duration: theme.transitions.duration.shorter,
         easing: theme.transitions.easing.easeInOut,
       }),
       flexShrink: 0,
+      '& > svg': {
+        fontSize: theme.typography.pxToRem(26),
+      },
+      '&:focus-visible': {
+        outline: `2px solid ${alpha(accentColor, 0.85)}`,
+        outlineOffset: 2,
+        transform: 'scale(1.02)',
+      },
     },
-    headerStatusIndicatorOnline: {
-      backgroundColor: successMain,
-      boxShadow: `0 0 0 2px ${alpha(successMain, 0.35)}`,
+    headerStatusIconOnline: {
+      color: successMain,
     },
-    headerStatusIndicatorOffline: {
-      backgroundColor: dangerMain,
-      boxShadow: `0 0 0 2px ${alpha(dangerMain, 0.35)}`,
+    headerStatusIconOffline: {
+      color: dangerMain,
     },
     headerClock: {
       display: 'inline-flex',
@@ -1146,22 +1152,46 @@ const trackPool = useMemo(() => {
     }
     return true
   }, [statusUpTime])
-  const isDeviceOnline = hasStatusValue
-  const formattedUpTime = useMemo(() => {
+  const statusUpTimeSeconds = useMemo(() => {
     if (statusUpTime === undefined || statusUpTime === null) {
-      return ''
+      return null
     }
     if (typeof statusUpTime === 'number' && Number.isFinite(statusUpTime)) {
-      return Math.round(statusUpTime)
+      return Math.max(0, Math.round(statusUpTime))
     }
-    const parsed = Number.parseFloat(statusUpTime)
-    if (Number.isFinite(parsed)) {
-      return Math.round(parsed)
+    if (typeof statusUpTime === 'string') {
+      const trimmed = statusUpTime.trim()
+      if (trimmed === '') {
+        return null
+      }
+      const parsed = Number.parseFloat(trimmed)
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, Math.round(parsed))
+      }
     }
-    return statusUpTime
+    return null
   }, [statusUpTime])
+  const isDeviceOnline = hasStatusValue
+  const formattedUpTime = useMemo(() => {
+    if (statusUpTimeSeconds !== null) {
+      const totalSeconds = statusUpTimeSeconds
+      const days = Math.floor(totalSeconds / 86400)
+      const hours = Math.floor((totalSeconds % 86400) / 3600)
+      const minutes = Math.floor((totalSeconds % 3600) / 60)
+      const seconds = totalSeconds % 60
+      const pad = (value) => value.toString().padStart(2, '0')
+      return `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`
+    }
+    if (typeof statusUpTime === 'string' && statusUpTime.trim() !== '') {
+      return statusUpTime.trim()
+    }
+    if (typeof statusUpTime === 'number' && Number.isFinite(statusUpTime)) {
+      return String(statusUpTime)
+    }
+    return ''
+  }, [statusUpTime, statusUpTimeSeconds])
   const statusTooltipTitle = isDeviceOnline
-    ? `Uptime: ${formattedUpTime} seconds`
+    ? `Uptime: ${formattedUpTime}`
     : 'Device offline'
   const statusAriaLabel = isDeviceOnline ? 'Device online' : 'Device offline'
 
@@ -1578,14 +1608,20 @@ const trackPool = useMemo(() => {
             <span
               tabIndex={0}
               className={combineClasses(
-                classes.headerStatusIndicator,
+                classes.headerStatusIcon,
                 isDeviceOnline
-                  ? classes.headerStatusIndicatorOnline
-                  : classes.headerStatusIndicatorOffline,
+                  ? classes.headerStatusIconOnline
+                  : classes.headerStatusIconOffline,
               )}
               role="status"
               aria-label={statusAriaLabel}
-            />
+            >
+              {isDeviceOnline ? (
+                <LinkIcon />
+              ) : (
+                <LinkOffIcon />
+              )}
+            </span>
           </Tooltip>
           <div
             className={classes.headerClock}
