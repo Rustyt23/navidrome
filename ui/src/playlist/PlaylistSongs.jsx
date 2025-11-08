@@ -88,8 +88,10 @@ export const selectPlaylistTrackIds = ({
     })
     .then(({ data: records }) => {
       const preservedIds = idsToSelect.filter((id) => !pageIds.includes(id))
-      const allIds = records.map((record) => record.id)
-      onSelect([...new Set([...preservedIds, ...allIds])])
+      const playableIds = records
+        .filter((record) => !record?.missing)
+        .map((record) => record.id)
+      onSelect([...new Set([...preservedIds, ...playableIds])])
     })
     .catch(() => {
       onSelect(idsToSelect)

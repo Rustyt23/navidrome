@@ -1,8 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { selectPlaylistTrackIds } from './PlaylistSongs.jsx'
 
-const createRecords = (count, offset = 1) =>
-  Array.from({ length: count }, (_, index) => ({ id: index + offset }))
+const createRecords = (count, offset = 1, missingIds = []) =>
+  Array.from({ length: count }, (_, index) => {
+    const id = index + offset
+    return { id, missing: missingIds.includes(id) }
+  })
 
 describe('selectPlaylistTrackIds', () => {
   it('requests all playlist tracks when selecting the current page and more records exist', async () => {
@@ -11,7 +14,9 @@ describe('selectPlaylistTrackIds', () => {
     const onSelect = vi.fn()
     const getList = vi
       .fn()
-      .mockResolvedValue({ data: createRecords(contextTotal) })
+      .mockResolvedValue({
+        data: createRecords(contextTotal, 1, [3, 5, 7, 11]),
+      })
 
     await selectPlaylistTrackIds({
       idsToSelect,
@@ -31,10 +36,46 @@ describe('selectPlaylistTrackIds', () => {
       sort: { field: 'title', order: 'DESC' },
     })
 
-    expect(onSelect).toHaveBeenCalledWith(
-      expect.arrayContaining(Array.from({ length: contextTotal }, (_, index) => index + 1)),
-    )
-    expect(onSelect.mock.calls[0][0]).toHaveLength(contextTotal)
+    const expectedIds = createRecords(contextTotal, 1, [3, 5, 7, 11])
+      .filter((record) => !record.missing)
+      .map((record) => record.id)
+
+    expect(onSelect).toHaveBeenCalledWith(expectedIds)
+  })
+
+  it('preserves previously selected ids while excluding missing records', async () => {
+    const selectedIds = ['preserved-track']
+    const idsToSelect = [...selectedIds, 'track-1', 'track-2']
+    const pageIds = ['track-1', 'track-2']
+    const contextTotal = 4
+    const onSelect = vi.fn()
+    const getList = vi.fn().mockResolvedValue({
+      data: [
+        { id: 'track-1', missing: false },
+        { id: 'track-2', missing: true },
+        { id: 'track-3', missing: false },
+        { id: 'track-4', missing: false },
+      ],
+    })
+
+    await selectPlaylistTrackIds({
+      idsToSelect,
+      pageIds,
+      selectedIds,
+      contextTotal,
+      filterValues: {},
+      playlistId: 'playlist-id',
+      currentSort: undefined,
+      dataProvider: { getList },
+      onSelect,
+    })
+
+    expect(onSelect).toHaveBeenCalledWith([
+      'preserved-track',
+      'track-1',
+      'track-3',
+      'track-4',
+    ])
   })
 
   it('forwards idsToSelect when there is nothing else to load', async () => {
