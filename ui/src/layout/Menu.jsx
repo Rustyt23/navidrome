@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import {
   Collapse,
@@ -110,6 +110,20 @@ const useStyles = makeStyles((theme) => ({
     color: theme.palette.common.white,
     fontSize: theme.typography.pxToRem(16),
   },
+  deviceDragPreview: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    zIndex: 99999,
+    padding: '8px 12px',
+    borderRadius: 8,
+    background: 'rgba(40, 40, 40, 0.92)',
+    color: '#fff',
+    fontSize: 13,
+    lineHeight: 1,
+    boxShadow: '0 6px 24px rgba(0, 0, 0, 0.25)',
+    pointerEvents: 'none',
+  },
   dragging: {
     opacity: 0.55,
   },
@@ -128,6 +142,8 @@ const RetailPlayerDeviceMenuItem = ({
   const encodedSlug = encodeURIComponent(slug)
   const padding = theme.spacing(4 + depth * 2)
 
+  const dragPreviewRef = useRef(null)
+
   const [{ isDragging }, dragRef] = useDrag(
     () => ({
       type: RetailPlayerDndItemTypes.DEVICE,
@@ -140,6 +156,60 @@ const RetailPlayerDeviceMenuItem = ({
     [node?.id],
   )
 
+  const clearDragPreview = useCallback(() => {
+    if (dragPreviewRef.current) {
+      dragPreviewRef.current.remove()
+      dragPreviewRef.current = null
+    }
+  }, [])
+
+  const handleDragStart = useCallback(
+    (event) => {
+      if (!event?.dataTransfer) {
+        return
+      }
+
+      clearDragPreview()
+
+      event.dataTransfer.setData('text/plain', node?.name || '')
+
+      const label = node?.name || ''
+      if (!label) {
+        return
+      }
+
+      const preview = document.createElement('div')
+      preview.className = classes.deviceDragPreview
+      preview.textContent = label
+      document.body.appendChild(preview)
+      dragPreviewRef.current = preview
+
+      if (typeof event.dataTransfer.setDragImage === 'function') {
+        const { width, height } = preview.getBoundingClientRect()
+        event.dataTransfer.setDragImage(preview, width / 2, height / 2)
+      }
+
+      setTimeout(() => {
+        if (dragPreviewRef.current === preview) {
+          preview.remove()
+          dragPreviewRef.current = null
+        }
+      }, 0)
+    },
+    [classes.deviceDragPreview, clearDragPreview, node?.name],
+  )
+
+  const handleDragEnd = useCallback(() => {
+    clearDragPreview()
+  }, [clearDragPreview])
+
+  useEffect(
+    () => () => {
+      clearDragPreview()
+    },
+    [clearDragPreview],
+  )
+
   return (
     <div
       ref={dragRef}
@@ -147,6 +217,8 @@ const RetailPlayerDeviceMenuItem = ({
         classes.deviceDragWrapper,
         isDragging && classes.dragging,
       )}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
     >
       <MenuItemLink
         to={`/retailplayer/${encodedSlug}`}
