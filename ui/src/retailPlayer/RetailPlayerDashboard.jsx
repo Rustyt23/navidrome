@@ -670,13 +670,29 @@ const RetailPlayerDashboard = () => {
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      setCurrentTime(new Date())
+      setCurrentTime((previous) => {
+        if (previous instanceof Date && !Number.isNaN(previous.getTime())) {
+          return new Date(previous.getTime() + 1000)
+        }
+
+        if (deviceTime instanceof Date && !Number.isNaN(deviceTime.getTime())) {
+          return new Date(deviceTime.getTime() + 1000)
+        }
+
+        return new Date()
+      })
     }, 1000)
 
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [])
+  }, [deviceTime])
+
+  useEffect(() => {
+    if (deviceTime instanceof Date && !Number.isNaN(deviceTime.getTime())) {
+      setCurrentTime(deviceTime)
+    }
+  }, [deviceTime])
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -1098,11 +1114,17 @@ const trackPool = useMemo(() => {
   }, [device])
 
   const currentTimeLabel = useMemo(
-    () => formatTime(deviceTime, deviceTimeZone || undefined),
-    [deviceTime, deviceTimeZone],
+    () => formatTime(currentTime, deviceTimeZone || undefined),
+    [currentTime, deviceTimeZone],
   )
 
-  const headerTimeLabel = useMemo(() => formatTime(currentTime), [currentTime])
+  const headerTimeLabel = useMemo(() => {
+    const formattedTime = formatTime(currentTime, deviceTimeZone || undefined)
+    if (deviceTimeZone && formattedTime !== '--:--') {
+      return `${formattedTime} ${deviceTimeZone}`
+    }
+    return formattedTime
+  }, [currentTime, deviceTimeZone])
 
   const statusItems = useMemo(() => {
     if (!device) {
@@ -1116,7 +1138,11 @@ const trackPool = useMemo(() => {
         intent: device.isConnected ? 'success' : 'danger',
         label: 'Connected',
       },
-      { key: 'time', label: currentTimeLabel, labelForAria: 'Time' },
+      {
+        key: 'time',
+        label: currentTimeLabel,
+        labelForAria: deviceTimeZone ? `Time (${deviceTimeZone})` : 'Time',
+      },
       {
         key: 'signal',
         icon: SignalWifi4BarIcon,
@@ -1130,7 +1156,7 @@ const trackPool = useMemo(() => {
         label: isMuted ? 'Muted' : 'Audio Enabled',
       },
     ]
-  }, [currentTimeLabel, device, isMuted])
+  }, [currentTimeLabel, device, deviceTimeZone, isMuted])
 
   const handleToggleScheduleMenu = useCallback(() => {
     if (!availableSchedulesCount) {
@@ -1279,7 +1305,6 @@ const trackPool = useMemo(() => {
 
   const handleRefresh = useCallback(() => {
     refreshStatus()
-    setDeviceTime(new Date())
   }, [refreshStatus])
 
   const handleAdjustVolume = useCallback(
