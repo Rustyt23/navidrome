@@ -36,6 +36,7 @@ import clsx from 'clsx'
 import PropTypes from 'prop-types'
 import { useHistory } from 'react-router-dom'
 import { useDrag, useDrop } from 'react-dnd'
+import { getEmptyImage } from 'react-dnd-html5-backend'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 import AddToFolderDialog from './AddToFolderDialog'
 import { RetailPlayerDndItemTypes } from './dndTypes'
@@ -451,7 +452,7 @@ const DeviceRow = ({
   onEditDevice,
   onToggleSelection,
 }) => {
-  const [{ isDragging }, dragRef] = useDrag(
+  const [{ isDragging }, dragRef, previewRef] = useDrag(
     () => ({
       type: RetailPlayerDndItemTypes.DEVICE,
       canDrag: () => Boolean(node?.id),
@@ -462,6 +463,10 @@ const DeviceRow = ({
     }),
     [node?.id],
   )
+
+  useEffect(() => {
+    previewRef(getEmptyImage(), { captureDraggingState: true })
+  }, [previewRef])
 
   const handleCheckboxClick = (event) => {
     event.stopPropagation()

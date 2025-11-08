@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useSelector } from 'react-redux'
 import {
   Collapse,
@@ -20,6 +20,7 @@ import FolderIcon from '@material-ui/icons/Folder'
 import { useHistory } from 'react-router-dom'
 import { BiCog } from 'react-icons/bi'
 import { useDrag, useDrop } from 'react-dnd'
+import { getEmptyImage } from 'react-dnd-html5-backend'
 import { fade } from '@material-ui/core/styles/colorManipulator'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
@@ -128,7 +129,7 @@ const RetailPlayerDeviceMenuItem = ({
   const encodedSlug = encodeURIComponent(slug)
   const padding = theme.spacing(4 + depth * 2)
 
-  const [{ isDragging }, dragRef] = useDrag(
+  const [{ isDragging }, dragRef, previewRef] = useDrag(
     () => ({
       type: RetailPlayerDndItemTypes.DEVICE,
       canDrag: () => Boolean(node?.id),
@@ -139,6 +140,10 @@ const RetailPlayerDeviceMenuItem = ({
     }),
     [node?.id],
   )
+
+  useEffect(() => {
+    previewRef(getEmptyImage(), { captureDraggingState: true })
+  }, [previewRef])
 
   return (
     <div
