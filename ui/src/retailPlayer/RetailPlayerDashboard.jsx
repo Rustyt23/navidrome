@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha, makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
+import Tooltip from '@material-ui/core/Tooltip'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
+import LinkOffIcon from '@material-ui/icons/LinkOff'
 import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
 import VolumeOffIcon from '@material-ui/icons/VolumeOff'
 import VolumeUpIcon from '@material-ui/icons/VolumeUp'
@@ -142,6 +144,38 @@ const useStyles = makeStyles((theme) => {
     },
     headerCenter: {
       flex: 1,
+    },
+    headerStatusGroup: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: theme.spacing(1.5),
+    },
+    headerStatusIcon: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: theme.spacing(0.5),
+      borderRadius: theme.shape.borderRadius,
+      color: alpha(theme.palette.common.white, 0.8),
+      transition: theme.transitions.create(['color', 'transform'], {
+        duration: theme.transitions.duration.shorter,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      flexShrink: 0,
+      '& > svg': {
+        fontSize: theme.typography.pxToRem(26),
+      },
+      '&:focus-visible': {
+        outline: `2px solid ${alpha(accentColor, 0.85)}`,
+        outlineOffset: 2,
+        transform: 'scale(1.02)',
+      },
+    },
+    headerStatusIconOnline: {
+      color: successMain,
+    },
+    headerStatusIconOffline: {
+      color: dangerMain,
     },
     headerClock: {
       display: 'inline-flex',
@@ -1104,6 +1138,59 @@ const trackPool = useMemo(() => {
 
   const headerTimeLabel = useMemo(() => formatTime(currentTime), [currentTime])
 
+  const statusUpTime = device?.status?.upTime
+  const hasStatusValue = useMemo(() => {
+    if (statusUpTime === undefined || statusUpTime === null) {
+      return false
+    }
+    if (typeof statusUpTime === 'string') {
+      return statusUpTime.trim() !== ''
+    }
+    return true
+  }, [statusUpTime])
+  const statusUpTimeSeconds = useMemo(() => {
+    if (statusUpTime === undefined || statusUpTime === null) {
+      return null
+    }
+    if (typeof statusUpTime === 'number' && Number.isFinite(statusUpTime)) {
+      return Math.max(0, Math.round(statusUpTime))
+    }
+    if (typeof statusUpTime === 'string') {
+      const trimmed = statusUpTime.trim()
+      if (trimmed === '') {
+        return null
+      }
+      const parsed = Number.parseFloat(trimmed)
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, Math.round(parsed))
+      }
+    }
+    return null
+  }, [statusUpTime])
+  const isDeviceOnline = hasStatusValue
+  const formattedUpTime = useMemo(() => {
+    if (statusUpTimeSeconds !== null) {
+      const totalSeconds = statusUpTimeSeconds
+      const days = Math.floor(totalSeconds / 86400)
+      const hours = Math.floor((totalSeconds % 86400) / 3600)
+      const minutes = Math.floor((totalSeconds % 3600) / 60)
+      const seconds = totalSeconds % 60
+      const pad = (value) => value.toString().padStart(2, '0')
+      return `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`
+    }
+    if (typeof statusUpTime === 'string' && statusUpTime.trim() !== '') {
+      return statusUpTime.trim()
+    }
+    if (typeof statusUpTime === 'number' && Number.isFinite(statusUpTime)) {
+      return String(statusUpTime)
+    }
+    return ''
+  }, [statusUpTime, statusUpTimeSeconds])
+  const statusTooltipTitle = isDeviceOnline
+    ? `Uptime: ${formattedUpTime}`
+    : 'Device offline'
+  const statusAriaLabel = isDeviceOnline ? 'Device online' : 'Device offline'
+
   const statusItems = useMemo(() => {
     if (!device) {
       return []
@@ -1512,8 +1599,33 @@ const trackPool = useMemo(() => {
           <ArrowBackIcon className={classes.headerBackIcon} />
         </ButtonBase>
         <div className={classes.headerCenter} aria-hidden="true" />
-        <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
-          {headerTimeLabel}
+        <div className={classes.headerStatusGroup}>
+          <Tooltip title={statusTooltipTitle} placement="bottom">
+            <span
+              tabIndex={0}
+              className={combineClasses(
+                classes.headerStatusIcon,
+                isDeviceOnline
+                  ? classes.headerStatusIconOnline
+                  : classes.headerStatusIconOffline,
+              )}
+              role="status"
+              aria-label={statusAriaLabel}
+            >
+              {isDeviceOnline ? (
+                <LinkIcon />
+              ) : (
+                <LinkOffIcon />
+              )}
+            </span>
+          </Tooltip>
+          <div
+            className={classes.headerClock}
+            aria-live="polite"
+            aria-label={`Local time ${headerTimeLabel}`}
+          >
+            {headerTimeLabel}
+          </div>
         </div>
       </header>
 
