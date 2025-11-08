@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha, makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
+import Tooltip from '@material-ui/core/Tooltip'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
 import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
@@ -43,6 +44,46 @@ const formatTime = (date, timeZone) => {
         hour12: false,
       })
       .replace(/^24:/, '00:')
+  }
+}
+
+const formatTooltipDateTime = (date, timeZone) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const options = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    ...(timeZone ? { timeZone } : {}),
+  }
+
+  try {
+    const formatter = new Intl.DateTimeFormat([], options)
+    const parts = formatter.formatToParts(date)
+    const partMap = parts.reduce((accumulator, part) => {
+      if (!accumulator[part.type]) {
+        accumulator[part.type] = part.value
+      }
+      return accumulator
+    }, {})
+
+    if (partMap.year && partMap.month && partMap.day && partMap.hour && partMap.minute) {
+      return `${partMap.year}-${partMap.month}-${partMap.day} ${partMap.hour}:${partMap.minute}h`
+    }
+
+    return formatter.format(date)
+  } catch (err) {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hour = String(date.getHours()).padStart(2, '0')
+    const minute = String(date.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day} ${hour}:${minute}h`
   }
 }
 
@@ -871,6 +912,63 @@ const RetailPlayerDashboard = () => {
     return matched || schedules[0]
   }, [effectiveActiveChannelKey, schedules])
 
+  const timeTooltipContent = useMemo(() => {
+    const scheduleStatusRaw = normalizeValue(device?.status?.scheduleStatus)
+    const resolvedScheduleState =
+      scheduleStatusRaw ||
+      (typeof activeSchedule?.isActive === 'boolean'
+        ? activeSchedule.isActive
+          ? 'active'
+          : 'inactive'
+        : '')
+
+    const scheduleStateLabel = resolvedScheduleState
+      ? `${resolvedScheduleState.charAt(0).toUpperCase()}${resolvedScheduleState
+          .slice(1)
+          .toLowerCase()}`
+      : 'Unknown'
+
+    const formattedDateTime = formatTooltipDateTime(deviceTime, deviceTimeZone || undefined)
+    const timeZoneLabel = normalizeValue(deviceTimeZone)
+
+    const lines = [`Schedule state: ${scheduleStateLabel}`]
+
+    if (formattedDateTime) {
+      lines.push(
+        `Local time: ${formattedDateTime}${timeZoneLabel ? ` ${timeZoneLabel}` : ''}`,
+      )
+    } else if (timeZoneLabel) {
+      lines.push(`Local time: Unknown ${timeZoneLabel}`)
+    } else {
+      lines.push('Local time: Unknown')
+    }
+
+    return (
+      <>
+        {lines.map((line) => (
+          <Typography key={line} component="div" variant="body2">
+            {line}
+          </Typography>
+        ))}
+      </>
+    )
+  }, [activeSchedule?.isActive, device?.status?.scheduleStatus, deviceTime, deviceTimeZone])
+
+  const headerClockAriaLabel = useMemo(() => {
+    const formattedTooltipTime = formatTooltipDateTime(deviceTime, deviceTimeZone || undefined)
+    const timeZoneLabel = normalizeValue(deviceTimeZone)
+
+    if (formattedTooltipTime) {
+      return timeZoneLabel
+        ? `Device local time ${formattedTooltipTime} ${timeZoneLabel}`
+        : `Device local time ${formattedTooltipTime}`
+    }
+
+    return timeZoneLabel
+      ? `Device local time ${headerTimeLabel} ${timeZoneLabel}`
+      : `Device local time ${headerTimeLabel}`
+  }, [deviceTime, deviceTimeZone, headerTimeLabel])
+
   const sendDislikeNotification = useCallback(() => {
     if (!isApiEnabled || !deviceApiId) {
       return
@@ -1512,9 +1610,15 @@ const trackPool = useMemo(() => {
           <ArrowBackIcon className={classes.headerBackIcon} />
         </ButtonBase>
         <div className={classes.headerCenter} aria-hidden="true" />
-        <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
-          {headerTimeLabel}
-        </div>
+        <Tooltip title={timeTooltipContent} placement="bottom">
+          <div
+            className={classes.headerClock}
+            aria-live="polite"
+            aria-label={headerClockAriaLabel}
+          >
+            {headerTimeLabel}
+          </div>
+        </Tooltip>
       </header>
 
       <div className={classes.mainContent}>
