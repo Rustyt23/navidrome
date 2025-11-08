@@ -66,6 +66,7 @@ const RetailPlayerMenuDeviceLink = ({
         exact
         className={classes.deviceItem}
         style={{ paddingLeft }}
+        draggable={false}
       />
     </div>
   )
@@ -201,6 +202,8 @@ const useStyles = makeStyles((theme) => {
     dndWrapper: {
       width: '100%',
       borderRadius: theme.shape.borderRadius,
+      WebkitUserDrag: 'none',
+      userDrag: 'none',
     },
   }
 })
