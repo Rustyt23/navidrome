@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha, makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
+import Tooltip from '@material-ui/core/Tooltip'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
 import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
@@ -227,6 +228,15 @@ const useStyles = makeStyles((theme) => {
       color: successContrast,
       fontWeight: theme.typography.fontWeightMedium,
       fontSize: theme.typography.pxToRem(18),
+    },
+    timeTooltipContent: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(0.5),
+    },
+    timeTooltipValue: {
+      fontWeight: theme.typography.fontWeightMedium,
+      fontVariantNumeric: 'tabular-nums',
     },
     list: {
       borderRadius: theme.shape.borderRadius * 1.5,
@@ -650,7 +660,6 @@ const RetailPlayerDashboard = () => {
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
-  const [currentTime, setCurrentTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
@@ -667,16 +676,6 @@ const RetailPlayerDashboard = () => {
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-
-    return () => {
-      window.clearInterval(intervalId)
-    }
-  }, [])
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -1102,7 +1101,95 @@ const trackPool = useMemo(() => {
     [deviceTime, deviceTimeZone],
   )
 
-  const headerTimeLabel = useMemo(() => formatTime(currentTime), [currentTime])
+  const rawScheduleState = normalizeValue(device?.status?.scheduleStatus)
+  const scheduleStateLabel = rawScheduleState
+    ? (() => {
+        const lowered = rawScheduleState.toLowerCase()
+        return lowered.charAt(0).toUpperCase() + lowered.slice(1)
+      })()
+    : 'Unknown'
+
+  const tooltipLocalTimeLabel = useMemo(() => {
+    const statusLocalTime =
+      device?.status && typeof device.status.localTime === 'string'
+        ? device.status.localTime
+        : ''
+
+    let baseDate = null
+
+    if (statusLocalTime) {
+      const parsed = new Date(statusLocalTime)
+      if (!Number.isNaN(parsed.getTime())) {
+        baseDate = parsed
+      }
+    }
+
+    if (!baseDate && deviceTime instanceof Date && !Number.isNaN(deviceTime.getTime())) {
+      baseDate = deviceTime
+    }
+
+    if (!baseDate) {
+      return 'Unknown'
+    }
+
+    const zone = normalizeValue(deviceTimeZone)
+
+    const formatWithZone = (targetZone) => {
+      try {
+        const formatter = new Intl.DateTimeFormat('en-CA', {
+          timeZone: targetZone || undefined,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        })
+        const parts = formatter.formatToParts(baseDate)
+        let year = '----'
+        let month = '--'
+        let day = '--'
+        let hour = '--'
+        let minute = '--'
+
+        parts.forEach((part) => {
+          switch (part.type) {
+            case 'year':
+              year = part.value
+              break
+            case 'month':
+              month = part.value
+              break
+            case 'day':
+              day = part.value
+              break
+            case 'hour':
+              hour = part.value
+              break
+            case 'minute':
+              minute = part.value
+              break
+            default:
+              break
+          }
+        })
+
+        if (!year || !month || !day || !hour || !minute) {
+          return null
+        }
+
+        return `${year}-${month}-${day} ${hour}:${minute}h${
+          targetZone ? ` ${targetZone}` : ''
+        }`
+      } catch (err) {
+        return null
+      }
+    }
+
+    return formatWithZone(zone) || formatWithZone(null) || 'Unknown'
+  }, [device?.status, deviceTime, deviceTimeZone])
+
+  const headerTimeLabel = currentTimeLabel
 
   const statusItems = useMemo(() => {
     if (!device) {
@@ -1512,9 +1599,26 @@ const trackPool = useMemo(() => {
           <ArrowBackIcon className={classes.headerBackIcon} />
         </ButtonBase>
         <div className={classes.headerCenter} aria-hidden="true" />
-        <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
-          {headerTimeLabel}
-        </div>
+        <Tooltip
+          placement="bottom"
+          title={
+            <div className={classes.timeTooltipContent}>
+              <Typography variant="body2" component="div">
+                Schedule state: {scheduleStateLabel}
+              </Typography>
+              <Typography variant="body2" component="div">
+                Local time:
+              </Typography>
+              <Typography variant="body2" component="div" className={classes.timeTooltipValue}>
+                {tooltipLocalTimeLabel}
+              </Typography>
+            </div>
+          }
+        >
+          <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
+            {headerTimeLabel}
+          </div>
+        </Tooltip>
       </header>
 
       <div className={classes.mainContent}>
