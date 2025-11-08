@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha, makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
+import Tooltip from '@material-ui/core/Tooltip'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
 import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
@@ -142,6 +143,33 @@ const useStyles = makeStyles((theme) => {
     },
     headerCenter: {
       flex: 1,
+    },
+    headerStatusGroup: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: theme.spacing(1.25),
+    },
+    headerStatusIndicator: {
+      width: 14,
+      height: 14,
+      borderRadius: '50%',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow: `0 0 0 2px ${alpha(theme.palette.common.white, 0.65)}`,
+      transition: theme.transitions.create(['background-color', 'box-shadow', 'transform'], {
+        duration: theme.transitions.duration.shorter,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      flexShrink: 0,
+    },
+    headerStatusIndicatorOnline: {
+      backgroundColor: successMain,
+      boxShadow: `0 0 0 2px ${alpha(successMain, 0.35)}`,
+    },
+    headerStatusIndicatorOffline: {
+      backgroundColor: dangerMain,
+      boxShadow: `0 0 0 2px ${alpha(dangerMain, 0.35)}`,
     },
     headerClock: {
       display: 'inline-flex',
@@ -1104,6 +1132,35 @@ const trackPool = useMemo(() => {
 
   const headerTimeLabel = useMemo(() => formatTime(currentTime), [currentTime])
 
+  const statusUpTime = device?.status?.upTime
+  const hasStatusValue = useMemo(() => {
+    if (statusUpTime === undefined || statusUpTime === null) {
+      return false
+    }
+    if (typeof statusUpTime === 'string') {
+      return statusUpTime.trim() !== ''
+    }
+    return true
+  }, [statusUpTime])
+  const isDeviceOnline = hasStatusValue
+  const formattedUpTime = useMemo(() => {
+    if (statusUpTime === undefined || statusUpTime === null) {
+      return ''
+    }
+    if (typeof statusUpTime === 'number' && Number.isFinite(statusUpTime)) {
+      return Math.round(statusUpTime)
+    }
+    const parsed = Number.parseFloat(statusUpTime)
+    if (Number.isFinite(parsed)) {
+      return Math.round(parsed)
+    }
+    return statusUpTime
+  }, [statusUpTime])
+  const statusTooltipTitle = isDeviceOnline
+    ? `Uptime: ${formattedUpTime} seconds`
+    : 'Device offline'
+  const statusAriaLabel = isDeviceOnline ? 'Device online' : 'Device offline'
+
   const statusItems = useMemo(() => {
     if (!device) {
       return []
@@ -1512,8 +1569,27 @@ const trackPool = useMemo(() => {
           <ArrowBackIcon className={classes.headerBackIcon} />
         </ButtonBase>
         <div className={classes.headerCenter} aria-hidden="true" />
-        <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
-          {headerTimeLabel}
+        <div className={classes.headerStatusGroup}>
+          <Tooltip title={statusTooltipTitle} placement="bottom">
+            <span
+              tabIndex={0}
+              className={combineClasses(
+                classes.headerStatusIndicator,
+                isDeviceOnline
+                  ? classes.headerStatusIndicatorOnline
+                  : classes.headerStatusIndicatorOffline,
+              )}
+              role="status"
+              aria-label={statusAriaLabel}
+            />
+          </Tooltip>
+          <div
+            className={classes.headerClock}
+            aria-live="polite"
+            aria-label={`Local time ${headerTimeLabel}`}
+          >
+            {headerTimeLabel}
+          </div>
         </div>
       </header>
 
