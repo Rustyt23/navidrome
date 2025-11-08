@@ -213,6 +213,16 @@ row: {
   folderRow: {
     backgroundColor: fade(theme.palette.primary.main, 0.04),
   },
+  folderDropTarget: {
+    position: 'relative',
+    transition: theme.transitions.create(['background-color', 'box-shadow'], {
+      duration: theme.transitions.duration.shorter,
+    }),
+  },
+  folderDropTargetActive: {
+    backgroundColor: fade(theme.palette.primary.main, 0.16),
+    boxShadow: `inset 0 0 0 2px ${fade(theme.palette.primary.main, 0.35)}`,
+  },
   interactiveRow: {
     cursor: 'pointer',
     '&:hover': {
@@ -225,6 +235,9 @@ row: {
   },
   selectedRow: {
     backgroundColor: fade(theme.palette.primary.main, 0.12),
+  },
+  draggingRow: {
+    opacity: 0.6,
   },
   selectCell: {
     display: 'flex',
@@ -530,7 +543,21 @@ const RetailPlayerDeviceManagement = () => {
   const history = useHistory()
   const {
     state: { tree, folders, devices, loading, error },
-    actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
+    actions: {
+      createFolder,
+      updateFolder,
+      createDevice,
+      updateDevice,
+      deleteNodes,
+    },
+    dragState: {
+      draggedDevice,
+      setDraggedDevice,
+      dropTargetFolderId,
+      setDropTargetFolderId,
+      lastDeviceDrop,
+      setLastDeviceDrop,
+    },
   } = useRetailPlayerDeviceStore()
   const [folderDialog, setFolderDialog] = useState({
     open: false,
@@ -564,6 +591,8 @@ const RetailPlayerDeviceManagement = () => {
     })
     return map
   }, [devices])
+
+  const draggedDeviceId = draggedDevice?.id || null
 
   const folderChildrenMap = useMemo(() => {
     const map = new Map()
@@ -647,6 +676,20 @@ const RetailPlayerDeviceManagement = () => {
       return changed ? next : prev
     })
   }, [folders, devices])
+
+  useEffect(() => {
+    if (!lastDeviceDrop?.deviceId) {
+      return
+    }
+    setSelectedIds((previous) => {
+      if (!previous || !previous.has(lastDeviceDrop.deviceId)) {
+        return previous
+      }
+      const next = new Set(previous)
+      next.delete(lastDeviceDrop.deviceId)
+      return next
+    })
+  }, [lastDeviceDrop])
 
   const handleAddToFolderDialogClose = useCallback(() => {
     setAddToFolderDialogOpen(false)
@@ -990,6 +1033,158 @@ const RetailPlayerDeviceManagement = () => {
     }, 0)
   }, [])
 
+  const handleDeviceDragStart = useCallback(
+    (event, node) => {
+      if (!node || node.type !== 'device') {
+        return
+      }
+      if (event?.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move'
+        try {
+          event.dataTransfer.setData(
+            'application/json',
+            JSON.stringify({ deviceId: node.id }),
+          )
+        } catch {
+          // Ignore browsers that do not support custom data types
+        }
+        event.dataTransfer.setData('text/plain', node.id)
+      }
+      setDraggedDevice({
+        id: node.id,
+        sourceFolderId: node.parentFolderId || null,
+      })
+      setDropTargetFolderId(null)
+    },
+    [setDraggedDevice, setDropTargetFolderId],
+  )
+
+  const handleDeviceDragEnd = useCallback(() => {
+    setDraggedDevice(null)
+    setDropTargetFolderId(null)
+  }, [setDraggedDevice, setDropTargetFolderId])
+
+  const canDropDeviceOnFolder = useCallback(
+    (deviceId, folderId) => {
+      if (!deviceId || !folderId) {
+        return false
+      }
+      if (!folderMap.has(folderId)) {
+        return false
+      }
+      const device = deviceMap.get(deviceId)
+      if (!device) {
+        return false
+      }
+      if (draggedDevice?.sourceFolderId === folderId) {
+        return false
+      }
+      const currentFolders = Array.isArray(device.folderIds)
+        ? device.folderIds.filter(Boolean)
+        : device.folderId
+        ? [device.folderId].filter(Boolean)
+        : []
+      if (currentFolders.length === 1 && currentFolders[0] === folderId) {
+        return false
+      }
+      return true
+    },
+    [deviceMap, folderMap, draggedDevice],
+  )
+
+  const handleFolderDragOver = useCallback(
+    (event, folderId) => {
+      if (!draggedDeviceId) {
+        return
+      }
+      if (!canDropDeviceOnFolder(draggedDeviceId, folderId)) {
+        return
+      }
+      event.preventDefault()
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move'
+      }
+    },
+    [draggedDeviceId, canDropDeviceOnFolder],
+  )
+
+  const handleFolderDragEnter = useCallback(
+    (event, folderId) => {
+      if (!draggedDeviceId) {
+        return
+      }
+      if (!canDropDeviceOnFolder(draggedDeviceId, folderId)) {
+        return
+      }
+      event.preventDefault()
+      setDropTargetFolderId(folderId)
+    },
+    [draggedDeviceId, canDropDeviceOnFolder, setDropTargetFolderId],
+  )
+
+  const handleFolderDragLeave = useCallback((event, folderId) => {
+    if (!draggedDeviceId) {
+      return
+    }
+    const nextTarget = event.relatedTarget
+    if (event.currentTarget.contains(nextTarget)) {
+      return
+    }
+    setDropTargetFolderId((previous) => (previous === folderId ? null : previous))
+  }, [draggedDeviceId, setDropTargetFolderId])
+
+  const handleDeviceDropOnFolder = useCallback(
+    (deviceId, folderId) => {
+      if (!deviceId || !folderId) {
+        return
+      }
+      const device = deviceMap.get(deviceId)
+      if (!device) {
+        return
+      }
+      const existingFolderIds = Array.isArray(device.folderIds)
+        ? device.folderIds.filter(Boolean)
+        : device.folderId
+        ? [device.folderId].filter(Boolean)
+        : []
+      if (existingFolderIds.length === 1 && existingFolderIds[0] === folderId) {
+        return
+      }
+      updateDevice({ id: deviceId, folderIds: [folderId] })
+      setLastDeviceDrop({ deviceId, folderId, timestamp: Date.now() })
+    },
+    [deviceMap, updateDevice, setLastDeviceDrop],
+  )
+
+  const handleFolderDrop = useCallback(
+    (event, folderId) => {
+      if (!draggedDeviceId) {
+        return
+      }
+      if (!canDropDeviceOnFolder(draggedDeviceId, folderId)) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      handleDeviceDropOnFolder(draggedDeviceId, folderId)
+      setSelectedIds((previous) => {
+        if (!previous || !previous.has(draggedDeviceId)) {
+          return previous
+        }
+        const next = new Set(previous)
+        next.delete(draggedDeviceId)
+        return next
+      })
+      handleDeviceDragEnd()
+    },
+    [
+      draggedDeviceId,
+      canDropDeviceOnFolder,
+      handleDeviceDropOnFolder,
+      handleDeviceDragEnd,
+    ],
+  )
+
   const renderRows = (nodes) =>
     nodes.map((node) => {
       if (node.type === 'folder') {
@@ -1001,14 +1196,22 @@ const RetailPlayerDeviceManagement = () => {
             className={clsx(
               classes.row,
               classes.folderRow,
+              classes.folderDropTarget,
               classes.interactiveRow,
               isSelected && classes.selectedRow,
+              dropTargetFolderId === node.id &&
+                draggedDeviceId &&
+                classes.folderDropTargetActive,
             )}
             role="button"
             tabIndex={0}
             onClick={() => handleEnterFolder(node.id)}
             onKeyDown={(event) => handleRowKeyDown(event, () => handleEnterFolder(node.id))}
             aria-label={`Open folder ${node.name}`}
+            onDragOver={(event) => handleFolderDragOver(event, node.id)}
+            onDragEnter={(event) => handleFolderDragEnter(event, node.id)}
+            onDragLeave={(event) => handleFolderDragLeave(event, node.id)}
+            onDrop={(event) => handleFolderDrop(event, node.id)}
           >
             <div className={classes.selectCell}>
               <Checkbox
@@ -1059,12 +1262,16 @@ const RetailPlayerDeviceManagement = () => {
             classes.row,
             classes.interactiveRow,
             isSelected && classes.selectedRow,
+            draggedDeviceId === node.id && classes.draggingRow,
           )}
           role="button"
           tabIndex={0}
           onClick={() => handleNavigateToDevice(node)}
           onKeyDown={(event) => handleRowKeyDown(event, () => handleNavigateToDevice(node))}
           aria-label={`Open device ${node.name}`}
+          draggable
+          onDragStart={(event) => handleDeviceDragStart(event, node)}
+          onDragEnd={handleDeviceDragEnd}
         >
           <div className={classes.selectCell}>
             <Checkbox

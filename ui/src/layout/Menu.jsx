@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
 import {
   Collapse,
@@ -18,6 +18,7 @@ import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import FolderIcon from '@material-ui/icons/Folder'
 import { useHistory } from 'react-router-dom'
+import { fade } from '@material-ui/core/styles/colorManipulator'
 import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
@@ -63,15 +64,23 @@ const useStyles = makeStyles((theme) => ({
     '& .MuiListItemIcon-root': {
       minWidth: theme.spacing(4),
     },
-
-  '& .MuiListItemIcon-root svg': {
-    fontSize: theme.typography.pxToRem(16), 
-   },
-
+    '& .MuiListItemIcon-root svg': {
+      fontSize: theme.typography.pxToRem(16),
+    },
     '& .MuiTypography-body1': {
       fontSize: theme.typography.pxToRem(14),
       color: theme.palette.common.white,
     },
+  },
+  folderDropTarget: {
+    borderRadius: theme.shape.borderRadius / 2,
+    transition: theme.transitions.create(['background-color', 'box-shadow'], {
+      duration: theme.transitions.duration.shorter,
+    }),
+  },
+  folderDropTargetActive: {
+    backgroundColor: fade(theme.palette.primary.main, 0.18),
+    boxShadow: `inset 0 0 0 2px ${fade(theme.palette.primary.main, 0.35)}`,
   },
   folderChildren: {
     '& > *': {
@@ -178,8 +187,193 @@ const Menu = ({ dense = false }) => {
       tree: retailTree,
       loading: retailDevicesLoading,
       error: retailDevicesError,
+      folders: retailFolders,
+      devices: retailDevices,
+    },
+    actions: { updateDevice },
+    dragState: {
+      draggedDevice,
+      dropTargetFolderId,
+      setDropTargetFolderId,
+      setLastDeviceDrop,
     },
   } = useRetailPlayerDeviceStore()
+
+  const folderMap = useMemo(() => {
+    const map = new Map()
+    if (Array.isArray(retailFolders)) {
+      retailFolders.forEach((folder) => {
+        if (folder?.id) {
+          map.set(folder.id, folder)
+        }
+      })
+    }
+    return map
+  }, [retailFolders])
+
+  const deviceMap = useMemo(() => {
+    const map = new Map()
+    if (Array.isArray(retailDevices)) {
+      retailDevices.forEach((device) => {
+        if (device?.id) {
+          map.set(device.id, device)
+        }
+      })
+    }
+    return map
+  }, [retailDevices])
+
+  const draggedDeviceId = draggedDevice?.id || null
+
+  const canDropDeviceOnFolder = useCallback(
+    (deviceId, folderId) => {
+      if (!deviceId || !folderId) {
+        return false
+      }
+      if (!folderMap.has(folderId)) {
+        return false
+      }
+      const device = deviceMap.get(deviceId)
+      if (!device) {
+        return false
+      }
+      if (draggedDevice?.sourceFolderId === folderId) {
+        return false
+      }
+      const currentFolders = Array.isArray(device.folderIds)
+        ? device.folderIds.filter(Boolean)
+        : device.folderId
+        ? [device.folderId].filter(Boolean)
+        : []
+      if (currentFolders.length === 1 && currentFolders[0] === folderId) {
+        return false
+      }
+      return true
+    },
+    [deviceMap, folderMap, draggedDevice],
+  )
+
+  const extractDeviceIdFromEvent = useCallback(
+    (event) => {
+      if (draggedDeviceId) {
+        return draggedDeviceId
+      }
+      const transfer = event?.dataTransfer
+      if (!transfer) {
+        return null
+      }
+      try {
+        const raw = transfer.getData('application/json')
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          if (parsed?.deviceId) {
+            return parsed.deviceId
+          }
+        }
+      } catch (error) {
+        // Ignore malformed data
+      }
+      try {
+        const fallback = transfer.getData('text/plain')
+        if (fallback) {
+          return fallback
+        }
+      } catch (error) {
+        // Ignore malformed data
+      }
+      return null
+    },
+    [draggedDeviceId],
+  )
+
+  const handleFolderDragOver = useCallback(
+    (event, folderId) => {
+      if (!draggedDeviceId) {
+        return
+      }
+      if (!canDropDeviceOnFolder(draggedDeviceId, folderId)) {
+        return
+      }
+      event.preventDefault()
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move'
+      }
+    },
+    [draggedDeviceId, canDropDeviceOnFolder],
+  )
+
+  const handleFolderDragEnter = useCallback(
+    (event, folderId) => {
+      if (!draggedDeviceId) {
+        return
+      }
+      if (!canDropDeviceOnFolder(draggedDeviceId, folderId)) {
+        return
+      }
+      event.preventDefault()
+      setDropTargetFolderId(folderId)
+    },
+    [draggedDeviceId, canDropDeviceOnFolder, setDropTargetFolderId],
+  )
+
+  const handleFolderDragLeave = useCallback(
+    (event, folderId) => {
+      if (!draggedDeviceId) {
+        return
+      }
+      const nextTarget = event.relatedTarget
+      if (nextTarget && event.currentTarget.contains(nextTarget)) {
+        return
+      }
+      setDropTargetFolderId((previous) => (previous === folderId ? null : previous))
+    },
+    [draggedDeviceId, setDropTargetFolderId],
+  )
+
+  const handleDeviceDropOnFolder = useCallback(
+    (deviceId, folderId) => {
+      if (!deviceId || !folderId) {
+        return
+      }
+      const device = deviceMap.get(deviceId)
+      if (!device) {
+        return
+      }
+      const existingFolderIds = Array.isArray(device.folderIds)
+        ? device.folderIds.filter(Boolean)
+        : device.folderId
+        ? [device.folderId].filter(Boolean)
+        : []
+      if (existingFolderIds.length === 1 && existingFolderIds[0] === folderId) {
+        return
+      }
+      updateDevice({ id: deviceId, folderIds: [folderId] })
+      setLastDeviceDrop({ deviceId, folderId, timestamp: Date.now() })
+    },
+    [deviceMap, updateDevice, setLastDeviceDrop],
+  )
+
+  const handleFolderDrop = useCallback(
+    (event, folderId) => {
+      const deviceId = extractDeviceIdFromEvent(event)
+      if (!deviceId) {
+        return
+      }
+      if (!canDropDeviceOnFolder(deviceId, folderId)) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      handleDeviceDropOnFolder(deviceId, folderId)
+      setDropTargetFolderId(null)
+    },
+    [
+      extractDeviceIdFromEvent,
+      canDropDeviceOnFolder,
+      handleDeviceDropOnFolder,
+      setDropTargetFolderId,
+    ],
+  )
 
   const [openFolders, setOpenFolders] = useState({})
 
@@ -226,13 +420,23 @@ const Menu = ({ dense = false }) => {
           const isOpen = openFolders[node.id] ?? false
           const padding = theme.spacing(4 + depth * 2)
           const childPadding = theme.spacing(2)
+          const isActiveDropTarget =
+            dropTargetFolderId === node.id &&
+            !!draggedDeviceId &&
+            canDropDeviceOnFolder(draggedDeviceId, node.id)
           return (
             <React.Fragment key={`retailfolder-${node.id}`}>
               <MenuItem
                 dense={dense}
-                className={classes.folderItem}
+                className={clsx(classes.folderItem, classes.folderDropTarget, {
+                  [classes.folderDropTargetActive]: isActiveDropTarget,
+                })}
                 style={{ paddingLeft: padding }}
                 onClick={() => toggleFolder(node.id)}
+                onDragOver={(event) => handleFolderDragOver(event, node.id)}
+                onDragEnter={(event) => handleFolderDragEnter(event, node.id)}
+                onDragLeave={(event) => handleFolderDragLeave(event, node.id)}
+                onDrop={(event) => handleFolderDrop(event, node.id)}
               >
                 <ListItemIcon>
                   {isOpen ? (
@@ -262,7 +466,16 @@ const Menu = ({ dense = false }) => {
     [
       classes.folderChildren,
       classes.folderItem,
+      classes.folderDropTarget,
+      classes.folderDropTargetActive,
       dense,
+      dropTargetFolderId,
+      draggedDeviceId,
+      canDropDeviceOnFolder,
+      handleFolderDragEnter,
+      handleFolderDragLeave,
+      handleFolderDragOver,
+      handleFolderDrop,
       openFolders,
       renderDeviceLink,
       theme,

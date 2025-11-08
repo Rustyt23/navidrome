@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useMemo,
   useReducer,
+  useState,
 } from 'react'
 import PropTypes from 'prop-types'
 import { v4 as uuidv4 } from 'uuid'
@@ -366,6 +367,7 @@ const buildTree = (folders, devices) => {
         ...device,
         type: 'device',
         treeKey: `${device.id}-root`,
+        parentFolderId: null,
       })
       return
     }
@@ -375,6 +377,7 @@ const buildTree = (folders, devices) => {
         ...device,
         type: 'device',
         treeKey: `${device.id}-${folderId}`,
+        parentFolderId: folderId,
       }
       if (folderMap.has(folderId)) {
         folderMap.get(folderId).children.push(node)
@@ -442,6 +445,10 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
     [state.folders, state.devices],
   )
 
+  const [draggedDevice, setDraggedDevice] = useState(null)
+  const [dropTargetFolderId, setDropTargetFolderId] = useState(null)
+  const [lastDeviceDrop, setLastDeviceDrop] = useState(null)
+
   const createFolder = useCallback((payload) => {
     const basePayload = payload && typeof payload === 'object' ? payload : {}
     const folderPayload = {
@@ -483,6 +490,14 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         assignDeviceToFolder,
         deleteNodes,
       },
+      dragState: {
+        draggedDevice,
+        setDraggedDevice,
+        dropTargetFolderId,
+        setDropTargetFolderId,
+        lastDeviceDrop,
+        setLastDeviceDrop,
+      },
     }),
     [
       state,
@@ -493,6 +508,9 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
       updateDevice,
       assignDeviceToFolder,
       deleteNodes,
+      draggedDevice,
+      dropTargetFolderId,
+      lastDeviceDrop,
     ],
   )
 
