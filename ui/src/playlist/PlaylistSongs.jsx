@@ -277,7 +277,24 @@ const PlaylistSongs = ({
 
   const toggleableFields = useMemo(() => {
     return {
-      trackNumber: isDesktop && <TextField source="id" label={'#'} />,
+      trackNumber:
+        isDesktop && (
+          <FunctionField
+            source="id"
+            label={'#'}
+            sortBy={'id'}
+            render={(record) => {
+              const value = record?.id
+              if (value == null) {
+                return ''
+              }
+              if (typeof value === 'string') {
+                return value.replace(/^_/, '')
+              }
+              return value
+            }}
+          />
+        ),
       title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop && <AlbumLinkField source="album" />,
       artist: isDesktop && <ArtistLinkField source="artist" />,
