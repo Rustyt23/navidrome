@@ -37,6 +37,7 @@ import PlaylistSongBulkActions from './PlaylistSongBulkActions'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 import config from '../config'
 
+/* eslint-disable-next-line react-refresh/only-export-components */
 export const selectPlaylistTrackIds = ({
   idsToSelect,
   pageIds = [],
