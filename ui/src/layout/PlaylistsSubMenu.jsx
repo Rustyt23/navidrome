@@ -7,6 +7,7 @@ import {
 } from '@material-ui/core'
 import { BiCog } from 'react-icons/bi'
 import { useDrop } from 'react-dnd'
+import { getEmptyImage } from 'react-dnd-html5-backend'
 import { RiFolder3Fill, RiPlayListFill } from 'react-icons/ri'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
@@ -67,6 +68,20 @@ const useStyles = makeStyles((theme) => ({
   nested: { paddingLeft: theme.spacing(2) },
   depth: (props) => ({ paddingLeft: theme.spacing(2) + props.depth * theme.spacing(2) }),
   spinner: { marginLeft: 6 },
+  dragPreview: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    zIndex: 99999,
+    padding: '8px 12px',
+    borderRadius: 8,
+    background: 'rgba(40, 40, 40, 0.92)',
+    color: '#fff',
+    fontSize: 13,
+    lineHeight: 1,
+    boxShadow: '0 6px 24px rgba(0, 0, 0, 0.25)',
+    pointerEvents: 'none',
+  },
 }))
 
 const parentKey = (id) => (id == null || id === '' ? '' : String(id))
@@ -316,19 +331,81 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     [addTrackIdsToPlaylist, submitAddPayload],
   )
 
-  const { dragDropRef, isDragging } = useDragAndDrop(
+  const { dragDropRef, isDragging, setDragPreview } = useDragAndDrop(
     DraggableTypes.PLAYLIST,
     { id: pls.id, type: 'playlist', parentId: parentIdForDnD },
     canChangeTracks(pls) ? DraggableTypes.ALL : [],
     handleDrop
   )
 
+  const [dragNode, setDragNode] = useState(null)
+  const dragPreviewNodeRef = useRef(null)
+
+  const setListItemRef = useCallback(
+    (node) => {
+      setDragNode(node)
+      dragDropRef(node)
+    },
+    [dragDropRef],
+  )
+
+  useEffect(() => {
+    setDragPreview?.(getEmptyImage(), { captureDraggingState: true })
+  }, [setDragPreview])
+
+  useEffect(() => {
+    if (!dragNode) {
+      return undefined
+    }
+
+    const handleDragStart = (event) => {
+      if (!event?.dataTransfer) {
+        return
+      }
+
+      const label = pls?.name || 'Playlist'
+      const ghost = document.createElement('div')
+      ghost.className = classes.dragPreview
+      ghost.textContent = label
+      document.body.appendChild(ghost)
+      dragPreviewNodeRef.current = ghost
+
+      if (typeof event.dataTransfer.setDragImage === 'function') {
+        const { width, height } = ghost.getBoundingClientRect()
+        event.dataTransfer.setDragImage(ghost, width / 2, height / 2)
+      }
+
+      setTimeout(() => {
+        if (dragPreviewNodeRef.current === ghost) {
+          ghost.remove()
+          dragPreviewNodeRef.current = null
+        }
+      }, 0)
+    }
+
+    const cleanupGhost = () => {
+      if (dragPreviewNodeRef.current) {
+        dragPreviewNodeRef.current.remove()
+        dragPreviewNodeRef.current = null
+      }
+    }
+
+    dragNode.addEventListener('dragstart', handleDragStart)
+    dragNode.addEventListener('dragend', cleanupGhost)
+
+    return () => {
+      dragNode.removeEventListener('dragstart', handleDragStart)
+      dragNode.removeEventListener('dragend', cleanupGhost)
+      cleanupGhost()
+    }
+  }, [classes.dragPreview, dragNode, pls?.name])
+
   return (
     <ListItem
       button
       onClick={() => history.push(`/playlist/${pls.id}/show`)}
       className={`${classes.listItem} ${classes.depth}`}
-      ref={dragDropRef}
+      ref={setListItemRef}
       style={{ opacity: isDragging ? 0.5 : 1 }}
       onDragOver={handleNativeDragOver}
       onDrop={handleNativeDrop}
@@ -395,7 +472,7 @@ const FolderRow = memo(function FolderRow({
 
   const parentIdForDnD = node.parent_id ?? ''
 
-  const { dragDropRef, isDragging } = useDragAndDrop(
+  const { dragDropRef, isDragging, setDragPreview } = useDragAndDrop(
     DraggableTypes.FOLDER,
     { id: node.id, type: 'folder', parentId: parentIdForDnD },
     [DraggableTypes.FOLDER, DraggableTypes.PLAYLIST],
@@ -440,13 +517,75 @@ const FolderRow = memo(function FolderRow({
     playlists: (items || []).filter((i) => i.type === 'playlist'),
   }), [items])
 
+  const [dragNode, setDragNode] = useState(null)
+  const dragPreviewNodeRef = useRef(null)
+
+  const setListItemRef = useCallback(
+    (nodeElement) => {
+      setDragNode(nodeElement)
+      dragDropRef(nodeElement)
+    },
+    [dragDropRef],
+  )
+
+  useEffect(() => {
+    setDragPreview?.(getEmptyImage(), { captureDraggingState: true })
+  }, [setDragPreview])
+
+  useEffect(() => {
+    if (!dragNode) {
+      return undefined
+    }
+
+    const handleDragStart = (event) => {
+      if (!event?.dataTransfer) {
+        return
+      }
+
+      const label = node?.name || 'Folder'
+      const ghost = document.createElement('div')
+      ghost.className = classes.dragPreview
+      ghost.textContent = label
+      document.body.appendChild(ghost)
+      dragPreviewNodeRef.current = ghost
+
+      if (typeof event.dataTransfer.setDragImage === 'function') {
+        const { width, height } = ghost.getBoundingClientRect()
+        event.dataTransfer.setDragImage(ghost, width / 2, height / 2)
+      }
+
+      setTimeout(() => {
+        if (dragPreviewNodeRef.current === ghost) {
+          ghost.remove()
+          dragPreviewNodeRef.current = null
+        }
+      }, 0)
+    }
+
+    const cleanupGhost = () => {
+      if (dragPreviewNodeRef.current) {
+        dragPreviewNodeRef.current.remove()
+        dragPreviewNodeRef.current = null
+      }
+    }
+
+    dragNode.addEventListener('dragstart', handleDragStart)
+    dragNode.addEventListener('dragend', cleanupGhost)
+
+    return () => {
+      dragNode.removeEventListener('dragstart', handleDragStart)
+      dragNode.removeEventListener('dragend', cleanupGhost)
+      cleanupGhost()
+    }
+  }, [classes.dragPreview, dragNode, node?.name])
+
   return (
     <>
       <ListItem
         button
         onClick={() => history.push(`/folder/${node.id}/show`)}
         className={`${classes.listItem} ${classes.depth}`}
-        ref={dragDropRef}
+        ref={setListItemRef}
         style={{ opacity: isDragging ? 0.5 : 1 }}
       >
         <IconButton size="small" className={classes.toggleButton} onClick={toggle}>
