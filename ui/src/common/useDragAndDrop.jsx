@@ -6,6 +6,7 @@ const useDragAndDrop = (type, item, accepts, onDrop) => {
         item,
         collect: (monitor) => ({ isDragging: !!monitor.isDragging() }),
         options: { dropEffect: 'move' },
+        previewOptions: { offsetX: 0, offsetY: 0 },
     }))
 
     const [, dropRef] = useDrop(() => ({
