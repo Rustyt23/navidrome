@@ -281,7 +281,7 @@ export const SongDatagridRow = ({
     const preventTextSelection = (event) => {
       if (
         event?.target?.closest(
-          'button,input,textarea,select,a,[data-no-drag]',
+          'button,input,textarea,select,a,[data-no-drag],[role="button"],[role="checkbox"]',
         )
       ) {
         return
@@ -291,7 +291,7 @@ export const SongDatagridRow = ({
     node.addEventListener('selectstart', preventTextSelection)
 
     const interactiveSelector =
-      'button,input,textarea,select,a,[data-no-drag]'
+      'button,input,textarea,select,a,[data-no-drag],[role="button"],[role="checkbox"]'
     const interactiveElements = Array.from(
       node.querySelectorAll(interactiveSelector),
     )
@@ -312,7 +312,11 @@ export const SongDatagridRow = ({
 
   const handleDragStart = useCallback(
     (event) => {
-      if (event?.target?.closest('button,input,textarea,select,a,[data-no-drag]')) {
+      if (
+        event?.target?.closest(
+          'button,input,textarea,select,a,[data-no-drag],[role="button"],[role="checkbox"]',
+        )
+      ) {
         return
       }
       if (!event?.dataTransfer) {
