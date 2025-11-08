@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -101,6 +102,7 @@ type retailPlayerConfig struct {
 func (n *Router) addRetailPlayerRoute(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices", n.handleRetailPlayerDevices())
+		r.Get("/devices/lookup/{deviceSlug}", n.handleRetailPlayerDeviceLookup())
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
@@ -135,6 +137,63 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Error(ctx, "Unable to encode retail player devices response", "err", err)
 		}
+	}
+}
+
+func (n *Router) handleRetailPlayerDeviceLookup() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		rawSlugParam := strings.TrimSpace(chi.URLParam(r, "deviceSlug"))
+		if rawSlugParam == "" {
+			http.Error(w, "Retail player device slug is required", http.StatusBadRequest)
+			return
+		}
+
+		decodedSlug, err := url.PathUnescape(rawSlugParam)
+		if err != nil {
+			log.Warn(ctx, "Unable to decode retail player device slug", "slug", rawSlugParam, "err", err)
+			decodedSlug = rawSlugParam
+		}
+
+		normalizedSlug := strings.TrimSpace(decodedSlug)
+		if normalizedSlug == "" {
+			http.Error(w, "Retail player device slug is invalid", http.StatusBadRequest)
+			return
+		}
+
+		slugKey := retailPlayerDeviceSlugKey(normalizedSlug)
+		if slugKey == "" && rawSlugParam != normalizedSlug {
+			slugKey = retailPlayerDeviceSlugKey(rawSlugParam)
+		}
+		if slugKey == "" {
+			http.Error(w, "Retail player device slug is invalid", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Looking up retail player device", "slug", normalizedSlug, "slugKey", slugKey)
+
+		device, err := lookupRetailPlayerDevice(ctx, slugKey)
+		if err != nil {
+			if errors.Is(err, errRetailPlayerDeviceNotFound) {
+				log.Info(ctx, "Retail player device not found during lookup", "slug", normalizedSlug, "slugKey", slugKey)
+				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				return
+			}
+
+			log.Error(ctx, "Unable to lookup retail player device", "slug", normalizedSlug, "rawSlug", rawSlugParam, "err", err)
+			http.Error(w, "Unable to lookup retail player device", http.StatusBadGateway)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
+			"data": device,
+		})
 	}
 }
 
@@ -684,6 +743,61 @@ func fetchRetailPlayerDevice(ctx context.Context, deviceID string) (retailPlayer
 	}
 
 	return device, nil
+}
+
+func lookupRetailPlayerDevice(ctx context.Context, slugKey string) (retailPlayerDevice, error) {
+	response, err := fetchRetailPlayerDevices(ctx)
+	if err != nil {
+		return retailPlayerDevice{}, err
+	}
+
+	for _, device := range response.Data {
+		if retailPlayerDeviceMatchesSlug(device, slugKey) {
+			return device, nil
+		}
+	}
+
+	return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
+}
+
+var retailPlayerSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+func retailPlayerDeviceMatchesSlug(device retailPlayerDevice, slugKey string) bool {
+	if slugKey == "" {
+		return false
+	}
+
+	candidates := []string{
+		retailPlayerDevicePrimarySlug(device),
+		device.Name,
+		device.ID,
+	}
+
+	for _, candidate := range candidates {
+		if retailPlayerDeviceSlugKey(candidate) == slugKey {
+			return true
+		}
+	}
+
+	return false
+}
+
+func retailPlayerDevicePrimarySlug(device retailPlayerDevice) string {
+	if strings.TrimSpace(device.Name) != "" {
+		return device.Name
+	}
+	return device.ID
+}
+
+func retailPlayerDeviceSlugKey(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return ""
+	}
+
+	slug := retailPlayerSlugPattern.ReplaceAllString(normalized, "-")
+	slug = strings.Trim(slug, "-")
+	return slug
 }
 
 func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID string) (retailPlayerChannelsResponse, error) {
