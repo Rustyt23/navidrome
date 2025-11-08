@@ -399,13 +399,31 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
   const activeSchedule = schedules.find((schedule) => schedule.isActive) || schedules[0]
 
+  let activeStreamMetadata = metadataCandidate || null
+
+  if (!activeStreamMetadata && activeSchedule) {
+    const activeChannelName = normalizeValue(activeSchedule?.metadata?.channelName)
+    if (activeChannelName) {
+      activeStreamMetadata =
+        streamMetadata.find(
+          (item) => normalizeValue(item?.channelName) === activeChannelName,
+        ) || null
+    }
+  }
+
+  if (!activeStreamMetadata && streamMetadata.length) {
+    activeStreamMetadata = streamMetadata[0]
+  }
+
   const activeScheduleMetadata =
     activeSchedule && activeSchedule.metadata && typeof activeSchedule.metadata === 'object'
       ? activeSchedule.metadata
       : {}
   const streamMetadataDetails =
-    metadataCandidate && metadataCandidate.metadata && typeof metadataCandidate.metadata === 'object'
-      ? metadataCandidate.metadata
+    activeStreamMetadata &&
+    activeStreamMetadata.metadata &&
+    typeof activeStreamMetadata.metadata === 'object'
+      ? activeStreamMetadata.metadata
       : {}
 
   const combinedMetadata = { ...activeScheduleMetadata }
@@ -529,12 +547,21 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     Boolean(normalizeValue(status.activeStream) || normalizeValue(status.activeStreamName)) ||
     Boolean(activeSchedule)
 
+  const streamMetadataTimeZone =
+    normalizeValue(activeStreamMetadata?.metadata?.timeZone) ||
+    normalizeValue(activeStreamMetadata?.timeZone)
+
   const deviceTimeZone =
-    normalizeValue(baseDevice.timeZone) || normalizeValue(status.timeZone)
-  const localTime = typeof status.localTime === 'string' ? status.localTime : null
+    streamMetadataTimeZone ||
+    normalizeValue(baseDevice.timeZone) ||
+    normalizeValue(status.timeZone)
+
+  const statusLocalTime = typeof status.localTime === 'string' ? status.localTime : null
+  const streamMetadataLocalTime = normalizeValue(activeStreamMetadata?.localTime)
+  const localTime = streamMetadataLocalTime || statusLocalTime
 
   const normalizedStatus = { ...status }
-  if (deviceTimeZone && !normalizedStatus.timeZone) {
+  if (deviceTimeZone) {
     normalizedStatus.timeZone = deviceTimeZone
   }
   if (localTime) {
