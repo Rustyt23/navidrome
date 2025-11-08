@@ -496,6 +496,8 @@ const DeviceRow = ({
           checked={isSelected}
           onChange={handleCheckboxClick}
           onClick={handleCheckboxClick}
+          onMouseDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
           inputProps={{ 'aria-label': `Select device ${node?.name}` }}
           style={{ transform: 'scale(0.8)' }}
         />
