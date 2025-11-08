@@ -366,6 +366,7 @@ const buildTree = (folders, devices) => {
         ...device,
         type: 'device',
         treeKey: `${device.id}-root`,
+        parentFolderId: null,
       })
       return
     }
@@ -375,6 +376,7 @@ const buildTree = (folders, devices) => {
         ...device,
         type: 'device',
         treeKey: `${device.id}-${folderId}`,
+        parentFolderId: folderId,
       }
       if (folderMap.has(folderId)) {
         folderMap.get(folderId).children.push(node)
