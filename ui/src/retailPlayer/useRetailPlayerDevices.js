@@ -69,7 +69,8 @@ const fetchRetailPlayerDevices = async (signal) => {
   return { devices, enabled: true }
 }
 
-const useRetailPlayerDevices = () => {
+const useRetailPlayerDevices = (options = {}) => {
+  const { enabled = true } = options
   const [devices, setDevices] = useState(() => {
     if (config.retailPlayerDevicesEnabled) {
       return []
@@ -79,10 +80,22 @@ const useRetailPlayerDevices = () => {
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isApiEnabled, setIsApiEnabled] = useState(
-    Boolean(config.retailPlayerDevicesEnabled),
+    Boolean(config.retailPlayerDevicesEnabled && enabled),
   )
 
   useEffect(() => {
+    if (!enabled) {
+      setIsApiEnabled(Boolean(config.retailPlayerDevicesEnabled && enabled))
+      if (config.retailPlayerDevicesEnabled) {
+        setDevices([])
+      } else {
+        setDevices(RetailPlayerMockService.listDevices())
+      }
+      setIsLoading(false)
+      setError(null)
+      return undefined
+    }
+
     const url = buildDevicesUrl()
     if (!url) {
       setIsApiEnabled(false)
@@ -115,7 +128,7 @@ const useRetailPlayerDevices = () => {
     return () => {
       abortController.abort()
     }
-  }, [])
+  }, [enabled])
 
   return {
     devices,
@@ -125,4 +138,5 @@ const useRetailPlayerDevices = () => {
   }
 }
 
+export { mapDevice }
 export default useRetailPlayerDevices

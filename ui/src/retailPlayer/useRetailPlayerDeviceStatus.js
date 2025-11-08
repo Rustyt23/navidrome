@@ -4,6 +4,7 @@ import subsonic from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
 import { baseUrl } from '../utils'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
+import useRetailPlayerDeviceLookup from './useRetailPlayerDeviceLookup'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
 
 const buildStatusUrl = (deviceId) =>
@@ -584,13 +585,6 @@ const initialChannelState = {
 }
 
 const useRetailPlayerDeviceStatus = (slugParam) => {
-  const {
-    devices,
-    error: devicesError,
-    isLoading: devicesLoading,
-    isApiEnabled,
-  } = useRetailPlayerDevices()
-
   const normalizedSlugKey = useMemo(() => {
     if (!slugParam) {
       return ''
@@ -602,7 +596,27 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
   }, [slugParam])
 
+  const shouldUseDeviceList = !normalizedSlugKey
+
+  const {
+    devices,
+    error: deviceListError,
+    isLoading: deviceListLoading,
+    isApiEnabled: isDeviceListApiEnabled,
+  } = useRetailPlayerDevices({ enabled: shouldUseDeviceList })
+
+  const {
+    device: lookupDevice,
+    error: lookupError,
+    isLoading: lookupLoading,
+    isApiEnabled: isLookupApiEnabled,
+  } = useRetailPlayerDeviceLookup(shouldUseDeviceList ? null : slugParam)
+
   const baseDevice = useMemo(() => {
+    if (!shouldUseDeviceList) {
+      return lookupDevice || null
+    }
+
     if (!devices.length) {
       return null
     }
@@ -620,7 +634,11 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       devices.find((device) => deviceSlugKey(device.id) === normalizedSlugKey) ||
       null
     )
-  }, [devices, normalizedSlugKey])
+  }, [devices, lookupDevice, normalizedSlugKey, shouldUseDeviceList])
+
+  const devicesLoading = shouldUseDeviceList ? deviceListLoading : lookupLoading
+  const devicesError = shouldUseDeviceList ? deviceListError : lookupError
+  const isApiEnabled = shouldUseDeviceList ? isDeviceListApiEnabled : isLookupApiEnabled
 
   const [statusState, setStatusState] = useState(initialStatusState)
   const [refreshIndex, setRefreshIndex] = useState(0)
