@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useSelector } from 'react-redux'
 import {
   Collapse,
@@ -19,6 +19,9 @@ import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import FolderIcon from '@material-ui/icons/Folder'
 import { useHistory } from 'react-router-dom'
 import { BiCog } from 'react-icons/bi'
+import { useDrag, useDrop } from 'react-dnd'
+import { getEmptyImage } from 'react-dnd-html5-backend'
+import { fade } from '@material-ui/core/styles/colorManipulator'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
@@ -27,6 +30,7 @@ import DiscoverySubMenu from './DiscoverySubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
 import { useRetailPlayerDeviceStore } from '../retailPlayer/RetailPlayerDeviceStoreContext'
+import { RetailPlayerDndItemTypes } from '../retailPlayer/dndTypes'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -78,6 +82,16 @@ const useStyles = makeStyles((theme) => ({
       width: '100%',
     },
   },
+  dropTarget: {
+    transition: 'background-color 120ms ease, box-shadow 120ms ease',
+  },
+  dropAllowed: {
+    backgroundColor: fade(theme.palette.primary.main, 0.08),
+  },
+  dropActive: {
+    backgroundColor: fade(theme.palette.primary.main, 0.16),
+    boxShadow: `inset 0 0 0 2px ${fade(theme.palette.primary.main, 0.32)}`,
+  },
   deviceItem: {
     paddingTop: theme.spacing(0.5),
     paddingBottom: theme.spacing(0.5),
@@ -90,11 +104,138 @@ const useStyles = makeStyles((theme) => ({
       color: theme.palette.primary.main,
     },
   },
+  deviceDragWrapper: {
+    width: '100%',
+  },
   deviceIcon: {
     color: theme.palette.common.white,
     fontSize: theme.typography.pxToRem(16),
   },
+  dragging: {
+    opacity: 0.55,
+  },
 }))
+
+const RetailPlayerDeviceMenuItem = ({
+  node,
+  depth,
+  classes,
+  dense,
+  sidebarIsOpen,
+  activeClassName,
+  theme,
+}) => {
+  const slug = node.slug || node.name || node.id
+  const encodedSlug = encodeURIComponent(slug)
+  const padding = theme.spacing(4 + depth * 2)
+
+  const [{ isDragging }, dragRef, previewRef] = useDrag(
+    () => ({
+      type: RetailPlayerDndItemTypes.DEVICE,
+      canDrag: () => Boolean(node?.id),
+      item: { deviceId: node?.id },
+      collect: (monitor) => ({
+        isDragging: monitor.isDragging(),
+      }),
+    }),
+    [node?.id],
+  )
+
+  useEffect(() => {
+    previewRef(getEmptyImage(), { captureDraggingState: true })
+  }, [previewRef])
+
+  return (
+    <div
+      ref={dragRef}
+      className={clsx(
+        classes.deviceDragWrapper,
+        isDragging && classes.dragging,
+      )}
+    >
+      <MenuItemLink
+        to={`/retailplayer/${encodedSlug}`}
+        activeClassName={activeClassName}
+        primaryText={node.name}
+        leftIcon={<SpeakerGroupIcon fontSize="small" className={classes.deviceIcon} />}
+        sidebarIsOpen={sidebarIsOpen}
+        dense={dense}
+        exact
+        className={classes.deviceItem}
+        style={{ paddingLeft: padding }}
+      />
+    </div>
+  )
+}
+
+const RetailPlayerFolderMenuItem = ({
+  node,
+  depth,
+  classes,
+  dense,
+  isOpen,
+  onToggle,
+  renderChildren,
+  onDropDevice,
+  theme,
+}) => {
+  const padding = theme.spacing(4 + depth * 2)
+  const childPadding = theme.spacing(2)
+
+  const [{ isOver, canDrop }, dropRef] = useDrop(
+    () => ({
+      accept: RetailPlayerDndItemTypes.DEVICE,
+      canDrop: (item) => Boolean(item?.deviceId) && Boolean(node?.id),
+      drop: (item, monitor) => {
+        if (!monitor.didDrop() && item?.deviceId && node?.id) {
+          onDropDevice(item.deviceId, node.id)
+        }
+      },
+      collect: (monitor) => ({
+        isOver: monitor.isOver({ shallow: true }),
+        canDrop: monitor.canDrop(),
+      }),
+    }),
+    [node?.id, onDropDevice],
+  )
+
+  return (
+    <React.Fragment>
+      <MenuItem
+        ref={dropRef}
+        dense={dense}
+        className={clsx(
+          classes.folderItem,
+          classes.dropTarget,
+          canDrop && classes.dropAllowed,
+          isOver && classes.dropActive,
+        )}
+        style={{ paddingLeft: padding }}
+        onClick={() => onToggle(node.id)}
+      >
+        <ListItemIcon>
+          {isOpen ? (
+            <ExpandMoreIcon fontSize="small" />
+          ) : (
+            <ChevronRightIcon fontSize="small" />
+          )}
+        </ListItemIcon>
+        <ListItemIcon>
+          <FolderIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText primary={node.name} />
+      </MenuItem>
+      <Collapse in={isOpen} timeout="auto" unmountOnExit>
+        <div
+          className={classes.folderChildren}
+          style={{ paddingLeft: childPadding }}
+        >
+          {renderChildren(node.children || [], depth + 1)}
+        </div>
+      </Collapse>
+    </React.Fragment>
+  )
+}
 
 const translatedResourceName = (resource, translate) =>
   translate(`resources.${resource.name}.name`, {
@@ -179,6 +320,7 @@ const Menu = ({ dense = false }) => {
       loading: retailDevicesLoading,
       error: retailDevicesError,
     },
+    actions: { assignDeviceToFolder },
   } = useRetailPlayerDeviceStore()
 
   const [openFolders, setOpenFolders] = useState({})
@@ -194,29 +336,14 @@ const Menu = ({ dense = false }) => {
     history.push('/retail-player/devices')
   }, [history])
 
-  const renderDeviceLink = useCallback(
-    (node, depth) => {
-      const slug = node.slug || node.name || node.id
-      const encodedSlug = encodeURIComponent(slug)
-      const padding = theme.spacing(4 + depth * 2)
-      return (
-        <MenuItemLink
-          key={`retailplayer-${node.apiId || node.id}`}
-          to={`/retailplayer/${encodedSlug}`}
-          activeClassName={classes.active}
-          primaryText={node.name}
-          leftIcon={
-            <SpeakerGroupIcon fontSize="small" className={classes.deviceIcon} />
-          }
-          sidebarIsOpen={open}
-          dense={dense}
-          exact
-          className={classes.deviceItem}
-          style={{ paddingLeft: padding }}
-        />
-      )
+  const handleDeviceDropOnFolder = useCallback(
+    (deviceId, folderId) => {
+      if (!deviceId || !folderId) {
+        return
+      }
+      assignDeviceToFolder({ id: deviceId, folderIds: [folderId] })
     },
-    [classes.active, classes.deviceIcon, classes.deviceItem, dense, open, theme],
+    [assignDeviceToFolder],
   )
 
   const renderRetailPlayerNodes = useCallback(
@@ -224,47 +351,40 @@ const Menu = ({ dense = false }) => {
       nodes.map((node) => {
         if (node.type === 'folder') {
           const isOpen = openFolders[node.id] ?? false
-          const padding = theme.spacing(4 + depth * 2)
-          const childPadding = theme.spacing(2)
           return (
-            <React.Fragment key={`retailfolder-${node.id}`}>
-              <MenuItem
-                dense={dense}
-                className={classes.folderItem}
-                style={{ paddingLeft: padding }}
-                onClick={() => toggleFolder(node.id)}
-              >
-                <ListItemIcon>
-                  {isOpen ? (
-                    <ExpandMoreIcon fontSize="small" />
-                  ) : (
-                    <ChevronRightIcon fontSize="small" />
-                  )}
-                </ListItemIcon>
-                <ListItemIcon>
-                  <FolderIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary={node.name} />
-              </MenuItem>
-              <Collapse in={isOpen} timeout="auto" unmountOnExit>
-                <div
-                  className={classes.folderChildren}
-                  style={{ paddingLeft: childPadding }}
-                >
-                  {renderRetailPlayerNodes(node.children || [], depth + 1)}
-                </div>
-              </Collapse>
-            </React.Fragment>
+            <RetailPlayerFolderMenuItem
+              key={`retailfolder-${node.id}`}
+              node={node}
+              depth={depth}
+              classes={classes}
+              dense={dense}
+              isOpen={isOpen}
+              onToggle={toggleFolder}
+              renderChildren={renderRetailPlayerNodes}
+              onDropDevice={handleDeviceDropOnFolder}
+              theme={theme}
+            />
           )
         }
-        return renderDeviceLink(node, depth)
+        return (
+          <RetailPlayerDeviceMenuItem
+            key={`retailplayer-${node.apiId || node.id}`}
+            node={node}
+            depth={depth}
+            classes={classes}
+            dense={dense}
+            sidebarIsOpen={open}
+            activeClassName={classes.active}
+            theme={theme}
+          />
+        )
       }),
     [
-      classes.folderChildren,
-      classes.folderItem,
+      classes,
       dense,
+      handleDeviceDropOnFolder,
+      open,
       openFolders,
-      renderDeviceLink,
       theme,
       toggleFolder,
     ],
