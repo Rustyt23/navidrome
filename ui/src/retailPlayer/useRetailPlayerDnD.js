@@ -1,5 +1,6 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useDrag, useDrop } from 'react-dnd'
+import { getEmptyImage } from 'react-dnd-html5-backend'
 
 export const RETAIL_PLAYER_DND_TYPES = {
   DEVICE: 'RETAIL_PLAYER_DEVICE',
@@ -10,7 +11,7 @@ export const useRetailPlayerDeviceDrag = ({
   deviceName,
   origin,
 }) => {
-  const [{ isDragging }, dragRef] = useDrag(
+  const [{ isDragging }, dragRef, previewRef] = useDrag(
     () => ({
       type: RETAIL_PLAYER_DND_TYPES.DEVICE,
       item: {
@@ -24,6 +25,10 @@ export const useRetailPlayerDeviceDrag = ({
     }),
     [deviceId, deviceName, origin],
   )
+
+  useEffect(() => {
+    previewRef(getEmptyImage(), { captureDraggingState: true })
+  }, [previewRef])
 
   return { dragRef, isDragging }
 }
