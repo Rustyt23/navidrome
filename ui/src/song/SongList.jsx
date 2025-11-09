@@ -139,38 +139,44 @@ const SongList = (props) => {
 
   const songs = useSelector((state) => state.admin.resources.song)
 
-  const handleRowClick = useCallback((id, basePath, record) => {
-      // Convert songs.data to an array if it's an object
-      const songsArray = Array.isArray(songs.data) ? songs.data : Object.values(songs.data);
+  const songsById = useMemo(() => {
+    if (!songs?.data) {
+      return {}
+    }
 
-      if (songsArray.length > 0 && Array.isArray(songs.list?.ids)) {
-        // Filter songs to include only those whose IDs exist in songs.list.ids
-        const filteredSongs = songsArray.filter(song => songs.list.ids.includes(song.id));
-
-        // Find the index of the selected song
-        const index = filteredSongs.findIndex(song => song.id === record.id);
-
-        if (index !== -1) {
-          // Rearrange array to start from the selected song
-          const orderedSongs = [
-            ...filteredSongs.slice(index),
-            ...filteredSongs.slice(0, index)
-          ];
-
-          // Convert the array into an object where key = song.id, value = song
-          // const updatedSongs = Object.fromEntries(orderedSongs.map(song => [song.id, song]));
-
-          // Convert array to an object with index-based keys, updating the song id as well
-          const updatedSongs = Object.fromEntries(
-            orderedSongs.map((song, idx) => 
-               [idx, song] // Setting both the key and `id` inside each song
-            )
-          );
-
-          dispatch(playTracks(updatedSongs,0));
+    if (Array.isArray(songs.data)) {
+      return songs.data.reduce((acc, song) => {
+        if (song?.id !== undefined) {
+          acc[song.id] = song
         }
+        return acc
+      }, {})
+    }
+
+    return songs.data
+  }, [songs?.data])
+
+  const handleRowClick = useCallback(
+    (id, basePath, record) => {
+      const listIds = songs?.list?.ids
+      if (!Array.isArray(listIds) || listIds.length === 0) {
+        return
       }
-    }, [dispatch, songs.data, songs.list?.ids]);
+
+      const availableIds = listIds.filter((songId) => songsById[songId])
+      if (availableIds.length === 0) {
+        return
+      }
+
+      const selectedId = record?.id ?? id
+      if (!selectedId || !songsById[selectedId]) {
+        return
+      }
+
+      dispatch(playTracks(songsById, availableIds, selectedId))
+    },
+    [dispatch, songs?.list?.ids, songsById],
+  )
 
   const toggleableFields = useMemo(() => {
     return {
