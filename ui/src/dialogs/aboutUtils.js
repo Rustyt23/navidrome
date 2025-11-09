@@ -1,6 +1,7 @@
 /**
  * TOML utility functions for configuration export
  */
+import { smartSort, SortType } from '../utils'
 
 /**
  * Flattens nested configuration object and generates environment variable names
@@ -80,11 +81,16 @@ export const separateAndSortConfigs = (configEntries) => {
     }
   })
 
-  // Sort configurations alphabetically
-  regularConfigs.sort((a, b) => a.key.localeCompare(b.key))
-  devConfigs.sort((a, b) => a.key.localeCompare(b.key))
+  const sortedRegular = smartSort(regularConfigs, {
+    accessor: (entry) => entry.key,
+    type: SortType.STRING,
+  })
+  const sortedDev = smartSort(devConfigs, {
+    accessor: (entry) => entry.key,
+    type: SortType.STRING,
+  })
 
-  return { regularConfigs, devConfigs }
+  return { regularConfigs: sortedRegular, devConfigs: sortedDev }
 }
 
 /**
@@ -252,27 +258,27 @@ export const configToToml = (configData, translate = (key) => key) => {
     }
 
     // Add dev sections
-    Object.keys(devSections)
-      .sort()
-      .forEach((sectionName) => {
+    smartSort(Object.keys(devSections), { type: SortType.STRING }).forEach(
+      (sectionName) => {
         tomlContent += `[${sectionName}]\n`
         devSections[sectionName].forEach(({ key, value }) => {
           tomlContent += `${escapeTomlKey(key)} = ${formatTomlValue(value)}\n`
         })
         tomlContent += '\n'
-      })
+      },
+    )
   }
 
   // Add sections
-  Object.keys(regularSections)
-    .sort()
-    .forEach((sectionName) => {
+  smartSort(Object.keys(regularSections), { type: SortType.STRING }).forEach(
+    (sectionName) => {
       tomlContent += `[${sectionName}]\n`
       regularSections[sectionName].forEach(({ key, value }) => {
         tomlContent += `${escapeTomlKey(key)} = ${formatTomlValue(value)}\n`
       })
       tomlContent += '\n'
-    })
+    },
+  )
 
   return tomlContent
 }
