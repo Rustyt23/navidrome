@@ -554,6 +554,15 @@ const RetailPlayerFolderRow = memo(
       onDrop: (deviceId, folderId) => onDeviceDrop(deviceId, folderId),
     })
 
+    const handleRowClick = (event) => {
+      if (event.shiftKey || event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        onToggleSelection(node.id, event)
+        return
+      }
+      onEnterFolder(node.id)
+    }
+
     return (
       <div
         ref={dropRef}
@@ -568,7 +577,7 @@ const RetailPlayerFolderRow = memo(
         )}
         role="button"
         tabIndex={0}
-        onClick={() => onEnterFolder(node.id)}
+        onClick={handleRowClick}
         onKeyDown={(event) => onKeyDown(event, () => onEnterFolder(node.id))}
         aria-label={`Open folder ${node.name}`}
       >
@@ -647,6 +656,15 @@ const RetailPlayerDeviceRow = memo(
       origin: 'management-list',
     })
 
+    const handleRowClick = (event) => {
+      if (event.shiftKey || event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        onToggleSelection(node.id, event)
+        return
+      }
+      onNavigate(node)
+    }
+
     return (
       <div
         ref={dragRef}
@@ -658,7 +676,7 @@ const RetailPlayerDeviceRow = memo(
         )}
         role="button"
         tabIndex={0}
-        onClick={() => onNavigate(node)}
+        onClick={handleRowClick}
         onKeyDown={(event) => onKeyDown(event, () => onNavigate(node))}
         aria-label={`Open device ${node.name}`}
       >
