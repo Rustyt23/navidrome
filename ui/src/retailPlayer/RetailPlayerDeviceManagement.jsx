@@ -43,6 +43,7 @@ import {
   useRetailPlayerFolderDrop,
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
+import useRetailPlayerChannelCounts from './useRetailPlayerChannelCounts'
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
@@ -636,6 +637,7 @@ const RetailPlayerDeviceRow = memo(
     node,
     isSelected,
     classes,
+    channelCount,
     onNavigate,
     onToggleSelection,
     onKeyDown,
@@ -684,7 +686,9 @@ const RetailPlayerDeviceRow = memo(
           </div>
         </div>
         <div className={classes.typeCell}>Device</div>
-        <div className={classes.countCell}>—</div>
+        <div className={classes.countCell}>
+          {typeof channelCount === 'number' ? channelCount : '—'}
+        </div>
         <div className={classes.actionsCell}>
           <Tooltip title="Edit device">
             <IconButton
@@ -711,10 +715,15 @@ RetailPlayerDeviceRow.propTypes = {
   }).isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
+  channelCount: PropTypes.number,
   onNavigate: PropTypes.func.isRequired,
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
+}
+
+RetailPlayerDeviceRow.defaultProps = {
+  channelCount: null,
 }
 
 RetailPlayerDeviceRow.displayName = 'RetailPlayerDeviceRow'
@@ -724,7 +733,7 @@ const RetailPlayerDeviceManagement = () => {
   const theme = useTheme()
   const history = useHistory()
   const {
-    state: { tree, folders, devices, loading, error },
+    state: { tree, folders, devices, loading, error, isApiEnabled },
     actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
   } = useRetailPlayerDeviceStore()
   const [folderDialog, setFolderDialog] = useState({
@@ -740,6 +749,8 @@ const RetailPlayerDeviceManagement = () => {
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
+  const { countsByDeviceId: channelCountsByDeviceId } =
+    useRetailPlayerChannelCounts(devices, isApiEnabled)
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -1269,12 +1280,14 @@ const RetailPlayerDeviceManagement = () => {
       }
       const isSelected = selectedIds.has(node.id)
       const rowKey = node.treeKey || node.id
+      const channelCount = channelCountsByDeviceId?.[node.id]
       return (
         <RetailPlayerDeviceRow
           key={`device-row-${rowKey}`}
           node={node}
           isSelected={isSelected}
           classes={classes}
+          channelCount={channelCount}
           onNavigate={handleNavigateToDevice}
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
@@ -1409,7 +1422,7 @@ const RetailPlayerDeviceManagement = () => {
           </div>
           <span>Name</span>
           <span>Type</span>
-          <span>No. of Devices</span>
+          <span>Devices / Channels</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
         {loading ? (
