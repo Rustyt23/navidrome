@@ -7,6 +7,7 @@ import {
 } from '@material-ui/core'
 import { BiCog } from 'react-icons/bi'
 import { useDrop } from 'react-dnd'
+import { getEmptyImage } from 'react-dnd-html5-backend'
 import { RiFolder3Fill, RiPlayListFill } from 'react-icons/ri'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
@@ -17,6 +18,7 @@ import { DraggableTypes, REST_URL } from '../consts'
 import config from '../config'
 import useDragAndDrop from '../common/useDragAndDrop'
 import httpClient from '../dataProvider/httpClient'
+import PlaylistDragPreview from './PlaylistDragPreview'
 
 const fetchPlaylistTrackIds = async (playlistId) => {
   const res = await httpClient(`${REST_URL}/playlist/${playlistId}/tracks`)
@@ -316,12 +318,16 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     [addTrackIdsToPlaylist, submitAddPayload],
   )
 
-  const { dragDropRef, isDragging } = useDragAndDrop(
+  const { dragDropRef, dragPreviewRef, isDragging } = useDragAndDrop(
     DraggableTypes.PLAYLIST,
-    { id: pls.id, type: 'playlist', parentId: parentIdForDnD },
+    { id: pls.id, type: 'playlist', parentId: parentIdForDnD, name: pls.name },
     canChangeTracks(pls) ? DraggableTypes.ALL : [],
     handleDrop
   )
+
+  useEffect(() => {
+    dragPreviewRef?.(getEmptyImage(), { captureDraggingState: true })
+  }, [dragPreviewRef])
 
   return (
     <ListItem
@@ -592,6 +598,7 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
       onAction={onPlaylistConfig}
       ref={dropRef}
     >
+      <PlaylistDragPreview />
       <List disablePadding>
         {!rootCached && rootDirty ? (
           <ListItem><CircularProgress size={16} className={classes.spinner} /></ListItem>

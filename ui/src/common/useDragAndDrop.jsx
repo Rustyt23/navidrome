@@ -1,7 +1,7 @@
 import { useDrag, useDrop } from 'react-dnd'
 
 const useDragAndDrop = (type, item, accepts, onDrop) => {
-    const [{ isDragging }, dragRef] = useDrag(() => ({
+    const [{ isDragging }, dragRef, previewRef] = useDrag(() => ({
         type,
         item,
         collect: (monitor) => ({ isDragging: !!monitor.isDragging() }),
@@ -15,6 +15,7 @@ const useDragAndDrop = (type, item, accepts, onDrop) => {
 
     return {
         dragDropRef: (node) => dragRef(dropRef(node)),
+        dragPreviewRef: previewRef,
         isDragging,
     }
 }
