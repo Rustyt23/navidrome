@@ -22,7 +22,7 @@ const useAssignRetailPlayerDeviceToFolder = () => {
 
   return useCallback(
     (deviceId, folderId) => {
-      if (!deviceId || !folderId) {
+      if (!deviceId) {
         return false
       }
 
@@ -32,7 +32,9 @@ const useAssignRetailPlayerDeviceToFolder = () => {
       }
 
       const currentFolderIds = normalizeFolderIds(targetDevice)
-      const nextFolderIds = [folderId]
+      const normalizedFolderId =
+        typeof folderId === 'string' && folderId.trim() !== '' ? folderId : null
+      const nextFolderIds = normalizedFolderId ? [normalizedFolderId] : []
       const unchanged =
         currentFolderIds.length === nextFolderIds.length &&
         currentFolderIds.every((id, index) => id === nextFolderIds[index])

@@ -67,3 +67,38 @@ export const useRetailPlayerFolderDrop = ({ folderId, onDrop }) => {
 
   return { dropRef, isOver, canDrop }
 }
+
+export const useRetailPlayerRootDrop = ({ onDrop }) => {
+  const handleDrop = useCallback(
+    (item) => {
+      if (!item?.deviceId) {
+        return
+      }
+      if (onDrop) {
+        onDrop(item.deviceId, null, item)
+      }
+    },
+    [onDrop],
+  )
+
+  const [{ isOver, canDrop }, dropRef] = useDrop(
+    () => ({
+      accept: RETAIL_PLAYER_DND_TYPES.DEVICE,
+      canDrop: (item) => Boolean(item?.deviceId),
+      drop: (item, monitor) => {
+        if (monitor.didDrop()) {
+          return undefined
+        }
+        handleDrop(item)
+        return { folderId: null }
+      },
+      collect: (monitor) => ({
+        isOver: monitor.isOver({ shallow: true }),
+        canDrop: monitor.canDrop(),
+      }),
+    }),
+    [handleDrop],
+  )
+
+  return { dropRef, isOver, canDrop }
+}

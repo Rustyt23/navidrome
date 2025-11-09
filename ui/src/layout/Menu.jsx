@@ -31,6 +31,7 @@ import useAssignRetailPlayerDeviceToFolder from '../retailPlayer/useAssignRetail
 import {
   useRetailPlayerDeviceDrag,
   useRetailPlayerFolderDrop,
+  useRetailPlayerRootDrop,
 } from '../retailPlayer/useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from '../retailPlayer/retailPlayerDnDStyles'
 
@@ -198,6 +199,9 @@ const useStyles = makeStyles((theme) => {
     dropTargetCanDrop: dndStyles.dropTargetCanDrop,
     dropTargetActive: dndStyles.dropTargetActive,
     dragging: dndStyles.dragItem,
+    retailPlayerRootDropZone: {
+      width: '100%',
+    },
     dndWrapper: {
       width: '100%',
       borderRadius: theme.shape.borderRadius,
@@ -306,6 +310,16 @@ const Menu = ({ dense = false }) => {
     [assignDeviceToFolder],
   )
 
+  const handleDeviceDropToRoot = useCallback(
+    (deviceId) => {
+      if (!deviceId) {
+        return
+      }
+      assignDeviceToFolder(deviceId, null)
+    },
+    [assignDeviceToFolder],
+  )
+
   const toggleFolder = useCallback((folderId) => {
     setOpenFolders((prev) => ({
       ...prev,
@@ -393,19 +407,39 @@ const Menu = ({ dense = false }) => {
     return renderRetailPlayerNodes(retailTree)
   }
 
+  const {
+    dropRef: retailPlayerRootDropRef,
+    isOver: isRetailPlayerRootOver,
+    canDrop: canDropOnRetailPlayerRoot,
+  } = useRetailPlayerRootDrop({
+    onDrop: (deviceId) => handleDeviceDropToRoot(deviceId),
+  })
+
   const renderRetailPlayerMenu = () => (
-    <SubMenu
-      handleToggle={() => handleToggle('menuRetailPlayer')}
-      isOpen={state.menuRetailPlayer}
-      sidebarIsOpen={open}
-      name="menu.retailPlayer.name"
-      icon={<SpeakerGroupIcon />}
-      dense={dense}
-      actionIcon={<BiCog />}
-      onAction={goToRetailPlayerSettings}
+    <div
+      ref={retailPlayerRootDropRef}
+      className={clsx(
+        classes.retailPlayerRootDropZone,
+        classes.dropTarget,
+        canDropOnRetailPlayerRoot && classes.dropTargetCanDrop,
+        canDropOnRetailPlayerRoot &&
+          isRetailPlayerRootOver &&
+          classes.dropTargetActive,
+      )}
     >
-      {renderRetailPlayerDevices()}
-    </SubMenu>
+      <SubMenu
+        handleToggle={() => handleToggle('menuRetailPlayer')}
+        isOpen={state.menuRetailPlayer}
+        sidebarIsOpen={open}
+        name="menu.retailPlayer.name"
+        icon={<SpeakerGroupIcon />}
+        dense={dense}
+        actionIcon={<BiCog />}
+        onAction={goToRetailPlayerSettings}
+      >
+        {renderRetailPlayerDevices()}
+      </SubMenu>
+    </div>
   )
 
   return (
