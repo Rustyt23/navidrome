@@ -16,11 +16,18 @@ import (
 )
 
 func ImageURL(r *http.Request, artID model.ArtworkID, size int) string {
+	return ImageURLWithOptions(r, artID, size, false)
+}
+
+func ImageURLWithOptions(r *http.Request, artID model.ArtworkID, size int, square bool) string {
 	token := encodeArtworkID(artID)
 	uri := path.Join(consts.URLPathPublicImages, token)
 	params := url.Values{}
 	if size > 0 {
 		params.Add("size", strconv.Itoa(size))
+	}
+	if square {
+		params.Add("square", "true")
 	}
 	return publicURL(r, uri, params)
 }

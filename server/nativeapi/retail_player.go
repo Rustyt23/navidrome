@@ -22,6 +22,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/server/public"
 	"github.com/navidrome/navidrome/utils"
 )
 
@@ -239,6 +240,7 @@ type retailPlayerConfig struct {
 
 func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
+		r.Get("/cover-art", n.handleRetailPlayerCoverArt())
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
@@ -350,6 +352,125 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Error(ctx, "Unable to encode retail player device status response", "identifier", deviceIdentifier, "resolvedID", resolvedID, "err", err)
+		}
+	}
+}
+
+func (n *Router) handleRetailPlayerCoverArt() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		query := r.URL.Query()
+
+		size := 0
+		if rawSize := strings.TrimSpace(query.Get("size")); rawSize != "" {
+			parsed, err := strconv.Atoi(rawSize)
+			if err != nil || parsed < 0 {
+				http.Error(w, "Invalid size parameter", http.StatusBadRequest)
+				return
+			}
+			size = parsed
+		}
+
+		square := false
+		if rawSquare := strings.TrimSpace(query.Get("square")); rawSquare != "" {
+			parsed, err := strconv.ParseBool(rawSquare)
+			if err != nil {
+				http.Error(w, "Invalid square parameter", http.StatusBadRequest)
+				return
+			}
+			square = parsed
+		}
+
+		var (
+			artworkID   model.ArtworkID
+			mediaFileID string
+		)
+
+		if rawArtworkID := strings.TrimSpace(query.Get("artworkId")); rawArtworkID != "" {
+			parsed, err := model.ParseArtworkID(rawArtworkID)
+			if err != nil {
+				http.Error(w, "Invalid artworkId", http.StatusBadRequest)
+				return
+			}
+			artworkID = parsed
+		} else {
+			title := strings.TrimSpace(query.Get("title"))
+			if title == "" {
+				http.Error(w, "artworkId or title is required", http.StatusBadRequest)
+				return
+			}
+			artist := strings.TrimSpace(query.Get("artist"))
+
+			repo := n.ds.MediaFile(ctx)
+			if repo == nil {
+				http.Error(w, "Artwork not found", http.StatusNotFound)
+				return
+			}
+
+			queries := buildRetailPlayerCoverArtQueries(title, artist)
+			for _, q := range queries {
+				if q == "" {
+					continue
+				}
+
+				files, err := repo.Search(q, 0, 10)
+				if err != nil {
+					log.Debug(ctx, "Retail player cover art search failed", "query", q, "err", err)
+					continue
+				}
+				if len(files) == 0 {
+					continue
+				}
+
+				matched := matchMediaFileByMetadata(title, artist, files)
+				if matched == nil {
+					continue
+				}
+
+				candidate := matched.CoverArtID()
+				if candidate.String() == "" {
+					continue
+				}
+
+				artworkID = candidate
+				mediaFileID = matched.ID
+				break
+			}
+
+			if artworkID.String() == "" {
+				http.Error(w, "Artwork not found", http.StatusNotFound)
+				return
+			}
+		}
+
+		if artworkID.String() == "" {
+			http.Error(w, "Artwork not found", http.StatusNotFound)
+			return
+		}
+
+		imageURL := public.ImageURLWithOptions(r, artworkID, size, square)
+		if imageURL == "" {
+			http.Error(w, "Artwork not found", http.StatusNotFound)
+			return
+		}
+
+		response := retailPlayerCoverArtResponse{
+			URL:       imageURL,
+			ArtworkID: artworkID.String(),
+		}
+		if mediaFileID != "" {
+			response.MediaFileID = mediaFileID
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Error(ctx, "Unable to encode retail player cover art response", "err", err)
 		}
 	}
 }
@@ -1159,6 +1280,12 @@ type retailPlayerStatusArtwork struct {
 	ArtworkID   string `json:"artworkId,omitempty"`
 }
 
+type retailPlayerCoverArtResponse struct {
+	URL         string `json:"url"`
+	ArtworkID   string `json:"artworkId,omitempty"`
+	MediaFileID string `json:"mediaFileId,omitempty"`
+}
+
 func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID string, command retailPlayerCommandRequest) (string, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
@@ -1478,6 +1605,85 @@ func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig, pathP
 	applyRetailPlayerHeaders(req, cfg)
 
 	return req, nil
+}
+
+func buildRetailPlayerCoverArtQueries(title, artist string) []string {
+	trimmedTitle := strings.TrimSpace(title)
+	trimmedArtist := strings.TrimSpace(artist)
+	queries := make([]string, 0, 4)
+	if trimmedArtist != "" && trimmedTitle != "" {
+		queries = append(queries, fmt.Sprintf("%s %s", trimmedArtist, trimmedTitle))
+		queries = append(queries, fmt.Sprintf("%s - %s", trimmedArtist, trimmedTitle))
+	}
+	if trimmedTitle != "" {
+		queries = append(queries, trimmedTitle)
+	}
+	if trimmedArtist != "" {
+		queries = append(queries, trimmedArtist)
+	}
+	return uniqueStringsInsensitive(queries)
+}
+
+func matchMediaFileByMetadata(title, artist string, files model.MediaFiles) *model.MediaFile {
+	if len(files) == 0 {
+		return nil
+	}
+
+	trimmedTitle := strings.TrimSpace(title)
+	trimmedArtist := strings.TrimSpace(artist)
+	lowerTitle := strings.ToLower(trimmedTitle)
+	lowerArtist := strings.ToLower(trimmedArtist)
+
+	if trimmedTitle != "" {
+		for _, file := range files {
+			if !strings.EqualFold(strings.TrimSpace(file.Title), trimmedTitle) {
+				continue
+			}
+			if trimmedArtist != "" {
+				if !strings.EqualFold(strings.TrimSpace(file.Artist), trimmedArtist) &&
+					!strings.EqualFold(strings.TrimSpace(file.AlbumArtist), trimmedArtist) {
+					continue
+				}
+			}
+			return &file
+		}
+	}
+
+	if trimmedTitle != "" {
+		for _, file := range files {
+			fileTitle := strings.TrimSpace(file.Title)
+			if fileTitle == "" {
+				continue
+			}
+			if !strings.Contains(strings.ToLower(fileTitle), lowerTitle) {
+				continue
+			}
+			if trimmedArtist == "" {
+				return &file
+			}
+			if strings.EqualFold(strings.TrimSpace(file.Artist), trimmedArtist) ||
+				strings.EqualFold(strings.TrimSpace(file.AlbumArtist), trimmedArtist) ||
+				strings.Contains(strings.ToLower(strings.TrimSpace(file.Artist)), lowerArtist) ||
+				strings.Contains(strings.ToLower(strings.TrimSpace(file.AlbumArtist)), lowerArtist) {
+				return &file
+			}
+		}
+	}
+
+	if trimmedArtist != "" {
+		for _, file := range files {
+			if strings.Contains(strings.ToLower(strings.TrimSpace(file.Artist)), lowerArtist) ||
+				strings.Contains(strings.ToLower(strings.TrimSpace(file.AlbumArtist)), lowerArtist) {
+				return &file
+			}
+		}
+	}
+
+	if trimmedTitle != "" {
+		return selectBestMediaFileMatch(trimmedTitle, files)
+	}
+
+	return &files[0]
 }
 
 func buildRetailPlayerChannelListRequest(ctx context.Context, cfg retailPlayerConfig, channelListID string, pathParts ...string) (*http.Request, error) {
