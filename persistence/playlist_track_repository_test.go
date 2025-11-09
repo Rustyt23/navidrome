@@ -2,13 +2,16 @@ package persistence
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/model/id"
 	"github.com/navidrome/navidrome/model/request"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -86,6 +89,116 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			for _, track := range tracks {
 				Expect(track.Path).ToNot(Equal("phantom.mp3"))
 			}
+		})
+	})
+
+	Describe("string column sorting", func() {
+		var (
+			playlist         model.Playlist
+			mediaRepo        model.MediaFileRepository
+			insertedTracks   []model.MediaFile
+			insertedTrackIDs []string
+		)
+
+		BeforeEach(func() {
+			mediaRepo = NewMediaFileRepository(ctx, GetDBXBuilder())
+			insertedTracks = []model.MediaFile{
+				mf(model.MediaFile{
+					ID:       id.NewRandom(),
+					Title:    "Playlist Alpha",
+					ArtistID: songAntenna.ArtistID,
+					Artist:   songAntenna.Artist,
+					AlbumID:  songAntenna.AlbumID,
+					Album:    songAntenna.Album,
+					Path:     p(fmt.Sprintf("/playlist/string-alpha-%s.mp3", id.NewRandom())),
+					Genre:    "rock",
+					Comment:  "The Avayas",
+				}),
+				mf(model.MediaFile{
+					ID:       id.NewRandom(),
+					Title:    "Playlist Beta",
+					ArtistID: songAntenna.ArtistID,
+					Artist:   songAntenna.Artist,
+					AlbumID:  songAntenna.AlbumID,
+					Album:    songAntenna.Album,
+					Path:     p(fmt.Sprintf("/playlist/string-beta-%s.mp3", id.NewRandom())),
+					Genre:    "Blues",
+					Comment:  "beta words",
+				}),
+				mf(model.MediaFile{
+					ID:       id.NewRandom(),
+					Title:    "Playlist Gamma",
+					ArtistID: songAntenna.ArtistID,
+					Artist:   songAntenna.Artist,
+					AlbumID:  songAntenna.AlbumID,
+					Album:    songAntenna.Album,
+					Path:     p(fmt.Sprintf("/playlist/string-gamma-%s.mp3", id.NewRandom())),
+					Genre:    "theatre",
+					Comment:  "alpha notes",
+				}),
+			}
+
+			insertedTrackIDs = make([]string, len(insertedTracks))
+			for i := range insertedTracks {
+				Expect(mediaRepo.Put(&insertedTracks[i])).To(Succeed())
+				insertedTrackIDs[i] = insertedTracks[i].ID
+				mfID := insertedTracks[i].ID
+				DeferCleanup(func() { _ = mediaRepo.Delete(mfID) })
+			}
+
+			playlist = model.Playlist{Name: "Sorting Playlist", OwnerID: "userid", OwnerName: "userid"}
+			playlist.AddMediaFilesByID(insertedTrackIDs)
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+			DeferCleanup(func() {
+				if playlist.ID != "" {
+					_ = playlistRepo.Delete(playlist.ID)
+				}
+			})
+		})
+
+		It("sorts playlist genres case-insensitively", func() {
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			result, err := repo.ReadAll(rest.QueryOptions{
+				Sort:  "genre",
+				Order: "asc",
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(len(insertedTracks)))
+			expected := append([]model.MediaFile(nil), insertedTracks...)
+			slices.SortFunc(expected, func(a, b model.MediaFile) int {
+				return strings.Compare(strings.ToLower(a.Genre), strings.ToLower(b.Genre))
+			})
+
+			for i, mf := range expected {
+				Expect(tracks[i].MediaFileID).To(Equal(mf.ID))
+			}
+		})
+
+		It("sorts playlist comments without stripping articles", func() {
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			result, err := repo.ReadAll(rest.QueryOptions{
+				Sort:  "comment",
+				Order: "asc",
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(len(insertedTracks)))
+			expected := append([]model.MediaFile(nil), insertedTracks...)
+			slices.SortFunc(expected, func(a, b model.MediaFile) int {
+				return strings.Compare(strings.ToLower(a.Comment), strings.ToLower(b.Comment))
+			})
+
+			for i, mf := range expected {
+				Expect(tracks[i].MediaFileID).To(Equal(mf.ID))
+			}
+			Expect(tracks[len(tracks)-1].Comment).To(Equal("The Avayas"))
 		})
 	})
 

@@ -2,6 +2,9 @@ package persistence
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -160,6 +163,98 @@ var _ = Describe("MediaRepository", func() {
 	})
 
 	Context("Sort options", func() {
+		Context("string column sorts", func() {
+			var (
+				sortTestFiles []model.MediaFile
+				sortTestIDs   []string
+			)
+
+			BeforeEach(func() {
+				sortTestFiles = []model.MediaFile{
+					mf(model.MediaFile{
+						ID:       id.NewRandom(),
+						Title:    "Alpha Genre",
+						ArtistID: songAntenna.ArtistID,
+						Artist:   songAntenna.Artist,
+						AlbumID:  songAntenna.AlbumID,
+						Album:    songAntenna.Album,
+						Path:     p(fmt.Sprintf("/tmp/genre-alpha-%s.mp3", id.NewRandom())),
+						Genre:    "rock",
+						Comment:  "The Avayas",
+					}),
+					mf(model.MediaFile{
+						ID:       id.NewRandom(),
+						Title:    "Beta Genre",
+						ArtistID: songAntenna.ArtistID,
+						Artist:   songAntenna.Artist,
+						AlbumID:  songAntenna.AlbumID,
+						Album:    songAntenna.Album,
+						Path:     p(fmt.Sprintf("/tmp/genre-beta-%s.mp3", id.NewRandom())),
+						Genre:    "Blues",
+						Comment:  "beta words",
+					}),
+					mf(model.MediaFile{
+						ID:       id.NewRandom(),
+						Title:    "Gamma Genre",
+						ArtistID: songAntenna.ArtistID,
+						Artist:   songAntenna.Artist,
+						AlbumID:  songAntenna.AlbumID,
+						Album:    songAntenna.Album,
+						Path:     p(fmt.Sprintf("/tmp/genre-gamma-%s.mp3", id.NewRandom())),
+						Genre:    "theatre",
+						Comment:  "alpha notes",
+					}),
+				}
+
+				sortTestIDs = make([]string, len(sortTestFiles))
+				for i := range sortTestFiles {
+					Expect(mr.Put(&sortTestFiles[i])).To(Succeed())
+					sortTestIDs[i] = sortTestFiles[i].ID
+					mfID := sortTestFiles[i].ID
+					DeferCleanup(func() { _ = mr.Delete(mfID) })
+				}
+			})
+
+			It("sorts genres case-insensitively", func() {
+				results, err := mr.GetAll(model.QueryOptions{
+					Sort:    "genre",
+					Order:   "asc",
+					Filters: squirrel.Eq{"media_file.id": sortTestIDs},
+				})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(results).To(HaveLen(len(sortTestFiles)))
+
+				expected := append([]model.MediaFile(nil), sortTestFiles...)
+				slices.SortFunc(expected, func(a, b model.MediaFile) int {
+					return strings.Compare(strings.ToLower(a.Genre), strings.ToLower(b.Genre))
+				})
+
+				for i, mf := range expected {
+					Expect(results[i].ID).To(Equal(mf.ID))
+				}
+			})
+
+			It("sorts comments without stripping articles", func() {
+				results, err := mr.GetAll(model.QueryOptions{
+					Sort:    "comment",
+					Order:   "asc",
+					Filters: squirrel.Eq{"media_file.id": sortTestIDs},
+				})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(results).To(HaveLen(len(sortTestFiles)))
+
+				expected := append([]model.MediaFile(nil), sortTestFiles...)
+				slices.SortFunc(expected, func(a, b model.MediaFile) int {
+					return strings.Compare(strings.ToLower(a.Comment), strings.ToLower(b.Comment))
+				})
+
+				for i, mf := range expected {
+					Expect(results[i].ID).To(Equal(mf.ID))
+				}
+				Expect(results[len(results)-1].Comment).To(Equal("The Avayas"))
+			})
+		})
+
 		Context("recently_added sort", func() {
 			var testMediaFiles []model.MediaFile
 
