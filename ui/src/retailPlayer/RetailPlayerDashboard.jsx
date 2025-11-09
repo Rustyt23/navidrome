@@ -48,6 +48,58 @@ const formatTime = (date, timeZone) => {
   }
 }
 
+const formatDetailedTime = (date, timeZone) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+      ...(timeZone ? { timeZone } : {}),
+    })
+
+    const parts = formatter.formatToParts(date)
+    const values = parts.reduce((accumulator, part) => {
+      if (part.type) {
+        accumulator[part.type] = part.value
+      }
+      return accumulator
+    }, {})
+
+    const year = values.year || ''
+    const month = values.month || ''
+    const day = values.day || ''
+    const hour = values.hour || ''
+    const minute = values.minute || ''
+    const rawDayPeriod = values.dayPeriod || ''
+    const normalizedDayPeriod = rawDayPeriod
+      .replace(/\./g, '')
+      .replace(/\s+/g, '')
+      .toUpperCase()
+
+    if (!year || !month || !day || !hour || !minute || !normalizedDayPeriod) {
+      return ''
+    }
+
+    return `${year}-${month}-${day} ${hour}:${minute}${normalizedDayPeriod}`
+  } catch (error) {
+    const isoString = date.toISOString()
+    const [isoDate, isoTime = ''] = isoString.split('T')
+    const [hours = '', minutes = ''] = isoTime.split(':')
+    if (!isoDate || !hours || !minutes) {
+      return ''
+    }
+
+    return `${isoDate} ${hours}:${minutes}`
+  }
+}
+
 const useStyles = makeStyles((theme) => {
   const headerHeight = 60
   const successMain =
@@ -144,6 +196,26 @@ const useStyles = makeStyles((theme) => {
     },
     headerCenter: {
       flex: 1,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textAlign: 'center',
+      padding: `0 ${theme.spacing(2)}px`,
+      minWidth: 0,
+    },
+    headerTitle: {
+      fontWeight: theme.typography.fontWeightBold,
+      fontSize: theme.typography.pxToRem(24),
+      letterSpacing: theme.spacing(0.25),
+      color: alpha(theme.palette.common.white, 0.9),
+      textTransform: 'none',
+      maxWidth: '100%',
+      [theme.breakpoints.down('sm')]: {
+        fontSize: theme.typography.pxToRem(20),
+      },
+      [theme.breakpoints.down('xs')]: {
+        fontSize: theme.typography.pxToRem(18),
+      },
     },
     headerStatusGroup: {
       display: 'inline-flex',
@@ -312,14 +384,6 @@ const useStyles = makeStyles((theme) => {
       [theme.breakpoints.down('sm')]: {
         padding: theme.spacing(2.5),
       },
-    },
-    locationLabel: {
-      width: '100%',
-      textAlign: 'center',
-      fontSize: theme.typography.pxToRem(26),
-      fontWeight: theme.typography.fontWeightBold,
-      color: accentColor,
-      letterSpacing: 0.8,
     },
     nowPlayingBody: {
       display: 'flex',
@@ -684,7 +748,6 @@ const RetailPlayerDashboard = () => {
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
-  const [currentTime, setCurrentTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
@@ -701,16 +764,6 @@ const RetailPlayerDashboard = () => {
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-
-    return () => {
-      window.clearInterval(intervalId)
-    }
-  }, [])
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -806,7 +859,7 @@ const RetailPlayerDashboard = () => {
     }
 
     const systemTimeValue =
-      typeof status.systemTime === 'string' ? status.systemTime : null
+      typeof status.localTime === 'string' ? status.localTime : null
     if (systemTimeValue) {
       const parsedSystem = new Date(systemTimeValue)
       if (!Number.isNaN(parsedSystem.getTime())) {
@@ -828,9 +881,9 @@ const RetailPlayerDashboard = () => {
         if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) {
           return new Date()
         }
-        return new Date(previous.getTime() + 60000)
+        return new Date(previous.getTime() + 1000)
       })
-    }, 60000)
+    }, 1000)
 
     return () => window.clearInterval(intervalId)
   }, [])
@@ -1120,8 +1173,8 @@ const trackPool = useMemo(() => {
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
   const deviceTimeZone = useMemo(() => {
-    if (device && typeof device.timeZone === 'string') {
-      const trimmed = device.timeZone.trim()
+    if (device && typeof status.timeZone === 'string') {
+      const trimmed = status.timeZone.trim()
       if (trimmed) {
         return trimmed
       }
@@ -1140,7 +1193,16 @@ const trackPool = useMemo(() => {
     [deviceTime, deviceTimeZone],
   )
 
-  const headerTimeLabel = useMemo(() => formatTime(currentTime), [currentTime])
+  const headerTimeLabel = currentTimeLabel
+
+  const headerClockTooltip = useMemo(() => {
+    const formatted = formatDetailedTime(deviceTime, deviceTimeZone || undefined)
+    if (!formatted) {
+      return ''
+    }
+
+    return deviceTimeZone ? `${formatted} ${deviceTimeZone}` : formatted
+  }, [deviceTime, deviceTimeZone])
 
   const statusUpTime = device?.status?.upTime
   const hasStatusValue = useMemo(() => {
@@ -1602,7 +1664,16 @@ const trackPool = useMemo(() => {
         >
           <ArrowBackIcon className={classes.headerBackIcon} />
         </ButtonBase>
-        <div className={classes.headerCenter} aria-hidden="true" />
+        <div className={classes.headerCenter}>
+          <Typography
+            component="h1"
+            className={classes.headerTitle}
+            noWrap
+            title={device?.name || 'Retail Player'}
+          >
+            {device?.name || 'Retail Player'}
+          </Typography>
+        </div>
         <div className={classes.headerStatusGroup}>
           <Tooltip title={statusTooltipTitle} placement="bottom">
             <span
@@ -1623,26 +1694,25 @@ const trackPool = useMemo(() => {
               )}
             </span>
           </Tooltip>
-          <div
-            className={classes.headerClock}
-            aria-live="polite"
-            aria-label={`Local time ${headerTimeLabel}`}
+          <Tooltip
+            title={headerClockTooltip || 'Device time unavailable'}
+            placement="bottom"
           >
-            {headerTimeLabel}
-          </div>
+            <div
+              className={classes.headerClock}
+              aria-live="polite"
+              aria-label={`Local time ${
+                headerClockTooltip || headerTimeLabel || 'unavailable'
+              }`}
+            >
+              {headerTimeLabel}
+            </div>
+          </Tooltip>
         </div>
       </header>
 
       <div className={classes.mainContent}>
         <section className={classes.nowPlayingCard} aria-label="Now playing">
-          <Typography
-            component="h1"
-            className={classes.locationLabel}
-            noWrap
-            title={device.name}
-          >
-            {device.name}
-          </Typography>
           <div className={classes.artworkWrapper} aria-label="Artwork">
             <div className={classes.artworkCircle}>
               <div className={classes.artworkContent}>
