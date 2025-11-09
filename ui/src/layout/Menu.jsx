@@ -197,6 +197,15 @@ const useStyles = makeStyles((theme) => {
     dropTarget: dndStyles.dropTarget,
     dropTargetCanDrop: dndStyles.dropTargetCanDrop,
     dropTargetActive: dndStyles.dropTargetActive,
+    rootDropTarget: {
+      '&$dropTargetCanDrop': {
+        backgroundColor: 'transparent',
+      },
+      '&$dropTargetActive': {
+        backgroundColor: 'transparent',
+        boxShadow: 'none',
+      },
+    },
     dragging: dndStyles.dragItem,
     dndWrapper: {
       width: '100%',
@@ -404,6 +413,7 @@ const Menu = ({ dense = false }) => {
       ref={retailPlayerRootDrop.dropRef}
       className={clsx(
         classes.dropTarget,
+        classes.rootDropTarget,
         retailPlayerRootDrop.canDrop && classes.dropTargetCanDrop,
         retailPlayerRootDrop.canDrop &&
           retailPlayerRootDrop.isOver &&
