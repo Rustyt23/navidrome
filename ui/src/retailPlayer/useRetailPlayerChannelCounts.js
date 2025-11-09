@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import httpClient from '../dataProvider/httpClient'
 import { normalizeValue } from './deviceUtils'
 
@@ -36,6 +36,188 @@ const useRetailPlayerChannelCounts = (devices, isApiEnabled) => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
   const pendingRef = useRef(new Set())
+  const statusQueueRef = useRef(new Map())
+  const statusPendingRef = useRef(new Set())
+  const statusFetchedRef = useRef(new Set())
+  const [statusRequestVersion, setStatusRequestVersion] = useState(0)
+  const [channelListOverrides, setChannelListOverrides] = useState({})
+
+  useEffect(() => {
+    if (!isApiEnabled) {
+      setChannelListCounts({})
+      setIsLoading(false)
+      setError(null)
+      pendingRef.current.clear()
+      setChannelListOverrides({})
+      statusQueueRef.current.clear()
+      statusPendingRef.current.clear()
+      statusFetchedRef.current.clear()
+      setStatusRequestVersion(0)
+    }
+  }, [isApiEnabled])
+
+  const enqueueStatusFetch = useCallback(
+    (deviceId, identifier) => {
+      if (!deviceId || !identifier || !isApiEnabled) {
+        return
+      }
+      if (
+        statusFetchedRef.current.has(deviceId) ||
+        statusPendingRef.current.has(deviceId)
+      ) {
+        return
+      }
+      const existing = statusQueueRef.current.get(deviceId)
+      if (existing === identifier) {
+        return
+      }
+      statusQueueRef.current.set(deviceId, identifier)
+      setStatusRequestVersion((previous) => previous + 1)
+    },
+    [isApiEnabled],
+  )
+
+  const deviceDescriptors = useMemo(() => {
+    if (!safeDevices.length) {
+      return []
+    }
+
+    return safeDevices
+      .map((device) => {
+        if (!device || typeof device !== 'object') {
+          return null
+        }
+
+        const deviceId = normalizeValue(device.id)
+        if (!deviceId) {
+          return null
+        }
+
+        const identifier = normalizeValue(device.apiId || device.id)
+        const override = normalizeValue(channelListOverrides[deviceId])
+        const channelListId = override || normalizeValue(device.channelList)
+
+        return {
+          deviceId,
+          identifier,
+          channelListId,
+        }
+      })
+      .filter(Boolean)
+  }, [safeDevices, channelListOverrides])
+
+  const channelListToDeviceIds = useMemo(() => {
+    const mapping = new Map()
+    deviceDescriptors.forEach(({ deviceId, channelListId }) => {
+      if (!channelListId) {
+        return
+      }
+      if (!mapping.has(channelListId)) {
+        mapping.set(channelListId, new Set())
+      }
+      mapping.get(channelListId).add(deviceId)
+    })
+    return mapping
+  }, [deviceDescriptors])
+
+  const deviceIdentifierMap = useMemo(() => {
+    const mapping = new Map()
+    deviceDescriptors.forEach(({ deviceId, identifier }) => {
+      if (!deviceId || !identifier) {
+        return
+      }
+      mapping.set(deviceId, identifier)
+    })
+    return mapping
+  }, [deviceDescriptors])
+
+  useEffect(() => {
+    if (!isApiEnabled) {
+      return
+    }
+
+    deviceDescriptors.forEach(({ deviceId, identifier, channelListId }) => {
+      if (!channelListId && identifier) {
+        enqueueStatusFetch(deviceId, identifier)
+      }
+    })
+  }, [deviceDescriptors, enqueueStatusFetch, isApiEnabled])
+
+  useEffect(() => {
+    if (!isApiEnabled) {
+      return
+    }
+
+    if (!statusQueueRef.current.size) {
+      return
+    }
+
+    const entries = Array.from(statusQueueRef.current.entries())
+    statusQueueRef.current.clear()
+    entries.forEach(([deviceId]) => statusPendingRef.current.add(deviceId))
+
+    const abortController = new AbortController()
+
+    Promise.all(
+      entries.map(([deviceId, identifier]) =>
+        httpClient(
+          `/api/retailplayer/devices/${encodeURIComponent(identifier)}/status`,
+          { signal: abortController.signal },
+        )
+          .then(({ json }) => {
+            if (abortController.signal.aborted) {
+              return { deviceId, aborted: true }
+            }
+            const channelListId = normalizeValue(json?.device?.channelList)
+            return { deviceId, channelListId }
+          })
+          .catch((err) => {
+            if (abortController.signal.aborted) {
+              return { deviceId, aborted: true }
+            }
+            return { deviceId, error: err }
+          }),
+      ),
+    )
+      .then((results) => {
+        if (abortController.signal.aborted) {
+          return
+        }
+
+        let didUpdate = false
+        const nextOverrides = { ...channelListOverrides }
+
+        results.forEach(({ deviceId, channelListId, aborted }) => {
+          if (aborted) {
+            return
+          }
+          statusFetchedRef.current.add(deviceId)
+          if (channelListId && nextOverrides[deviceId] !== channelListId) {
+            nextOverrides[deviceId] = channelListId
+            didUpdate = true
+          }
+        })
+
+        if (didUpdate) {
+          setChannelListOverrides(nextOverrides)
+        }
+      })
+      .finally(() => {
+        entries.forEach(([deviceId]) => {
+          statusPendingRef.current.delete(deviceId)
+        })
+      })
+
+    return () => {
+      abortController.abort()
+      entries.forEach(([deviceId, identifier]) => {
+        statusPendingRef.current.delete(deviceId)
+        if (!statusFetchedRef.current.has(deviceId)) {
+          statusQueueRef.current.set(deviceId, identifier)
+        }
+      })
+    }
+  }, [statusRequestVersion, isApiEnabled, channelListOverrides])
 
   useEffect(() => {
     if (!isApiEnabled) {
@@ -50,8 +232,8 @@ const useRetailPlayerChannelCounts = (devices, isApiEnabled) => {
 
     const uniqueChannelListIds = Array.from(
       new Set(
-        safeDevices
-          .map((device) => normalizeValue(device.channelList))
+        deviceDescriptors
+          .map((descriptor) => descriptor.channelListId)
           .filter(Boolean),
       ),
     )
@@ -104,15 +286,38 @@ const useRetailPlayerChannelCounts = (devices, isApiEnabled) => {
         }
         setChannelListCounts((previous) => {
           const next = { ...previous }
+          let didChange = false
           results.forEach(({ channelListId, count, aborted }) => {
             if (aborted) {
               return
             }
-            next[channelListId] =
+            const normalizedCount =
               typeof count === 'number' && Number.isFinite(count) ? count : null
+            if (next[channelListId] !== normalizedCount) {
+              next[channelListId] = normalizedCount
+              didChange = true
+            }
           })
-          return next
+          return didChange ? next : previous
         })
+
+        const failedResults = results.filter(
+          (result) => result.error && !result.aborted,
+        )
+
+        if (failedResults.length) {
+          failedResults.forEach(({ channelListId }) => {
+            const deviceIds = channelListToDeviceIds.get(channelListId)
+            if (!deviceIds) {
+              return
+            }
+            deviceIds.forEach((deviceId) => {
+              const identifier = deviceIdentifierMap.get(deviceId)
+              enqueueStatusFetch(deviceId, identifier)
+            })
+          })
+        }
+
         const failure = results.find(
           (result) => result.error && !result.aborted,
         )
@@ -129,16 +334,21 @@ const useRetailPlayerChannelCounts = (devices, isApiEnabled) => {
       abortController.abort()
       missingChannelLists.forEach((id) => pending.delete(id))
     }
-  }, [safeDevices, isApiEnabled, channelListCounts])
+  }, [
+    deviceDescriptors,
+    isApiEnabled,
+    channelListCounts,
+    channelListToDeviceIds,
+    deviceIdentifierMap,
+    enqueueStatusFetch,
+  ])
 
   const countsByDeviceId = useMemo(() => {
     const mapping = {}
-    safeDevices.forEach((device) => {
-      const deviceId = device.id
+    deviceDescriptors.forEach(({ deviceId, channelListId }) => {
       if (!deviceId) {
         return
       }
-      const channelListId = normalizeValue(device.channelList)
       if (channelListId && hasOwn(channelListCounts, channelListId)) {
         mapping[deviceId] = channelListCounts[channelListId]
       } else {
@@ -146,7 +356,7 @@ const useRetailPlayerChannelCounts = (devices, isApiEnabled) => {
       }
     })
     return mapping
-  }, [safeDevices, channelListCounts])
+  }, [deviceDescriptors, channelListCounts])
 
   return { countsByDeviceId, isLoading, error }
 }
