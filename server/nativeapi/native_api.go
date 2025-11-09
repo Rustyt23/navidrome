@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -25,6 +26,7 @@ import (
 type Router struct {
 	http.Handler
 	ds        model.DataStore
+	artwork   artwork.Artwork
 	share     core.Share
 	playlists core.Playlists
 	insights  metrics.Insights
@@ -32,9 +34,10 @@ type Router struct {
 	devices   *retailPlayerDeviceResolver
 }
 
-func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
+func New(ds model.DataStore, artworkService artwork.Artwork, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
 	r := &Router{
 		ds:        ds,
+		artwork:   artworkService,
 		share:     share,
 		playlists: playlists,
 		insights:  insights,
