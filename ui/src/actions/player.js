@@ -27,11 +27,20 @@ export const filterSongs = (data, ids) => {
       }, {})
 }
 
+const getOrderedIds = (songs, ids) => {
+  if (ids && ids.length) {
+    return ids.filter((id) => songs[id])
+  }
+
+  return Object.keys(songs)
+}
+
 export const addTracks = (data, ids) => {
   const songs = filterSongs(data, ids)
   return {
     type: PLAYER_ADD_TRACKS,
     data: songs,
+    orderedIds: getOrderedIds(songs, ids),
   }
 }
 
@@ -40,6 +49,7 @@ export const playNext = (data, ids) => {
   return {
     type: PLAYER_PLAY_NEXT,
     data: songs,
+    orderedIds: getOrderedIds(songs, ids),
   }
 }
 
@@ -69,10 +79,16 @@ export const shuffleTracks = (data, ids) => {
 
 export const playTracks = (data, ids, selectedId) => {
   const songs = filterSongs(data, ids)
+  const orderedIds = getOrderedIds(songs, ids)
+  const defaultId = orderedIds[0]
+  const idToPlay =
+    (selectedId && songs[selectedId] && selectedId) || defaultId
+
   return {
     type: PLAYER_PLAY_TRACKS,
-    id: selectedId || Object.keys(songs)[0],
+    id: idToPlay,
     data: songs,
+    orderedIds,
   }
 }
 
