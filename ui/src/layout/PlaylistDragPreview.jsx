@@ -1,8 +1,7 @@
 import React from 'react'
-import { makeStyles, Typography } from '@material-ui/core'
+import { makeStyles } from '@material-ui/core'
 import { useDragLayer } from 'react-dnd'
 import { RiPlayListFill } from 'react-icons/ri'
-
 import { DraggableTypes } from '../consts'
 
 const useStyles = makeStyles((theme) => ({
@@ -13,61 +12,43 @@ const useStyles = makeStyles((theme) => ({
     left: 0,
     width: '100%',
     height: '100%',
-    zIndex: theme.zIndex.modal + 1,
+    zIndex: theme.zIndex.modal + 2,
   },
   previewWrapper: {
     transformOrigin: 'top left',
   },
   preview: {
-    backgroundColor: theme.palette.background.paper,
-    color: theme.palette.text.primary,
-    borderRadius: theme.shape.borderRadius,
-    boxShadow: theme.shadows[8],
-    border: `1px solid ${theme.palette.divider}`,
-    padding: theme.spacing(1, 1.75),
-    minWidth: 160,
+    backgroundColor: 'rgba(255, 43, 138, 0.45)', // pink w/ transparency
+    color: '#FFFFFF',
+    fontWeight: 400,
+    borderRadius: theme.shape.borderRadius * 2,
+    boxShadow: '0 18px 40px rgba(0, 0, 0, 0.25)',
+    padding: theme.spacing(1, 2.5),
+    minWidth: 120,
     maxWidth: 320,
-    display: 'flex',
+    display: 'inline-flex',
     alignItems: 'center',
-    gap: theme.spacing(1),
+    justifyContent: 'center',
+    fontSize: theme.typography.pxToRem(14),
+    letterSpacing: 0.2,
+    textAlign: 'center',
+    backdropFilter: 'blur(6px)',
+    gap: theme.spacing(1.5),
   },
   iconWrapper: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: theme.spacing(4),
-    height: theme.spacing(4),
-    borderRadius: theme.shape.borderRadius,
-    backgroundColor: theme.palette.action.hover,
-    color: theme.palette.text.secondary,
     flexShrink: 0,
-  },
-  textContainer: {
-    overflow: 'hidden',
-  },
-  title: {
-    fontWeight: theme.typography.fontWeightMedium,
-    fontSize: theme.typography.pxToRem(13),
-    lineHeight: 1.2,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  subtitle: {
-    fontSize: theme.typography.pxToRem(11.5),
-    color: theme.palette.text.secondary,
-    marginTop: 2,
   },
 }))
 
+// Precise positioning — preview follows cursor accurately
 const getItemStyles = (currentOffset) => {
-  if (!currentOffset) {
-    return { display: 'none' }
-  }
+  if (!currentOffset) return { display: 'none' }
 
   const { x, y } = currentOffset
-  const transform = `translate(${x + 12}px, ${y + 12}px)`
-
+  const transform = `translate(${x}px, ${y}px)` // exact cursor alignment
   return {
     transform,
     WebkitTransform: transform,
@@ -83,11 +64,9 @@ const PlaylistDragPreview = () => {
     isDragging: monitor.isDragging(),
   }))
 
-  if (!isDragging || itemType !== DraggableTypes.PLAYLIST) {
+  if (!isDragging || itemType !== DraggableTypes.PLAYLIST || !item?.name) {
     return null
   }
-
-  const title = item?.name || 'Playlist'
 
   return (
     <div className={classes.layer}>
@@ -96,14 +75,7 @@ const PlaylistDragPreview = () => {
           <div className={classes.iconWrapper}>
             <RiPlayListFill size={18} />
           </div>
-          <div className={classes.textContainer}>
-            <Typography component="div" className={classes.title}>
-              {title}
-            </Typography>
-            <Typography component="div" className={classes.subtitle}>
-              Drag to add or move
-            </Typography>
-          </div>
+          {item.name}
         </div>
       </div>
     </div>
