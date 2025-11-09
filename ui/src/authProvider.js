@@ -35,7 +35,7 @@ const isPublicRetailPlayerRoute = () => {
   const rawPath = hash && hash.startsWith('#') ? hash.slice(1) : pathname || ''
   const path = rawPath.split('?')[0]
 
-  return /^\/musicmatters\//.test(path)
+  return /^\/(musicmatters|retailplayer)\//.test(path)
 }
 
 const ensurePublicRetailPlayerSession = () => {
