@@ -33,36 +33,45 @@ export const useRetailPlayerDeviceDrag = ({
   return { dragRef, isDragging }
 }
 
-export const useRetailPlayerFolderDrop = ({ folderId, onDrop }) => {
+export const useRetailPlayerFolderDrop = ({
+  folderId,
+  onDrop,
+  allowRootDrop = false,
+}) => {
+  const normalizedFolderId = folderId ?? null
   const handleDrop = useCallback(
     (item) => {
-      if (!folderId || !item?.deviceId) {
+      if (!item?.deviceId) {
+        return
+      }
+      if (!allowRootDrop && !normalizedFolderId) {
         return
       }
       if (onDrop) {
-        onDrop(item.deviceId, folderId, item)
+        onDrop(item.deviceId, normalizedFolderId, item)
       }
     },
-    [folderId, onDrop],
+    [normalizedFolderId, onDrop, allowRootDrop],
   )
 
   const [{ isOver, canDrop }, dropRef] = useDrop(
     () => ({
       accept: RETAIL_PLAYER_DND_TYPES.DEVICE,
-      canDrop: (item) => Boolean(folderId) && Boolean(item?.deviceId),
+      canDrop: (item) =>
+        Boolean(item?.deviceId) && (allowRootDrop || Boolean(normalizedFolderId)),
       drop: (item, monitor) => {
         if (monitor.didDrop()) {
           return undefined
         }
         handleDrop(item)
-        return { folderId }
+        return { folderId: normalizedFolderId }
       },
       collect: (monitor) => ({
         isOver: monitor.isOver({ shallow: true }),
         canDrop: monitor.canDrop(),
       }),
     }),
-    [folderId, handleDrop],
+    [normalizedFolderId, handleDrop, allowRootDrop],
   )
 
   return { dropRef, isOver, canDrop }

@@ -295,16 +295,22 @@ const Menu = ({ dense = false }) => {
 
   const handleDeviceDrop = useCallback(
     (deviceId, folderId) => {
-      if (!deviceId || !folderId) {
+      if (!deviceId) {
         return
       }
       const changed = assignDeviceToFolder(deviceId, folderId)
-      if (changed) {
+      if (changed && folderId) {
         setOpenFolders((prev) => ({ ...prev, [folderId]: true }))
       }
     },
     [assignDeviceToFolder],
   )
+
+  const retailPlayerRootDrop = useRetailPlayerFolderDrop({
+    folderId: null,
+    allowRootDrop: true,
+    onDrop: (deviceId, targetFolderId) => handleDeviceDrop(deviceId, targetFolderId),
+  })
 
   const toggleFolder = useCallback((folderId) => {
     setOpenFolders((prev) => ({
@@ -394,18 +400,29 @@ const Menu = ({ dense = false }) => {
   }
 
   const renderRetailPlayerMenu = () => (
-    <SubMenu
-      handleToggle={() => handleToggle('menuRetailPlayer')}
-      isOpen={state.menuRetailPlayer}
-      sidebarIsOpen={open}
-      name="menu.retailPlayer.name"
-      icon={<SpeakerGroupIcon />}
-      dense={dense}
-      actionIcon={<BiCog />}
-      onAction={goToRetailPlayerSettings}
+    <div
+      ref={retailPlayerRootDrop.dropRef}
+      className={clsx(
+        classes.dropTarget,
+        retailPlayerRootDrop.canDrop && classes.dropTargetCanDrop,
+        retailPlayerRootDrop.canDrop &&
+          retailPlayerRootDrop.isOver &&
+          classes.dropTargetActive,
+      )}
     >
-      {renderRetailPlayerDevices()}
-    </SubMenu>
+      <SubMenu
+        handleToggle={() => handleToggle('menuRetailPlayer')}
+        isOpen={state.menuRetailPlayer}
+        sidebarIsOpen={open}
+        name="menu.retailPlayer.name"
+        icon={<SpeakerGroupIcon />}
+        dense={dense}
+        actionIcon={<BiCog />}
+        onAction={goToRetailPlayerSettings}
+      >
+        {renderRetailPlayerDevices()}
+      </SubMenu>
+    </div>
   )
 
   return (

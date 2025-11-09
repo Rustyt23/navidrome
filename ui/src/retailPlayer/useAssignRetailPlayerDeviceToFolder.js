@@ -1,15 +1,21 @@
 import { useCallback } from 'react'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 
-const normalizeFolderIds = (device) => {
-  if (!device) {
+const normalizeFolderIds = (value) => {
+  if (!value) {
     return []
   }
-  if (Array.isArray(device.folderIds)) {
-    return device.folderIds.filter(Boolean)
+  if (Array.isArray(value)) {
+    return value.filter(Boolean)
   }
-  if (device.folderId) {
-    return [device.folderId].filter(Boolean)
+  if (typeof value === 'string') {
+    return [value].filter(Boolean)
+  }
+  if (Array.isArray(value.folderIds)) {
+    return value.folderIds.filter(Boolean)
+  }
+  if (value.folderId) {
+    return [value.folderId].filter(Boolean)
   }
   return []
 }
@@ -22,7 +28,7 @@ const useAssignRetailPlayerDeviceToFolder = () => {
 
   return useCallback(
     (deviceId, folderId) => {
-      if (!deviceId || !folderId) {
+      if (!deviceId) {
         return false
       }
 
@@ -32,7 +38,7 @@ const useAssignRetailPlayerDeviceToFolder = () => {
       }
 
       const currentFolderIds = normalizeFolderIds(targetDevice)
-      const nextFolderIds = [folderId]
+      const nextFolderIds = normalizeFolderIds(folderId)
       const unchanged =
         currentFolderIds.length === nextFolderIds.length &&
         currentFolderIds.every((id, index) => id === nextFolderIds[index])
