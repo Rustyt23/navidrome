@@ -1,4 +1,5 @@
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { makeStyles } from '@material-ui/core'
 import { useDragLayer } from 'react-dnd'
 import { RiPlayListFill } from 'react-icons/ri'
@@ -12,7 +13,7 @@ const useStyles = makeStyles((theme) => ({
     left: 0,
     width: '100%',
     height: '100%',
-    zIndex: theme.zIndex.modal + 2,
+    zIndex: Math.max(theme.zIndex.modal ?? 1300, theme.zIndex.tooltip ?? 1500) + 10,
   },
   previewWrapper: {
     transformOrigin: 'top left',
@@ -68,7 +69,7 @@ const PlaylistDragPreview = () => {
     return null
   }
 
-  return (
+  const previewNode = (
     <div className={classes.layer}>
       <div className={classes.previewWrapper} style={getItemStyles(currentOffset)}>
         <div className={classes.preview}>
@@ -80,6 +81,12 @@ const PlaylistDragPreview = () => {
       </div>
     </div>
   )
+
+  if (typeof document === 'undefined') {
+    return previewNode
+  }
+
+  return createPortal(previewNode, document.body)
 }
 
 export default PlaylistDragPreview

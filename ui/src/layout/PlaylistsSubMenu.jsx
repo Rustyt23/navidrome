@@ -12,6 +12,7 @@ import { RiFolder3Fill, RiPlayListFill } from 'react-icons/ri'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
+import clsx from 'clsx'
 import SubMenu from './SubMenu'
 import { canChangeTracks } from '../common'
 import { DraggableTypes, REST_URL } from '../consts'
@@ -69,6 +70,10 @@ const useStyles = makeStyles((theme) => ({
   nested: { paddingLeft: theme.spacing(2) },
   depth: (props) => ({ paddingLeft: theme.spacing(2) + props.depth * theme.spacing(2) }),
   spinner: { marginLeft: 6 },
+  dropTargetHighlight: {
+    backgroundColor: 'rgba(255, 43, 138, 0.12)',
+    boxShadow: '0 0 0 1px rgba(255, 43, 138, 0.35), 0 6px 18px rgba(255, 43, 138, 0.2)',
+  },
 }))
 
 const parentKey = (id) => (id == null || id === '' ? '' : String(id))
@@ -318,7 +323,7 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     [addTrackIdsToPlaylist, submitAddPayload],
   )
 
-  const { dragDropRef, dragPreviewRef, isDragging } = useDragAndDrop(
+  const { dragDropRef, dragPreviewRef, isDragging, isOver, canDrop } = useDragAndDrop(
     DraggableTypes.PLAYLIST,
     { id: pls.id, type: 'playlist', parentId: parentIdForDnD, name: pls.name },
     canChangeTracks(pls) ? DraggableTypes.ALL : [],
@@ -333,7 +338,9 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     <ListItem
       button
       onClick={() => history.push(`/playlist/${pls.id}/show`)}
-      className={`${classes.listItem} ${classes.depth}`}
+      className={clsx(classes.listItem, classes.depth, {
+        [classes.dropTargetHighlight]: isOver && canDrop,
+      })}
       ref={dragDropRef}
       style={{ opacity: isDragging ? 0.5 : 1 }}
       onDragOver={handleNativeDragOver}
@@ -401,7 +408,7 @@ const FolderRow = memo(function FolderRow({
 
   const parentIdForDnD = node.parent_id ?? ''
 
-  const { dragDropRef, isDragging } = useDragAndDrop(
+  const { dragDropRef, isDragging, isOver, canDrop } = useDragAndDrop(
     DraggableTypes.FOLDER,
     { id: node.id, type: 'folder', parentId: parentIdForDnD },
     [DraggableTypes.FOLDER, DraggableTypes.PLAYLIST],
@@ -451,7 +458,9 @@ const FolderRow = memo(function FolderRow({
       <ListItem
         button
         onClick={() => history.push(`/folder/${node.id}/show`)}
-        className={`${classes.listItem} ${classes.depth}`}
+        className={clsx(classes.listItem, classes.depth, {
+          [classes.dropTargetHighlight]: isOver && canDrop,
+        })}
         ref={dragDropRef}
         style={{ opacity: isDragging ? 0.5 : 1 }}
       >
