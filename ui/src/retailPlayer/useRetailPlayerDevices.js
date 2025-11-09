@@ -2,40 +2,9 @@ import { useEffect, useState } from 'react'
 import config from '../config'
 import httpClient from '../dataProvider/httpClient'
 import RetailPlayerMockService from './RetailPlayerMockService'
-import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
+import { mapRetailPlayerDevice } from './deviceUtils'
 
 const buildDevicesUrl = () => '/api/retailplayer/devices'
-
-const mapDevice = (device) => {
-  if (!device || typeof device !== 'object') {
-    return null
-  }
-
-  const rawId = normalizeValue(device.id)
-  const fallbackId = rawId || normalizeValue(device.macAddress) || normalizeValue(device.ordinal)
-
-  if (!fallbackId) {
-    return null
-  }
-
-  const slug = buildDeviceSlug(device) || fallbackId
-  const name = normalizeValue(device.name) || fallbackId
-
-  return {
-    id: fallbackId,
-    apiId: rawId || null,
-    name,
-    slug,
-    slugKey: deviceSlugKey(slug),
-    channel: normalizeValue(device.channel),
-    channelList: normalizeValue(device.channelList),
-    organization:
-      normalizeValue(device.organization) ||
-      normalizeValue(device.orgUnit) ||
-      normalizeValue(device.location),
-    timeZone: normalizeValue(device.timeZone),
-  }
-}
 
 const fetchRetailPlayerDevices = async (signal) => {
   const url = buildDevicesUrl()
@@ -63,7 +32,7 @@ const fetchRetailPlayerDevices = async (signal) => {
     throw err
   }
   const devices = Array.isArray(payload?.data)
-    ? payload.data.map(mapDevice).filter(Boolean)
+    ? payload.data.map(mapRetailPlayerDevice).filter(Boolean)
     : []
 
   return { devices, enabled: true }
