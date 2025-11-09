@@ -578,7 +578,7 @@ const RetailPlayerFolderRow = memo(
             checked={isSelected}
             onChange={(event) => {
               event.stopPropagation()
-              onToggleSelection(node.id)
+              onToggleSelection(node.id, event)
             }}
             onClick={(event) => event.stopPropagation()}
             inputProps={{ 'aria-label': `Select folder ${node.name}` }}
@@ -668,7 +668,7 @@ const RetailPlayerDeviceRow = memo(
             checked={isSelected}
             onChange={(event) => {
               event.stopPropagation()
-              onToggleSelection(node.id)
+              onToggleSelection(node.id, event)
             }}
             onClick={(event) => event.stopPropagation()}
             inputProps={{ 'aria-label': `Select device ${node.name}` }}
@@ -735,6 +735,7 @@ const RetailPlayerDeviceManagement = () => {
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [lastSelectedId, setLastSelectedId] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -1145,6 +1146,12 @@ const RetailPlayerDeviceManagement = () => {
     [visibleNodes],
   )
 
+  useEffect(() => {
+    if (lastSelectedId && !visibleNodeIds.includes(lastSelectedId)) {
+      setLastSelectedId(null)
+    }
+  }, [lastSelectedId, visibleNodeIds])
+
   const allSelected =
     visibleNodeIds.length > 0 && visibleNodeIds.every((id) => selectedIds.has(id))
   const someSelected = !allSelected && visibleNodeIds.some((id) => selectedIds.has(id))
@@ -1162,20 +1169,64 @@ const RetailPlayerDeviceManagement = () => {
     })
   }
 
-  const toggleNodeSelection = useCallback((nodeId) => {
-    if (!nodeId) {
-      return
-    }
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(nodeId)) {
-        next.delete(nodeId)
-      } else {
-        next.add(nodeId)
+  const toggleNodeSelection = useCallback(
+    (nodeId, event) => {
+      if (!nodeId) {
+        return
       }
-      return next
-    })
-  }, [])
+
+      const isShiftPressed = Boolean(
+        event?.shiftKey || event?.nativeEvent?.shiftKey,
+      )
+
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        const nodeIsSelected = next.has(nodeId)
+
+        if (isShiftPressed && visibleNodeIds.length) {
+          const anchorId =
+            lastSelectedId && visibleNodeIds.includes(lastSelectedId)
+              ? lastSelectedId
+              : null
+          const currentIndex = visibleNodeIds.indexOf(nodeId)
+
+          if (anchorId && currentIndex !== -1) {
+            const anchorIndex = visibleNodeIds.indexOf(anchorId)
+
+            if (anchorIndex !== -1) {
+              const start = Math.min(anchorIndex, currentIndex)
+              const end = Math.max(anchorIndex, currentIndex)
+              const shouldSelect = !nodeIsSelected
+
+              for (let index = start; index <= end; index += 1) {
+                const rangeId = visibleNodeIds[index]
+                if (!rangeId) {
+                  continue
+                }
+                if (shouldSelect) {
+                  next.add(rangeId)
+                } else {
+                  next.delete(rangeId)
+                }
+              }
+
+              return next
+            }
+          }
+        }
+
+        if (nodeIsSelected) {
+          next.delete(nodeId)
+        } else {
+          next.add(nodeId)
+        }
+        return next
+      })
+
+      setLastSelectedId(nodeId)
+    },
+    [lastSelectedId, visibleNodeIds],
+  )
 
   const handleRowKeyDown = (event, action) => {
     if (event.key === 'Enter' || event.key === ' ') {
