@@ -101,9 +101,12 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 		conditions = append(conditions, Eq{"device_slug": slug})
 	}
 
+	orClause := Or{}
+	orClause = append(orClause, conditions...)
+
 	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "updated_at").
 		From(r.tableName).
-		Where(Or(conditions...)).
+		Where(orClause).
 		OrderBy("updated_at DESC").
 		Limit(1)
 
