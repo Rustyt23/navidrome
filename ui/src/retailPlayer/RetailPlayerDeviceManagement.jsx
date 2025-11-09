@@ -578,7 +578,7 @@ const RetailPlayerFolderRow = memo(
             checked={isSelected}
             onChange={(event) => {
               event.stopPropagation()
-              onToggleSelection(node.id)
+              onToggleSelection(node.id, event)
             }}
             onClick={(event) => event.stopPropagation()}
             inputProps={{ 'aria-label': `Select folder ${node.name}` }}
@@ -668,7 +668,7 @@ const RetailPlayerDeviceRow = memo(
             checked={isSelected}
             onChange={(event) => {
               event.stopPropagation()
-              onToggleSelection(node.id)
+              onToggleSelection(node.id, event)
             }}
             onClick={(event) => event.stopPropagation()}
             inputProps={{ 'aria-label': `Select device ${node.name}` }}
@@ -735,6 +735,7 @@ const RetailPlayerDeviceManagement = () => {
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [selectionAnchorId, setSelectionAnchorId] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -1066,6 +1067,16 @@ const RetailPlayerDeviceManagement = () => {
     return matches
   }, [baseVisibleNodes, normalizedSearchTerm, tree])
 
+  const visibleNodeIndexMap = useMemo(() => {
+    const map = new Map()
+    ;(visibleNodes || []).forEach((node, index) => {
+      if (node && node.id) {
+        map.set(node.id, index)
+      }
+    })
+    return map
+  }, [visibleNodes])
+
   const showingSearchResults = normalizedSearchTerm.length > 0
 
   const handleCreateFolder = () => {
@@ -1162,11 +1173,40 @@ const RetailPlayerDeviceManagement = () => {
     })
   }
 
-  const toggleNodeSelection = useCallback((nodeId) => {
+  const toggleNodeSelection = useCallback((nodeId, event) => {
     if (!nodeId) {
       return
     }
+    const isShiftPressed = !!event?.shiftKey
+    const isMultiSelectModifier = !!(event?.ctrlKey || event?.metaKey)
+
+    const anchorIsValid =
+      selectionAnchorId && visibleNodeIndexMap.has(selectionAnchorId)
+
     setSelectedIds((prev) => {
+      const hasAnchor =
+        isShiftPressed &&
+        anchorIsValid &&
+        visibleNodeIndexMap.has(nodeId)
+
+      if (hasAnchor) {
+        const anchorIndex = visibleNodeIndexMap.get(selectionAnchorId)
+        const currentIndex = visibleNodeIndexMap.get(nodeId)
+        if (anchorIndex == null || currentIndex == null) {
+          return prev
+        }
+        const start = Math.min(anchorIndex, currentIndex)
+        const end = Math.max(anchorIndex, currentIndex)
+        const next = isMultiSelectModifier ? new Set(prev) : new Set()
+        for (let index = start; index <= end; index += 1) {
+          const rangeNode = visibleNodes[index]
+          if (rangeNode?.id) {
+            next.add(rangeNode.id)
+          }
+        }
+        return next
+      }
+
       const next = new Set(prev)
       if (next.has(nodeId)) {
         next.delete(nodeId)
@@ -1175,7 +1215,11 @@ const RetailPlayerDeviceManagement = () => {
       }
       return next
     })
-  }, [])
+
+    if (!isShiftPressed || !anchorIsValid) {
+      setSelectionAnchorId(nodeId)
+    }
+  }, [selectionAnchorId, visibleNodeIndexMap, visibleNodes])
 
   const handleRowKeyDown = (event, action) => {
     if (event.key === 'Enter' || event.key === ' ') {
