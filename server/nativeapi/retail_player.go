@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server/public"
@@ -454,6 +455,20 @@ func (n *Router) handleRetailPlayerCoverArt() http.HandlerFunc {
 			return
 		}
 
+		if err := n.ensureRetailPlayerArtworkAvailable(ctx, artworkID, size, square); err != nil {
+			switch {
+			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+				return
+			case errors.Is(err, artwork.ErrUnavailable), errors.Is(err, model.ErrNotFound):
+				http.Error(w, "Artwork not found", http.StatusNotFound)
+				return
+			default:
+				log.Error(ctx, "Unable to load retail player cover art", "artworkID", artworkID, "err", err)
+				http.Error(w, "Error retrieving cover art", http.StatusInternalServerError)
+				return
+			}
+		}
+
 		imageURL := public.ImageURLWithOptions(r, artworkID, size, square)
 		if imageURL == "" {
 			http.Error(w, "Artwork not found", http.StatusNotFound)
@@ -473,6 +488,25 @@ func (n *Router) handleRetailPlayerCoverArt() http.HandlerFunc {
 			log.Error(ctx, "Unable to encode retail player cover art response", "err", err)
 		}
 	}
+}
+
+func (n *Router) ensureRetailPlayerArtworkAvailable(ctx context.Context, artID model.ArtworkID, size int, square bool) error {
+	if n == nil || n.artwork == nil || artID.String() == "" {
+		return nil
+	}
+
+	reader, _, err := n.artwork.Get(ctx, artID, size, square)
+	if err != nil {
+		return err
+	}
+
+	if reader != nil {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Debug(ctx, "Error closing artwork reader", "artworkID", artID, "err", closeErr)
+		}
+	}
+
+	return nil
 }
 
 func (n *Router) resolveRetailPlayerDevice(ctx context.Context, identifier string) (retailPlayerDevice, error) {
