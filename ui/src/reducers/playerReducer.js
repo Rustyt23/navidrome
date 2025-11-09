@@ -90,10 +90,22 @@ const mapToAudioLists = (item) => {
 
 const reduceClearQueue = () => ({ ...initialState, clear: true })
 
-const reducePlayTracks = (state, { data, id }) => {
+const normalizeKey = (value) =>
+  value === undefined || value === null ? undefined : value.toString()
+
+const reducePlayTracks = (state, { data, id, orderedIds }) => {
+  const keys = (orderedIds && orderedIds.length
+    ? orderedIds
+    : Object.keys(data)
+  )
+    .map(normalizeKey)
+    .filter((key) => key && data[key])
+
+  const normalizedId = normalizeKey(id) ?? keys[0]
+
   let playIndex = 0
-  const queue = Object.keys(data).map((key, idx) => {
-    if (key === id) {
+  const queue = keys.map((key, idx) => {
+    if (key === normalizedId) {
       playIndex = idx
     }
     return mapToAudioLists(data[key])
@@ -115,30 +127,43 @@ const reduceSetTrack = (state, { data }) => {
   }
 }
 
-const reduceAddTracks = (state, { data }) => {
-  const queue = state.queue
-  Object.keys(data).forEach((id) => {
-    queue.push(mapToAudioLists(data[id]))
+const reduceAddTracks = (state, { data, orderedIds }) => {
+  const queue = state.queue.slice()
+  const keys = (orderedIds && orderedIds.length
+    ? orderedIds
+    : Object.keys(data)
+  )
+    .map(normalizeKey)
+    .filter((key) => key && data[key])
+
+  keys.forEach((key) => {
+    queue.push(mapToAudioLists(data[key]))
   })
   return { ...state, queue, clear: false }
 }
 
-const reducePlayNext = (state, { data }) => {
+const reducePlayNext = (state, { data, orderedIds }) => {
   const newQueue = []
   const current = state.current || {}
+  const keys = (orderedIds && orderedIds.length
+    ? orderedIds
+    : Object.keys(data)
+  )
+    .map(normalizeKey)
+    .filter((key) => key && data[key])
   let foundPos = false
   state.queue.forEach((item) => {
     newQueue.push(item)
     if (item.uuid === current.uuid) {
       foundPos = true
-      Object.keys(data).forEach((id) => {
-        newQueue.push(mapToAudioLists(data[id]))
+      keys.forEach((key) => {
+        newQueue.push(mapToAudioLists(data[key]))
       })
     }
   })
   if (!foundPos) {
-    Object.keys(data).forEach((id) => {
-      newQueue.push(mapToAudioLists(data[id]))
+    keys.forEach((key) => {
+      newQueue.push(mapToAudioLists(data[key]))
     })
   }
 
