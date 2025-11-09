@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/deluan/rest"
@@ -40,8 +41,50 @@ func New(ds model.DataStore, share core.Share, playlists core.Playlists, insight
 		libs:      libraryService,
 		devices:   newRetailPlayerDeviceResolver(),
 	}
+	r.preloadRetailPlayerDeviceMappings()
 	r.Handler = r.routes()
 	return r
+}
+
+func (n *Router) preloadRetailPlayerDeviceMappings() {
+	if n.ds == nil || n.devices == nil {
+		return
+	}
+
+	ctx := context.Background()
+	repo := n.ds.RetailPlayerDeviceMapping(ctx)
+	if repo == nil {
+		return
+	}
+
+	mappings, err := repo.All(ctx)
+	if err != nil {
+		log.Error(ctx, "Unable to preload retail player device mappings", "err", err)
+		return
+	}
+
+	if len(mappings) == 0 {
+		return
+	}
+
+	devices := make([]retailPlayerDevice, 0, len(mappings))
+	for _, mapping := range mappings {
+		id := strings.TrimSpace(mapping.DeviceID)
+		if id == "" {
+			continue
+		}
+
+		devices = append(devices, retailPlayerDevice{
+			ID:           id,
+			Name:         strings.TrimSpace(mapping.DeviceName),
+			Channel:      strings.TrimSpace(mapping.Channel),
+			ChannelList:  strings.TrimSpace(mapping.ChannelList),
+			Organization: strings.TrimSpace(mapping.Organization),
+			TimeZone:     strings.TrimSpace(mapping.TimeZone),
+		})
+	}
+
+	n.devices.RememberDevices(devices)
 }
 
 func (n *Router) routes() http.Handler {

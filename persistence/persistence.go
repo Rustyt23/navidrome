@@ -73,6 +73,10 @@ func (s *SQLStore) Radio(ctx context.Context) model.RadioRepository {
 	return NewRadioRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) RetailPlayerDeviceMapping(ctx context.Context) model.RetailPlayerDeviceMappingRepository {
+	return NewRetailPlayerDeviceMappingRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) UserProps(ctx context.Context) model.UserPropsRepository {
 	return NewUserPropsRepository(ctx, s.getDBXBuilder())
 }

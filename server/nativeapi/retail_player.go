@@ -253,6 +253,7 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 		log.Info(ctx, "Retail player devices fetched", "count", len(response.Data))
 
 		n.devices.RememberDevices(response.Data)
+		n.persistRetailPlayerDeviceMappings(ctx, response.Data)
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -318,6 +319,10 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 			response.Device = &deviceCopy
 		}
 
+		if response.Device != nil {
+			n.persistRetailPlayerDeviceMappings(ctx, []retailPlayerDevice{*response.Device})
+		}
+
 		log.Info(ctx, "Retail player device status fetched", "identifier", deviceIdentifier, "resolvedID", resolvedID)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -337,9 +342,17 @@ func (n *Router) resolveRetailPlayerDevice(ctx context.Context, identifier strin
 		return device, nil
 	}
 
+	if mappedDevice, err := n.findRetailPlayerDeviceMapping(ctx, trimmed); err == nil {
+		n.devices.Remember(mappedDevice)
+		return mappedDevice, nil
+	} else if err != nil && !errors.Is(err, errRetailPlayerDeviceNotFound) {
+		return retailPlayerDevice{}, err
+	}
+
 	device, err := fetchRetailPlayerDevice(ctx, trimmed)
 	if err == nil {
 		n.devices.Remember(device)
+		n.persistRetailPlayerDeviceMappings(ctx, []retailPlayerDevice{device})
 		return device, nil
 	}
 	if err != nil && !errors.Is(err, errRetailPlayerDeviceNotFound) {
@@ -350,12 +363,103 @@ func (n *Router) resolveRetailPlayerDevice(ctx context.Context, identifier strin
 	device, devices, lookupErr := lookupRetailPlayerDevice(ctx, trimmed)
 	if len(devices) > 0 {
 		n.devices.RememberDevices(devices)
+		n.persistRetailPlayerDeviceMappings(ctx, devices)
 	}
 	if lookupErr != nil {
 		return retailPlayerDevice{}, lookupErr
 	}
 
+	if strings.TrimSpace(device.ID) != "" {
+		n.persistRetailPlayerDeviceMappings(ctx, []retailPlayerDevice{device})
+	}
+
 	return device, nil
+}
+
+func (n *Router) findRetailPlayerDeviceMapping(ctx context.Context, identifier string) (retailPlayerDevice, error) {
+	if n.ds == nil {
+		return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
+	}
+
+	repo := n.ds.RetailPlayerDeviceMapping(ctx)
+	if repo == nil {
+		return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
+	}
+
+	mapping, err := repo.FindByIdentifier(ctx, identifier)
+	if err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
+		}
+		return retailPlayerDevice{}, err
+	}
+
+	device := mapRetailPlayerMappingToDevice(*mapping)
+	if strings.TrimSpace(device.ID) == "" {
+		return retailPlayerDevice{}, errRetailPlayerDeviceNotFound
+	}
+
+	return device, nil
+}
+
+func (n *Router) persistRetailPlayerDeviceMappings(ctx context.Context, devices []retailPlayerDevice) {
+	if len(devices) == 0 || n.ds == nil {
+		return
+	}
+
+	repo := n.ds.RetailPlayerDeviceMapping(ctx)
+	if repo == nil {
+		return
+	}
+
+	mappings := make([]model.RetailPlayerDeviceMapping, 0, len(devices))
+	for _, device := range devices {
+		if mapping, ok := mapRetailPlayerDeviceToMapping(device); ok {
+			mappings = append(mappings, mapping)
+		}
+	}
+
+	if len(mappings) == 0 {
+		return
+	}
+
+	if err := repo.PutMany(ctx, mappings); err != nil {
+		log.Error(ctx, "Unable to persist retail player device mappings", "err", err)
+	}
+}
+
+func mapRetailPlayerDeviceToMapping(device retailPlayerDevice) (model.RetailPlayerDeviceMapping, bool) {
+	id := strings.TrimSpace(device.ID)
+	if id == "" {
+		return model.RetailPlayerDeviceMapping{}, false
+	}
+
+	name := strings.TrimSpace(device.Name)
+	slug := model.RetailPlayerDeviceSlug(name)
+	if slug == "" {
+		slug = model.RetailPlayerDeviceSlug(id)
+	}
+
+	return model.RetailPlayerDeviceMapping{
+		DeviceID:     id,
+		DeviceName:   name,
+		DeviceSlug:   slug,
+		Channel:      strings.TrimSpace(device.Channel),
+		ChannelList:  strings.TrimSpace(device.ChannelList),
+		Organization: strings.TrimSpace(device.Organization),
+		TimeZone:     strings.TrimSpace(device.TimeZone),
+	}, true
+}
+
+func mapRetailPlayerMappingToDevice(mapping model.RetailPlayerDeviceMapping) retailPlayerDevice {
+	return retailPlayerDevice{
+		ID:           strings.TrimSpace(mapping.DeviceID),
+		Name:         strings.TrimSpace(mapping.DeviceName),
+		Channel:      strings.TrimSpace(mapping.Channel),
+		ChannelList:  strings.TrimSpace(mapping.ChannelList),
+		Organization: strings.TrimSpace(mapping.Organization),
+		TimeZone:     strings.TrimSpace(mapping.TimeZone),
+	}
 }
 
 func (n *Router) handleRetailPlayerChannelListChannels() http.HandlerFunc {
@@ -584,6 +688,9 @@ func (n *Router) handleRetailPlayerDeviceToggleChannel() http.HandlerFunc {
 			}
 
 			log.Info(ctx, "Retail player device metadata fetched for toggle", "deviceID", deviceID, "channel", device.Channel, "channelList", device.ChannelList)
+
+			n.devices.Remember(device)
+			n.persistRetailPlayerDeviceMappings(ctx, []retailPlayerDevice{device})
 
 			if currentChannelID == "" {
 				currentChannelID = strings.TrimSpace(device.Channel)
@@ -858,30 +965,7 @@ func lookupRetailPlayerDevice(ctx context.Context, identifier string) (retailPla
 }
 
 func retailPlayerDeviceSlugKey(value string) string {
-	trimmed := strings.ToLower(strings.TrimSpace(value))
-	if trimmed == "" {
-		return ""
-	}
-
-	var builder strings.Builder
-	builder.Grow(len(trimmed))
-
-	lastWasHyphen := false
-	for _, r := range trimmed {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			builder.WriteRune(r)
-			lastWasHyphen = false
-			continue
-		}
-
-		if !lastWasHyphen && builder.Len() > 0 {
-			builder.WriteRune('-')
-			lastWasHyphen = true
-		}
-	}
-
-	result := strings.Trim(builder.String(), "-")
-	return result
+	return model.RetailPlayerDeviceSlug(value)
 }
 
 func fetchRetailPlayerDevice(ctx context.Context, deviceID string) (retailPlayerDevice, error) {
@@ -1003,9 +1087,42 @@ func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID str
 	return retailPlayerChannelsResponse{Channels: channels}, nil
 }
 
+type retailPlayerStreamMetadata []map[string]any
+
+func (m *retailPlayerStreamMetadata) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		*m = nil
+		return nil
+	}
+
+	switch trimmed[0] {
+	case '[':
+		var slice []map[string]any
+		if err := json.Unmarshal(trimmed, &slice); err != nil {
+			return err
+		}
+		*m = slice
+	case '{':
+		var obj map[string]any
+		if err := json.Unmarshal(trimmed, &obj); err != nil {
+			return err
+		}
+		if len(obj) == 0 {
+			*m = nil
+		} else {
+			*m = []map[string]any{obj}
+		}
+	default:
+		*m = nil
+	}
+
+	return nil
+}
+
 type retailPlayerDeviceStatusResponse struct {
 	Status         map[string]any             `json:"status"`
-	StreamMetadata []map[string]any           `json:"streamMetadata"`
+	StreamMetadata retailPlayerStreamMetadata `json:"streamMetadata"`
 	Artwork        *retailPlayerStatusArtwork `json:"artwork,omitempty"`
 	Device         *retailPlayerDevice        `json:"device,omitempty"`
 }
