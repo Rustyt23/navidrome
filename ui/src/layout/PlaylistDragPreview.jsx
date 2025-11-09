@@ -1,4 +1,5 @@
 import React from 'react'
+import ReactDOM from 'react-dom'
 import { makeStyles } from '@material-ui/core'
 import { useDragLayer } from 'react-dnd'
 import { RiPlayListFill } from 'react-icons/ri'
@@ -68,7 +69,12 @@ const PlaylistDragPreview = () => {
     return null
   }
 
-  return (
+  const portalTarget = typeof document !== 'undefined' ? document.body : null
+  if (!portalTarget) {
+    return null
+  }
+
+  return ReactDOM.createPortal(
     <div className={classes.layer}>
       <div className={classes.previewWrapper} style={getItemStyles(currentOffset)}>
         <div className={classes.preview}>
@@ -78,7 +84,8 @@ const PlaylistDragPreview = () => {
           {item.name}
         </div>
       </div>
-    </div>
+    </div>,
+    portalTarget
   )
 }
 

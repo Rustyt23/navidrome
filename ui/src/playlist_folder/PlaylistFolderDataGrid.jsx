@@ -11,11 +11,12 @@ import PropTypes from 'prop-types'
 import clsx from 'clsx'
 import { DraggableTypes } from '../consts'
 import { makeStyles } from '@material-ui/core/styles'
+import { alpha } from '@material-ui/core/styles/colorManipulator'
 import { useHistory, useLocation } from 'react-router-dom'
 import useDragAndDrop from '../common/useDragAndDrop'
 import { matchPath } from 'react-router'
 
-const useStyles = makeStyles({
+const useStyles = makeStyles((theme) => ({
   row: {
     cursor: 'pointer',
     '&:hover': { backgroundColor: '#f5f5f5' },
@@ -29,7 +30,12 @@ const useStyles = makeStyles({
     '& thead': { boxShadow: '0px 3px 3px rgba(0,0,0,.15)' },
     '& th': { fontWeight: 'bold', padding: '15px' },
   },
-})
+  dropTarget: {
+    backgroundColor: alpha(theme.palette.primary.main, 0.08),
+    boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, 0.24)}`,
+    transition: 'background-color 120ms ease, box-shadow 120ms ease',
+  },
+}))
 
 const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) => {
   const classes = useStyles()
@@ -94,17 +100,20 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
     [dataProvider, notify, refresh, record.id, record.type]
   )
 
-  const { dragDropRef, isDragging } = useDragAndDrop(
+  const { dragDropRef, isDragging, isOver, canDrop } = useDragAndDrop(
     record.type === 'playlist' ? DraggableTypes.PLAYLIST : DraggableTypes.FOLDER,
     { id: record.id, type: record.type },
     record.type === 'playlist' ? DraggableTypes.ALL : [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
     handleDrop
   )
 
+  const showDropHighlight = record.type === 'folder' && isOver && canDrop
+
   const computedClasses = clsx(
     className,
     classes.row,
-    record.missing && classes.missingRow
+    record.missing && classes.missingRow,
+    showDropHighlight && classes.dropTarget
   )
 
   const handleRowClick = (event) => {

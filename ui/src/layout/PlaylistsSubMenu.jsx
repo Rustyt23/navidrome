@@ -19,6 +19,8 @@ import config from '../config'
 import useDragAndDrop from '../common/useDragAndDrop'
 import httpClient from '../dataProvider/httpClient'
 import PlaylistDragPreview from './PlaylistDragPreview'
+import clsx from 'clsx'
+import { alpha } from '@material-ui/core/styles/colorManipulator'
 
 const fetchPlaylistTrackIds = async (playlistId) => {
   const res = await httpClient(`${REST_URL}/playlist/${playlistId}/tracks`)
@@ -64,11 +66,21 @@ const useStyles = makeStyles((theme) => ({
   active: { backgroundColor: theme.palette.action.selected, fontWeight: theme.typography.fontWeightMedium },
   text: { transition: 'color 0.2s ease' },
   toggleButton: { padding: 4, marginRight: 4 },
-  listItemIcon: { minWidth: 28 },
+  listItemIcon: { minWidth: 28, transition: 'color 0.2s ease' },
   spacer: { width: 24 },
   nested: { paddingLeft: theme.spacing(2) },
   depth: (props) => ({ paddingLeft: theme.spacing(2) + props.depth * theme.spacing(2) }),
   spinner: { marginLeft: 6 },
+  dropTarget: {
+    backgroundColor: alpha(theme.palette.primary.main, 0.08),
+    boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, 0.24)}`,
+    color: theme.palette.primary.main,
+    '& $text': {
+      color: theme.palette.primary.main,
+      fontWeight: theme.typography.fontWeightMedium,
+    },
+    '& $listItemIcon': { color: theme.palette.primary.main },
+  },
 }))
 
 const parentKey = (id) => (id == null || id === '' ? '' : String(id))
@@ -318,7 +330,7 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     [addTrackIdsToPlaylist, submitAddPayload],
   )
 
-  const { dragDropRef, dragPreviewRef, isDragging } = useDragAndDrop(
+  const { dragDropRef, dragPreviewRef, isDragging, isOver, canDrop } = useDragAndDrop(
     DraggableTypes.PLAYLIST,
     { id: pls.id, type: 'playlist', parentId: parentIdForDnD, name: pls.name },
     canChangeTracks(pls) ? DraggableTypes.ALL : [],
@@ -329,11 +341,13 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     dragPreviewRef?.(getEmptyImage(), { captureDraggingState: true })
   }, [dragPreviewRef])
 
+  const showDropHighlight = isOver && canDrop
+
   return (
     <ListItem
       button
       onClick={() => history.push(`/playlist/${pls.id}/show`)}
-      className={`${classes.listItem} ${classes.depth}`}
+      className={clsx(classes.listItem, classes.depth, showDropHighlight && classes.dropTarget)}
       ref={dragDropRef}
       style={{ opacity: isDragging ? 0.5 : 1 }}
       onDragOver={handleNativeDragOver}
@@ -401,7 +415,7 @@ const FolderRow = memo(function FolderRow({
 
   const parentIdForDnD = node.parent_id ?? ''
 
-  const { dragDropRef, isDragging } = useDragAndDrop(
+  const { dragDropRef, isDragging, isOver, canDrop } = useDragAndDrop(
     DraggableTypes.FOLDER,
     { id: node.id, type: 'folder', parentId: parentIdForDnD },
     [DraggableTypes.FOLDER, DraggableTypes.PLAYLIST],
@@ -446,12 +460,14 @@ const FolderRow = memo(function FolderRow({
     playlists: (items || []).filter((i) => i.type === 'playlist'),
   }), [items])
 
+  const showDropHighlight = isOver && canDrop
+
   return (
     <>
       <ListItem
         button
         onClick={() => history.push(`/folder/${node.id}/show`)}
-        className={`${classes.listItem} ${classes.depth}`}
+        className={clsx(classes.listItem, classes.depth, showDropHighlight && classes.dropTarget)}
         ref={dragDropRef}
         style={{ opacity: isDragging ? 0.5 : 1 }}
       >
