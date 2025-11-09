@@ -10,6 +10,7 @@ import PropTypes from 'prop-types'
 import { v4 as uuidv4 } from 'uuid'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
+import { smartSort, SortType } from '../utils'
 
 const RetailPlayerDeviceStoreContext = createContext(null)
 
@@ -386,15 +387,22 @@ const buildTree = (folders, devices) => {
 
   devices.forEach(attachDevice)
 
-  const sortNodes = (nodes) =>
-    nodes
-      .slice()
-      .sort((a, b) => {
-        if (a.type === b.type) {
-          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-        }
-        return a.type === 'folder' ? -1 : 1
-      })
+  const sortNodes = (nodes) => {
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+      return []
+    }
+    const folders = nodes.filter((node) => node?.type === 'folder')
+    const others = nodes.filter((node) => node?.type !== 'folder')
+    const sortedFolders = smartSort(folders, {
+      accessor: (node) => node?.name || '',
+      type: SortType.STRING,
+    })
+    const sortedOthers = smartSort(others, {
+      accessor: (node) => node?.name || '',
+      type: SortType.STRING,
+    })
+    return [...sortedFolders, ...sortedOthers]
+  }
 
   const normalizeTree = (nodes) =>
     sortNodes(nodes).map((node) => {

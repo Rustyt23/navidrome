@@ -3,7 +3,11 @@ import { makeStyles } from '@material-ui/core/styles'
 import { Typography, ButtonBase, TextField } from '@material-ui/core'
 import { Title, useTranslate } from 'react-admin'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
+import ArrowDownwardIcon from '@material-ui/icons/ArrowDownward'
+import ArrowUpwardIcon from '@material-ui/icons/ArrowUpward'
+import UnfoldMoreIcon from '@material-ui/icons/UnfoldMore'
 import { useHistory } from 'react-router-dom'
+import { useSmartSort, SortDirection, SortType } from '../utils'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
 
 const useStyles = makeStyles((theme) => ({
@@ -61,6 +65,9 @@ const useStyles = makeStyles((theme) => ({
     },
   },
   headerCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
     fontSize: theme.typography.pxToRem(14),
     fontWeight: theme.typography.fontWeightMedium,
     textTransform: 'uppercase',
@@ -83,6 +90,25 @@ const useStyles = makeStyles((theme) => ({
         gridArea: 'org',
       },
     },
+  },
+  headerButton: {
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    margin: 0,
+    font: 'inherit',
+    color: 'inherit',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    cursor: 'pointer',
+    textTransform: 'inherit',
+  },
+  headerButtonInactive: {
+    opacity: 0.7,
+  },
+  sortIcon: {
+    fontSize: theme.typography.pxToRem(14),
   },
   buttonBase: {
     display: 'block',
@@ -185,6 +211,62 @@ const RetailPlayerDevicesList = () => {
     )
   }, [devices, searchTerm])
 
+  const columnConfig = useMemo(
+    () => ({
+      name: { type: SortType.STRING },
+      channel: { type: SortType.STRING },
+      channelList: { type: SortType.STRING },
+      organization: { type: SortType.STRING },
+    }),
+    [],
+  )
+
+  const { sortedData: sortedDevices, requestSort, getSortDirection } = useSmartSort(
+    filteredDevices,
+    {
+      initialKey: 'name',
+      initialDirection: SortDirection.ASC,
+      columns: columnConfig,
+    },
+  )
+
+  const getAriaSort = (key) => {
+    const direction = getSortDirection(key)
+    if (!direction) {
+      return 'none'
+    }
+    return direction === SortDirection.ASC ? 'ascending' : 'descending'
+  }
+
+  const getSortLabel = (key, label) => {
+    const direction = getSortDirection(key)
+    if (!direction) {
+      return `Sort by ${label}`
+    }
+    const directionLabel =
+      direction === SortDirection.ASC ? 'ascending' : 'descending'
+    return `Sort by ${label}, currently ${directionLabel}`
+  }
+
+  const headerButtonClass = (key) => {
+    const direction = getSortDirection(key)
+    return direction
+      ? classes.headerButton
+      : `${classes.headerButton} ${classes.headerButtonInactive}`
+  }
+
+  const renderSortIcon = (key) => {
+    const direction = getSortDirection(key)
+    if (!direction) {
+      return <UnfoldMoreIcon className={classes.sortIcon} aria-hidden="true" />
+    }
+    return direction === SortDirection.ASC ? (
+      <ArrowUpwardIcon className={classes.sortIcon} aria-hidden="true" />
+    ) : (
+      <ArrowDownwardIcon className={classes.sortIcon} aria-hidden="true" />
+    )
+  }
+
   return (
     <div className={classes.root}>
       <Title title="Retail Player Devices" />
@@ -207,17 +289,69 @@ const RetailPlayerDevicesList = () => {
           <span className={classes.headerCell} data-area="actions">
             Actions
           </span>
-          <span className={classes.headerCell} data-area="name">
-            Name
+          <span
+            className={classes.headerCell}
+            data-area="name"
+            role="columnheader"
+            aria-sort={getAriaSort('name')}
+          >
+            <button
+              type="button"
+              className={headerButtonClass('name')}
+              onClick={() => requestSort('name')}
+              aria-label={getSortLabel('name', 'Name')}
+            >
+              <span>Name</span>
+              {renderSortIcon('name')}
+            </button>
           </span>
-          <span className={classes.headerCell} data-area="channel">
-            Channel
+          <span
+            className={classes.headerCell}
+            data-area="channel"
+            role="columnheader"
+            aria-sort={getAriaSort('channel')}
+          >
+            <button
+              type="button"
+              className={headerButtonClass('channel')}
+              onClick={() => requestSort('channel')}
+              aria-label={getSortLabel('channel', 'Channel')}
+            >
+              <span>Channel</span>
+              {renderSortIcon('channel')}
+            </button>
           </span>
-          <span className={classes.headerCell} data-area="channelList">
-            Channel List
+          <span
+            className={classes.headerCell}
+            data-area="channelList"
+            role="columnheader"
+            aria-sort={getAriaSort('channelList')}
+          >
+            <button
+              type="button"
+              className={headerButtonClass('channelList')}
+              onClick={() => requestSort('channelList')}
+              aria-label={getSortLabel('channelList', 'Channel List')}
+            >
+              <span>Channel List</span>
+              {renderSortIcon('channelList')}
+            </button>
           </span>
-          <span className={classes.headerCell} data-area="organization">
-            Organization
+          <span
+            className={classes.headerCell}
+            data-area="organization"
+            role="columnheader"
+            aria-sort={getAriaSort('organization')}
+          >
+            <button
+              type="button"
+              className={headerButtonClass('organization')}
+              onClick={() => requestSort('organization')}
+              aria-label={getSortLabel('organization', 'Organization')}
+            >
+              <span>Organization</span>
+              {renderSortIcon('organization')}
+            </button>
           </span>
         </div>
         {devicesLoading ? (
@@ -228,8 +362,8 @@ const RetailPlayerDevicesList = () => {
           <div className={classes.noResults}>
             {translate('menu.retailPlayer.error', { _: 'Unable to load devices' })}
           </div>
-        ) : filteredDevices.length > 0 ? (
-          filteredDevices.map((device) => (
+        ) : sortedDevices.length > 0 ? (
+          sortedDevices.map((device) => (
           <ButtonBase
             key={device.apiId || device.id}
               className={classes.buttonBase}

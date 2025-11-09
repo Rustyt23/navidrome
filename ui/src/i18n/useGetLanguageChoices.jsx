@@ -1,5 +1,6 @@
 // React Hook to get a list of all languages available. English is hardcoded
 import { useGetList } from 'react-admin'
+import { smartSort, SortType } from '../utils'
 
 const useGetLanguageChoices = () => {
   const { ids, data, loaded, loading } = useGetList(
@@ -13,9 +14,13 @@ const useGetLanguageChoices = () => {
   if (loaded) {
     ids.forEach((id) => choices.push({ id: id, name: data[id].name }))
   }
-  choices.sort((a, b) => a.name.localeCompare(b.name))
 
-  return { choices, loaded, loading }
+  const sortedChoices = smartSort(choices, {
+    accessor: (choice) => choice.name,
+    type: SortType.STRING,
+  })
+
+  return { choices: sortedChoices, loaded, loading }
 }
 
 export default useGetLanguageChoices

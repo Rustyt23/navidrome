@@ -23,6 +23,7 @@ import { useTheme } from '@material-ui/core/styles'
 import { REST_URL } from '../consts'
 import httpClient from '../dataProvider/httpClient'
 import { baseUrl } from '../utils/urls'
+import { smartSort, SortType } from '../utils'
 
 const useStyles = makeStyles((theme) => ({
   listItem: {
@@ -81,9 +82,6 @@ const buildTree = (discoveries) => {
 
   const folderCache = new Map()
 
-  const sortByName = (a, b) =>
-    (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base', numeric: true })
-
   discoveries.forEach((disc) => {
     const parts = normalisePathSegments(disc.path)
     const relSegments = parts.slice(commonPrefix.length)
@@ -99,7 +97,6 @@ const buildTree = (discoveries) => {
           type: 'discovery',
           parent_id: parentId,
         })
-        parentChildren.discoveries.sort(sortByName)
       } else {
         const folderId = parentId ? `${parentId}/${segment}` : segment
         if (!folderCache.has(folderId)) {
@@ -107,12 +104,23 @@ const buildTree = (discoveries) => {
           folderCache.set(folderId, folder)
           const parentChildren = ensureParent(parentId)
           parentChildren.folders.push(folder)
-          parentChildren.folders.sort(sortByName)
         }
         parentId = folderId
         ensureParent(parentId)
       }
     })
+  })
+
+  children.forEach((group, key) => {
+    group.discoveries = smartSort(group.discoveries, {
+      accessor: (item) => item?.name || '',
+      type: SortType.STRING,
+    })
+    group.folders = smartSort(group.folders, {
+      accessor: (item) => item?.name || '',
+      type: SortType.STRING,
+    })
+    children.set(key, group)
   })
 
   return children

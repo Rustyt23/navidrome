@@ -34,7 +34,7 @@ import ArtistListActions from './ArtistListActions'
 import ArtistSimpleList from './ArtistSimpleList'
 import { DraggableTypes } from '../consts'
 import en from '../i18n/en.json'
-import { formatBytes } from '../utils/index.js'
+import { formatBytes, smartSort, SortType } from '../utils/index.js'
 
 const useStyles = makeStyles({
   contextHeader: {
@@ -67,17 +67,22 @@ const ArtistFilter = (props) => {
   const translate = useTranslate()
   const { permissions } = usePermissions()
   const isAdmin = permissions === 'admin'
-  const rolesObj = en?.resources?.artist?.roles
-  const roles = Object.keys(rolesObj).reduce((acc, role) => {
-    acc.push({
-      id: role,
-      name: translate(`resources.artist.roles.${role}`, {
-        smart_count: 2,
-      }),
+  const rolesObj = en?.resources?.artist?.roles || {}
+  const roles = useMemo(() => {
+    const roleEntries = Object.keys(rolesObj).reduce((acc, role) => {
+      acc.push({
+        id: role,
+        name: translate(`resources.artist.roles.${role}`, {
+          smart_count: 2,
+        }),
+      })
+      return acc
+    }, [])
+    return smartSort(roleEntries, {
+      accessor: (entry) => entry.name,
+      type: SortType.STRING,
     })
-    return acc
-  }, [])
-  roles?.sort((a, b) => a.name.localeCompare(b.name))
+  }, [rolesObj, translate])
   return (
     <Filter {...props} variant={'outlined'}>
       <SearchInput id="search" source="name" alwaysOn />

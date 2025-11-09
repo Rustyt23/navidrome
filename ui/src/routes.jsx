@@ -3,6 +3,7 @@ import { Redirect, Route } from 'react-router-dom'
 import Personal from './personal/Personal'
 import RetailPlayerDashboard from './retailPlayer/RetailPlayerDashboard'
 import RetailPlayerDeviceManagement from './retailPlayer/RetailPlayerDeviceManagement'
+import SortingTestPage from './SortingTestPage'
 
 const routes = [
   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
@@ -35,6 +36,12 @@ const routes = [
     path="/musicmatters/:deviceSlug"
     render={() => <RetailPlayerDashboard />}
     key={'musicmatters-device'}
+  />,
+  <Route
+    exact
+    path="/sorting-test"
+    render={() => <SortingTestPage />}
+    key={'sorting-test-page'}
   />,
 ]
 
