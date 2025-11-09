@@ -12,7 +12,7 @@ const useStyles = makeStyles((theme) => ({
     left: 0,
     width: '100%',
     height: '100%',
-    zIndex: theme.zIndex.modal + 2,
+    zIndex: theme.zIndex.modal + 4,
   },
   previewWrapper: {
     transformOrigin: 'top left',
