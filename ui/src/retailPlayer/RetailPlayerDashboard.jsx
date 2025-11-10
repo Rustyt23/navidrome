@@ -18,6 +18,7 @@ import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
+import { baseUrl } from '../utils'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -548,28 +549,6 @@ const useStyles = makeStyles((theme) => {
       objectFit: 'cover',
       borderRadius: '50%',
       display: 'block',
-    },
-    discSvg: {
-      width: '80%',
-      height: '80%',
-      maxWidth: 180,
-      maxHeight: 180,
-    },
-    discOuter: {
-      fill:
-        (theme.palette.action && theme.palette.action.disabled) ||
-        theme.palette.grey[400],
-    },
-    discInner: {
-      fill:
-        (theme.palette.background && theme.palette.background.paper) ||
-        theme.palette.common.white,
-    },
-    discHighlight: {
-      fill:
-        (theme.palette.primary && theme.palette.primary.main) ||
-        theme.palette.text.primary,
-      opacity: 0.2,
     },
     nowPlayingTitle: {
       fontSize: theme.typography.pxToRem(32),
@@ -1150,9 +1129,9 @@ const RetailPlayerDashboard = () => {
     return previousNowPlaying
   }, [normalizedDeviceTrack, previousNowPlaying])
 
-const trackPool = useMemo(() => {
-  return effectiveNowPlaying ? [effectiveNowPlaying] : []
-}, [effectiveNowPlaying])
+  const trackPool = useMemo(() => {
+    return effectiveNowPlaying ? [effectiveNowPlaying] : []
+  }, [effectiveNowPlaying])
 
   useEffect(() => {
     setCurrentTrackIndex(0)
@@ -1171,6 +1150,20 @@ const trackPool = useMemo(() => {
     normalizeValue(device?.nowPlaying?.artworkUrl) ||
     null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
+  const [artworkLoadFailed, setArtworkLoadFailed] = useState(false)
+  const fallbackArtworkUrl = useMemo(
+    () => baseUrl('/share/img/album-placeholder.webp'),
+    [],
+  )
+
+  useEffect(() => {
+    setArtworkLoadFailed(false)
+  }, [resolvedArtworkUrl])
+
+  const displayedArtworkUrl =
+    !resolvedArtworkUrl || artworkLoadFailed
+      ? fallbackArtworkUrl
+      : resolvedArtworkUrl
 
   const deviceTimeZone = useMemo(() => {
     if (device && typeof status.timeZone === 'string') {
@@ -1716,27 +1709,12 @@ const trackPool = useMemo(() => {
           <div className={classes.artworkWrapper} aria-label="Artwork">
             <div className={classes.artworkCircle}>
               <div className={classes.artworkContent}>
-                {resolvedArtworkUrl ? (
-                  <img
-                    src={resolvedArtworkUrl}
-                    alt={`Artwork for ${currentTrack.title}`}
-                    className={classes.artworkImage}
-                  />
-                ) : (
-                  <svg
-                    viewBox="0 0 200 200"
-                    className={classes.discSvg}
-                    role="img"
-                    aria-hidden="true"
-                  >
-                    <circle cx="100" cy="100" r="98" className={classes.discOuter} />
-                    <circle cx="100" cy="100" r="48" className={classes.discInner} />
-                    <path
-                      d="M150 50c-18-14-40-22-62-20"
-                      className={classes.discHighlight}
-                    />
-                  </svg>
-                )}
+                <img
+                  src={displayedArtworkUrl}
+                  alt={`Artwork for ${currentTrack.title}`}
+                  className={classes.artworkImage}
+                  onError={() => setArtworkLoadFailed(true)}
+                />
               </div>
             </div>
           </div>
