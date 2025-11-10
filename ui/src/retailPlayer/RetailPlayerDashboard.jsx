@@ -18,9 +18,9 @@ import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
-import defaultAlbumArtwork from '../icons/logo.png'
+import config from '../config'
 
-const DEFAULT_ALBUM_ARTWORK = defaultAlbumArtwork
+const DEFAULT_ALBUM_ARTWORK = config.albumArtPlaceholder || ''
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
