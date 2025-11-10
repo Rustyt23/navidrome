@@ -10,7 +10,7 @@ const fetchRetailPlayerDevices = async (signal) => {
   const url = buildDevicesUrl()
 
   if (!url) {
-    return { devices: null, enabled: false }
+    return { devices: null, folders: null, deviceFolders: null, enabled: false }
   }
 
   let payload
@@ -34,8 +34,12 @@ const fetchRetailPlayerDevices = async (signal) => {
   const devices = Array.isArray(payload?.data)
     ? payload.data.map(mapRetailPlayerDevice).filter(Boolean)
     : []
+  const folders = Array.isArray(payload?.folders) ? payload.folders : []
+  const deviceFolders = Array.isArray(payload?.deviceFolders)
+    ? payload.deviceFolders
+    : []
 
-  return { devices, enabled: true }
+  return { devices, folders, deviceFolders, enabled: true }
 }
 
 const useRetailPlayerDevices = () => {
@@ -45,6 +49,8 @@ const useRetailPlayerDevices = () => {
     }
     return RetailPlayerMockService.listDevices()
   })
+  const [folders, setFolders] = useState([])
+  const [deviceFolders, setDeviceFolders] = useState([])
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isApiEnabled, setIsApiEnabled] = useState(
@@ -71,6 +77,16 @@ const useRetailPlayerDevices = () => {
         } else if (!enabled) {
           setDevices(RetailPlayerMockService.listDevices())
         }
+        if (Array.isArray(result?.folders)) {
+          setFolders(result.folders)
+        } else if (!enabled) {
+          setFolders([])
+        }
+        if (Array.isArray(result?.deviceFolders)) {
+          setDeviceFolders(result.deviceFolders)
+        } else if (!enabled) {
+          setDeviceFolders([])
+        }
       })
       .catch((err) => {
         if (err?.name !== 'AbortError') {
@@ -88,6 +104,8 @@ const useRetailPlayerDevices = () => {
 
   return {
     devices,
+    folders,
+    deviceFolders,
     error,
     isApiEnabled,
     isLoading,

@@ -63,6 +63,11 @@ const mapRetailPlayerDevice = (device) => {
 
   const slug = buildDeviceSlug(device) || fallbackId
   const name = normalizeValue(device.name) || fallbackId
+  const folderIds = Array.isArray(device.folderIds)
+    ? device.folderIds
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean)
+    : []
 
   return {
     id: fallbackId,
@@ -77,6 +82,7 @@ const mapRetailPlayerDevice = (device) => {
       normalizeValue(device.orgUnit || device.org_unit) ||
       normalizeValue(device.location),
     timeZone: normalizeValue(device.timeZone || device.time_zone),
+    folderIds,
   }
 }
 

@@ -9,6 +9,7 @@ import React, {
 import PropTypes from 'prop-types'
 import { v4 as uuidv4 } from 'uuid'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
+import httpClient from '../dataProvider/httpClient'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
 
 const RetailPlayerDeviceStoreContext = createContext(null)
@@ -35,6 +36,58 @@ const normalizeFolderIds = (value) => {
   }
   const single = ensureFolderId(value)
   return single ? [single] : []
+}
+
+const normalizeTimestamp = (value, fallback) => {
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString()
+    }
+  }
+  if (fallback instanceof Date) {
+    return fallback.toISOString()
+  }
+  if (typeof fallback === 'string' && fallback.trim() !== '') {
+    const parsed = new Date(fallback)
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString()
+    }
+  }
+  return new Date().toISOString()
+}
+
+const normalizeFolderRecord = (folder, existing) => {
+  if (!folder || typeof folder !== 'object') {
+    return existing || null
+  }
+
+  const existingFolder = existing || null
+  const id = ensureFolderId(folder.id) || existingFolder?.id || uuidv4()
+  const name = normalizeValue(folder.name) || existingFolder?.name || 'New Folder'
+
+  let parentId = existingFolder?.parentId || null
+  if (Object.prototype.hasOwnProperty.call(folder, 'parentId')) {
+    const normalizedParent = ensureFolderId(folder.parentId)
+    parentId = normalizedParent && normalizedParent !== id ? normalizedParent : null
+  }
+
+  const createdAt = normalizeTimestamp(
+    folder.createdAt,
+    existingFolder?.createdAt || new Date(),
+  )
+  const updatedAt = normalizeTimestamp(
+    folder.updatedAt,
+    folder.createdAt ? folder.createdAt : existingFolder?.updatedAt || createdAt,
+  )
+
+  return {
+    id,
+    name,
+    parentId,
+    createdAt,
+    updatedAt,
+  }
 }
 
 const baseDeviceShape = (device, existing) => {
@@ -83,8 +136,38 @@ const reducer = (state, action) => {
       return { ...state, error: action.payload || null }
     case 'SET_API_ENABLED':
       return { ...state, isApiEnabled: Boolean(action.payload) }
-    case 'SYNC_DEVICES': {
-      const incoming = Array.isArray(action.payload) ? action.payload : []
+    case 'SYNC_REMOTE': {
+      const incomingDevices = Array.isArray(action.payload?.devices)
+        ? action.payload.devices
+        : []
+      const incomingFolders = Array.isArray(action.payload?.folders)
+        ? action.payload.folders
+        : []
+      const incomingAssignments = Array.isArray(action.payload?.deviceFolders)
+        ? action.payload.deviceFolders
+        : []
+
+      const normalizedFolders = incomingFolders
+        .map((folder) => normalizeFolderRecord(folder))
+        .filter(Boolean)
+
+      const folderIdSet = new Set(normalizedFolders.map((folder) => folder.id))
+      const assignmentMap = new Map()
+      incomingAssignments.forEach((assignment) => {
+        if (!assignment || typeof assignment !== 'object') {
+          return
+        }
+        const deviceId = normalizeValue(assignment.deviceId || assignment.deviceID)
+        const folderId = ensureFolderId(assignment.folderId || assignment.folderID)
+        if (!deviceId || !folderId || !folderIdSet.has(folderId)) {
+          return
+        }
+        const existingFolders = assignmentMap.get(deviceId) || []
+        if (!existingFolders.includes(folderId)) {
+          assignmentMap.set(deviceId, [...existingFolders, folderId])
+        }
+      })
+
       const existingByKey = new Map()
       state.devices.forEach((device) => {
         const key = device.apiId || device.id
@@ -93,62 +176,46 @@ const reducer = (state, action) => {
         }
       })
 
-      const nextDevices = incoming.map((device) => {
+      const nextDevices = incomingDevices.map((device) => {
         const key = normalizeValue(device?.apiId || device?.id)
         const existing = key ? existingByKey.get(key) : null
-        return baseDeviceShape(device, existing || undefined)
+        const deviceId = normalizeValue(device?.id || device?.apiId)
+        const foldersForDevice = assignmentMap.get(deviceId)
+        const shapedDevice = foldersForDevice && foldersForDevice.length
+          ? { ...device, folderIds: foldersForDevice }
+          : device
+        return baseDeviceShape(shapedDevice, existing || undefined)
       })
 
       const localDevices = state.devices.filter((device) => device.source === 'local')
 
       return {
         ...state,
+        folders: normalizedFolders,
         devices: [...nextDevices, ...localDevices],
         lastUpdated: Date.now(),
       }
     }
-    case 'CREATE_FOLDER': {
-      const { id: providedId, name, parentId } = action.payload || {}
-      const now = new Date().toISOString()
-      const folder = {
-        id: ensureFolderId(providedId) || uuidv4(),
-        name: normalizeValue(name) || 'New Folder',
-        parentId: ensureFolderId(parentId),
-        createdAt: now,
-        updatedAt: now,
+    case 'UPSERT_FOLDER': {
+      const targetId = ensureFolderId(action.payload?.id)
+      const existingIndex = targetId
+        ? state.folders.findIndex((folder) => folder.id === targetId)
+        : -1
+      const existingFolder = existingIndex >= 0 ? state.folders[existingIndex] : undefined
+      const normalized = normalizeFolderRecord(action.payload, existingFolder)
+      if (!normalized) {
+        return state
+      }
+      if (existingIndex >= 0) {
+        const nextFolders = state.folders.slice()
+        nextFolders[existingIndex] = normalized
+        return { ...state, folders: nextFolders, lastUpdated: Date.now() }
       }
       return {
         ...state,
-        folders: [...state.folders, folder],
+        folders: [...state.folders, normalized],
         lastUpdated: Date.now(),
       }
-    }
-    case 'UPDATE_FOLDER': {
-      const { id, name, parentId } = action.payload || {}
-      if (!id) {
-        return state
-      }
-      const hasParentUpdate = Object.prototype.hasOwnProperty.call(
-        action.payload || {},
-        'parentId',
-      )
-      const nextFolders = state.folders.map((folder) => {
-        if (folder.id !== id) {
-          return folder
-        }
-        const normalizedParentId = hasParentUpdate
-          ? ensureFolderId(parentId) !== folder.id
-            ? ensureFolderId(parentId)
-            : null
-          : folder.parentId
-        return {
-          ...folder,
-          name: normalizeValue(name) || folder.name,
-          parentId: hasParentUpdate ? normalizedParentId : folder.parentId,
-          updatedAt: new Date().toISOString(),
-        }
-      })
-      return { ...state, folders: nextFolders, lastUpdated: Date.now() }
     }
     case 'CREATE_DEVICE': {
       const {
@@ -414,6 +481,8 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState)
   const {
     devices: remoteDevices,
+    folders: remoteFolders,
+    deviceFolders: remoteDeviceFolders,
     error,
     isLoading,
     isApiEnabled,
@@ -432,45 +501,240 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
   }, [isApiEnabled])
 
   useEffect(() => {
-    if (Array.isArray(remoteDevices)) {
-      dispatch({ type: 'SYNC_DEVICES', payload: remoteDevices })
+    if (
+      !Array.isArray(remoteDevices) &&
+      !Array.isArray(remoteFolders) &&
+      !Array.isArray(remoteDeviceFolders)
+    ) {
+      return
     }
-  }, [remoteDevices])
+    dispatch({
+      type: 'SYNC_REMOTE',
+      payload: {
+        devices: Array.isArray(remoteDevices) ? remoteDevices : [],
+        folders: Array.isArray(remoteFolders) ? remoteFolders : [],
+        deviceFolders: Array.isArray(remoteDeviceFolders)
+          ? remoteDeviceFolders
+          : [],
+      },
+    })
+  }, [remoteDevices, remoteFolders, remoteDeviceFolders])
 
   const tree = useMemo(
     () => buildTree(state.folders, state.devices),
     [state.folders, state.devices],
   )
 
-  const createFolder = useCallback((payload) => {
-    const basePayload = payload && typeof payload === 'object' ? payload : {}
-    const folderPayload = {
-      ...basePayload,
-      id: ensureFolderId(basePayload.id) || uuidv4(),
-    }
-    dispatch({ type: 'CREATE_FOLDER', payload: folderPayload })
-    return folderPayload
-  }, [])
+  const apiEnabled = state.isApiEnabled
 
-  const updateFolder = useCallback((payload) => {
-    dispatch({ type: 'UPDATE_FOLDER', payload })
-  }, [])
+  const createFolder = useCallback(
+    async (payload) => {
+      const basePayload = payload && typeof payload === 'object' ? payload : {}
+      if (!apiEnabled) {
+        const folderPayload = normalizeFolderRecord({
+          ...basePayload,
+          id: ensureFolderId(basePayload.id) || uuidv4(),
+        })
+        if (folderPayload) {
+          dispatch({ type: 'UPSERT_FOLDER', payload: folderPayload })
+        }
+        return folderPayload
+      }
+
+      const requestBody = {
+        name: normalizeValue(basePayload.name) || 'New Folder',
+      }
+      const providedId = ensureFolderId(basePayload.id)
+      if (providedId) {
+        requestBody.id = providedId
+      }
+      if (Object.prototype.hasOwnProperty.call(basePayload, 'parentId')) {
+        const normalizedParent = ensureFolderId(basePayload.parentId)
+        requestBody.parentId = normalizedParent || null
+      }
+
+      const { json } = await httpClient('/api/retailplayer/folders', {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+
+      const folder = normalizeFolderRecord(json?.data)
+      if (folder) {
+        dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+      }
+      return folder
+    },
+    [apiEnabled, dispatch],
+  )
+
+  const updateFolder = useCallback(
+    async (payload) => {
+      const basePayload = payload && typeof payload === 'object' ? payload : {}
+      const folderId = ensureFolderId(basePayload.id)
+      if (!folderId) {
+        return null
+      }
+
+      if (!apiEnabled) {
+        const normalized = normalizeFolderRecord(basePayload)
+        if (normalized) {
+          dispatch({ type: 'UPSERT_FOLDER', payload: normalized })
+        }
+        return normalized
+      }
+
+      const requestBody = {}
+      if (Object.prototype.hasOwnProperty.call(basePayload, 'name')) {
+        const normalizedName = normalizeValue(basePayload.name)
+        requestBody.name = normalizedName || 'New Folder'
+      }
+      if (Object.prototype.hasOwnProperty.call(basePayload, 'parentId')) {
+        const normalizedParent = ensureFolderId(basePayload.parentId)
+        requestBody.parentId = normalizedParent || null
+      }
+
+      const { json } = await httpClient(
+        `/api/retailplayer/folders/${encodeURIComponent(folderId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(requestBody),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        },
+      )
+
+      const folder = normalizeFolderRecord(json?.data)
+      if (folder) {
+        dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+      }
+      return folder
+    },
+    [apiEnabled, dispatch],
+  )
 
   const createDevice = useCallback((payload) => {
     dispatch({ type: 'CREATE_DEVICE', payload })
   }, [])
 
-  const updateDevice = useCallback((payload) => {
-    dispatch({ type: 'UPDATE_DEVICE', payload })
-  }, [])
+  const updateDevice = useCallback(
+    async (payload) => {
+      const basePayload = payload && typeof payload === 'object' ? payload : {}
+      dispatch({ type: 'UPDATE_DEVICE', payload: basePayload })
 
-  const assignDeviceToFolder = useCallback((payload) => {
-    dispatch({ type: 'ASSIGN_DEVICE_FOLDER', payload })
-  }, [])
+      if (!apiEnabled) {
+        return basePayload
+      }
 
-  const deleteNodes = useCallback((payload) => {
-    dispatch({ type: 'DELETE_NODES', payload })
-  }, [])
+      const deviceId = typeof basePayload.id === 'string' ? basePayload.id : null
+      if (!deviceId) {
+        return basePayload
+      }
+
+      const hasFolderIds = Object.prototype.hasOwnProperty.call(
+        basePayload,
+        'folderIds',
+      )
+      const hasFolderId = Object.prototype.hasOwnProperty.call(
+        basePayload,
+        'folderId',
+      )
+
+      if (!hasFolderIds && !hasFolderId) {
+        return basePayload
+      }
+
+      const normalizedFolderIds = hasFolderIds
+        ? normalizeFolderIds(basePayload.folderIds)
+        : normalizeFolderIds(basePayload.folderId)
+
+      await httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/folders`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ folderIds: normalizedFolderIds }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        },
+      )
+
+      dispatch({
+        type: 'ASSIGN_DEVICE_FOLDER',
+        payload: { id: deviceId, folderIds: normalizedFolderIds },
+      })
+
+      return basePayload
+    },
+    [apiEnabled, dispatch],
+  )
+
+  const assignDeviceToFolder = useCallback(
+    async (payload) => {
+      const basePayload = payload && typeof payload === 'object' ? payload : {}
+      const deviceId = typeof basePayload.id === 'string' ? basePayload.id : null
+      if (!deviceId) {
+        return []
+      }
+
+      const normalizedFolderIds = Object.prototype.hasOwnProperty.call(
+        basePayload,
+        'folderIds',
+      )
+        ? normalizeFolderIds(basePayload.folderIds)
+        : normalizeFolderIds(basePayload.folderId)
+
+      if (!apiEnabled) {
+        dispatch({
+          type: 'ASSIGN_DEVICE_FOLDER',
+          payload: { id: deviceId, folderIds: normalizedFolderIds },
+        })
+        return normalizedFolderIds
+      }
+
+      await httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/folders`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ folderIds: normalizedFolderIds }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        },
+      )
+
+      dispatch({
+        type: 'ASSIGN_DEVICE_FOLDER',
+        payload: { id: deviceId, folderIds: normalizedFolderIds },
+      })
+
+      return normalizedFolderIds
+    },
+    [apiEnabled, dispatch],
+  )
+
+  const deleteNodes = useCallback(
+    async (payload) => {
+      const basePayload = payload && typeof payload === 'object' ? payload : {}
+      const folderIds = Array.isArray(basePayload.folderIds)
+        ? basePayload.folderIds.map(ensureFolderId).filter(Boolean)
+        : []
+      const deviceIds = Array.isArray(basePayload.deviceIds)
+        ? basePayload.deviceIds
+            .map((value) => (typeof value === 'string' ? value : null))
+            .filter(Boolean)
+        : []
+
+      if (apiEnabled && folderIds.length) {
+        await httpClient('/api/retailplayer/folders/delete', {
+          method: 'POST',
+          body: JSON.stringify({ folderIds }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        })
+      }
+
+      dispatch({
+        type: 'DELETE_NODES',
+        payload: { folderIds, deviceIds },
+      })
+    },
+    [apiEnabled, dispatch],
+  )
 
   const value = useMemo(
     () => ({

@@ -825,11 +825,15 @@ const RetailPlayerDeviceManagement = () => {
   const selectedCount = selectedFolderIds.length + selectedDeviceIds.length
 
   const handleDeviceDropOnFolder = useCallback(
-    (deviceId, folderId) => {
+    async (deviceId, folderId) => {
       if (!deviceId || !folderId) {
         return
       }
-      assignDeviceToFolder(deviceId, folderId)
+      try {
+        await assignDeviceToFolder(deviceId, folderId)
+      } catch (err) {
+        console.error('Failed to assign retail player device to folder', err)
+      }
     },
     [assignDeviceToFolder],
   )
@@ -871,7 +875,7 @@ const RetailPlayerDeviceManagement = () => {
   }, [])
 
   const handleAddToFolderConfirm = useCallback(
-    ({ folderIds: incomingFolderIds, newFolderName }) => {
+    async ({ folderIds: incomingFolderIds, newFolderName }) => {
       const folderIdSet = new Set(
         Array.isArray(incomingFolderIds)
           ? incomingFolderIds
@@ -888,12 +892,16 @@ const RetailPlayerDeviceManagement = () => {
           folderIdSet.size > 0
             ? Array.from(folderIdSet)[0]
             : activeFolderId || null
-        const newFolder = createFolder({
-          name: trimmedNewFolderName,
-          parentId: parentForNewFolder,
-        })
-        if (newFolder && newFolder.id) {
-          folderIdSet.add(newFolder.id)
+        try {
+          const newFolder = await createFolder({
+            name: trimmedNewFolderName,
+            parentId: parentForNewFolder,
+          })
+          if (newFolder && newFolder.id) {
+            folderIdSet.add(newFolder.id)
+          }
+        } catch (err) {
+          console.error('Failed to create retail player folder', err)
         }
       }
 
@@ -903,10 +911,10 @@ const RetailPlayerDeviceManagement = () => {
         return
       }
 
-      selectedDeviceIds.forEach((deviceId) => {
+      for (const deviceId of selectedDeviceIds) {
         const device = deviceMap.get(deviceId)
         if (!device) {
-          return
+          continue
         }
         const existingIds = Array.isArray(device.folderIds)
           ? device.folderIds
@@ -916,22 +924,30 @@ const RetailPlayerDeviceManagement = () => {
           mergedIds.length !== existingIds.length ||
           mergedIds.some((id, index) => id !== existingIds[index])
         if (changed) {
-          updateDevice({ id: deviceId, folderIds: mergedIds })
+          try {
+            await updateDevice({ id: deviceId, folderIds: mergedIds })
+          } catch (err) {
+            console.error('Failed to update retail player device folders', err)
+          }
         }
-      })
+      }
 
       const parentFolderId = targetFolderIds[0] || null
       if (parentFolderId) {
-        selectedFolderIds.forEach((folderId) => {
+        for (const folderId of selectedFolderIds) {
           if (folderId === parentFolderId) {
-            return
+            continue
           }
           const folder = folderMap.get(folderId)
           if (folder && folder.parentId === parentFolderId) {
-            return
+            continue
           }
-          updateFolder({ id: folderId, parentId: parentFolderId })
-        })
+          try {
+            await updateFolder({ id: folderId, parentId: parentFolderId })
+          } catch (err) {
+            console.error('Failed to move retail player folder', err)
+          }
+        }
       }
 
       setAddToFolderDialogOpen(false)
@@ -953,16 +969,21 @@ const RetailPlayerDeviceManagement = () => {
     setDeleteDialogOpen(false)
   }, [])
 
-  const handleDeleteConfirm = useCallback(() => {
+  const handleDeleteConfirm = useCallback(async () => {
     if (!selectedFolderIds.length && !selectedDeviceIds.length) {
       setDeleteDialogOpen(false)
       return
     }
 
-    deleteNodes({
-      folderIds: selectedFolderIds,
-      deviceIds: selectedDeviceIds,
-    })
+    try {
+      await deleteNodes({
+        folderIds: selectedFolderIds,
+        deviceIds: selectedDeviceIds,
+      })
+    } catch (err) {
+      console.error('Failed to delete retail player items', err)
+      return
+    }
 
     const deletedFolderSet = new Set(selectedFolderIds)
     selectedFolderIds.forEach((folderId) => {
@@ -1104,22 +1125,30 @@ const RetailPlayerDeviceManagement = () => {
     setDeviceDialog({ open: false, target: null })
   }
 
-  const handleFolderSubmit = (values) => {
-    if (folderDialog.target) {
-      updateFolder({ id: folderDialog.target.id, name: values.name })
-    } else {
-      createFolder({ ...values, parentId: folderDialog.parentId || null })
+  const handleFolderSubmit = async (values) => {
+    try {
+      if (folderDialog.target) {
+        await updateFolder({ id: folderDialog.target.id, name: values.name })
+      } else {
+        await createFolder({ ...values, parentId: folderDialog.parentId || null })
+      }
+      handleFolderDialogClose()
+    } catch (err) {
+      console.error('Failed to save retail player folder', err)
     }
-    handleFolderDialogClose()
   }
 
-  const handleDeviceSubmit = (values) => {
-    if (deviceDialog.target) {
-      updateDevice({ id: deviceDialog.target.id, ...values })
-    } else {
-      createDevice(values)
+  const handleDeviceSubmit = async (values) => {
+    try {
+      if (deviceDialog.target) {
+        await updateDevice({ id: deviceDialog.target.id, ...values })
+      } else {
+        createDevice(values)
+      }
+      handleDeviceDialogClose()
+    } catch (err) {
+      console.error('Failed to save retail player device', err)
     }
-    handleDeviceDialogClose()
   }
 
   const handleNavigateToDevice = useCallback(

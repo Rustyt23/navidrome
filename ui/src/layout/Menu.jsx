@@ -294,13 +294,17 @@ const Menu = ({ dense = false }) => {
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
 
   const handleDeviceDrop = useCallback(
-    (deviceId, folderId) => {
+    async (deviceId, folderId) => {
       if (!deviceId || !folderId) {
         return
       }
-      const changed = assignDeviceToFolder(deviceId, folderId)
-      if (changed) {
-        setOpenFolders((prev) => ({ ...prev, [folderId]: true }))
+      try {
+        const changed = await assignDeviceToFolder(deviceId, folderId)
+        if (changed) {
+          setOpenFolders((prev) => ({ ...prev, [folderId]: true }))
+        }
+      } catch (err) {
+        console.error('Failed to assign retail player device to folder', err)
       }
     },
     [assignDeviceToFolder],

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -195,18 +196,50 @@ type retailPlayerChannelListAPIResponse struct {
 }
 
 type retailPlayerDevice struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Channel      string `json:"channel"`
-	ChannelList  string `json:"channelList"`
-	Organization string `json:"organization"`
-	TimeZone     string `json:"timeZone,omitempty"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Channel      string   `json:"channel"`
+	ChannelList  string   `json:"channelList"`
+	Organization string   `json:"organization"`
+	TimeZone     string   `json:"timeZone,omitempty"`
+	FolderIDs    []string `json:"folderIds,omitempty"`
 }
 
 type retailPlayerDevicesResponse struct {
-	Data  []retailPlayerDevice `json:"data"`
-	Page  *int                 `json:"page,omitempty"`
-	Total *int                 `json:"total,omitempty"`
+	Data         []retailPlayerDevice       `json:"data"`
+	Folders      []retailPlayerFolder       `json:"folders,omitempty"`
+	DeviceFolder []retailPlayerDeviceFolder `json:"deviceFolders,omitempty"`
+	Page         *int                       `json:"page,omitempty"`
+	Total        *int                       `json:"total,omitempty"`
+}
+
+type retailPlayerFolder struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	ParentID  *string   `json:"parentId,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type retailPlayerDeviceFolder struct {
+	DeviceID  string    `json:"deviceId"`
+	FolderID  string    `json:"folderId"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type retailPlayerFolderPayload struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	ParentID *string `json:"parentId"`
+}
+
+type retailPlayerDeleteFoldersRequest struct {
+	FolderIDs []string `json:"folderIds"`
+}
+
+type retailPlayerAssignDeviceFoldersRequest struct {
+	FolderIDs []string `json:"folderIds"`
 }
 
 type retailPlayerAPIChannel struct {
@@ -251,7 +284,13 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 }
 
 func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
-	r.Get("/retailplayer/devices", n.handleRetailPlayerDevices())
+	r.Route("/retailplayer", func(r chi.Router) {
+		r.Get("/devices", n.handleRetailPlayerDevices())
+		r.Post("/folders", n.handleCreateRetailPlayerFolder())
+		r.Patch("/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
+		r.Post("/folders/delete", n.handleDeleteRetailPlayerFolders())
+		r.Put("/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
+	})
 }
 
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
@@ -278,10 +317,287 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 		n.devices.RememberDevices(response.Data)
 		n.persistRetailPlayerDeviceMappings(ctx, response.Data)
 
+		folders, deviceFolders, err := n.loadRetailPlayerFolderData(ctx)
+		if err != nil {
+			log.Error(ctx, "Unable to load retail player folder data", "err", err)
+			http.Error(w, "Unable to load retail player folders", http.StatusInternalServerError)
+			return
+		}
+
+		if len(deviceFolders) > 0 {
+			folderSet := make(map[string]struct{}, len(folders))
+			for _, folder := range folders {
+				folderSet[folder.ID] = struct{}{}
+			}
+
+			assignments := make(map[string][]string)
+			for _, deviceFolder := range deviceFolders {
+				if _, ok := folderSet[deviceFolder.FolderID]; !ok {
+					continue
+				}
+
+				assignments[deviceFolder.DeviceID] = append(assignments[deviceFolder.DeviceID], deviceFolder.FolderID)
+			}
+
+			for index := range response.Data {
+				id := strings.TrimSpace(response.Data[index].ID)
+				if id == "" {
+					continue
+				}
+				if folderIDs, ok := assignments[id]; ok {
+					response.Data[index].FolderIDs = append([]string(nil), folderIDs...)
+				}
+			}
+		}
+
+		response.Folders = make([]retailPlayerFolder, 0, len(folders))
+		for _, folder := range folders {
+			response.Folders = append(response.Folders, mapModelRetailPlayerFolder(folder))
+		}
+
+		response.DeviceFolder = make([]retailPlayerDeviceFolder, 0, len(deviceFolders))
+		for _, deviceFolder := range deviceFolders {
+			response.DeviceFolder = append(response.DeviceFolder, mapModelRetailPlayerDeviceFolder(deviceFolder))
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Error(ctx, "Unable to encode retail player devices response", "err", err)
 		}
+	}
+}
+
+func (n *Router) handleCreateRetailPlayerFolder() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		var payload retailPlayerFolderPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player folder payload", http.StatusBadRequest)
+			return
+		}
+
+		folderID := strings.TrimSpace(payload.ID)
+		if folderID == "" {
+			folderID = uuid.NewString()
+		}
+
+		name := strings.TrimSpace(payload.Name)
+		if name == "" {
+			http.Error(w, "Retail player folder name is required", http.StatusBadRequest)
+			return
+		}
+
+		var parentID *string
+		if payload.ParentID != nil {
+			trimmed := strings.TrimSpace(*payload.ParentID)
+			if trimmed != "" && trimmed != folderID {
+				parentID = &trimmed
+			}
+		}
+
+		var folder model.RetailPlayerFolder
+		err := n.ds.WithTx(func(tx model.DataStore) error {
+			repo := tx.RetailPlayerFolder(ctx)
+			if repo == nil {
+				return errors.New("retail player folder repository not available")
+			}
+
+			stored, err := repo.Upsert(ctx, model.RetailPlayerFolder{ID: folderID, Name: name, ParentID: parentID})
+			if err != nil {
+				return err
+			}
+
+			folder = stored
+			return nil
+		})
+		if err != nil {
+			status := http.StatusInternalServerError
+			if isConstraintError(err) {
+				status = http.StatusBadRequest
+			}
+			log.Error(ctx, "Unable to create retail player folder", "err", err)
+			http.Error(w, "Unable to create retail player folder", status)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusCreated, map[string]any{"data": mapModelRetailPlayerFolder(folder)})
+	}
+}
+
+func (n *Router) handleUpdateRetailPlayerFolder() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		folderID := strings.TrimSpace(chi.URLParam(r, "folderID"))
+		if folderID == "" {
+			http.Error(w, "Retail player folder id is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload retailPlayerFolderPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player folder payload", http.StatusBadRequest)
+			return
+		}
+
+		name := strings.TrimSpace(payload.Name)
+		if name == "" {
+			http.Error(w, "Retail player folder name is required", http.StatusBadRequest)
+			return
+		}
+
+		var parentID *string
+		if payload.ParentID != nil {
+			trimmed := strings.TrimSpace(*payload.ParentID)
+			if trimmed != "" && trimmed != folderID {
+				parentID = &trimmed
+			}
+		}
+
+		var folder model.RetailPlayerFolder
+		err := n.ds.WithTx(func(tx model.DataStore) error {
+			repo := tx.RetailPlayerFolder(ctx)
+			if repo == nil {
+				return errors.New("retail player folder repository not available")
+			}
+
+			stored, err := repo.Upsert(ctx, model.RetailPlayerFolder{ID: folderID, Name: name, ParentID: parentID})
+			if err != nil {
+				return err
+			}
+
+			folder = stored
+			return nil
+		})
+		if err != nil {
+			status := http.StatusInternalServerError
+			if isConstraintError(err) {
+				status = http.StatusBadRequest
+			}
+			log.Error(ctx, "Unable to update retail player folder", "folderID", folderID, "err", err)
+			http.Error(w, "Unable to update retail player folder", status)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": mapModelRetailPlayerFolder(folder)})
+	}
+}
+
+func (n *Router) handleDeleteRetailPlayerFolders() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		var payload retailPlayerDeleteFoldersRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player folder payload", http.StatusBadRequest)
+			return
+		}
+
+		normalized := make([]string, 0, len(payload.FolderIDs))
+		seen := make(map[string]struct{}, len(payload.FolderIDs))
+		for _, id := range payload.FolderIDs {
+			trimmed := strings.TrimSpace(id)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			normalized = append(normalized, trimmed)
+		}
+
+		if len(normalized) == 0 {
+			writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": map[string]any{"deletedFolderIds": []string{}}})
+			return
+		}
+
+		err := n.ds.WithTx(func(tx model.DataStore) error {
+			repo := tx.RetailPlayerFolder(ctx)
+			if repo == nil {
+				return errors.New("retail player folder repository not available")
+			}
+			return repo.DeleteMany(ctx, normalized)
+		})
+		if err != nil {
+			log.Error(ctx, "Unable to delete retail player folders", "err", err)
+			http.Error(w, "Unable to delete retail player folders", http.StatusInternalServerError)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": map[string]any{"deletedFolderIds": normalized}})
+	}
+}
+
+func (n *Router) handleAssignRetailPlayerDeviceFolders() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload retailPlayerAssignDeviceFoldersRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player folder payload", http.StatusBadRequest)
+			return
+		}
+
+		normalized := make([]string, 0, len(payload.FolderIDs))
+		seen := make(map[string]struct{}, len(payload.FolderIDs))
+		for _, id := range payload.FolderIDs {
+			trimmed := strings.TrimSpace(id)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			normalized = append(normalized, trimmed)
+		}
+
+		err := n.ds.WithTx(func(tx model.DataStore) error {
+			repo := tx.RetailPlayerFolder(ctx)
+			if repo == nil {
+				return errors.New("retail player folder repository not available")
+			}
+			return repo.ReplaceDeviceAssignments(ctx, deviceID, normalized)
+		})
+		if err != nil {
+			status := http.StatusInternalServerError
+			if isConstraintError(err) {
+				status = http.StatusBadRequest
+			}
+			log.Error(ctx, "Unable to assign retail player device folders", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to assign retail player device folders", status)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": map[string]any{"deviceId": deviceID, "folderIds": normalized}})
 	}
 }
 
@@ -569,6 +885,65 @@ func (n *Router) persistRetailPlayerDeviceMappings(ctx context.Context, devices 
 	if err := repo.PutMany(ctx, mappings); err != nil {
 		log.Error(ctx, "Unable to persist retail player device mappings", "err", err)
 	}
+}
+
+func (n *Router) loadRetailPlayerFolderData(ctx context.Context) ([]model.RetailPlayerFolder, []model.RetailPlayerDeviceFolder, error) {
+	if n == nil || n.ds == nil {
+		return nil, nil, nil
+	}
+
+	repo := n.ds.RetailPlayerFolder(ctx)
+	if repo == nil {
+		return nil, nil, nil
+	}
+
+	folders, err := repo.List(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	assignments, err := repo.Assignments(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return folders, assignments, nil
+}
+
+func mapModelRetailPlayerFolder(folder model.RetailPlayerFolder) retailPlayerFolder {
+	var parentID *string
+	if folder.ParentID != nil {
+		trimmed := strings.TrimSpace(*folder.ParentID)
+		if trimmed != "" {
+			parentID = &trimmed
+		}
+	}
+
+	return retailPlayerFolder{
+		ID:        strings.TrimSpace(folder.ID),
+		Name:      strings.TrimSpace(folder.Name),
+		ParentID:  parentID,
+		CreatedAt: folder.CreatedAt,
+		UpdatedAt: folder.UpdatedAt,
+	}
+}
+
+func mapModelRetailPlayerDeviceFolder(deviceFolder model.RetailPlayerDeviceFolder) retailPlayerDeviceFolder {
+	return retailPlayerDeviceFolder{
+		DeviceID:  strings.TrimSpace(deviceFolder.DeviceID),
+		FolderID:  strings.TrimSpace(deviceFolder.FolderID),
+		CreatedAt: deviceFolder.CreatedAt,
+		UpdatedAt: deviceFolder.UpdatedAt,
+	}
+}
+
+func isConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "constraint")
 }
 
 func mapRetailPlayerDeviceToMapping(device retailPlayerDevice) (model.RetailPlayerDeviceMapping, bool) {
