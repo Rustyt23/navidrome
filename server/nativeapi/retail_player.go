@@ -284,13 +284,11 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 }
 
 func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
-	r.Route("/retailplayer", func(r chi.Router) {
-		r.Get("/devices", n.handleRetailPlayerDevices())
-		r.Post("/folders", n.handleCreateRetailPlayerFolder())
-		r.Patch("/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
-		r.Post("/folders/delete", n.handleDeleteRetailPlayerFolders())
-		r.Put("/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
-	})
+	r.Get("/retailplayer/devices", n.handleRetailPlayerDevices())
+	r.Post("/retailplayer/folders", n.handleCreateRetailPlayerFolder())
+	r.Patch("/retailplayer/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
+	r.Post("/retailplayer/folders/delete", n.handleDeleteRetailPlayerFolders())
+	r.Put("/retailplayer/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
 }
 
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
