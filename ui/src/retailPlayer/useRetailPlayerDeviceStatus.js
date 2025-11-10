@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useDataProvider } from 'react-admin'
 import config from '../config'
+import subsonic from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
+import { baseUrl } from '../utils'
 import {
   buildDeviceSlug,
   deviceSlugKey,
@@ -47,35 +50,6 @@ const extractErrorMessage = (error) => {
   }
 
   return normalizeValue(error.message)
-}
-
-const buildRetailPlayerCoverArtPath = ({
-  artworkId,
-  title,
-  artist,
-  size,
-  square,
-}) => {
-  const params = new URLSearchParams()
-  if (artworkId) {
-    params.set('artworkId', artworkId)
-  }
-  if (!artworkId) {
-    if (title) {
-      params.set('title', title)
-    }
-    if (artist) {
-      params.set('artist', artist)
-    }
-  }
-  if (typeof size === 'number' && Number.isFinite(size) && size > 0) {
-    params.set('size', String(Math.round(size)))
-  }
-  if (square) {
-    params.set('square', 'true')
-  }
-  const query = params.toString()
-  return query ? `/api/retailplayer/cover-art?${query}` : '/api/retailplayer/cover-art'
 }
 
 const isIntegrationDisabledError = (error) => {
@@ -838,6 +812,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     [baseDevice, channelState.data, statusState.data],
   )
 
+  const dataProvider = useDataProvider()
   const [artworkUrl, setArtworkUrl] = useState(null)
 
   const artworkSignature = useMemo(() => {
@@ -873,47 +848,51 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    const coverArtParams = {
-      size: 300,
-      square: true,
-    }
-
     if (backendArtworkId) {
-      coverArtParams.artworkId = backendArtworkId
-    } else {
-      if (!statusState.data) {
-        setArtworkUrl(null)
-        return undefined
-      }
-
-      if (!metadataTitle) {
-        setArtworkUrl(null)
-        return undefined
-      }
-
-      coverArtParams.title = metadataTitle
-      if (metadataArtist) {
-        coverArtParams.artist = metadataArtist
-      }
+      const coverArtPath = subsonic.url('getCoverArt', backendArtworkId, {
+        size: 300,
+        square: true,
+      })
+      setArtworkUrl(baseUrl(coverArtPath))
+      return undefined
     }
 
-    const abortController = new AbortController()
+    if (!statusState.data) {
+      setArtworkUrl(null)
+      return undefined
+    }
+
+    if (!metadataTitle) {
+      setArtworkUrl(null)
+      return undefined
+    }
+
     let isCancelled = false
+    const filter = { title: metadataTitle }
+    if (metadataArtist) {
+      filter.artist = metadataArtist
+    }
 
     const fetchArtwork = async () => {
       try {
-        const url = buildRetailPlayerCoverArtPath(coverArtParams)
-        const response = await httpClient(url, { signal: abortController.signal })
-        if (isCancelled || abortController.signal.aborted) {
+        const response = await dataProvider.getList('song', {
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: 'id', order: 'ASC' },
+          filter,
+        })
+        if (isCancelled) {
           return
         }
-        const imageUrl = normalizeValue(response?.json?.url)
-        setArtworkUrl(imageUrl || null)
-      } catch (err) {
-        if (isCancelled || abortController.signal.aborted) {
+        const songs = Array.isArray(response?.data) ? response.data : []
+        if (songs.length > 0) {
+          setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
           return
         }
         setArtworkUrl(null)
+      } catch (err) {
+        if (!isCancelled) {
+          setArtworkUrl(null)
+        }
       }
     }
 
@@ -921,11 +900,11 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
     return () => {
       isCancelled = true
-      abortController.abort()
     }
   }, [
     artworkSignature,
     backendArtworkId,
+    dataProvider,
     existingArtwork,
     metadataArtist,
     metadataTitle,
