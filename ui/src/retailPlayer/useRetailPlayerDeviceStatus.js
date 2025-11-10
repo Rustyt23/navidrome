@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useDataProvider } from 'react-admin'
 import subsonic from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
 import { baseUrl } from '../utils'
+import config from '../config'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
 
@@ -25,6 +25,30 @@ const parseVolume = (value) => {
 }
 
 const ensureArray = (value) => (Array.isArray(value) ? value : [])
+
+const isAdminUser = () => localStorage.getItem('role') === 'admin'
+
+const getSelectedLibraries = () => {
+  try {
+    const state = JSON.parse(localStorage.getItem('state'))
+    return state?.library?.selectedLibraries || []
+  } catch (err) {
+    return []
+  }
+}
+
+const appendLibraryFilters = (params) => {
+  const selectedLibraries = getSelectedLibraries()
+  if (selectedLibraries.length === 0) {
+    return
+  }
+
+  selectedLibraries.forEach((libraryId) => {
+    if (libraryId !== undefined && libraryId !== null && libraryId !== '') {
+      params.append('library_id', libraryId)
+    }
+  })
+}
 
 const parseActiveStreamInfo = (value) => {
   const normalized = normalizeValue(value)
@@ -728,7 +752,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     [baseDevice, channelState.data, statusState.data],
   )
 
-  const dataProvider = useDataProvider()
   const [artworkUrl, setArtworkUrl] = useState(null)
 
   const artworkSignature = useMemo(() => {
@@ -784,22 +807,33 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
 
     let isCancelled = false
-    const filter = { title: metadataTitle }
-    if (metadataArtist) {
-      filter.artist = metadataArtist
-    }
-
     const fetchArtwork = async () => {
+      const params = new URLSearchParams()
+      params.set('_start', '0')
+      params.set('_end', '1')
+      params.set('_sort', 'id')
+      params.set('_order', 'ASC')
+      if (!isAdminUser()) {
+        params.set('missing', 'false')
+      }
+      params.set('title', metadataTitle)
+      if (metadataArtist) {
+        params.set('artist', metadataArtist)
+      }
+
+      appendLibraryFilters(params)
+
       try {
-        const response = await dataProvider.getList('song', {
-          pagination: { page: 1, perPage: 1 },
-          sort: { field: 'id', order: 'ASC' },
-          filter,
-        })
+        const rootPath = config.publicBaseUrl || '/share'
+        const normalizedRoot = rootPath.endsWith('/')
+          ? rootPath.slice(0, -1)
+          : rootPath
+        const requestPath = `${normalizedRoot}/getcoverart?${params.toString()}`
+        const response = await httpClient(requestPath)
         if (isCancelled) {
           return
         }
-        const songs = Array.isArray(response?.data) ? response.data : []
+        const songs = Array.isArray(response?.json) ? response.json : []
         if (songs.length > 0) {
           setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
           return
@@ -820,7 +854,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [
     artworkSignature,
     backendArtworkId,
-    dataProvider,
     existingArtwork,
     metadataArtist,
     metadataTitle,

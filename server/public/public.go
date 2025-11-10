@@ -41,6 +41,7 @@ func (pub *Router) routes() http.Handler {
 
 	r.Group(func(r chi.Router) {
 		r.Use(server.URLParamsMiddleware)
+		r.Get("/getcoverart", pub.handleGetCoverArt())
 		r.Group(func(r chi.Router) {
 			if conf.Server.DevArtworkMaxRequests > 0 {
 				log.Debug("Throttling public images endpoint", "maxRequests", conf.Server.DevArtworkMaxRequests,
