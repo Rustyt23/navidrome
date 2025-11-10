@@ -577,7 +577,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     isConnected,
     hasSignal,
     isMuted: volume === 0,
-    volume: Number.isFinite(volume) ? volume : 50,
+    volume: Number.isFinite(volume) ? volume : null,
     schedules,
     nowPlaying: {
       title: nowPlayingTitle || (isLoadingNowPlaying ? 'Loading' : 'Now Playing'),
