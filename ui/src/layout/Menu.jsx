@@ -190,18 +190,41 @@ const useStyles = makeStyles((theme) => {
       color: theme.palette.primary.main,
     },
   },
-    deviceIcon: {
-      color: theme.palette.common.white,
-      fontSize: theme.typography.pxToRem(16),
+  deviceIcon: {
+    color: theme.palette.common.white,
+    fontSize: theme.typography.pxToRem(16),
+  },
+  dropTarget: dndStyles.dropTarget,
+  dropTargetCanDrop: dndStyles.dropTargetCanDrop,
+  dropTargetActive: dndStyles.dropTargetActive,
+  rootDropWrapper: {
+    borderRadius: theme.shape.borderRadius,
+    transition: theme.transitions.create(['background-color', 'box-shadow'], {
+      duration: theme.transitions.duration.shortest,
+    }),
+  },
+  rootDropWrapperCanDrop: {
+    '& .MuiMenuItem-root': {
+      backgroundColor: 'transparent',
+      '&:hover': {
+        backgroundColor: 'transparent',
+      },
     },
-    dropTarget: dndStyles.dropTarget,
-    dropTargetCanDrop: dndStyles.dropTargetCanDrop,
-    dropTargetActive: dndStyles.dropTargetActive,
-    dragging: dndStyles.dragItem,
-    dndWrapper: {
-      width: '100%',
-      borderRadius: theme.shape.borderRadius,
+  },
+  rootDropWrapperActive: {
+    '& .MuiMenuItem-root': {
+      backgroundColor: 'transparent',
+      boxShadow: 'none',
+      '&:hover': {
+        backgroundColor: 'transparent',
+      },
     },
+  },
+  dragging: dndStyles.dragItem,
+  dndWrapper: {
+    width: '100%',
+    borderRadius: theme.shape.borderRadius,
+  },
   }
 })
 
@@ -295,16 +318,26 @@ const Menu = ({ dense = false }) => {
 
   const handleDeviceDrop = useCallback(
     (deviceId, folderId) => {
-      if (!deviceId || !folderId) {
+      if (!deviceId) {
         return
       }
       const changed = assignDeviceToFolder(deviceId, folderId)
-      if (changed) {
+      if (changed && folderId) {
         setOpenFolders((prev) => ({ ...prev, [folderId]: true }))
       }
     },
     [assignDeviceToFolder],
   )
+
+  const {
+    dropRef: retailPlayerRootDropRef,
+    isOver: retailPlayerRootIsOver,
+    canDrop: retailPlayerRootCanDrop,
+  } = useRetailPlayerFolderDrop({
+    folderId: null,
+    allowRootDrop: true,
+    onDrop: (deviceId, targetFolderId) => handleDeviceDrop(deviceId, targetFolderId),
+  })
 
   const toggleFolder = useCallback((folderId) => {
     setOpenFolders((prev) => ({
@@ -394,18 +427,30 @@ const Menu = ({ dense = false }) => {
   }
 
   const renderRetailPlayerMenu = () => (
-    <SubMenu
-      handleToggle={() => handleToggle('menuRetailPlayer')}
-      isOpen={state.menuRetailPlayer}
-      sidebarIsOpen={open}
-      name="menu.retailPlayer.name"
-      icon={<SpeakerGroupIcon />}
-      dense={dense}
-      actionIcon={<BiCog />}
-      onAction={goToRetailPlayerSettings}
+    <div
+      ref={retailPlayerRootDropRef}
+      className={clsx(
+        classes.dropTarget,
+        classes.rootDropWrapper,
+        retailPlayerRootCanDrop && classes.rootDropWrapperCanDrop,
+        retailPlayerRootCanDrop &&
+          retailPlayerRootIsOver &&
+          classes.rootDropWrapperActive,
+      )}
     >
-      {renderRetailPlayerDevices()}
-    </SubMenu>
+      <SubMenu
+        handleToggle={() => handleToggle('menuRetailPlayer')}
+        isOpen={state.menuRetailPlayer}
+        sidebarIsOpen={open}
+        name="menu.retailPlayer.name"
+        icon={<SpeakerGroupIcon />}
+        dense={dense}
+        actionIcon={<BiCog />}
+        onAction={goToRetailPlayerSettings}
+      >
+        {renderRetailPlayerDevices()}
+      </SubMenu>
+    </div>
   )
 
   return (
