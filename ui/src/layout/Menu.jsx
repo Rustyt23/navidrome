@@ -339,13 +339,6 @@ const Menu = ({ dense = false }) => {
     onDrop: (deviceId, targetFolderId) => handleDeviceDrop(deviceId, targetFolderId),
   })
 
-  const rootDropRef = useCallback(
-    (node) => {
-      retailPlayerRootDropRef(node)
-    },
-    [retailPlayerRootDropRef],
-  )
-
   const toggleFolder = useCallback((folderId) => {
     setOpenFolders((prev) => ({
       ...prev,
@@ -435,6 +428,7 @@ const Menu = ({ dense = false }) => {
 
   const renderRetailPlayerMenu = () => (
     <div
+      ref={retailPlayerRootDropRef}
       className={clsx(
         classes.dropTarget,
         classes.rootDropWrapper,
@@ -445,7 +439,6 @@ const Menu = ({ dense = false }) => {
       )}
     >
       <SubMenu
-        ref={rootDropRef}
         handleToggle={() => handleToggle('menuRetailPlayer')}
         isOpen={state.menuRetailPlayer}
         sidebarIsOpen={open}
