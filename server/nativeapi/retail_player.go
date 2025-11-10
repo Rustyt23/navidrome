@@ -22,6 +22,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/server/public"
 	"github.com/navidrome/navidrome/utils"
 )
 
@@ -321,7 +322,7 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 			return
 		}
 
-		response, err := n.fetchRetailPlayerDeviceStatus(ctx, resolvedID)
+		response, err := n.fetchRetailPlayerDeviceStatus(ctx, r, resolvedID)
 		if err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
 				log.Info(ctx, "Retail player device not found while fetching status", "identifier", deviceIdentifier, "rawIdentifier", rawIdentifier, "resolvedID", resolvedID)
@@ -1157,6 +1158,7 @@ type retailPlayerCommandRequest struct {
 type retailPlayerStatusArtwork struct {
 	MediaFileID string `json:"mediaFileId,omitempty"`
 	ArtworkID   string `json:"artworkId,omitempty"`
+	URL         string `json:"url,omitempty"`
 }
 
 func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID string, command retailPlayerCommandRequest) (string, error) {
@@ -1225,7 +1227,7 @@ func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID str
 	return trimmedBody, nil
 }
 
-func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID string) (retailPlayerDeviceStatusResponse, error) {
+func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, r *http.Request, deviceID string) (retailPlayerDeviceStatusResponse, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
 		return retailPlayerDeviceStatusResponse{}, errors.New("retail player API not configured")
@@ -1267,12 +1269,12 @@ func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, deviceID str
 		return retailPlayerDeviceStatusResponse{}, err
 	}
 
-	n.populateRetailPlayerStatusArtwork(ctx, &payload)
+	n.populateRetailPlayerStatusArtwork(ctx, r, &payload)
 
 	return payload, nil
 }
 
-func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, payload *retailPlayerDeviceStatusResponse) {
+func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.Request, payload *retailPlayerDeviceStatusResponse) {
 	if payload == nil {
 		return
 	}
@@ -1319,14 +1321,25 @@ func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, payload 
 			continue
 		}
 
-		coverArtID := matched.CoverArtID().String()
+		artID := matched.CoverArtID()
+		coverArtID := artID.String()
 		if coverArtID == "" {
 			continue
+		}
+
+		artworkURL := public.ImageURL(r, artID, 300)
+		if artworkURL != "" {
+			if strings.Contains(artworkURL, "?") {
+				artworkURL += "&square=true"
+			} else {
+				artworkURL += "?square=true"
+			}
 		}
 
 		payload.Artwork = &retailPlayerStatusArtwork{
 			MediaFileID: matched.ID,
 			ArtworkID:   coverArtID,
+			URL:         artworkURL,
 		}
 		return
 	}

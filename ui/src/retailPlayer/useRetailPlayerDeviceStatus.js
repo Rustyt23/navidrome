@@ -168,6 +168,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const payloadArtwork =
     payload && typeof payload === 'object' ? payload.artwork || {} : {}
   const artworkId = normalizeValue(payloadArtwork.artworkId)
+  const backendArtworkUrl = normalizeValue(payloadArtwork.url)
   const mediaFileId = normalizeValue(payloadArtwork.mediaFileId)
 
   const defaultChannelArtist =
@@ -598,7 +599,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
       artworkUrl:
         metadataArtworkUrl ||
         normalizeValue(activeScheduleMetadata.artworkUrl) ||
-        normalizeValue(streamMetadataDetails.artworkUrl),
+        normalizeValue(streamMetadataDetails.artworkUrl) ||
+        backendArtworkUrl,
       streamName,
       artworkId,
       mediaFileId,
