@@ -29,6 +29,7 @@ type MockDataStore struct {
 	MockedScrobbleBuffer            model.ScrobbleBufferRepository
 	MockedRadio                     model.RadioRepository
 	MockedRetailPlayerDeviceMapping model.RetailPlayerDeviceMappingRepository
+	MockedRetailPlayerFolder        model.RetailPlayerFolderRepository
 	scrobbleBufferMu                sync.Mutex
 	repoMu                          sync.Mutex
 }
@@ -213,6 +214,19 @@ func (db *MockDataStore) RetailPlayerDeviceMapping(ctx context.Context) model.Re
 	return db.MockedRetailPlayerDeviceMapping
 }
 
+func (db *MockDataStore) RetailPlayerFolder(ctx context.Context) model.RetailPlayerFolderRepository {
+	if db.MockedRetailPlayerFolder == nil {
+		if db.RealDS != nil {
+			db.MockedRetailPlayerFolder = db.RealDS.RetailPlayerFolder(ctx)
+		} else {
+			db.MockedRetailPlayerFolder = struct {
+				model.RetailPlayerFolderRepository
+			}{}
+		}
+	}
+	return db.MockedRetailPlayerFolder
+}
+
 func (db *MockDataStore) Transcoding(ctx context.Context) model.TranscodingRepository {
 	if db.MockedTranscoding == nil {
 		if db.RealDS != nil {
@@ -291,6 +305,8 @@ func (db *MockDataStore) Resource(ctx context.Context, m any) model.ResourceRepo
 		return db.Transcoding(ctx).(model.ResourceRepository)
 	case model.Player, *model.Player:
 		return db.Player(ctx).(model.ResourceRepository)
+	case model.RetailPlayerFolder, *model.RetailPlayerFolder:
+		return db.RetailPlayerFolder(ctx).(model.ResourceRepository)
 	default:
 		return struct{ model.ResourceRepository }{}
 	}

@@ -21,7 +21,7 @@ const useAssignRetailPlayerDeviceToFolder = () => {
   } = useRetailPlayerDeviceStore()
 
   return useCallback(
-    (deviceId, folderId) => {
+    async (deviceId, folderId) => {
       if (!deviceId || !folderId) {
         return false
       }
@@ -41,7 +41,7 @@ const useAssignRetailPlayerDeviceToFolder = () => {
         return false
       }
 
-      assignDeviceToFolder({ id: deviceId, folderIds: nextFolderIds })
+      await assignDeviceToFolder({ id: deviceId, folderIds: nextFolderIds })
       return true
     },
     [assignDeviceToFolder, devices],

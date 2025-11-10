@@ -77,6 +77,10 @@ func (s *SQLStore) RetailPlayerDeviceMapping(ctx context.Context) model.RetailPl
 	return NewRetailPlayerDeviceMappingRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) RetailPlayerFolder(ctx context.Context) model.RetailPlayerFolderRepository {
+	return NewRetailPlayerFolderRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) UserProps(ctx context.Context) model.UserPropsRepository {
 	return NewUserPropsRepository(ctx, s.getDBXBuilder())
 }
