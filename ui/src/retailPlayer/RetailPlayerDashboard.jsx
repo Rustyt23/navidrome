@@ -18,9 +18,6 @@ import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
-import config from '../config'
-
-const DEFAULT_ALBUM_ARTWORK = config.albumArtPlaceholder || ''
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -552,6 +549,28 @@ const useStyles = makeStyles((theme) => {
       borderRadius: '50%',
       display: 'block',
     },
+    discSvg: {
+      width: '80%',
+      height: '80%',
+      maxWidth: 180,
+      maxHeight: 180,
+    },
+    discOuter: {
+      fill:
+        (theme.palette.action && theme.palette.action.disabled) ||
+        theme.palette.grey[400],
+    },
+    discInner: {
+      fill:
+        (theme.palette.background && theme.palette.background.paper) ||
+        theme.palette.common.white,
+    },
+    discHighlight: {
+      fill:
+        (theme.palette.primary && theme.palette.primary.main) ||
+        theme.palette.text.primary,
+      opacity: 0.2,
+    },
     nowPlayingTitle: {
       fontSize: theme.typography.pxToRem(32),
       fontWeight: 600,
@@ -741,7 +760,6 @@ const RetailPlayerDashboard = () => {
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [previousNowPlaying, setPreviousNowPlaying] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
-  const [artworkSrc, setArtworkSrc] = useState(DEFAULT_ALBUM_ARTWORK)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
@@ -1132,9 +1150,9 @@ const RetailPlayerDashboard = () => {
     return previousNowPlaying
   }, [normalizedDeviceTrack, previousNowPlaying])
 
-  const trackPool = useMemo(() => {
-    return effectiveNowPlaying ? [effectiveNowPlaying] : []
-  }, [effectiveNowPlaying])
+const trackPool = useMemo(() => {
+  return effectiveNowPlaying ? [effectiveNowPlaying] : []
+}, [effectiveNowPlaying])
 
   useEffect(() => {
     setCurrentTrackIndex(0)
@@ -1153,14 +1171,6 @@ const RetailPlayerDashboard = () => {
     normalizeValue(device?.nowPlaying?.artworkUrl) ||
     null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
-
-  useEffect(() => {
-    setArtworkSrc(resolvedArtworkUrl || DEFAULT_ALBUM_ARTWORK)
-  }, [resolvedArtworkUrl])
-
-  const handleArtworkError = useCallback(() => {
-    setArtworkSrc(DEFAULT_ALBUM_ARTWORK)
-  }, [])
 
   const deviceTimeZone = useMemo(() => {
     if (device && typeof status.timeZone === 'string') {
@@ -1706,12 +1716,27 @@ const RetailPlayerDashboard = () => {
           <div className={classes.artworkWrapper} aria-label="Artwork">
             <div className={classes.artworkCircle}>
               <div className={classes.artworkContent}>
-                <img
-                  src={artworkSrc}
-                  alt={`Artwork for ${currentTrack.title}`}
-                  className={classes.artworkImage}
-                  onError={handleArtworkError}
-                />
+                {resolvedArtworkUrl ? (
+                  <img
+                    src={resolvedArtworkUrl}
+                    alt={`Artwork for ${currentTrack.title}`}
+                    className={classes.artworkImage}
+                  />
+                ) : (
+                  <svg
+                    viewBox="0 0 200 200"
+                    className={classes.discSvg}
+                    role="img"
+                    aria-hidden="true"
+                  >
+                    <circle cx="100" cy="100" r="98" className={classes.discOuter} />
+                    <circle cx="100" cy="100" r="48" className={classes.discInner} />
+                    <path
+                      d="M150 50c-18-14-40-22-62-20"
+                      className={classes.discHighlight}
+                    />
+                  </svg>
+                )}
               </div>
             </div>
           </div>

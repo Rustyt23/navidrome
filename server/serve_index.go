@@ -1,26 +1,21 @@
 package server
 
 import (
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
-	stdmime "mime"
 	"net/http"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
-	confmime "github.com/navidrome/navidrome/conf/mime"
+	"github.com/navidrome/navidrome/conf/mime"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/resources"
 	"github.com/navidrome/navidrome/utils/slice"
 	"github.com/navidrome/navidrome/utils/str"
 )
@@ -62,7 +57,7 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			"enableCoverAnimation":       conf.Server.EnableCoverAnimation,
 			"enableNowPlaying":           conf.Server.EnableNowPlaying,
 			"gaTrackingId":               conf.Server.GATrackingID,
-			"losslessFormats":            strings.ToUpper(strings.Join(confmime.LosslessFormats, ",")),
+			"losslessFormats":            strings.ToUpper(strings.Join(mime.LosslessFormats, ",")),
 			"devActivityPanel":           conf.Server.DevActivityPanel,
 			"enableUserEditing":          conf.Server.EnableUserEditing,
 			"enableSharing":              conf.Server.EnableSharing,
@@ -80,10 +75,6 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			"separator":                  string(os.PathSeparator),
 			"enableInspect":              conf.Server.Inspect.Enabled,
 			"retailPlayerDevicesEnabled": conf.Server.RetailPlayer.Enabled,
-		}
-		albumPlaceholder := albumArtPlaceholderData(r)
-		if albumPlaceholder != "" {
-			appConfig["albumArtPlaceholder"] = albumPlaceholder
 		}
 		if strings.HasPrefix(conf.Server.UILoginBackgroundURL, "/") {
 			appConfig["loginBackgroundURL"] = path.Join(conf.Server.BasePath, conf.Server.UILoginBackgroundURL)
@@ -116,55 +107,6 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			log.Error(r, "Could not execute `index.html` template", err)
 		}
 	}
-}
-
-func albumArtPlaceholderData(r *http.Request) string {
-	placeholderPath := conf.Server.AlbumArtPlaceholder
-	var data []byte
-	var err error
-	contentType := ""
-
-	if placeholderPath != "" {
-		data, err = os.ReadFile(placeholderPath)
-		if err != nil {
-			log.Warn(r, "Could not read configured album art placeholder", "path", placeholderPath, err)
-			data = nil
-		} else {
-			contentType = stdmime.TypeByExtension(strings.ToLower(filepath.Ext(placeholderPath)))
-		}
-	}
-
-	if len(data) == 0 {
-		file, openErr := resources.FS().Open(consts.PlaceholderAlbumArt)
-		if openErr != nil {
-			log.Error(r, "Could not load default album art placeholder", openErr)
-			return ""
-		}
-		defer file.Close()
-
-		data, err = io.ReadAll(file)
-		if err != nil {
-			log.Error(r, "Could not read default album art placeholder", err)
-			return ""
-		}
-		if contentType == "" {
-			contentType = stdmime.TypeByExtension(strings.ToLower(filepath.Ext(consts.PlaceholderAlbumArt)))
-		}
-	}
-
-	if len(data) == 0 {
-		return ""
-	}
-
-	if contentType == "" {
-		contentType = http.DetectContentType(data)
-	}
-	if contentType == "" || !strings.HasPrefix(contentType, "image/") {
-		contentType = "image/png"
-	}
-
-	encoded := base64.StdEncoding.EncodeToString(data)
-	return fmt.Sprintf("data:%s;base64,%s", contentType, encoded)
 }
 
 func getIndexTemplate(r *http.Request, fs fs.FS) (*template.Template, error) {

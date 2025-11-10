@@ -42,7 +42,6 @@ const defaultConfig = {
   separator: '/',
   enableInspect: true,
   retailPlayerDevicesEnabled: false,
-  albumArtPlaceholder: '',
 }
 
 let config
