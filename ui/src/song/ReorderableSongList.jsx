@@ -184,13 +184,48 @@ const ReorderableSongList = (props) => {
       const songsArray = Array.isArray(songs.data)
         ? songs.data
         : Object.values(songs.data || {})
+      const listIds = Array.isArray(songs.list?.ids) ? songs.list.ids : []
+      const selectedId = record?.id ?? id
 
-      if (songsArray.length > 0 && Array.isArray(songs.list?.ids)) {
-        const filteredSongs = songsArray.filter((song) =>
-          songs.list.ids.includes(song.id),
+      if (
+        songsArray.length > 0 &&
+        listIds.length > 0 &&
+        selectedId !== undefined &&
+        selectedId !== null
+      ) {
+        const songsById = new Map(
+          songsArray
+            .filter((song) => song && song.id !== undefined && song.id !== null)
+            .map((song) => [String(song.id), song]),
         )
 
-        const index = filteredSongs.findIndex((song) => song.id === record.id)
+        const resolvedSelectedId = String(selectedId)
+
+        const orderedSongs = listIds.reduce((accumulator, songId) => {
+          const key = String(songId)
+          const songRecord =
+            songsById.get(key) ||
+            (key === resolvedSelectedId && record ? record : null)
+          if (songRecord) {
+            accumulator[key] = songRecord
+          }
+          return accumulator
+        }, {})
+
+        if (Object.prototype.hasOwnProperty.call(orderedSongs, resolvedSelectedId)) {
+          dispatch(playTracks(orderedSongs, undefined, resolvedSelectedId))
+          return
+        }
+      }
+
+      if (songsArray.length > 0 && listIds.length > 0) {
+        const filteredSongs = songsArray.filter((song) =>
+          listIds.some((listId) => String(listId) === String(song?.id)),
+        )
+
+        const index = filteredSongs.findIndex(
+          (song) => String(song?.id) === String(record?.id),
+        )
 
         if (index !== -1) {
           const orderedSongs = [

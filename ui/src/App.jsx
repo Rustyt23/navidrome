@@ -48,6 +48,7 @@ import PlaylistCreate from './playlist/PlaylistCreate'
 import PlaylistShow from './playlist/PlaylistShow'
 import PlaylistEdit from './playlist/PlaylistEdit'
 import RetailPlayerDeviceStoreProvider from './retailPlayer/RetailPlayerDeviceStoreContext'
+import RetailPlayerDragPreview from './retailPlayer/RetailPlayerDragPreview'
 
 const history = createHashHistory()
 if (!shareInfo && history.location.pathname === '/') history.replace('/song')
@@ -179,6 +180,7 @@ const AppWithHotkeys = () => {
   return (
     <HotKeys keyMap={keyMap}>
       <DndProvider backend={HTML5Backend}>
+        <RetailPlayerDragPreview />
         <App />
       </DndProvider>
     </HotKeys>

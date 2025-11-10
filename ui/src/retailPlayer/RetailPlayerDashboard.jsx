@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha, makeStyles } from '@material-ui/core/styles'
 import { ButtonBase, Slider, Typography } from '@material-ui/core'
+import Tooltip from '@material-ui/core/Tooltip'
 import { Title } from 'react-admin'
 import LinkIcon from '@material-ui/icons/Link'
+import LinkOffIcon from '@material-ui/icons/LinkOff'
 import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar'
 import VolumeOffIcon from '@material-ui/icons/VolumeOff'
 import VolumeUpIcon from '@material-ui/icons/VolumeUp'
@@ -43,6 +45,58 @@ const formatTime = (date, timeZone) => {
         hour12: false,
       })
       .replace(/^24:/, '00:')
+  }
+}
+
+const formatDetailedTime = (date, timeZone) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+      ...(timeZone ? { timeZone } : {}),
+    })
+
+    const parts = formatter.formatToParts(date)
+    const values = parts.reduce((accumulator, part) => {
+      if (part.type) {
+        accumulator[part.type] = part.value
+      }
+      return accumulator
+    }, {})
+
+    const year = values.year || ''
+    const month = values.month || ''
+    const day = values.day || ''
+    const hour = values.hour || ''
+    const minute = values.minute || ''
+    const rawDayPeriod = values.dayPeriod || ''
+    const normalizedDayPeriod = rawDayPeriod
+      .replace(/\./g, '')
+      .replace(/\s+/g, '')
+      .toUpperCase()
+
+    if (!year || !month || !day || !hour || !minute || !normalizedDayPeriod) {
+      return ''
+    }
+
+    return `${year}-${month}-${day} ${hour}:${minute}${normalizedDayPeriod}`
+  } catch (error) {
+    const isoString = date.toISOString()
+    const [isoDate, isoTime = ''] = isoString.split('T')
+    const [hours = '', minutes = ''] = isoTime.split(':')
+    if (!isoDate || !hours || !minutes) {
+      return ''
+    }
+
+    return `${isoDate} ${hours}:${minutes}`
   }
 }
 
@@ -142,6 +196,58 @@ const useStyles = makeStyles((theme) => {
     },
     headerCenter: {
       flex: 1,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textAlign: 'center',
+      padding: `0 ${theme.spacing(2)}px`,
+      minWidth: 0,
+    },
+    headerTitle: {
+      fontWeight: theme.typography.fontWeightBold,
+      fontSize: theme.typography.pxToRem(24),
+      letterSpacing: theme.spacing(0.25),
+      color: alpha(theme.palette.common.white, 0.9),
+      textTransform: 'none',
+      maxWidth: '100%',
+      [theme.breakpoints.down('sm')]: {
+        fontSize: theme.typography.pxToRem(20),
+      },
+      [theme.breakpoints.down('xs')]: {
+        fontSize: theme.typography.pxToRem(18),
+      },
+    },
+    headerStatusGroup: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: theme.spacing(1.5),
+    },
+    headerStatusIcon: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: theme.spacing(0.5),
+      borderRadius: theme.shape.borderRadius,
+      color: alpha(theme.palette.common.white, 0.8),
+      transition: theme.transitions.create(['color', 'transform'], {
+        duration: theme.transitions.duration.shorter,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      flexShrink: 0,
+      '& > svg': {
+        fontSize: theme.typography.pxToRem(26),
+      },
+      '&:focus-visible': {
+        outline: `2px solid ${alpha(accentColor, 0.85)}`,
+        outlineOffset: 2,
+        transform: 'scale(1.02)',
+      },
+    },
+    headerStatusIconOnline: {
+      color: successMain,
+    },
+    headerStatusIconOffline: {
+      color: dangerMain,
     },
     headerClock: {
       display: 'inline-flex',
@@ -278,14 +384,6 @@ const useStyles = makeStyles((theme) => {
       [theme.breakpoints.down('sm')]: {
         padding: theme.spacing(2.5),
       },
-    },
-    locationLabel: {
-      width: '100%',
-      textAlign: 'center',
-      fontSize: theme.typography.pxToRem(26),
-      fontWeight: theme.typography.fontWeightBold,
-      color: accentColor,
-      letterSpacing: 0.8,
     },
     nowPlayingBody: {
       display: 'flex',
@@ -650,7 +748,6 @@ const RetailPlayerDashboard = () => {
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
-  const [currentTime, setCurrentTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
   const [displayVolume, setDisplayVolume] = useState(50)
@@ -667,16 +764,6 @@ const RetailPlayerDashboard = () => {
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-
-    return () => {
-      window.clearInterval(intervalId)
-    }
-  }, [])
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -772,7 +859,7 @@ const RetailPlayerDashboard = () => {
     }
 
     const systemTimeValue =
-      typeof status.systemTime === 'string' ? status.systemTime : null
+      typeof status.localTime === 'string' ? status.localTime : null
     if (systemTimeValue) {
       const parsedSystem = new Date(systemTimeValue)
       if (!Number.isNaN(parsedSystem.getTime())) {
@@ -794,9 +881,9 @@ const RetailPlayerDashboard = () => {
         if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) {
           return new Date()
         }
-        return new Date(previous.getTime() + 60000)
+        return new Date(previous.getTime() + 1000)
       })
-    }, 60000)
+    }, 1000)
 
     return () => window.clearInterval(intervalId)
   }, [])
@@ -925,19 +1012,23 @@ const RetailPlayerDashboard = () => {
 
   const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
 
+  const deviceVolume = useMemo(() => {
+    if (typeof device?.volume === 'number' && !Number.isNaN(device.volume)) {
+      return device.volume
+    }
+
+    return 50
+  }, [device?.volume])
+
   useEffect(() => {
-    const initialVolume =
-      typeof device?.volume === 'number' && !Number.isNaN(device.volume)
-        ? device.volume
-        : 50
-    setIsMuted(Boolean(device?.isMuted) || initialVolume === 0)
-    setVolume(initialVolume)
-    setDisplayVolume(initialVolume)
-    if (initialVolume > 0) {
-      previousVolumeRef.current = initialVolume
+    setIsMuted(Boolean(device?.isMuted) || deviceVolume === 0)
+    setVolume(deviceVolume)
+    setDisplayVolume(deviceVolume)
+    if (deviceVolume > 0) {
+      previousVolumeRef.current = deviceVolume
     }
     volumeSyncReadyRef.current = false
-  }, [device])
+  }, [device?.apiId, device?.id, device?.isMuted, deviceVolume])
 
   useEffect(() => {
     volumeSyncReadyRef.current = false
@@ -1082,8 +1173,8 @@ const trackPool = useMemo(() => {
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
   const deviceTimeZone = useMemo(() => {
-    if (device && typeof device.timeZone === 'string') {
-      const trimmed = device.timeZone.trim()
+    if (device && typeof status.timeZone === 'string') {
+      const trimmed = status.timeZone.trim()
       if (trimmed) {
         return trimmed
       }
@@ -1102,7 +1193,69 @@ const trackPool = useMemo(() => {
     [deviceTime, deviceTimeZone],
   )
 
-  const headerTimeLabel = useMemo(() => formatTime(currentTime), [currentTime])
+  const headerTimeLabel = currentTimeLabel
+
+  const headerClockTooltip = useMemo(() => {
+    const formatted = formatDetailedTime(deviceTime, deviceTimeZone || undefined)
+    if (!formatted) {
+      return ''
+    }
+
+    return deviceTimeZone ? `${formatted} ${deviceTimeZone}` : formatted
+  }, [deviceTime, deviceTimeZone])
+
+  const statusUpTime = device?.status?.upTime
+  const hasStatusValue = useMemo(() => {
+    if (statusUpTime === undefined || statusUpTime === null) {
+      return false
+    }
+    if (typeof statusUpTime === 'string') {
+      return statusUpTime.trim() !== ''
+    }
+    return true
+  }, [statusUpTime])
+  const statusUpTimeSeconds = useMemo(() => {
+    if (statusUpTime === undefined || statusUpTime === null) {
+      return null
+    }
+    if (typeof statusUpTime === 'number' && Number.isFinite(statusUpTime)) {
+      return Math.max(0, Math.round(statusUpTime))
+    }
+    if (typeof statusUpTime === 'string') {
+      const trimmed = statusUpTime.trim()
+      if (trimmed === '') {
+        return null
+      }
+      const parsed = Number.parseFloat(trimmed)
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, Math.round(parsed))
+      }
+    }
+    return null
+  }, [statusUpTime])
+  const isDeviceOnline = hasStatusValue
+  const formattedUpTime = useMemo(() => {
+    if (statusUpTimeSeconds !== null) {
+      const totalSeconds = statusUpTimeSeconds
+      const days = Math.floor(totalSeconds / 86400)
+      const hours = Math.floor((totalSeconds % 86400) / 3600)
+      const minutes = Math.floor((totalSeconds % 3600) / 60)
+      const seconds = totalSeconds % 60
+      const pad = (value) => value.toString().padStart(2, '0')
+      return `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`
+    }
+    if (typeof statusUpTime === 'string' && statusUpTime.trim() !== '') {
+      return statusUpTime.trim()
+    }
+    if (typeof statusUpTime === 'number' && Number.isFinite(statusUpTime)) {
+      return String(statusUpTime)
+    }
+    return ''
+  }, [statusUpTime, statusUpTimeSeconds])
+  const statusTooltipTitle = isDeviceOnline
+    ? `Uptime: ${formattedUpTime}`
+    : 'Device offline'
+  const statusAriaLabel = isDeviceOnline ? 'Device online' : 'Device offline'
 
   const statusItems = useMemo(() => {
     if (!device) {
@@ -1511,22 +1664,55 @@ const trackPool = useMemo(() => {
         >
           <ArrowBackIcon className={classes.headerBackIcon} />
         </ButtonBase>
-        <div className={classes.headerCenter} aria-hidden="true" />
-        <div className={classes.headerClock} aria-live="polite" aria-label={`Local time ${headerTimeLabel}`}>
-          {headerTimeLabel}
+        <div className={classes.headerCenter}>
+          <Typography
+            component="h1"
+            className={classes.headerTitle}
+            noWrap
+            title={device?.name || 'Retail Player'}
+          >
+            {device?.name || 'Retail Player'}
+          </Typography>
+        </div>
+        <div className={classes.headerStatusGroup}>
+          <Tooltip title={statusTooltipTitle} placement="bottom">
+            <span
+              tabIndex={0}
+              className={combineClasses(
+                classes.headerStatusIcon,
+                isDeviceOnline
+                  ? classes.headerStatusIconOnline
+                  : classes.headerStatusIconOffline,
+              )}
+              role="status"
+              aria-label={statusAriaLabel}
+            >
+              {isDeviceOnline ? (
+                <LinkIcon />
+              ) : (
+                <LinkOffIcon />
+              )}
+            </span>
+          </Tooltip>
+          <Tooltip
+            title={headerClockTooltip || 'Device time unavailable'}
+            placement="bottom"
+          >
+            <div
+              className={classes.headerClock}
+              aria-live="polite"
+              aria-label={`Local time ${
+                headerClockTooltip || headerTimeLabel || 'unavailable'
+              }`}
+            >
+              {headerTimeLabel}
+            </div>
+          </Tooltip>
         </div>
       </header>
 
       <div className={classes.mainContent}>
         <section className={classes.nowPlayingCard} aria-label="Now playing">
-          <Typography
-            component="h1"
-            className={classes.locationLabel}
-            noWrap
-            title={device.name}
-          >
-            {device.name}
-          </Typography>
           <div className={classes.artworkWrapper} aria-label="Artwork">
             <div className={classes.artworkCircle}>
               <div className={classes.artworkContent}>

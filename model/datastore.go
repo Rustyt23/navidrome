@@ -35,6 +35,7 @@ type DataStore interface {
 	Transcoding(ctx context.Context) TranscodingRepository
 	Player(ctx context.Context) PlayerRepository
 	Radio(ctx context.Context) RadioRepository
+	RetailPlayerDeviceMapping(ctx context.Context) RetailPlayerDeviceMappingRepository
 	Share(ctx context.Context) ShareRepository
 	Property(ctx context.Context) PropertyRepository
 	User(ctx context.Context) UserRepository

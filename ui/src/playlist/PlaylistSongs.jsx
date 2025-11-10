@@ -37,6 +37,7 @@ import PlaylistSongBulkActions from './PlaylistSongBulkActions'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 import config from '../config'
 
+/* eslint-disable-next-line react-refresh/only-export-components */
 export const selectPlaylistTrackIds = ({
   idsToSelect,
   pageIds = [],
@@ -59,11 +60,14 @@ export const selectPlaylistTrackIds = ({
 
   const newlyAddedIds = idsToSelect.filter((id) => !selectedIds.includes(id))
 
-  const isSelectingCurrentPage =
-    newlyAddedIds.length > 0 && newlyAddedIds.every((id) => pageIds.includes(id))
+  const isSelectingEntirePage =
+    pageIds.length > 0 && pageIds.every((id) => idsToSelect.includes(id))
 
   const shouldLoadAllIds =
-    isSelectingCurrentPage && typeof contextTotal === 'number' && contextTotal > idsToSelect.length
+    isSelectingEntirePage &&
+    newlyAddedIds.length > 0 &&
+    typeof contextTotal === 'number' &&
+    contextTotal > idsToSelect.length
 
   if (!shouldLoadAllIds) {
     onSelect(idsToSelect)

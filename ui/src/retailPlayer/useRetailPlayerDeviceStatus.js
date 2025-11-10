@@ -4,7 +4,13 @@ import httpClient from '../dataProvider/httpClient'
 import { baseUrl } from '../utils'
 import config from '../config'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
-import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
+import { useDataProvider } from 'react-admin'
+import {
+  buildDeviceSlug,
+  deviceSlugKey,
+  mapRetailPlayerDevice,
+  normalizeValue,
+} from './deviceUtils'
 
 const buildStatusUrl = (deviceId) =>
   deviceId ? `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/status` : null
@@ -593,6 +599,13 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   }
 }
 
+const initialDeviceState = {
+  data: null,
+  error: null,
+  isLoading: false,
+  fetchedAt: null,
+}
+
 const initialStatusState = {
   data: null,
   error: null,
@@ -608,13 +621,6 @@ const initialChannelState = {
 }
 
 const useRetailPlayerDeviceStatus = (slugParam) => {
-  const {
-    devices,
-    error: devicesError,
-    isLoading: devicesLoading,
-    isApiEnabled,
-  } = useRetailPlayerDevices()
-
   const normalizedSlugKey = useMemo(() => {
     if (!slugParam) {
       return ''
@@ -626,57 +632,67 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
   }, [slugParam])
 
-  const baseDevice = useMemo(() => {
-    if (!devices.length) {
-      return null
-    }
-    if (!normalizedSlugKey) {
-      return devices[0]
-    }
-
-    return (
-      devices.find((device) => {
-        const deviceKey = device.slugKey || deviceSlugKey(device.slug || device.name || device.id)
-        return deviceKey === normalizedSlugKey
-      }) ||
-      devices.find((device) => deviceSlugKey(device.name) === normalizedSlugKey) ||
-      devices.find((device) => deviceSlugKey(device.apiId) === normalizedSlugKey) ||
-      devices.find((device) => deviceSlugKey(device.id) === normalizedSlugKey) ||
-      null
-    )
-  }, [devices, normalizedSlugKey])
-
+  const [deviceState, setDeviceState] = useState(initialDeviceState)
   const [statusState, setStatusState] = useState(initialStatusState)
   const [refreshIndex, setRefreshIndex] = useState(0)
   const [channelState, setChannelState] = useState(initialChannelState)
+  const [isApiEnabled, setIsApiEnabled] = useState(
+    Boolean(config.retailPlayerDevicesEnabled),
+  )
+
+  const baseDevice = useMemo(() => {
+    const ensureMatchingDevice = (device) => {
+      if (!device) {
+        return null
+      }
+
+      if (!normalizedSlugKey) {
+        return device
+      }
+
+      const candidateKey =
+        device.slugKey ||
+        deviceSlugKey(device.slug || device.name || device.id)
+      if (!candidateKey) {
+        return null
+      }
+
+      return candidateKey === normalizedSlugKey ? device : null
+    }
+
+    const mappedDevice = ensureMatchingDevice(deviceState.data)
+    if (mappedDevice) {
+      return mappedDevice
+    }
+
+    const payloadDevice = statusState.data?.device
+    if (payloadDevice) {
+      return ensureMatchingDevice(mapRetailPlayerDevice(payloadDevice))
+    }
+
+    return null
+  }, [deviceState.data, normalizedSlugKey, statusState.data])
 
   const refresh = useCallback(() => {
     setRefreshIndex((previous) => previous + 1)
   }, [])
 
   useEffect(() => {
-    if (!isApiEnabled) {
+    if (!slugParam) {
+      setDeviceState(initialDeviceState)
       setStatusState(initialStatusState)
       return undefined
     }
 
-    if (devicesLoading) {
-      return undefined
-    }
-
-    const deviceId = normalizeValue(baseDevice?.apiId)
-    if (!deviceId) {
-      setStatusState(initialStatusState)
-      return undefined
-    }
-
-    const url = buildStatusUrl(deviceId)
+    const url = buildStatusUrl(slugParam)
     if (!url) {
+      setDeviceState(initialDeviceState)
       setStatusState(initialStatusState)
       return undefined
     }
 
     const abortController = new AbortController()
+    setDeviceState((previous) => ({ ...previous, isLoading: true, error: null }))
     setStatusState((previous) => ({ ...previous, isLoading: true, error: null }))
 
     httpClient(url, { signal: abortController.signal })
@@ -684,19 +700,50 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         if (abortController.signal.aborted) {
           return
         }
-        setStatusState({ data: json, error: null, isLoading: false, fetchedAt: new Date() })
+
+        const mappedDevice = mapRetailPlayerDevice(json?.device) || null
+
+        setIsApiEnabled(true)
+        setDeviceState({
+          data: mappedDevice,
+          error: null,
+          isLoading: false,
+          fetchedAt: new Date(),
+        })
+        setStatusState({
+          data: json,
+          error: null,
+          isLoading: false,
+          fetchedAt: new Date(),
+        })
       })
       .catch((err) => {
         if (abortController.signal.aborted) {
           return
         }
-        setStatusState({ data: null, error: err, isLoading: false, fetchedAt: new Date() })
+
+        if (isIntegrationDisabledError(err)) {
+          setIsApiEnabled(false)
+          setDeviceState(initialDeviceState)
+          setStatusState(initialStatusState)
+          return
+        }
+
+        setIsApiEnabled(true)
+        const nextState = {
+          data: null,
+          error: err,
+          isLoading: false,
+          fetchedAt: new Date(),
+        }
+        setDeviceState(nextState)
+        setStatusState(nextState)
       })
 
     return () => {
       abortController.abort()
     }
-  }, [baseDevice?.apiId, devicesLoading, isApiEnabled, refreshIndex])
+  }, [slugParam, refreshIndex])
 
   useEffect(() => {
     if (!isApiEnabled) {
@@ -704,7 +751,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    if (devicesLoading) {
+    if (deviceState.isLoading) {
       return undefined
     }
 
@@ -745,7 +792,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return () => {
       abortController.abort()
     }
-  }, [baseDevice?.channelList, devicesLoading, isApiEnabled])
+  }, [baseDevice?.channelList, deviceState.isLoading, isApiEnabled])
 
   const normalizedDevice = useMemo(
     () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
@@ -879,20 +926,30 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
   }, [artworkUrl, existingArtwork, normalizedDevice])
 
+  const rawDevicesError = deviceState.error
+  const devicesError =
+    rawDevicesError && rawDevicesError.status === 404 ? null : rawDevicesError
+
   const notFound =
     Boolean(normalizedSlugKey) &&
-    !devicesLoading &&
+    isApiEnabled &&
+    !deviceState.isLoading &&
     (!baseDevice || (statusState.error && statusState.error.status === 404))
 
-  const statusError = statusState.error && statusState.error.status !== 404 ? statusState.error : null
+  const statusError =
+    statusState.error && statusState.error.status !== 404
+      ? statusState.error
+      : null
   const error = statusError || devicesError || channelState.error || null
 
   return {
     device: deviceWithArtwork,
     baseDevice,
     refresh,
-    isLoading: Boolean(devicesLoading || statusState.isLoading || channelState.isLoading),
-    isDeviceListLoading: devicesLoading,
+    isLoading: Boolean(
+      deviceState.isLoading || statusState.isLoading || channelState.isLoading,
+    ),
+    isDeviceListLoading: deviceState.isLoading,
     isStatusLoading: statusState.isLoading,
     isChannelListLoading: channelState.isLoading,
     error,
