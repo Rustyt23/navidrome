@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import config from '../config'
+import subsonic from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
+import { baseUrl } from '../utils'
+import config from '../config'
+import useRetailPlayerDevices from './useRetailPlayerDevices'
+import { useDataProvider } from 'react-admin'
 import {
   buildDeviceSlug,
   deviceSlugKey,
@@ -28,71 +32,28 @@ const parseVolume = (value) => {
 
 const ensureArray = (value) => (Array.isArray(value) ? value : [])
 
-const extractErrorMessage = (error) => {
-  if (!error) {
-    return ''
-  }
+const isAdminUser = () => localStorage.getItem('role') === 'admin'
 
-  const body = error.body
-  if (typeof body === 'string') {
-    return normalizeValue(body)
+const getSelectedLibraries = () => {
+  try {
+    const state = JSON.parse(localStorage.getItem('state'))
+    return state?.library?.selectedLibraries || []
+  } catch (err) {
+    return []
   }
-
-  if (body && typeof body === 'object') {
-    const candidates = [body.message, body.error, body.detail, body.title]
-    const found = candidates.find((candidate) => normalizeValue(candidate))
-    if (found) {
-      return normalizeValue(found)
-    }
-  }
-
-  return normalizeValue(error.message)
 }
 
-const buildRetailPlayerCoverArtPath = ({
-  artworkId,
-  title,
-  artist,
-  size,
-  square,
-}) => {
-  const params = new URLSearchParams()
-  if (artworkId) {
-    params.set('artworkId', artworkId)
+const appendLibraryFilters = (params) => {
+  const selectedLibraries = getSelectedLibraries()
+  if (selectedLibraries.length === 0) {
+    return
   }
-  if (!artworkId) {
-    if (title) {
-      params.set('title', title)
+
+  selectedLibraries.forEach((libraryId) => {
+    if (libraryId !== undefined && libraryId !== null && libraryId !== '') {
+      params.append('library_id', libraryId)
     }
-    if (artist) {
-      params.set('artist', artist)
-    }
-  }
-  if (typeof size === 'number' && Number.isFinite(size) && size > 0) {
-    params.set('size', String(Math.round(size)))
-  }
-  if (square) {
-    params.set('square', 'true')
-  }
-  const query = params.toString()
-  return query ? `/api/retailplayer/cover-art?${query}` : '/api/retailplayer/cover-art'
-}
-
-const isIntegrationDisabledError = (error) => {
-  if (!error || typeof error.status !== 'number') {
-    return false
-  }
-
-  if (error.status !== 404) {
-    return false
-  }
-
-  const message = extractErrorMessage(error)
-  if (!message) {
-    return false
-  }
-
-  return /integration disabled/i.test(message)
+  })
 }
 
 const parseActiveStreamInfo = (value) => {
@@ -873,47 +834,62 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    const coverArtParams = {
-      size: 300,
-      square: true,
-    }
-
     if (backendArtworkId) {
-      coverArtParams.artworkId = backendArtworkId
-    } else {
-      if (!statusState.data) {
-        setArtworkUrl(null)
-        return undefined
-      }
-
-      if (!metadataTitle) {
-        setArtworkUrl(null)
-        return undefined
-      }
-
-      coverArtParams.title = metadataTitle
-      if (metadataArtist) {
-        coverArtParams.artist = metadataArtist
-      }
+      const coverArtPath = subsonic.url('getCoverArt', backendArtworkId, {
+        size: 300,
+        square: true,
+      })
+      setArtworkUrl(baseUrl(coverArtPath))
+      return undefined
     }
 
-    const abortController = new AbortController()
-    let isCancelled = false
+    if (!statusState.data) {
+      setArtworkUrl(null)
+      return undefined
+    }
 
+    if (!metadataTitle) {
+      setArtworkUrl(null)
+      return undefined
+    }
+
+    let isCancelled = false
     const fetchArtwork = async () => {
+      const params = new URLSearchParams()
+      params.set('_start', '0')
+      params.set('_end', '1')
+      params.set('_sort', 'id')
+      params.set('_order', 'ASC')
+      if (!isAdminUser()) {
+        params.set('missing', 'false')
+      }
+      params.set('title', metadataTitle)
+      if (metadataArtist) {
+        params.set('artist', metadataArtist)
+      }
+
+      appendLibraryFilters(params)
+
       try {
-        const url = buildRetailPlayerCoverArtPath(coverArtParams)
-        const response = await httpClient(url, { signal: abortController.signal })
-        if (isCancelled || abortController.signal.aborted) {
+        const rootPath = config.publicBaseUrl || '/share'
+        const normalizedRoot = rootPath.endsWith('/')
+          ? rootPath.slice(0, -1)
+          : rootPath
+        const requestPath = `${normalizedRoot}/getcoverart?${params.toString()}`
+        const response = await httpClient(requestPath)
+        if (isCancelled) {
           return
         }
-        const imageUrl = normalizeValue(response?.json?.url)
-        setArtworkUrl(imageUrl || null)
-      } catch (err) {
-        if (isCancelled || abortController.signal.aborted) {
+        const songs = Array.isArray(response?.json) ? response.json : []
+        if (songs.length > 0) {
+          setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
           return
         }
         setArtworkUrl(null)
+      } catch (err) {
+        if (!isCancelled) {
+          setArtworkUrl(null)
+        }
       }
     }
 
@@ -921,7 +897,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
     return () => {
       isCancelled = true
-      abortController.abort()
     }
   }, [
     artworkSignature,
