@@ -17,20 +17,28 @@ const buildStatusUrl = (deviceId) =>
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
+const normalizeVolumeNumber = (value) => {
+  if (!Number.isFinite(value)) {
+    return null
+  }
+
+  const scaled = value > 0 && value < 1 ? value * 100 : value
+
+  return clamp(Math.round(scaled), 0, 100)
+}
+
 const parseVolume = (value) => {
   if (value === undefined || value === null) {
     return null
   }
 
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return clamp(Math.round(value), 0, 100)
+  if (typeof value === 'number') {
+    return normalizeVolumeNumber(value)
   }
 
   if (typeof value === 'string') {
     const parsed = Number.parseFloat(value)
-    if (Number.isFinite(parsed)) {
-      return clamp(Math.round(parsed), 0, 100)
-    }
+    return normalizeVolumeNumber(parsed)
   }
 
   if (Array.isArray(value)) {
