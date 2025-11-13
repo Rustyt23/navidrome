@@ -357,28 +357,25 @@ const PlaylistSongs = ({
     }
   }, [onAddToPlaylist, classes.contextMenu, readOnly, handleRequestPositionChange])
 
-  const dragHandleField = useMemo(() => {
-    if (readOnly) {
-      return null
-    }
-
-    return (
-      <FunctionField
-        key="drag-handle"
-        label=""
-        sortable={false}
-        cellClassName={classes.dragHandleCell}
-        render={() => (
-          <span className={clsx(classes.dragHandle, 'draggable')}>
-            <DragIndicatorIcon fontSize="small" />
-          </span>
-        )}
-      />
-    )
-  }, [classes.dragHandle, classes.dragHandleCell, readOnly])
-
   const toggleableFields = useMemo(() => {
     return {
+      ...(!readOnly
+        ? {
+            dragHandle: (
+              <FunctionField
+                key="drag-handle"
+                label=""
+                sortable={false}
+                cellClassName={classes.dragHandleCell}
+                render={() => (
+                  <span className={clsx(classes.dragHandle, 'draggable')}>
+                    <DragIndicatorIcon fontSize="small" />
+                  </span>
+                )}
+              />
+            ),
+          }
+        : {}),
       trackNumber:
         isDesktop && (
           <FunctionField
@@ -439,7 +436,14 @@ const PlaylistSongs = ({
         />
       ),
     }
-  }, [isDesktop, classes.draggable, classes.ratingField])
+  }, [
+    isDesktop,
+    classes.dragHandle,
+    classes.dragHandleCell,
+    classes.draggable,
+    classes.ratingField,
+    readOnly,
+  ])
 
   const columns = useSelectedFields({
     resource: 'playlistTrack',
@@ -524,7 +528,6 @@ const PlaylistSongs = ({
                   contextAlwaysVisible={!isDesktop}
                   classes={{ row: classes.row }}
                 >
-                  {dragHandleField}
                   {columns}
                   <SongContextMenu
                     {...contextMenuProps}
