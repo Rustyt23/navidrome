@@ -746,13 +746,19 @@ const RetailPlayerDashboard = () => {
     notFound,
     isApiEnabled,
   } = useRetailPlayerDeviceStatus(deviceSlug)
+  const initialDeviceVolume =
+    typeof resolvedDevice?.volume === 'number' && !Number.isNaN(resolvedDevice.volume)
+      ? clamp(Math.round(resolvedDevice.volume), 0, 100)
+      : null
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
-  const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(50)
-  const [displayVolume, setDisplayVolume] = useState(50)
+  const [isMuted, setIsMuted] = useState(
+    () => Boolean(resolvedDevice?.isMuted) || initialDeviceVolume === 0,
+  )
+  const [volume, setVolume] = useState(() => initialDeviceVolume ?? 0)
+  const [displayVolume, setDisplayVolume] = useState(() => initialDeviceVolume ?? 0)
   const volumeTimeoutRef = useRef(null)
-  const previousVolumeRef = useRef(50)
+  const previousVolumeRef = useRef(initialDeviceVolume ?? 0)
   const volumeSyncReadyRef = useRef(false)
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
@@ -1014,18 +1020,22 @@ const RetailPlayerDashboard = () => {
 
   const deviceVolume = useMemo(() => {
     if (typeof device?.volume === 'number' && !Number.isNaN(device.volume)) {
-      return device.volume
+      return clamp(Math.round(device.volume), 0, 100)
     }
 
-    return 50
+    return null
   }, [device?.volume])
 
   useEffect(() => {
-    setIsMuted(Boolean(device?.isMuted) || deviceVolume === 0)
-    setVolume(deviceVolume)
-    setDisplayVolume(deviceVolume)
-    if (deviceVolume > 0) {
-      previousVolumeRef.current = deviceVolume
+    const hasResolvedVolume = typeof deviceVolume === 'number'
+
+    setIsMuted(Boolean(device?.isMuted) || (hasResolvedVolume && deviceVolume === 0))
+    if (hasResolvedVolume) {
+      setVolume(deviceVolume)
+      setDisplayVolume(deviceVolume)
+      if (deviceVolume > 0) {
+        previousVolumeRef.current = deviceVolume
+      }
     }
     volumeSyncReadyRef.current = false
   }, [device?.apiId, device?.id, device?.isMuted, deviceVolume])
@@ -1409,7 +1419,9 @@ const trackPool = useMemo(() => {
   const handleToggleMute = useCallback(() => {
     if (isMuted) {
       const restoredVolume =
-        previousVolumeRef.current > 0 ? previousVolumeRef.current : 50
+        previousVolumeRef.current > 0
+          ? previousVolumeRef.current
+          : Math.max(displayVolume, 1)
       updateVolume(restoredVolume)
       return
     }
@@ -1420,7 +1432,7 @@ const trackPool = useMemo(() => {
       }
       return 0
     })
-  }, [isMuted, updateVolume])
+  }, [displayVolume, isMuted, updateVolume])
 
   const handleVolumeChange = useCallback((_, newValue) => {
     const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue

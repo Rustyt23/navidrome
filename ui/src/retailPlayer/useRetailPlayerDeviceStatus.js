@@ -18,15 +18,65 @@ const buildStatusUrl = (deviceId) =>
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const parseVolume = (value) => {
+  if (value === undefined || value === null) {
+    return null
+  }
+
   if (typeof value === 'number' && Number.isFinite(value)) {
     return clamp(Math.round(value), 0, 100)
   }
+
   if (typeof value === 'string') {
     const parsed = Number.parseFloat(value)
     if (Number.isFinite(parsed)) {
       return clamp(Math.round(parsed), 0, 100)
     }
   }
+
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const parsed = parseVolume(value[index])
+      if (parsed !== null) {
+        return parsed
+      }
+    }
+    return null
+  }
+
+  if (typeof value === 'object') {
+    const candidateKeys = [
+      'value',
+      'level',
+      'percent',
+      'percentage',
+      'volume',
+      'master',
+      'masterVolume',
+      'master_volume',
+      'current',
+      'currentVolume',
+      'current_volume',
+    ]
+
+    for (let index = 0; index < candidateKeys.length; index += 1) {
+      const key = candidateKeys[index]
+      if (key in value) {
+        const parsed = parseVolume(value[key])
+        if (parsed !== null) {
+          return parsed
+        }
+      }
+    }
+
+    const objectValues = Object.values(value)
+    for (let index = 0; index < objectValues.length; index += 1) {
+      const parsed = parseVolume(objectValues[index])
+      if (parsed !== null) {
+        return parsed
+      }
+    }
+  }
+
   return null
 }
 
@@ -549,7 +599,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     nowPlayingArtist = ''
   }
 
-  const volume = combinedMetadata.volume ?? parseVolume(status.volume)
+  const metadataVolume = parseVolume(combinedMetadata.volume)
+  const volume = metadataVolume ?? parseVolume(status.volume)
 
   const scheduleStatus = normalizeValue(status.scheduleStatus).toLowerCase()
   const isConnected =
