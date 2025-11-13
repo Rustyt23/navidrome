@@ -364,7 +364,7 @@ const PlaylistSongs = ({
             dragHandle: (
               <FunctionField
                 key="drag-handle"
-                label=""
+                label="Drag Rows"
                 sortable={false}
                 cellClassName={classes.dragHandleCell}
                 render={() => (
