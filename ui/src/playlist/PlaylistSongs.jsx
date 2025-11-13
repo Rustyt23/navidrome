@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   BulkActionsToolbar,
   ListToolbar,
@@ -34,6 +34,7 @@ import {
 import { AlbumLinkField } from '../song/AlbumLinkField'
 import { playTracks } from '../actions'
 import PlaylistSongBulkActions from './PlaylistSongBulkActions'
+import MoveTrackDialog from './MoveTrackDialog'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 import config from '../config'
 
@@ -188,6 +189,8 @@ const PlaylistSongs = ({
   const version = useVersion()
   useResourceRefresh('song', 'playlist')
 
+  const [moveDialogRecord, setMoveDialogRecord] = useState(null)
+
   const prevShowDuplicates = React.useRef(showDuplicatesOnly)
 
   useEffect(() => {
@@ -280,6 +283,40 @@ const PlaylistSongs = ({
     },
     [playlistId, reorder, ids],
   )
+
+  const handleOpenMoveDialog = useCallback((record) => {
+    if (!record?.id) {
+      return
+    }
+    setMoveDialogRecord(record)
+  }, [])
+
+  const handleCloseMoveDialog = useCallback(() => {
+    setMoveDialogRecord(null)
+  }, [])
+
+  const handleSubmitMoveDialog = useCallback(
+    (newPosition) => {
+      if (!moveDialogRecord?.id) {
+        return
+      }
+      if (ids && ids.indexOf(moveDialogRecord.id) + 1 === newPosition) {
+        setMoveDialogRecord(null)
+        return
+      }
+      reorder(playlistId, moveDialogRecord.id, String(newPosition))
+      setMoveDialogRecord(null)
+    },
+    [moveDialogRecord, playlistId, reorder, ids],
+  )
+
+  const currentMoveDialogPosition = useMemo(() => {
+    if (!moveDialogRecord?.id || !Array.isArray(ids)) {
+      return undefined
+    }
+    const index = ids.indexOf(moveDialogRecord.id)
+    return index === -1 ? undefined : index + 1
+  }, [moveDialogRecord, ids])
 
   const toggleableFields = useMemo(() => {
     return {
@@ -437,6 +474,7 @@ const PlaylistSongs = ({
                     onAddToPlaylist={onAddToPlaylist}
                     showLove={true}
                     className={classes.contextMenu}
+                    onMoveToPosition={readOnly ? undefined : handleOpenMoveDialog}
                   />
                 </SongDatagrid>
               </ReorderableList>
@@ -445,6 +483,14 @@ const PlaylistSongs = ({
         </div>
       </ListContextProvider>
       <ExpandInfoDialog content={<SongInfo />} />
+      <MoveTrackDialog
+        open={Boolean(moveDialogRecord)}
+        record={moveDialogRecord}
+        onClose={handleCloseMoveDialog}
+        onSubmit={handleSubmitMoveDialog}
+        maxPosition={ids?.length || 0}
+        currentPosition={currentMoveDialogPosition}
+      />
       {React.cloneElement(props.pagination, listContext)}
     </>
   )
