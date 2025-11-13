@@ -1017,15 +1017,17 @@ const RetailPlayerDashboard = () => {
       return device.volume
     }
 
-    return 50
+    return null
   }, [device?.volume])
 
   useEffect(() => {
     setIsMuted(Boolean(device?.isMuted) || deviceVolume === 0)
-    setVolume(deviceVolume)
-    setDisplayVolume(deviceVolume)
-    if (deviceVolume > 0) {
-      previousVolumeRef.current = deviceVolume
+    if (typeof deviceVolume === 'number' && !Number.isNaN(deviceVolume)) {
+      setVolume(deviceVolume)
+      setDisplayVolume(deviceVolume)
+      if (deviceVolume > 0) {
+        previousVolumeRef.current = deviceVolume
+      }
     }
     volumeSyncReadyRef.current = false
   }, [device?.apiId, device?.id, device?.isMuted, deviceVolume])
