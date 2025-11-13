@@ -755,6 +755,13 @@ const RetailPlayerDashboard = () => {
   const [isMuted, setIsMuted] = useState(
     () => Boolean(resolvedDevice?.isMuted) || initialDeviceVolume === 0,
   )
+  const volumeStorageKey = useMemo(() => {
+    if (!deviceSlug) {
+      return ''
+    }
+
+    return `retailPlayer:volume:${deviceSlug}`
+  }, [deviceSlug])
   const [volume, setVolume] = useState(() => initialDeviceVolume ?? 0)
   const [displayVolume, setDisplayVolume] = useState(() => initialDeviceVolume ?? 0)
   const volumeTimeoutRef = useRef(null)
@@ -1037,8 +1044,40 @@ const RetailPlayerDashboard = () => {
       if (deviceVolume > 0) {
         previousVolumeRef.current = deviceVolume
       }
+      if (volumeStorageKey) {
+        try {
+          window.localStorage.setItem(volumeStorageKey, String(deviceVolume))
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to persist retail player volume', err)
+        }
+      }
     }
-  }, [device?.apiId, device?.id, device?.isMuted, deviceVolume])
+  }, [device?.apiId, device?.id, device?.isMuted, deviceVolume, volumeStorageKey])
+
+  useEffect(() => {
+    if (!volumeStorageKey) {
+      return
+    }
+
+    try {
+      const storedValue = Number.parseInt(
+        window.localStorage.getItem(volumeStorageKey),
+        10,
+      )
+      if (Number.isFinite(storedValue)) {
+        volumeUpdateSourceRef.current = 'device'
+        setVolume(storedValue)
+        setDisplayVolume(storedValue)
+        if (storedValue > 0) {
+          previousVolumeRef.current = storedValue
+        }
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to read persisted retail player volume', err)
+    }
+  }, [volumeStorageKey])
 
   useEffect(() => {
     volumeUpdateSourceRef.current = 'device'
@@ -1410,12 +1449,20 @@ const trackPool = useMemo(() => {
         volumeTimeoutRef.current = window.setTimeout(() => {
           volumeUpdateSourceRef.current = 'user'
           setVolume(clamped)
+          if (volumeStorageKey) {
+            try {
+              window.localStorage.setItem(volumeStorageKey, String(clamped))
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.error('Failed to persist retail player volume', err)
+            }
+          }
           volumeTimeoutRef.current = null
         }, 150)
         return clamped
       })
     },
-    [clearVolumeTimeout, setIsMuted],
+    [clearVolumeTimeout, setIsMuted, volumeStorageKey],
   )
 
   const handleToggleMute = useCallback(() => {
