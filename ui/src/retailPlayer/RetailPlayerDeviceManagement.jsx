@@ -387,6 +387,8 @@ FolderDialog.defaultProps = {
   initialValues: null,
 }
 
+const ROOT_FOLDER_VALUE = '__root__'
+
 const DeviceDialog = ({
   open,
   onClose,
@@ -427,11 +429,16 @@ const DeviceDialog = ({
 
   const handleFolderChange = (event) => {
     const value = event.target.value
-    const nextValue = Array.isArray(value)
-      ? value.filter(Boolean)
+    const valuesArray = Array.isArray(value)
+      ? value
       : value
       ? [value]
       : []
+    if (valuesArray.includes(ROOT_FOLDER_VALUE)) {
+      setForm((prev) => ({ ...prev, folderIds: [] }))
+      return
+    }
+    const nextValue = valuesArray.filter(Boolean)
     setForm((prev) => ({ ...prev, folderIds: nextValue }))
   }
 
@@ -481,7 +488,7 @@ const DeviceDialog = ({
               label="Folder"
               renderValue={(selected) => {
                 if (!Array.isArray(selected) || !selected.length) {
-                  return 'None'
+                  return 'Root'
                 }
                 const labels = parentOptions
                   .filter((option) => selected.includes(option.id))
@@ -489,6 +496,13 @@ const DeviceDialog = ({
                 return labels.join(', ')
               }}
             >
+              <MenuItem value={ROOT_FOLDER_VALUE}>
+                <Checkbox
+                  color="primary"
+                  checked={form.folderIds.length === 0}
+                />
+                <ListItemText primary="Root" secondary="No folder" />
+              </MenuItem>
               {parentOptions.map((option) => (
                 <MenuItem key={option.id} value={option.id}>
                   <Checkbox
