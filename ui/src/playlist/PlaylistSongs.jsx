@@ -277,9 +277,27 @@ const PlaylistSongs = ({
 
   const handleDragEnd = useCallback(
     (from, to) => {
-      const toId = ids[to]
-      const fromId = ids[from]
-      reorder(playlistId, fromId, toId)
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return
+      }
+
+      if (to < 0 || from === to) {
+        return
+      }
+
+      const trackId = ids[from]
+      if (!trackId) {
+        return
+      }
+
+      const boundedToIndex = Math.min(to, ids.length - 1)
+      const newPosition = boundedToIndex + 1
+
+      if (newPosition === from + 1) {
+        return
+      }
+
+      reorder(playlistId, trackId, String(newPosition))
     },
     [playlistId, reorder, ids],
   )
