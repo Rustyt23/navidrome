@@ -15,6 +15,7 @@ import clsx from 'clsx'
 import { useDispatch } from 'react-redux'
 import { Card, useMediaQuery, LinearProgress } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
+import DragIndicatorIcon from '@material-ui/icons/DragIndicator'
 import ReactDragListView from 'react-drag-listview'
 import {
   DurationField,
@@ -151,6 +152,22 @@ const useStyles = makeStyles(
     draggable: {
       cursor: 'move',
     },
+    dragHandleCell: {
+      width: theme.spacing(5),
+      paddingLeft: theme.spacing(1),
+      paddingRight: theme.spacing(1),
+      textAlign: 'center',
+    },
+    dragHandle: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'grab',
+      color: theme.palette.text.secondary,
+      '& svg': {
+        pointerEvents: 'none',
+      },
+    },
   }),
   { name: 'RaList' },
 )
@@ -283,11 +300,19 @@ const PlaylistSongs = ({
 
   const handleDragEnd = useCallback(
     (from, to) => {
-      const toId = ids[to]
-      const fromId = ids[from]
-      reorder(playlistId, fromId, toId)
+      if (to == null || to < 0 || from === to) {
+        return
+      }
+
+      const fromId = ids?.[from]
+      if (fromId == null) {
+        return
+      }
+
+      const newPosition = Math.min(Math.max(to, 0), ids.length - 1) + 1
+      reorder(playlistId, fromId, newPosition)
     },
-    [playlistId, reorder, ids],
+    [ids, playlistId, reorder],
   )
 
   const handleRequestPositionChange = useCallback((track) => {
@@ -331,6 +356,26 @@ const PlaylistSongs = ({
       onRequestPositionChange: handleRequestPositionChange,
     }
   }, [onAddToPlaylist, classes.contextMenu, readOnly, handleRequestPositionChange])
+
+  const dragHandleField = useMemo(() => {
+    if (readOnly) {
+      return null
+    }
+
+    return (
+      <FunctionField
+        key="drag-handle"
+        label=""
+        sortable={false}
+        cellClassName={classes.dragHandleCell}
+        render={() => (
+          <span className={clsx(classes.dragHandle, 'draggable')}>
+            <DragIndicatorIcon fontSize="small" />
+          </span>
+        )}
+      />
+    )
+  }, [classes.dragHandle, classes.dragHandleCell, readOnly])
 
   const toggleableFields = useMemo(() => {
     return {
@@ -479,6 +524,7 @@ const PlaylistSongs = ({
                   contextAlwaysVisible={!isDesktop}
                   classes={{ row: classes.row }}
                 >
+                  {dragHandleField}
                   {columns}
                   <SongContextMenu
                     {...contextMenuProps}
