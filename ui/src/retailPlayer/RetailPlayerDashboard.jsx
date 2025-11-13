@@ -759,7 +759,7 @@ const RetailPlayerDashboard = () => {
   const [displayVolume, setDisplayVolume] = useState(() => initialDeviceVolume ?? 0)
   const volumeTimeoutRef = useRef(null)
   const previousVolumeRef = useRef(initialDeviceVolume ?? 0)
-  const volumeSyncReadyRef = useRef(false)
+  const volumeUpdateSourceRef = useRef('device')
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
@@ -1031,17 +1031,17 @@ const RetailPlayerDashboard = () => {
 
     setIsMuted(Boolean(device?.isMuted) || (hasResolvedVolume && deviceVolume === 0))
     if (hasResolvedVolume) {
+      volumeUpdateSourceRef.current = 'device'
       setVolume(deviceVolume)
       setDisplayVolume(deviceVolume)
       if (deviceVolume > 0) {
         previousVolumeRef.current = deviceVolume
       }
     }
-    volumeSyncReadyRef.current = false
   }, [device?.apiId, device?.id, device?.isMuted, deviceVolume])
 
   useEffect(() => {
-    volumeSyncReadyRef.current = false
+    volumeUpdateSourceRef.current = 'device'
   }, [deviceApiId, isApiEnabled])
 
   useEffect(() => {
@@ -1057,14 +1057,15 @@ const RetailPlayerDashboard = () => {
       return undefined
     }
 
-    if (!volumeSyncReadyRef.current) {
-      volumeSyncReadyRef.current = true
+    if (volumeUpdateSourceRef.current !== 'user') {
+      volumeUpdateSourceRef.current = null
       return undefined
     }
 
     const abortController = new AbortController()
     const headers = new Headers({ 'Content-Type': 'application/json' })
 
+    volumeUpdateSourceRef.current = null
     httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/volume`, {
       method: 'POST',
       headers,
@@ -1407,6 +1408,7 @@ const trackPool = useMemo(() => {
           previousVolumeRef.current = clamped
         }
         volumeTimeoutRef.current = window.setTimeout(() => {
+          volumeUpdateSourceRef.current = 'user'
           setVolume(clamped)
           volumeTimeoutRef.current = null
         }, 150)
