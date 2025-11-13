@@ -240,6 +240,11 @@
         "setPositionConfirm": "Set position"
       }
     },
+    "playlistTrack": {
+      "fields": {
+        "dragHandle": "Drag Rows"
+      }
+    },
     "discovery": {
       "name": "Discovery |||| Discoveries",
       "fields": {
