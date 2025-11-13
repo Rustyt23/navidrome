@@ -387,6 +387,8 @@ FolderDialog.defaultProps = {
   initialValues: null,
 }
 
+const ROOT_FOLDER_VALUE = '__root__'
+
 const DeviceDialog = ({
   open,
   onClose,
@@ -427,11 +429,22 @@ const DeviceDialog = ({
 
   const handleFolderChange = (event) => {
     const value = event.target.value
-    const nextValue = Array.isArray(value)
-      ? value.filter(Boolean)
+    let valuesArray = Array.isArray(value)
+      ? value
       : value
       ? [value]
       : []
+
+    const includesRoot = valuesArray.includes(ROOT_FOLDER_VALUE)
+    if (includesRoot) {
+      if (form.folderIds.length > 0) {
+        setForm((prev) => ({ ...prev, folderIds: [] }))
+        return
+      }
+      valuesArray = valuesArray.filter((id) => id !== ROOT_FOLDER_VALUE)
+    }
+
+    const nextValue = Array.from(new Set(valuesArray.filter(Boolean)))
     setForm((prev) => ({ ...prev, folderIds: nextValue }))
   }
 
@@ -476,19 +489,35 @@ const DeviceDialog = ({
             <Select
               labelId="device-folder-label"
               multiple
-              value={form.folderIds}
+              displayEmpty
+              value={
+                form.folderIds.length
+                  ? form.folderIds
+                  : [ROOT_FOLDER_VALUE]
+              }
               onChange={handleFolderChange}
               label="Folder"
               renderValue={(selected) => {
-                if (!Array.isArray(selected) || !selected.length) {
-                  return 'None'
+                if (
+                  !Array.isArray(selected) ||
+                  !selected.length ||
+                  selected.includes(ROOT_FOLDER_VALUE)
+                ) {
+                  return 'Root'
                 }
                 const labels = parentOptions
                   .filter((option) => selected.includes(option.id))
                   .map((option) => option.name)
                 return labels.join(', ')
               }}
-            >
+              >
+              <MenuItem value={ROOT_FOLDER_VALUE}>
+                <Checkbox
+                  color="primary"
+                  checked={form.folderIds.length === 0}
+                />
+                <ListItemText primary="Root" secondary="No folder" />
+              </MenuItem>
               {parentOptions.map((option) => (
                 <MenuItem key={option.id} value={option.id}>
                   <Checkbox
