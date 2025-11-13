@@ -530,7 +530,8 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
   const createFolder = useCallback(
     async (payload) => {
       const basePayload = payload && typeof payload === 'object' ? payload : {}
-      if (!apiEnabled) {
+
+      const createLocalFolder = () => {
         const folderPayload = normalizeFolderRecord({
           ...basePayload,
           id: ensureFolderId(basePayload.id) || uuidv4(),
@@ -553,17 +554,37 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         requestBody.parentId = normalizedParent || null
       }
 
-      const { json } = await httpClient('/api/retailplayer/folders', {
-        method: 'POST',
-        body: JSON.stringify(requestBody),
-        headers: new Headers({ 'Content-Type': 'application/json' }),
-      })
+      const persistRemote = async () => {
+        const { json } = await httpClient('/api/retailplayer/folders', {
+          method: 'POST',
+          body: JSON.stringify(requestBody),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        })
 
-      const folder = normalizeFolderRecord(json?.data)
-      if (folder) {
-        dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+        const folder = normalizeFolderRecord(json?.data)
+        if (folder) {
+          dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+          return folder
+        }
+        return createLocalFolder()
       }
-      return folder
+
+      if (!apiEnabled) {
+        try {
+          return await persistRemote()
+        } catch (error) {
+          return createLocalFolder()
+        }
+      }
+
+      try {
+        return await persistRemote()
+      } catch (error) {
+        if (error?.status === 404) {
+          return createLocalFolder()
+        }
+        throw error
+      }
     },
     [apiEnabled, dispatch],
   )
@@ -576,7 +597,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         return null
       }
 
-      if (!apiEnabled) {
+      const applyLocalUpdate = () => {
         const normalized = normalizeFolderRecord(basePayload)
         if (normalized) {
           dispatch({ type: 'UPSERT_FOLDER', payload: normalized })
@@ -594,20 +615,40 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         requestBody.parentId = normalizedParent || null
       }
 
-      const { json } = await httpClient(
-        `/api/retailplayer/folders/${encodeURIComponent(folderId)}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify(requestBody),
-          headers: new Headers({ 'Content-Type': 'application/json' }),
-        },
-      )
+      const persistRemote = async () => {
+        const { json } = await httpClient(
+          `/api/retailplayer/folders/${encodeURIComponent(folderId)}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify(requestBody),
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+          },
+        )
 
-      const folder = normalizeFolderRecord(json?.data)
-      if (folder) {
-        dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+        const folder = normalizeFolderRecord(json?.data)
+        if (folder) {
+          dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+          return folder
+        }
+        return applyLocalUpdate()
       }
-      return folder
+
+      if (!apiEnabled) {
+        try {
+          return await persistRemote()
+        } catch (error) {
+          return applyLocalUpdate()
+        }
+      }
+
+      try {
+        return await persistRemote()
+      } catch (error) {
+        if (error?.status === 404) {
+          return applyLocalUpdate()
+        }
+        throw error
+      }
     },
     [apiEnabled, dispatch],
   )
