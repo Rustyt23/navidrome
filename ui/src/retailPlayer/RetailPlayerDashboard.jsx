@@ -1013,8 +1013,18 @@ const RetailPlayerDashboard = () => {
   const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
 
   const deviceVolume = useMemo(() => {
-    if (typeof device?.volume === 'number' && !Number.isNaN(device.volume)) {
-      return device.volume
+    const rawVolume = device?.volume
+
+    if (typeof rawVolume === 'number' && !Number.isNaN(rawVolume)) {
+      return rawVolume
+    }
+
+    if (typeof rawVolume === 'string' && rawVolume.trim() !== '') {
+      const parsedVolume = Number(rawVolume)
+
+      if (!Number.isNaN(parsedVolume)) {
+        return parsedVolume
+      }
     }
 
     return null
