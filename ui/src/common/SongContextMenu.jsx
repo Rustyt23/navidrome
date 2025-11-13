@@ -56,6 +56,7 @@ export const SongContextMenu = ({
   record,
   showLove,
   onAddToPlaylist,
+  onMoveToPosition,
   className,
 }) => {
   const classes = useStyles()
@@ -96,6 +97,11 @@ export const SongContextMenu = ({
             onSuccess: (id) => onAddToPlaylist(id),
           }),
         ),
+    },
+    moveToPosition: {
+      enabled: Boolean(onMoveToPosition),
+      label: translate('resources.playlist.actions.moveToPosition'),
+      action: (record) => onMoveToPosition && onMoveToPosition(record),
     },
     showInPlaylist: {
       enabled: true,
@@ -284,11 +290,13 @@ SongContextMenu.propTypes = {
   resource: PropTypes.string.isRequired,
   record: PropTypes.object.isRequired,
   onAddToPlaylist: PropTypes.func,
+  onMoveToPosition: PropTypes.func,
   showLove: PropTypes.bool,
 }
 
 SongContextMenu.defaultProps = {
   onAddToPlaylist: () => {},
+  onMoveToPosition: undefined,
   record: {},
   resource: 'song',
   showLove: true,
