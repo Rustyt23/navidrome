@@ -429,16 +429,22 @@ const DeviceDialog = ({
 
   const handleFolderChange = (event) => {
     const value = event.target.value
-    const valuesArray = Array.isArray(value)
+    let valuesArray = Array.isArray(value)
       ? value
       : value
       ? [value]
       : []
-    if (valuesArray.includes(ROOT_FOLDER_VALUE)) {
-      setForm((prev) => ({ ...prev, folderIds: [] }))
-      return
+
+    const includesRoot = valuesArray.includes(ROOT_FOLDER_VALUE)
+    if (includesRoot) {
+      if (form.folderIds.length > 0) {
+        setForm((prev) => ({ ...prev, folderIds: [] }))
+        return
+      }
+      valuesArray = valuesArray.filter((id) => id !== ROOT_FOLDER_VALUE)
     }
-    const nextValue = valuesArray.filter(Boolean)
+
+    const nextValue = Array.from(new Set(valuesArray.filter(Boolean)))
     setForm((prev) => ({ ...prev, folderIds: nextValue }))
   }
 
@@ -483,11 +489,20 @@ const DeviceDialog = ({
             <Select
               labelId="device-folder-label"
               multiple
-              value={form.folderIds}
+              displayEmpty
+              value={
+                form.folderIds.length
+                  ? form.folderIds
+                  : [ROOT_FOLDER_VALUE]
+              }
               onChange={handleFolderChange}
               label="Folder"
               renderValue={(selected) => {
-                if (!Array.isArray(selected) || !selected.length) {
+                if (
+                  !Array.isArray(selected) ||
+                  !selected.length ||
+                  selected.includes(ROOT_FOLDER_VALUE)
+                ) {
                   return 'Root'
                 }
                 const labels = parentOptions
@@ -495,7 +510,7 @@ const DeviceDialog = ({
                   .map((option) => option.name)
                 return labels.join(', ')
               }}
-            >
+              >
               <MenuItem value={ROOT_FOLDER_VALUE}>
                 <Checkbox
                   color="primary"
