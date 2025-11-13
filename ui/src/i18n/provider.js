@@ -40,12 +40,35 @@ const removeEmpty = (obj) => {
   }
 }
 
+const mergeResources = (baseResource, overrideResource) => {
+  if (!baseResource) {
+    return overrideResource
+  }
+
+  if (!overrideResource) {
+    return baseResource
+  }
+
+  return deepmerge(baseResource, overrideResource, {
+    arrayMerge: (_destinationArray, sourceArray) => sourceArray,
+  })
+}
+
 const prepareLanguage = (lang) => {
   removeEmpty(lang)
-  // Make "albumSong" and "playlistTrack" resource use the same translations as "song"
-  lang.resources.albumSong = lang.resources.song
-  lang.resources.playlistTrack = lang.resources.song
-  lang.resources.discoveryTrack = lang.resources.song
+  // Make "albumSong", "playlistTrack" and "discoveryTrack" resources inherit translations from "song"
+  lang.resources.albumSong = mergeResources(
+    lang.resources.song,
+    lang.resources.albumSong,
+  )
+  lang.resources.playlistTrack = mergeResources(
+    lang.resources.song,
+    lang.resources.playlistTrack,
+  )
+  lang.resources.discoveryTrack = mergeResources(
+    lang.resources.song,
+    lang.resources.discoveryTrack,
+  )
   if (lang.resources.playlist) {
     lang.resources.discovery = lang.resources.playlist
   }
