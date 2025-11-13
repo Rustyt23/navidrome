@@ -242,7 +242,7 @@
     },
     "playlistTrack": {
       "fields": {
-        "dragHandle": "Drag"
+        "dragHandle": "Move"
       }
     },
     "discovery": {
