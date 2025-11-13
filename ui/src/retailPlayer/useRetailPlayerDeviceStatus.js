@@ -549,7 +549,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     nowPlayingArtist = ''
   }
 
-  const volume = combinedMetadata.volume ?? parseVolume(status.volume)
+  const metadataVolume = parseVolume(combinedMetadata.volume)
+  const volume = metadataVolume ?? parseVolume(status.volume)
 
   const scheduleStatus = normalizeValue(status.scheduleStatus).toLowerCase()
   const isConnected =
