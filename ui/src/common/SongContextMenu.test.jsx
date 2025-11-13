@@ -104,4 +104,28 @@ describe('SongContextMenu', () => {
     )
     expect(mockOnClick).not.toHaveBeenCalled()
   })
+
+  it('invokes position change handler when requested', async () => {
+    const handleRequestPositionChange = vi.fn()
+    render(
+      <TestContext>
+        <SongContextMenu
+          record={{ id: '4', size: 1 }}
+          resource="playlistTrack"
+          onRequestPositionChange={handleRequestPositionChange}
+        />
+      </TestContext>,
+    )
+
+    fireEvent.click(screen.getAllByRole('button')[1])
+    await waitFor(() =>
+      screen.getByText(/resources\.playlist\.actions\.setPosition/),
+    )
+
+    fireEvent.click(
+      screen.getByText(/resources\.playlist\.actions\.setPosition/),
+    )
+
+    expect(handleRequestPositionChange).toHaveBeenCalled()
+  })
 })

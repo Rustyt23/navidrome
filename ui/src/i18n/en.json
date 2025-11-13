@@ -220,7 +220,8 @@
         "duplicates": "Duplicates",
         "searchOrCreate": "Search playlists or type to create new...",
         "pressEnterToCreate": "Press Enter to create new playlist",
-        "removeFromSelection": "Remove from selection"
+        "removeFromSelection": "Remove from selection",
+        "setPosition": "Set song position"
       },
       "notifications": {
         "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
@@ -230,6 +231,13 @@
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
         "noPlaylists": "No playlists available"
+      },
+      "dialog": {
+        "setPositionTitle": "Set song position",
+        "setPositionLabel": "New position",
+        "setPositionHint": "Enter a value between 1 and %{max}.",
+        "setPositionError": "Please enter a value between 1 and %{max}.",
+        "setPositionConfirm": "Set position"
       }
     },
     "discovery": {

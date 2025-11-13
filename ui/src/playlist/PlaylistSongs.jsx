@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   BulkActionsToolbar,
   ListToolbar,
@@ -35,6 +35,7 @@ import { AlbumLinkField } from '../song/AlbumLinkField'
 import { playTracks } from '../actions'
 import PlaylistSongBulkActions from './PlaylistSongBulkActions'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
+import PlaylistTrackPositionDialog from './PlaylistTrackPositionDialog'
 import config from '../config'
 
 /* eslint-disable-next-line react-refresh/only-export-components */
@@ -189,6 +190,8 @@ const PlaylistSongs = ({
   useResourceRefresh('song', 'playlist')
 
   const prevShowDuplicates = React.useRef(showDuplicatesOnly)
+  const [positionDialogOpen, setPositionDialogOpen] = useState(false)
+  const [positionDialogTrack, setPositionDialogTrack] = useState(null)
 
   useEffect(() => {
     if (prevShowDuplicates.current !== showDuplicatesOnly) {
@@ -256,17 +259,23 @@ const PlaylistSongs = ({
 
   const reorder = useCallback(
     (playlistId, id, newPos) => {
-      dataProvider
+      if (newPos == null) {
+        return Promise.resolve(false)
+      }
+
+      return dataProvider
         .update('playlistTrack', {
           id,
-          data: { insert_before: newPos },
+          data: { insert_before: `${newPos}` },
           filter: { playlist_id: playlistId },
         })
         .then(() => {
           refetch()
+          return true
         })
         .catch(() => {
           notify('ra.page.error', 'warning')
+          return false
         })
     },
     [dataProvider, notify, refetch],
@@ -280,6 +289,48 @@ const PlaylistSongs = ({
     },
     [playlistId, reorder, ids],
   )
+
+  const handleRequestPositionChange = useCallback((track) => {
+    setPositionDialogTrack(track)
+    setPositionDialogOpen(true)
+  }, [])
+
+  const handleClosePositionDialog = useCallback(() => {
+    setPositionDialogOpen(false)
+    setPositionDialogTrack(null)
+  }, [])
+
+  const handlePositionSubmit = useCallback(
+    (track, newPosition) => {
+      if (!track) {
+        return
+      }
+
+      reorder(playlistId, track.id, newPosition).then((success) => {
+        if (success) {
+          handleClosePositionDialog()
+        }
+      })
+    },
+    [playlistId, reorder, handleClosePositionDialog],
+  )
+
+  const contextMenuProps = useMemo(() => {
+    const baseProps = {
+      onAddToPlaylist,
+      showLove: true,
+      className: classes.contextMenu,
+    }
+
+    if (readOnly) {
+      return baseProps
+    }
+
+    return {
+      ...baseProps,
+      onRequestPositionChange: handleRequestPositionChange,
+    }
+  }, [onAddToPlaylist, classes.contextMenu, readOnly, handleRequestPositionChange])
 
   const toggleableFields = useMemo(() => {
     return {
@@ -412,11 +463,7 @@ const PlaylistSongs = ({
                 {...filteredListContext}
                 hasBulkActions={!readOnly}
                 selectedIds={selectedIds}
-                contextMenuProps={{
-                  onAddToPlaylist,
-                  showLove: true,
-                  className: classes.contextMenu,
-                }}
+                contextMenuProps={contextMenuProps}
               />
             ) : (
               <ReorderableList
@@ -434,9 +481,7 @@ const PlaylistSongs = ({
                 >
                   {columns}
                   <SongContextMenu
-                    onAddToPlaylist={onAddToPlaylist}
-                    showLove={true}
-                    className={classes.contextMenu}
+                    {...contextMenuProps}
                   />
                 </SongDatagrid>
               </ReorderableList>
@@ -445,6 +490,13 @@ const PlaylistSongs = ({
         </div>
       </ListContextProvider>
       <ExpandInfoDialog content={<SongInfo />} />
+      <PlaylistTrackPositionDialog
+        open={positionDialogOpen && !readOnly}
+        track={positionDialogTrack}
+        maxPosition={Math.max(ids.length, 1)}
+        onCancel={handleClosePositionDialog}
+        onSubmit={handlePositionSubmit}
+      />
       {React.cloneElement(props.pagination, listContext)}
     </>
   )
