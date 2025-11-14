@@ -17,6 +17,7 @@ import {
   useTranslate,
   useUnselectAll,
 } from 'react-admin'
+import { CRUD_UPDATE } from 'ra-core'
 import RateReviewIcon from '@material-ui/icons/RateReview'
 
 const sanitizeIds = (ids) => {
@@ -135,11 +136,18 @@ export const EditCommentsButton = ({
     try {
       const payload = { comment: commentValue ?? '' }
       const updatePromises = resolvedIds.map((id) =>
-        dataProvider.update(updateResource, {
-          id,
-          data: payload,
-          previousData: recordLookup.get(id),
-        }),
+        dataProvider.update(
+          updateResource,
+          {
+            id,
+            data: payload,
+            previousData: recordLookup.get(id),
+          },
+          {
+            action: CRUD_UPDATE,
+            mutationMode: 'pessimistic',
+          },
+        ),
       )
 
       await Promise.all(updatePromises)
@@ -151,10 +159,15 @@ export const EditCommentsButton = ({
         { type: 'info' },
       )
 
-      if (typeof listContext?.refetch === 'function') {
-        await listContext.refetch()
-      } else {
-        refresh()
+      const needsListRefresh =
+        listContext?.resource && listContext.resource !== updateResource
+
+      if (needsListRefresh) {
+        if (typeof listContext?.refetch === 'function') {
+          await listContext.refetch()
+        } else {
+          refresh()
+        }
       }
 
       if (typeof onUnselectItems === 'function') {
