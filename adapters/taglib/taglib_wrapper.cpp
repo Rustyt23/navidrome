@@ -8,6 +8,7 @@
 #include <asffile.h>
 #include <dsffile.h>
 #include <fileref.h>
+#include <tag.h>
 #include <flacfile.h>
 #include <id3v2tag.h>
 #include <unsynchronizedlyricsframe.h>
@@ -198,6 +199,32 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
   // Cover art has to be handled separately
   if (has_cover(f)) {
     goPutStr(id, (char *)"has_picture", (char *)"true");
+  }
+
+  return 0;
+}
+
+int taglib_update_comment(const FILENAME_CHAR_T *filename, const char *comment) {
+  TagLib::FileRef f(filename, true);
+
+  if (f.isNull()) {
+    return TAGLIB_ERR_PARSE;
+  }
+
+  TagLib::File *file = f.file();
+  if (file == NULL || file->tag() == NULL) {
+    return TAGLIB_ERR_PARSE;
+  }
+
+  if (!file->isWritable()) {
+    return TAGLIB_ERR_PERMISSION;
+  }
+
+  TagLib::Tag *tag = file->tag();
+  tag->setComment(TagLib::String(comment, TagLib::String::UTF8));
+
+  if (!file->save()) {
+    return TAGLIB_ERR_SAVE;
   }
 
   return 0;

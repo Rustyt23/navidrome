@@ -10,6 +10,7 @@ import (
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
 	"github.com/google/uuid"
+	"github.com/navidrome/navidrome/adapters/taglib"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -20,6 +21,8 @@ import (
 type mediaFileRepository struct {
 	sqlRepository
 }
+
+var writeMediaFileComment = taglib.UpdateComment
 
 type dbMediaFile struct {
 	*model.MediaFile `structs:",flatten"`
@@ -255,14 +258,25 @@ func (r *mediaFileRepository) UpdateComment(id string, comment string) error {
 		return model.ErrNotFound
 	}
 
+	mf, err := r.Get(id)
+	if err != nil {
+		return err
+	}
+
+	previousComment := mf.Comment
+	if err := writeMediaFileComment(mf.AbsolutePath(), comment); err != nil {
+		return err
+	}
+
 	upd := Update(r.tableName).
 		Set("comment", comment).
 		Set("updated_at", time.Now()).
 		Where(Eq{"id": id})
 
-	count, err := r.executeSQL(upd)
-	if err != nil {
-		return err
+	count, execErr := r.executeSQL(upd)
+	if execErr != nil {
+		_ = writeMediaFileComment(mf.AbsolutePath(), previousComment)
+		return execErr
 	}
 	if count == 0 {
 		return model.ErrNotFound

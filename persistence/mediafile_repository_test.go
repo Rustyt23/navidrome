@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -103,6 +104,64 @@ var _ = Describe("MediaRepository", func() {
 		Expect(err).To(MatchError(model.ErrNotFound))
 		_, err = mr.Get(new2.ID)
 		Expect(err).To(MatchError(model.ErrNotFound))
+	})
+
+	Describe("UpdateComment", func() {
+		var (
+			repo           model.MediaFileRepository
+			originalWriter func(string, string) error
+		)
+
+		BeforeEach(func() {
+			originalWriter = writeMediaFileComment
+			ctx := request.WithUser(log.NewContext(context.TODO()), adminUser)
+			repo = NewMediaFileRepository(ctx, GetDBXBuilder())
+		})
+
+		AfterEach(func() {
+			writeMediaFileComment = originalWriter
+		})
+
+		It("updates the media file metadata and database comment", func() {
+			initial, err := repo.Get(songAntenna.ID)
+			Expect(err).ToNot(HaveOccurred())
+
+			DeferCleanup(func() {
+				writeMediaFileComment = func(string, string) error { return nil }
+				Expect(repo.UpdateComment(songAntenna.ID, initial.Comment)).To(Succeed())
+			})
+
+			called := false
+			writeMediaFileComment = func(path, comment string) error {
+				called = true
+				Expect(path).To(Equal(initial.AbsolutePath()))
+				Expect(comment).To(Equal("Metadata comment"))
+				return nil
+			}
+
+			Expect(repo.UpdateComment(songAntenna.ID, "Metadata comment")).To(Succeed())
+			Expect(called).To(BeTrue())
+
+			updated, err := repo.Get(songAntenna.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.Comment).To(Equal("Metadata comment"))
+		})
+
+		It("returns an error when metadata cannot be written", func() {
+			initial, err := repo.Get(songAntenna.ID)
+			Expect(err).ToNot(HaveOccurred())
+
+			writeMediaFileComment = func(string, string) error {
+				return errors.New("write failed")
+			}
+
+			err = repo.UpdateComment(songAntenna.ID, "Blocked comment")
+			Expect(err).To(MatchError("write failed"))
+
+			refreshed, err := repo.Get(songAntenna.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refreshed.Comment).To(Equal(initial.Comment))
+		})
 	})
 
 	Context("Annotations", func() {
