@@ -66,6 +66,26 @@ export const EditCommentsButton = ({
     return sanitizeIds(ids)
   }, [getTargetIds, listContext?.data, selectedIds])
 
+  const recordLookup = useMemo(() => {
+    const map = new Map()
+    selectedRecords.forEach((record) => {
+      if (!record) {
+        return
+      }
+      if (record.id !== undefined && record.id !== null) {
+        map.set(record.id, record)
+      }
+      if (
+        record.mediaFileId !== undefined &&
+        record.mediaFileId !== null &&
+        !map.has(record.mediaFileId)
+      ) {
+        map.set(record.mediaFileId, record)
+      }
+    })
+    return map
+  }, [selectedRecords])
+
   const initialComment = useMemo(() => {
     if (!selectedRecords.length) {
       return ''
@@ -113,10 +133,16 @@ export const EditCommentsButton = ({
 
     setSaving(true)
     try {
-      await dataProvider.updateMany(updateResource, {
-        ids: resolvedIds,
-        data: { comment: commentValue ?? '' },
-      })
+      const payload = { comment: commentValue ?? '' }
+      const updatePromises = resolvedIds.map((id) =>
+        dataProvider.update(updateResource, {
+          id,
+          data: payload,
+          previousData: recordLookup.get(id),
+        }),
+      )
+
+      await Promise.all(updatePromises)
 
       notify(
         translate('resources.song.notifications.commentsUpdated', {
@@ -154,6 +180,7 @@ export const EditCommentsButton = ({
     notify,
     onUnselectItems,
     refresh,
+    recordLookup,
     resolvedIds,
     selectionKey,
     translate,
