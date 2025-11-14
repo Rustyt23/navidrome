@@ -116,6 +116,17 @@ func (m *MockMediaFileRepo) Delete(id string) error {
 	return nil
 }
 
+func (m *MockMediaFileRepo) UpdateComment(id string, comment string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		mf.Comment = comment
+		return nil
+	}
+	return model.ErrNotFound
+}
+
 func (m *MockMediaFileRepo) IncPlayCount(id string, timestamp time.Time) error {
 	if m.Err {
 		return errors.New("error")

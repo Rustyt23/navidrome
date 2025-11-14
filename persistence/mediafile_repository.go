@@ -246,6 +246,30 @@ func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile)
 	return nil
 }
 
+func (r *mediaFileRepository) UpdateComment(id string, comment string) error {
+	user := loggedUser(r.ctx)
+	if !user.IsAdmin {
+		return rest.ErrPermissionDenied
+	}
+	if id == "" {
+		return model.ErrNotFound
+	}
+
+	upd := Update(r.tableName).
+		Set("comment", comment).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
+
+	count, err := r.executeSQL(upd)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
 func (r *mediaFileRepository) MarkMissingByFolder(missing bool, folderIDs ...string) error {
 	for chunk := range slices.Chunk(folderIDs, 200) {
 		upd := Update(r.tableName).

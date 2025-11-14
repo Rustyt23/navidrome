@@ -352,6 +352,7 @@ type MediaFileRepository interface {
 	GetWithParticipants(id string) (*MediaFile, error)
 	GetAll(options ...QueryOptions) (MediaFiles, error)
 	GetCursor(options ...QueryOptions) (MediaFileCursor, error)
+	UpdateComment(id string, comment string) error
 	Delete(id string) error
 	DeleteMissing(ids []string) error
 	DeleteAllMissing() (int64, error)
