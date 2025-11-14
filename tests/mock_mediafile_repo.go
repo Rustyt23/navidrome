@@ -116,6 +116,22 @@ func (m *MockMediaFileRepo) Delete(id string) error {
 	return nil
 }
 
+func (m *MockMediaFileRepo) SetComment(comment *string, ids ...string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	for _, id := range ids {
+		if mf, ok := m.Data[id]; ok {
+			if comment == nil {
+				mf.Comment = ""
+			} else {
+				mf.Comment = *comment
+			}
+		}
+	}
+	return nil
+}
+
 func (m *MockMediaFileRepo) IncPlayCount(id string, timestamp time.Time) error {
 	if m.Err {
 		return errors.New("error")

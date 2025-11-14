@@ -9,6 +9,8 @@ import {
   DOWNLOAD_MENU_SONG,
   DUPLICATE_SONG_WARNING_OPEN,
   DUPLICATE_SONG_WARNING_CLOSE,
+  EDIT_COMMENTS_OPEN,
+  EDIT_COMMENTS_CLOSE,
   EXTENDED_INFO_OPEN,
   EXTENDED_INFO_CLOSE,
   LISTENBRAINZ_TOKEN_OPEN,
@@ -182,6 +184,43 @@ export const saveQueueDialogReducer = (
       return { ...previousState, open: true }
     case SAVE_QUEUE_CLOSE:
       return { ...previousState, open: false }
+    default:
+      return previousState
+  }
+}
+
+export const editCommentsDialogReducer = (
+  previousState = {
+    open: false,
+    resource: undefined,
+    selectedIds: [],
+    targetIds: [],
+    initialComment: '',
+  },
+  payload,
+) => {
+  const { type } = payload
+  switch (type) {
+    case EDIT_COMMENTS_OPEN:
+      return {
+        ...previousState,
+        open: true,
+        resource: payload.resource,
+        selectedIds: payload.selectedIds || [],
+        targetIds:
+          payload.targetIds || payload.selectedIds || previousState.targetIds,
+        initialComment: payload.initialComment || '',
+        onSuccess: payload.onSuccess,
+      }
+    case EDIT_COMMENTS_CLOSE:
+      return {
+        ...previousState,
+        open: false,
+        selectedIds: [],
+        targetIds: [],
+        initialComment: '',
+        onSuccess: undefined,
+      }
     default:
       return previousState
   }

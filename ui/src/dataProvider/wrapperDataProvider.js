@@ -234,6 +234,12 @@ const wrapperDataProvider = {
       body: JSON.stringify(data),
     }).then(({ json }) => ({ data: json }))
   },
+  setSongComments: ({ ids, comment }) => {
+    return httpClient(`${REST_URL}/song/comment`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ids, comment }),
+    }).then(({ json }) => ({ data: json }))
+  },
   getPlaylists: (songId) => {
     return httpClient(`${REST_URL}/song/${songId}/playlists`).then(
       ({ json }) => ({ data: json }),

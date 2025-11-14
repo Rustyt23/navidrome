@@ -1,9 +1,9 @@
-import React, { Fragment, useEffect } from 'react'
-import { useUnselectAll } from 'react-admin'
+import React, { Fragment, useEffect, useMemo } from 'react'
+import { useListContext, useUnselectAll } from 'react-admin'
 import { addTracks, playNext, playTracks } from '../actions'
 import { RiPlayList2Fill, RiPlayListAddFill } from 'react-icons/ri'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
-import { BatchPlayButton } from './index'
+import { BatchPlayButton, EditCommentsButton } from './index'
 import { AddToPlaylistButton } from './AddToPlaylistButton'
 import { makeStyles } from '@material-ui/core/styles'
 import { BatchShareButton } from './BatchShareButton'
@@ -18,6 +18,18 @@ const useStyles = makeStyles((theme) => ({
 export const SongBulkActions = (props) => {
   const classes = useStyles()
   const unselectAll = useUnselectAll()
+  const { data } = useListContext()
+  const initialComment = useMemo(() => {
+    const ids = props.selectedIds || []
+    if (ids.length === 1) {
+      const record = data?.[ids[0]]
+      if (record && typeof record.comment === 'string') {
+        return record.comment
+      }
+    }
+    return ''
+  }, [data, props.selectedIds])
+
   useEffect(() => {
     unselectAll(props.resource)
   }, [unselectAll, props.resource])
@@ -48,6 +60,12 @@ export const SongBulkActions = (props) => {
         <BatchShareButton {...props} className={classes.button} />
       )}
       <AddToPlaylistButton {...props} className={classes.button} />
+      <EditCommentsButton
+        resource={props.resource}
+        selectedIds={props.selectedIds || []}
+        initialComment={initialComment}
+        className={classes.button}
+      />
     </Fragment>
   )
 }

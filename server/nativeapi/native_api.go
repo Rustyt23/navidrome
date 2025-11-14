@@ -100,7 +100,7 @@ func (n *Router) routes() http.Handler {
 		r.Use(server.JWTRefresher)
 		r.Use(server.UpdateLastAccessMiddleware(n.ds))
 		n.R(r, "/user", model.User{}, true)
-		n.R(r, "/song", model.MediaFile{}, false)
+		n.addSongRoute(r)
 		n.R(r, "/album", model.Album{}, false)
 		n.R(r, "/artist", model.Artist{}, false)
 		n.R(r, "/genre", model.Genre{}, false)
@@ -204,6 +204,21 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 				}
 				w.WriteHeader(http.StatusNoContent)
 			})
+		})
+	})
+}
+
+func (n *Router) addSongRoute(r chi.Router) {
+	constructor := func(ctx context.Context) rest.Repository {
+		return n.ds.Resource(ctx, model.MediaFile{})
+	}
+
+	r.Route("/song", func(r chi.Router) {
+		r.Get("/", rest.GetAll(constructor))
+		r.Patch("/comment", setSongComment(n.ds))
+		r.Route("/{id}", func(r chi.Router) {
+			r.Use(server.URLParamsMiddleware)
+			r.Get("/", rest.Get(constructor))
 		})
 	})
 }
