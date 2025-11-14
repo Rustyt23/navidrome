@@ -244,49 +244,86 @@ func addToPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFun
 }
 
 func reorderItem(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
-	type reorderPayload struct {
-		InsertBefore string `json:"insert_before"`
+	type updatePayload struct {
+		InsertBefore *string `json:"insert_before"`
+		Comment      *string `json:"comment"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := req.Params(r)
 		playlistId, _ := p.String(":playlistId")
-		id := p.IntOr(":id", 0)
-		if id == 0 {
-			http.Error(w, "invalid id", http.StatusBadRequest)
-			return
-		}
-		var payload reorderPayload
-		err := json.NewDecoder(r.Body).Decode(&payload)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		newPos, err := strconv.Atoi(payload.InsertBefore)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		tracksRepo := ds.Playlist(r.Context()).Tracks(playlistId, true)
-		err = tracksRepo.Reorder(id, newPos)
-		if errors.Is(err, rest.ErrPermissionDenied) {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		if err != nil {
+		idStr, _ := p.String(":id")
+
+		var payload updatePayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if payload.InsertBefore != nil {
+			id, err := strconv.Atoi(idStr)
+			if err != nil || id == 0 {
+				http.Error(w, "invalid id", http.StatusBadRequest)
+				return
+			}
+			newPos, err := strconv.Atoi(*payload.InsertBefore)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			tracksRepo := ds.Playlist(r.Context()).Tracks(playlistId, true)
+			err = tracksRepo.Reorder(id, newPos)
+			if errors.Is(err, rest.ErrPermissionDenied) {
+				http.Error(w, err.Error(), http.StatusForbidden)
+				return
+			}
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			_, err = w.Write([]byte(fmt.Sprintf(`{"id":"%d"}`, id)))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 
-		_, err = w.Write([]byte(fmt.Sprintf(`{"id":"%d"}`, id)))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if payload.Comment != nil {
+			tracksRepo := ds.Playlist(r.Context()).Tracks(playlistId, true)
+			updater, ok := tracksRepo.(interface {
+				UpdateComment(id string, comment *string) error
+			})
+			if !ok {
+				http.Error(w, "unsupported operation", http.StatusNotImplemented)
+				return
+			}
+			err := updater.UpdateComment(idStr, payload.Comment)
+			switch {
+			case errors.Is(err, rest.ErrPermissionDenied):
+				http.Error(w, err.Error(), http.StatusForbidden)
+				return
+			case errors.Is(err, model.ErrNotFound):
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			case err != nil:
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			_, err = w.Write([]byte(fmt.Sprintf(`{"id":"%s"}`, idStr)))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
 		}
+
+		http.Error(w, "invalid request", http.StatusBadRequest)
 	}
 }
 

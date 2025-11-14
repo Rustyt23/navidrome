@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
@@ -928,6 +929,44 @@ func (r *playlistTrackRepository) Reorder(pos int, newPos int) error {
 	}
 	newOrder := slice.Move(ids, pos-1, newPos-1)
 	return r.playlistRepo.updatePlaylist(r.playlistId, newOrder)
+}
+
+func (r *playlistTrackRepository) UpdateComment(id string, comment *string) error {
+	if !r.isTracksEditable() {
+		return rest.ErrPermissionDenied
+	}
+	if comment == nil {
+		return nil
+	}
+
+	track, err := r.Read(id)
+	if err != nil {
+		return err
+	}
+
+	plt, ok := track.(*model.PlaylistTrack)
+	if !ok || plt == nil {
+		return fmt.Errorf("invalid playlist track type: %T", track)
+	}
+
+	if plt.MediaFileID == "" {
+		return model.ErrNotFound
+	}
+
+	upd := Update("media_file").
+		Set("comment", *comment).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": plt.MediaFileID})
+
+	count, err := r.executeSQL(upd)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return model.ErrNotFound
+	}
+
+	return nil
 }
 
 var _ model.PlaylistTrackRepository = (*playlistTrackRepository)(nil)

@@ -8,6 +8,7 @@ import {
 import { MdOutlinePlaylistRemove } from 'react-icons/md'
 import PropTypes from 'prop-types'
 import { AddToPlaylistButton } from '../common/AddToPlaylistButton'
+import PlaylistSongCommentBulkEditButton from './PlaylistSongCommentBulkEditButton'
 import { makeStyles } from '@material-ui/core/styles'
 
 const useStyles = makeStyles((theme) => ({
@@ -45,6 +46,13 @@ const PlaylistSongBulkActions = ({
           icon={<MdOutlinePlaylistRemove />}
           resource={mappedResource}
           onClick={onUnselectItems}
+        />
+        <PlaylistSongCommentBulkEditButton
+          playlistId={playlistId}
+          resource={resource}
+          selectedIds={selectedIds}
+          onUnselectItems={onUnselectItems}
+          className={classes.button}
         />
         {/* Add the AddToPlaylistButton */}
         <AddToPlaylistButton
