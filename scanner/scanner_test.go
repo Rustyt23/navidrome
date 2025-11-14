@@ -83,8 +83,8 @@ var _ = Describe("Scanner", Ordered, func() {
 		}
 		Expect(ds.User(ctx).Put(&adminUser)).To(Succeed())
 
-                s = scanner.New(ctx, ds, artwork.NoopCacheWarmer(), events.NoopBroker(),
-                        core.NewPlaylists(ds), core.NewDiscoveries(ds), metrics.NewNoopInstance())
+		s = scanner.New(ctx, ds, artwork.NoopCacheWarmer(), events.NoopBroker(),
+			core.NewPlaylists(ds), core.NewDiscoveries(ds), metrics.NewNoopInstance())
 
 		lib = model.Library{ID: 1, Name: "Fake Library", Path: "fake:///music"}
 		Expect(ds.Library(ctx).Put(&lib)).To(Succeed())
@@ -330,6 +330,27 @@ var _ = Describe("Scanner", Ordered, func() {
 			mf, err := findByPath("The Beatles/Revolver/02 - Eleanor Rigby.mp3")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mf.Missing).To(BeTrue())
+		})
+
+		It("keeps existing files available when another file is removed", func() {
+			By("Running an initial full scan")
+			Expect(runScanner(ctx, true)).To(Succeed())
+
+			By("Removing a different file")
+			fsys.Remove("The Beatles/Revolver/02 - Eleanor Rigby.mp3")
+
+			By("Running an incremental scan")
+			Expect(runScanner(ctx, false)).To(Succeed())
+
+			By("Verifying the removed file is marked as missing")
+			removed, err := findByPath("The Beatles/Revolver/02 - Eleanor Rigby.mp3")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(removed.Missing).To(BeTrue())
+
+			By("Ensuring another file in the folder remains available")
+			kept, err := findByPath("The Beatles/Revolver/01 - Taxman.mp3")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(kept.Missing).To(BeFalse())
 		})
 
 		It("detects a file was moved to a different folder", func() {

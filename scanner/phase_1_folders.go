@@ -216,7 +216,8 @@ func (p *phaseFolders) processFolder(entry *folderEntry) (*folderEntry, error) {
 			log.Error(p.ctx, "Scanner: Error loading mediafiles from DB", "folder", entry.path, err)
 			return entry, err
 		}
-		dbTracks[mf.Path] = &mf
+		mfCopy := mf
+		dbTracks[mf.Path] = &mfCopy
 	}
 
 	// Get list of files to import, based on modtime (or all if fullScan),
