@@ -10,6 +10,8 @@ export const LISTENBRAINZ_TOKEN_OPEN = 'LISTENBRAINZ_TOKEN_OPEN'
 export const LISTENBRAINZ_TOKEN_CLOSE = 'LISTENBRAINZ_TOKEN_CLOSE'
 export const SAVE_QUEUE_OPEN = 'SAVE_QUEUE_OPEN'
 export const SAVE_QUEUE_CLOSE = 'SAVE_QUEUE_CLOSE'
+export const EDIT_COMMENTS_OPEN = 'EDIT_COMMENTS_OPEN'
+export const EDIT_COMMENTS_CLOSE = 'EDIT_COMMENTS_CLOSE'
 export const DOWNLOAD_MENU_ALBUM = 'album'
 export const DOWNLOAD_MENU_ARTIST = 'artist'
 export const DOWNLOAD_MENU_PLAY = 'playlist'
@@ -37,6 +39,25 @@ export const openAddToPlaylist = ({ selectedIds, onSuccess }) => ({
 
 export const closeAddToPlaylist = () => ({
   type: ADD_TO_PLAYLIST_CLOSE,
+})
+
+export const openEditComments = ({
+  resource,
+  selectedIds,
+  targetIds,
+  initialComment,
+  onSuccess,
+}) => ({
+  type: EDIT_COMMENTS_OPEN,
+  resource,
+  selectedIds,
+  targetIds,
+  initialComment,
+  onSuccess,
+})
+
+export const closeEditComments = () => ({
+  type: EDIT_COMMENTS_CLOSE,
 })
 
 export const openDownloadMenu = (record, recordType) => {

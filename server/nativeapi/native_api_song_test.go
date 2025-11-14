@@ -207,6 +207,84 @@ var _ = Describe("Song Endpoints", func() {
 				Expect(w.Code).To(Equal(http.StatusUnauthorized))
 			})
 		})
+
+		Describe("PATCH /song/comment", func() {
+			Context("when user is authenticated", func() {
+				It("updates the comment for the provided songs", func() {
+					payload := map[string]any{
+						"ids":     []string{"song-1"},
+						"comment": "Updated comment",
+					}
+					body, err := json.Marshal(payload)
+					Expect(err).ToNot(HaveOccurred())
+
+					req := createAuthenticatedRequest("PATCH", "/song/comment", body)
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusOK))
+					Expect(mfRepo.Data["song-1"].Comment).To(Equal("Updated comment"))
+				})
+
+				It("clears the comment when payload comment is null", func() {
+					payload := map[string]any{
+						"ids":     []string{"song-1"},
+						"comment": nil,
+					}
+					body, err := json.Marshal(payload)
+					Expect(err).ToNot(HaveOccurred())
+
+					req := createAuthenticatedRequest("PATCH", "/song/comment", body)
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusOK))
+					Expect(mfRepo.Data["song-1"].Comment).To(Equal(""))
+				})
+
+				It("returns bad request when ids are missing", func() {
+					payload := map[string]any{
+						"comment": "No ids",
+					}
+					body, err := json.Marshal(payload)
+					Expect(err).ToNot(HaveOccurred())
+
+					req := createAuthenticatedRequest("PATCH", "/song/comment", body)
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusBadRequest))
+				})
+
+				It("returns server error when repository fails", func() {
+					payload := map[string]any{
+						"ids":     []string{"song-1"},
+						"comment": "Should fail",
+					}
+					body, err := json.Marshal(payload)
+					Expect(err).ToNot(HaveOccurred())
+
+					mfRepo.SetError(true)
+					req := createAuthenticatedRequest("PATCH", "/song/comment", body)
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusInternalServerError))
+				})
+			})
+
+			Context("when user is not authenticated", func() {
+				It("returns unauthorized", func() {
+					payload := map[string]any{
+						"ids":     []string{"song-1"},
+						"comment": "Updated",
+					}
+					body, err := json.Marshal(payload)
+					Expect(err).ToNot(HaveOccurred())
+
+					req := createUnauthenticatedRequest("PATCH", "/song/comment", body)
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusUnauthorized))
+				})
+			})
+		})
 	})
 
 	Describe("Song endpoints are read-only", func() {

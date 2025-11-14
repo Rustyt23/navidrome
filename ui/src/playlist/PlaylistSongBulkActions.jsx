@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect } from 'react'
+import React, { Fragment, useEffect, useMemo } from 'react'
 import {
   BulkDeleteButton,
   useListContext,
@@ -8,6 +8,7 @@ import {
 import { MdOutlinePlaylistRemove } from 'react-icons/md'
 import PropTypes from 'prop-types'
 import { AddToPlaylistButton } from '../common/AddToPlaylistButton'
+import { EditCommentsButton } from '../common/EditCommentsButton'
 import { makeStyles } from '@material-ui/core/styles'
 
 const useStyles = makeStyles((theme) => ({
@@ -36,6 +37,15 @@ const PlaylistSongBulkActions = ({
   const selectedMediaIds = selectedIds.map(
     (id) => data?.[id]?.mediaFileId ?? id,
   )
+  const initialComment = useMemo(() => {
+    if (selectedIds.length === 1) {
+      const record = data?.[selectedIds[0]]
+      if (record && typeof record.comment === 'string') {
+        return record.comment
+      }
+    }
+    return ''
+  }, [data, selectedIds])
   return (
     <ResourceContextProvider value={mappedResource}>
       <Fragment>
@@ -51,6 +61,13 @@ const PlaylistSongBulkActions = ({
           resource={mappedResource} // Use the mapped resource for consistency
           selectedIds={selectedMediaIds} // Pass the mapped media IDs
           className={classes.button} // Apply custom styles
+        />
+        <EditCommentsButton
+          resource={mappedResource}
+          selectedIds={selectedIds}
+          targetIds={selectedMediaIds}
+          initialComment={initialComment}
+          className={classes.button}
         />
       </Fragment>
     </ResourceContextProvider>

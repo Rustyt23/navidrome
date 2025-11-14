@@ -216,6 +216,34 @@ func (r *mediaFileRepository) DeleteAllMissing() (int64, error) {
 	return r.executeSQL(del)
 }
 
+func (r *mediaFileRepository) SetComment(comment *string, ids ...string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	for chunk := range slice.CollectChunks(ids, 200) {
+		upd := Update(r.tableName).
+			Set("updated_at", time.Now()).
+			Where(Eq{"id": chunk})
+		if comment == nil {
+			upd = upd.Set("comment", nil)
+		} else {
+			upd = upd.Set("comment", *comment)
+		}
+
+		c, err := r.executeSQL(upd)
+		if err != nil {
+			log.Error(r.ctx, "Error setting mediafile comment", "ids", chunk, err)
+			return err
+		}
+		if c == 0 {
+			log.Warn(r.ctx, "No mediafiles updated when setting comment", "ids", chunk)
+		}
+	}
+
+	return nil
+}
+
 func (r *mediaFileRepository) DeleteMissing(ids []string) error {
 	user := loggedUser(r.ctx)
 	if !user.IsAdmin {

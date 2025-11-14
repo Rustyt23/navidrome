@@ -356,6 +356,7 @@ type MediaFileRepository interface {
 	DeleteMissing(ids []string) error
 	DeleteAllMissing() (int64, error)
 	FindByPaths(paths []string) (MediaFiles, error)
+	SetComment(comment *string, ids ...string) error
 
 	// The following methods are used exclusively by the scanner:
 	MarkMissing(bool, ...*MediaFile) error
