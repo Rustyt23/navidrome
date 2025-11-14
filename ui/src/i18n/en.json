@@ -42,11 +42,18 @@
         "addToQueue": "Play Later",
         "playNow": "Play Now",
         "addToPlaylist": "Add to Playlist",
+        "editComment": "Edit Comment",
         "showInPlaylist": "Show in Playlist",
         "shuffleAll": "Shuffle All",
         "download": "Download",
         "playNext": "Play Next",
         "info": "Get Info"
+      },
+      "dialogs": {
+        "editComment": {
+          "title": "Edit Comment",
+          "description": "Update the comment metadata for the selected song. |||| Update the comment metadata for the selected songs."
+        }
       }
     },
     "album": {

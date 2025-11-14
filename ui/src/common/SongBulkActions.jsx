@@ -7,6 +7,7 @@ import { BatchPlayButton } from './index'
 import { AddToPlaylistButton } from './AddToPlaylistButton'
 import { makeStyles } from '@material-ui/core/styles'
 import { BatchShareButton } from './BatchShareButton'
+import { EditSongCommentButton } from './EditSongCommentButton'
 import config from '../config'
 
 const useStyles = makeStyles((theme) => ({
@@ -48,6 +49,7 @@ export const SongBulkActions = (props) => {
         <BatchShareButton {...props} className={classes.button} />
       )}
       <AddToPlaylistButton {...props} className={classes.button} />
+      <EditSongCommentButton {...props} className={classes.button} />
     </Fragment>
   )
 }
