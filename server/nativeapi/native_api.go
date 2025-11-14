@@ -292,9 +292,7 @@ func (n *Router) addSongDiscoveriesRoute(r chi.Router) {
 }
 
 func (n *Router) addSongCommentRoute(r chi.Router) {
-	r.With(adminOnlyMiddleware).Route("/song", func(r chi.Router) {
-		r.Put("/comment", updateSongComments(n.ds))
-	})
+	r.With(adminOnlyMiddleware).Put("/song/comment", updateSongComments(n.ds))
 }
 
 func (n *Router) addQueueRoute(r chi.Router) {
