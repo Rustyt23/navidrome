@@ -229,6 +229,32 @@ func (r *mediaFileRepository) DeleteMissing(ids []string) error {
 	)
 }
 
+func (r *mediaFileRepository) UpdateComment(ids []string, comment string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	user := loggedUser(r.ctx)
+	if !user.IsAdmin {
+		return rest.ErrPermissionDenied
+	}
+
+	idSeq := slice.SeqFunc(ids, func(id string) string { return id })
+	for chunk := range slice.CollectChunks(idSeq, 200) {
+		upd := Update(r.tableName).
+			Set("comment", comment).
+			Set("updated_at", time.Now()).
+			Where(Eq{"id": chunk})
+		if _, err := r.executeSQL(upd); err != nil {
+			log.Error(r.ctx, "Error updating mediafile comments", "ids", chunk, err)
+			return err
+		}
+		log.Debug(r.ctx, "Updated mediafile comments", "total", len(chunk), "ids", chunk)
+	}
+
+	return nil
+}
+
 func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile) error {
 	ids := slice.SeqFunc(mfs, func(m *model.MediaFile) string { return m.ID })
 	for chunk := range slice.CollectChunks(ids, 200) {

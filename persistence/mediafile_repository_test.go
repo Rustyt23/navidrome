@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/squirrel"
+	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/log"
@@ -17,12 +18,19 @@ import (
 )
 
 var _ = Describe("MediaRepository", func() {
-	var mr model.MediaFileRepository
+	var (
+		mr        model.MediaFileRepository
+		adminRepo model.MediaFileRepository
+	)
 
 	BeforeEach(func() {
 		ctx := log.NewContext(context.TODO())
 		ctx = request.WithUser(ctx, model.User{ID: "userid"})
 		mr = NewMediaFileRepository(ctx, GetDBXBuilder())
+
+		adminCtx := log.NewContext(context.TODO())
+		adminCtx = request.WithUser(adminCtx, model.User{ID: "adminid", IsAdmin: true})
+		adminRepo = NewMediaFileRepository(adminCtx, GetDBXBuilder())
 	})
 
 	It("gets mediafile from the DB", func() {
@@ -156,6 +164,32 @@ var _ = Describe("MediaRepository", func() {
 
 			Expect(mf.PlayDate.Unix()).To(Equal(playDate.Unix()))
 			Expect(mf.PlayCount).To(Equal(int64(1)))
+		})
+
+		Describe("UpdateComment", func() {
+			It("returns permission denied for non-admin users", func() {
+				err := mr.UpdateComment([]string{"1004"}, "Updated comment")
+				Expect(err).To(Equal(rest.ErrPermissionDenied))
+			})
+
+			It("updates comments for the provided media files", func() {
+				ids := []string{"1004", "1005"}
+				comment := "Updated comment"
+
+				err := adminRepo.UpdateComment(ids, comment)
+				Expect(err).ToNot(HaveOccurred())
+
+				for _, id := range ids {
+					mf, getErr := mr.Get(id)
+					Expect(getErr).ToNot(HaveOccurred())
+					Expect(mf.Comment).To(Equal(comment))
+				}
+			})
+
+			It("handles empty id lists gracefully", func() {
+				Expect(adminRepo.UpdateComment(nil, "noop")).To(Succeed())
+				Expect(adminRepo.UpdateComment([]string{}, "noop")).To(Succeed())
+			})
 		})
 	})
 

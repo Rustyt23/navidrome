@@ -6,6 +6,7 @@ import {
   useDataProvider,
   useListContext,
   useNotify,
+  usePermissions,
   useRefresh,
   useTranslate,
   useUnselectAll,
@@ -46,34 +47,6 @@ const findRecord = (data, id) => {
   return data[id] ?? data[String(id)] ?? data[Number(id)]
 }
 
-const updateSongComments = async (dataProvider, resource, ids, data) => {
-  try {
-    const response = await dataProvider.updateMany(resource, { ids, data })
-    const updatedIds = Array.isArray(response?.data) ? response.data : ids
-    return { updatedIds, error: null }
-  } catch (error) {
-    const settled = await Promise.allSettled(
-      ids.map((id) => dataProvider.update(resource, { id, data })),
-    )
-    const updatedIds = []
-    let lastError = error
-
-    settled.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        updatedIds.push(ids[index])
-      } else if (result.reason) {
-        lastError = result.reason
-      }
-    })
-
-    if (!updatedIds.length) {
-      throw lastError
-    }
-
-    return { updatedIds, error: lastError }
-  }
-}
-
 export const EditSongCommentButton = ({
   resource,
   selectedIds,
@@ -86,6 +59,7 @@ export const EditSongCommentButton = ({
   const unselectAll = useUnselectAll()
   const dataProvider = useDataProvider()
   const listContext = useListContext()
+  const { permissions } = usePermissions()
 
   const [open, setOpen] = useState(false)
   const [comment, setComment] = useState('')
@@ -145,23 +119,18 @@ export const EditSongCommentButton = ({
 
       setSaving(true)
       try {
-        const { updatedIds, error } = await updateSongComments(
-          dataProvider,
-          resource,
-          selectedIds,
-          { comment: comment || '' },
-        )
+        const response = await dataProvider.updateMany(resource, {
+          ids: selectedIds,
+          data: { comment: comment || '' },
+        })
+        const updatedIds = Array.isArray(response?.data)
+          ? response.data
+          : selectedIds
 
         if (updatedIds.length > 0) {
           notify('ra.notification.updated', {
             type: 'info',
             messageArgs: { smart_count: updatedIds.length },
-          })
-        }
-
-        if (error) {
-          notify(error.message || 'ra.notification.http_error', {
-            type: 'warning',
           })
         }
 
@@ -196,6 +165,10 @@ export const EditSongCommentButton = ({
     'resources.song.dialogs.editComment.description',
     { smart_count: selectedCount },
   )
+
+  if (permissions !== 'admin') {
+    return null
+  }
 
   return (
     <>
