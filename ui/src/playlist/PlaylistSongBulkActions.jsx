@@ -8,6 +8,7 @@ import {
 import { MdOutlinePlaylistRemove } from 'react-icons/md'
 import PropTypes from 'prop-types'
 import { AddToPlaylistButton } from '../common/AddToPlaylistButton'
+import EditCommentsButton from '../common/EditCommentsModal'
 import { makeStyles } from '@material-ui/core/styles'
 
 const useStyles = makeStyles((theme) => ({
@@ -51,6 +52,19 @@ const PlaylistSongBulkActions = ({
           resource={mappedResource} // Use the mapped resource for consistency
           selectedIds={selectedMediaIds} // Pass the mapped media IDs
           className={classes.button} // Apply custom styles
+        />
+        <EditCommentsButton
+          resource={mappedResource}
+          selectedIds={selectedIds}
+          className={classes.button}
+          selectionResource="playlistTrack"
+          updateResource="song"
+          onUnselectItems={onUnselectItems}
+          getTargetIds={(ids, records) =>
+            ids
+              .map((id) => records?.[id]?.mediaFileId ?? records?.[id]?.id ?? id)
+              .filter((value) => value !== undefined && value !== null)
+          }
         />
       </Fragment>
     </ResourceContextProvider>

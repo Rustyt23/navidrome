@@ -42,11 +42,22 @@
         "addToQueue": "Play Later",
         "playNow": "Play Now",
         "addToPlaylist": "Add to Playlist",
+        "editComments": "+ Edit Comments",
         "showInPlaylist": "Show in Playlist",
         "shuffleAll": "Shuffle All",
         "download": "Download",
         "playNext": "Play Next",
         "info": "Get Info"
+      },
+      "dialogs": {
+        "editComments": {
+          "title": "Edit comments for %{smart_count} song |||| Edit comments for %{smart_count} songs",
+          "commentLabel": "Comment"
+        }
+      },
+      "notifications": {
+        "commentsUpdated": "Comments updated for %{smart_count} song |||| Comments updated for %{smart_count} songs",
+        "noSongsSelected": "No songs selected."
       }
     },
     "album": {

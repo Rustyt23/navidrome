@@ -5,6 +5,7 @@ import { RiPlayList2Fill, RiPlayListAddFill } from 'react-icons/ri'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import { BatchPlayButton } from './index'
 import { AddToPlaylistButton } from './AddToPlaylistButton'
+import EditCommentsButton from './EditCommentsModal'
 import { makeStyles } from '@material-ui/core/styles'
 import { BatchShareButton } from './BatchShareButton'
 import config from '../config'
@@ -48,6 +49,12 @@ export const SongBulkActions = (props) => {
         <BatchShareButton {...props} className={classes.button} />
       )}
       <AddToPlaylistButton {...props} className={classes.button} />
+      <EditCommentsButton
+        {...props}
+        className={classes.button}
+        selectionResource={props.resource}
+        updateResource="song"
+      />
     </Fragment>
   )
 }
