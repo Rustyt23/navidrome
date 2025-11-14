@@ -8,6 +8,7 @@ import config from '../config'
 vi.mock('react-admin', () => ({
   usePermissions: vi.fn(),
   useRecordContext: vi.fn(),
+  useNotify: vi.fn(() => vi.fn()),
 }))
 
 // Mock config

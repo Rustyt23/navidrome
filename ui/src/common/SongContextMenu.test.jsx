@@ -25,6 +25,7 @@ vi.mock('react-admin', async (importOriginal) => {
         data: { rawTags: {} },
       }),
     }),
+    useNotify: vi.fn(() => vi.fn()),
   }
 })
 

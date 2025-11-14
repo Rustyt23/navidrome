@@ -18,6 +18,7 @@ vi.mock('@material-ui/core', async () => {
 
 vi.mock('react-admin', () => ({
   useGetOne: vi.fn(),
+  useNotify: vi.fn(() => vi.fn()),
 }))
 
 vi.mock('react-redux', () => ({

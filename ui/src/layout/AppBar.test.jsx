@@ -14,6 +14,12 @@ vi.mock('react-admin', () => ({
   useTranslate: () => (x) => x,
   usePermissions: () => ({ permissions: 'admin' }),
   getResources: () => [],
+  useNotify: vi.fn(() => vi.fn()),
+  fetchUtils: {
+    fetchJson: vi.fn(() =>
+      Promise.resolve({ headers: { get: () => null }, json: {} }),
+    ),
+  },
 }))
 
 vi.mock('./NowPlayingPanel', () => ({

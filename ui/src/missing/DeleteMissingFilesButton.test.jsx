@@ -12,7 +12,7 @@ vi.mock('react-admin', async () => {
       <button onClick={onClick}>{label || children}</button>
     ),
     Confirm: ({ isOpen }) => (isOpen ? <div data-testid="confirm" /> : null),
-    useNotify: vi.fn(),
+    useNotify: vi.fn(() => vi.fn()),
     useDeleteMany: vi.fn(() => [vi.fn(), { loading: false }]),
     useRefresh: vi.fn(),
     useUnselectAll: vi.fn(),

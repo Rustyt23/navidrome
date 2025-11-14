@@ -26,6 +26,7 @@ vi.mock('react-admin', async () => {
     ...actual,
     useRefresh: vi.fn(),
     useDataProvider: vi.fn(),
+    useNotify: vi.fn(() => vi.fn()),
   }
 })
 

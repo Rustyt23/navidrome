@@ -48,6 +48,7 @@ vi.mock('@material-ui/icons', () => ({
 vi.mock('react-admin', () => ({
   useGetList: vi.fn(),
   useTranslate: vi.fn(() => (key) => key), // Simple translation mock
+  useNotify: vi.fn(() => vi.fn()),
 }))
 
 describe('<SelectLibraryInput />', () => {
