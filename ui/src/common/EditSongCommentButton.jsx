@@ -51,6 +51,9 @@ export const EditSongCommentButton = ({
   resource,
   selectedIds,
   className,
+  recordIds,
+  unselectResource,
+  onSuccess,
 }) => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -65,16 +68,18 @@ export const EditSongCommentButton = ({
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const idsForRecords = recordIds ?? selectedIds
+
   const selectedRecords = useMemo(() => {
-    if (!selectedIds?.length) {
+    if (!idsForRecords?.length) {
       return []
     }
 
     const data = listContext?.data
-    return selectedIds
+    return idsForRecords
       .map((id) => findRecord(data, id))
       .filter((record) => record != null)
-  }, [listContext?.data, selectedIds])
+  }, [idsForRecords, listContext?.data])
 
   const sharedComment = useMemo(() => {
     if (!selectedRecords.length) {
@@ -134,8 +139,12 @@ export const EditSongCommentButton = ({
           })
         }
 
+        if (typeof onSuccess === 'function') {
+          onSuccess(updatedIds)
+        }
+
         setOpen(false)
-        unselectAll(resource)
+        unselectAll(unselectResource ?? resource)
         refresh({ hard: true })
       } catch (error) {
         notify(error?.message || 'ra.notification.http_error', {
@@ -150,10 +159,12 @@ export const EditSongCommentButton = ({
       dataProvider,
       notify,
       refresh,
-      resource,
       saving,
       selectedIds,
       unselectAll,
+      resource,
+      unselectResource,
+      onSuccess,
     ],
   )
 
@@ -227,11 +238,19 @@ EditSongCommentButton.propTypes = {
     PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   ),
   className: PropTypes.string,
+  recordIds: PropTypes.arrayOf(
+    PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  ),
+  unselectResource: PropTypes.string,
+  onSuccess: PropTypes.func,
 }
 
 EditSongCommentButton.defaultProps = {
   selectedIds: [],
   className: undefined,
+  recordIds: undefined,
+  unselectResource: undefined,
+  onSuccess: undefined,
 }
 
 export default EditSongCommentButton
