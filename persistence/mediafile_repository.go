@@ -238,15 +238,20 @@ func (r *mediaFileRepository) UpdateComment(ids []string, comment string) error 
 	}
 
 	user := loggedUser(r.ctx)
-	if !user.IsAdmin {
-		return rest.ErrPermissionDenied
-	}
 
 	idSeq := slice.SeqFunc(ids, func(id string) string { return id })
 	for chunk := range slice.CollectChunks(idSeq, 200) {
 		mediaFiles, err := r.GetAll(model.QueryOptions{Filters: Eq{"media_file.id": chunk}})
 		if err != nil {
 			return err
+		}
+
+		if !user.IsAdmin {
+			for _, mf := range mediaFiles {
+				if !user.HasLibraryAccess(mf.LibraryID) {
+					return rest.ErrPermissionDenied
+				}
+			}
 		}
 		for _, mf := range mediaFiles {
 			if mf.Path == "" || mf.LibraryPath == "" {

@@ -159,9 +159,10 @@ export const EditSongCommentButton = ({
   )
 
   const selectedCount = selectedIds?.length || 0
+  const resourceName = resource || 'song'
   const translationBase = useMemo(
-    () => `resources.${resource || 'song'}`,
-    [resource],
+    () => `resources.${resourceName}`,
+    [resourceName],
   )
   const title = translate(`${translationBase}.dialogs.editComment.title`, {
     smart_count: selectedCount,
@@ -174,14 +175,17 @@ export const EditSongCommentButton = ({
   const dialogTitleId = `edit-${resource || 'record'}-comment-dialog-title`
   const inputId = `edit-${resource || 'record'}-comment-input`
 
-  const isPlaylistResource = (resource || 'song') === 'playlist'
-  if (!isPlaylistResource && permissions !== 'admin') {
+  const isPlaylistResource = resourceName === 'playlist'
+  const isSongResource = resourceName === 'song'
+  const isAdmin = permissions === 'admin'
+
+  if (!isPlaylistResource && !isSongResource && !isAdmin) {
     return null
   }
 
   if (
     isPlaylistResource &&
-    permissions !== 'admin' &&
+    !isAdmin &&
     selectedIds?.length &&
     !selectedRecords.every((record) => isWritable(record?.ownerId))
   ) {

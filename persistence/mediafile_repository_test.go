@@ -168,9 +168,40 @@ var _ = Describe("MediaRepository", func() {
 		})
 
 		Describe("UpdateComment", func() {
-			It("returns permission denied for non-admin users", func() {
+			It("returns permission denied for users without library access", func() {
 				err := mr.UpdateComment([]string{"1004"}, "Updated comment")
 				Expect(err).To(Equal(rest.ErrPermissionDenied))
+			})
+
+			It("allows users with access to the media library to update comments", func() {
+				ctx := log.NewContext(context.TODO())
+				ctx = request.WithUser(ctx, model.User{
+					ID:        "userid",
+					Libraries: model.Libraries{{ID: 1}},
+				})
+				repo := NewMediaFileRepository(ctx, GetDBXBuilder())
+
+				ids := []string{"1003"}
+				comment := "Library comment"
+
+				originalWrite := writeMediaFileComment
+				var captured []string
+				writeMediaFileComment = func(path, c string) error {
+					Expect(c).To(Equal(comment))
+					captured = append(captured, path)
+					return nil
+				}
+				defer func() { writeMediaFileComment = originalWrite }()
+
+				Expect(repo.UpdateComment(ids, comment)).To(Succeed())
+
+				Expect(captured).To(ConsistOf(
+					filepath.Join(songRadioactivity.LibraryPath, songRadioactivity.Path),
+				))
+
+				mf, err := repo.Get(ids[0])
+				Expect(err).ToNot(HaveOccurred())
+				Expect(mf.Comment).To(Equal(comment))
 			})
 
 			It("updates comments for the provided media files", func() {
