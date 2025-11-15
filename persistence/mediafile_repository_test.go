@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -173,11 +174,25 @@ var _ = Describe("MediaRepository", func() {
 			})
 
 			It("updates comments for the provided media files", func() {
-				ids := []string{"1004", "1005"}
+				ids := []string{"1003", "1004"}
 				comment := "Updated comment"
+
+				originalWrite := writeMediaFileComment
+				var captured []string
+				writeMediaFileComment = func(path, c string) error {
+					Expect(c).To(Equal(comment))
+					captured = append(captured, path)
+					return nil
+				}
+				defer func() { writeMediaFileComment = originalWrite }()
 
 				err := adminRepo.UpdateComment(ids, comment)
 				Expect(err).ToNot(HaveOccurred())
+
+				Expect(captured).To(ConsistOf(
+					filepath.Join(songRadioactivity.LibraryPath, songRadioactivity.Path),
+					filepath.Join(songAntenna.LibraryPath, songAntenna.Path),
+				))
 
 				for _, id := range ids {
 					mf, getErr := mr.Get(id)
