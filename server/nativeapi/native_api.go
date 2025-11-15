@@ -115,6 +115,7 @@ func (n *Router) routes() http.Handler {
 		n.addPlaylistRoute(r)
 		n.addPlaylistFolderRoute(r)
 		n.addPlaylistTrackRoute(r)
+		n.addPlaylistCommentRoute(r)
 		n.addDiscoveryRoute(r)
 		n.addSongPlaylistsRoute(r)
 		n.addSongDiscoveriesRoute(r)
@@ -293,6 +294,10 @@ func (n *Router) addSongDiscoveriesRoute(r chi.Router) {
 
 func (n *Router) addSongCommentRoute(r chi.Router) {
 	r.With(adminOnlyMiddleware).Put("/song/comment", updateSongComments(n.ds))
+}
+
+func (n *Router) addPlaylistCommentRoute(r chi.Router) {
+	r.With(adminOnlyMiddleware).Put("/playlist/comment", updatePlaylistComments(n.ds))
 }
 
 func (n *Router) addQueueRoute(r chi.Router) {

@@ -18,6 +18,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/criteria"
+	"github.com/navidrome/navidrome/utils/slice"
 	"github.com/pocketbase/dbx"
 )
 
@@ -599,6 +600,36 @@ func (r *playlistRepository) renumber(id string) error {
 		return err
 	}
 	return r.updatePlaylist(id, ids)
+}
+
+func (r *playlistRepository) UpdateComment(ids []string, comment string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	usr := loggedUser(r.ctx)
+	if !usr.IsAdmin {
+		for _, id := range ids {
+			if !r.isWritable(id) {
+				return rest.ErrPermissionDenied
+			}
+		}
+	}
+
+	idSeq := slice.SeqFunc(ids, func(id string) string { return id })
+	for chunk := range slice.CollectChunks(idSeq, 200) {
+		upd := Update(r.tableName).
+			Set("comment", comment).
+			Set("updated_at", time.Now()).
+			Where(Eq{"id": chunk})
+		if _, err := r.executeSQL(upd); err != nil {
+			log.Error(r.ctx, "Error updating playlist comments", "ids", chunk, err)
+			return err
+		}
+		log.Debug(r.ctx, "Updated playlist comments", "total", len(chunk), "ids", chunk)
+	}
+
+	return nil
 }
 
 func (r *playlistRepository) isWritable(playlistId string) bool {

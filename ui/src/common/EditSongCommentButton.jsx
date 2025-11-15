@@ -158,13 +158,20 @@ export const EditSongCommentButton = ({
   )
 
   const selectedCount = selectedIds?.length || 0
-  const title = translate('resources.song.dialogs.editComment.title', {
+  const translationBase = useMemo(
+    () => `resources.${resource || 'song'}`,
+    [resource],
+  )
+  const title = translate(`${translationBase}.dialogs.editComment.title`, {
     smart_count: selectedCount,
   })
   const description = translate(
-    'resources.song.dialogs.editComment.description',
+    `${translationBase}.dialogs.editComment.description`,
     { smart_count: selectedCount },
   )
+  const buttonLabel = translate(`${translationBase}.actions.editComment`)
+  const dialogTitleId = `edit-${resource || 'record'}-comment-dialog-title`
+  const inputId = `edit-${resource || 'record'}-comment-input`
 
   if (permissions !== 'admin') {
     return null
@@ -175,7 +182,7 @@ export const EditSongCommentButton = ({
       <RaButton
         onClick={handleOpen}
         className={clsx(classes.button, className)}
-        label={translate('resources.song.actions.editComment')}
+        label={buttonLabel}
         disabled={!selectedIds?.length}
       >
         <CommentIcon />
@@ -183,12 +190,12 @@ export const EditSongCommentButton = ({
       <Dialog
         open={open}
         onClose={handleClose}
-        aria-labelledby="edit-song-comment-dialog-title"
+        aria-labelledby={dialogTitleId}
         fullWidth
         maxWidth="sm"
       >
         <form onSubmit={handleSubmit}>
-          <DialogTitle id="edit-song-comment-dialog-title">
+          <DialogTitle id={dialogTitleId}>
             {title}
           </DialogTitle>
           <DialogContent>
@@ -196,7 +203,7 @@ export const EditSongCommentButton = ({
             <TextField
               autoFocus
               margin="dense"
-              id="edit-song-comment-input"
+              id={inputId}
               type="text"
               fullWidth
               multiline
