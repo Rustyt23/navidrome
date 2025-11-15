@@ -22,6 +22,7 @@ import {
 } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import CommentIcon from '@material-ui/icons/Comment'
+import { isWritable } from './playlistUtils.js'
 
 const useStyles = makeStyles((theme) => ({
   button: {
@@ -173,7 +174,17 @@ export const EditSongCommentButton = ({
   const dialogTitleId = `edit-${resource || 'record'}-comment-dialog-title`
   const inputId = `edit-${resource || 'record'}-comment-input`
 
-  if (permissions !== 'admin') {
+  const isPlaylistResource = (resource || 'song') === 'playlist'
+  if (!isPlaylistResource && permissions !== 'admin') {
+    return null
+  }
+
+  if (
+    isPlaylistResource &&
+    permissions !== 'admin' &&
+    selectedIds?.length &&
+    !selectedRecords.every((record) => isWritable(record?.ownerId))
+  ) {
     return null
   }
 
