@@ -135,40 +135,54 @@ const SongList = (props) => {
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   useResourceRefresh('song')
 
-  const songs = useSelector((state) => state.admin.resources.song)
+  const songsState =
+    useSelector((state) => state.admin.resources.song) ?? {}
+  const songsData = songsState.data
+  const listIds = songsState.list?.ids
 
-  const handleRowClick = useCallback((id, basePath, record) => {
-      // Convert songs.data to an array if it's an object
-      const songsArray = Array.isArray(songs.data) ? songs.data : Object.values(songs.data);
+  const handleRowClick = useCallback(
+    (id, basePath, record) => {
+      const normalizedSongs = Array.isArray(songsData)
+        ? songsData
+        : songsData
+        ? Object.values(songsData)
+        : []
 
-      if (songsArray.length > 0 && Array.isArray(songs.list?.ids)) {
-        // Filter songs to include only those whose IDs exist in songs.list.ids
-        const filteredSongs = songsArray.filter(song => songs.list.ids.includes(song.id));
-
-        // Find the index of the selected song
-        const index = filteredSongs.findIndex(song => song.id === record.id);
-
-        if (index !== -1) {
-          // Rearrange array to start from the selected song
-          const orderedSongs = [
-            ...filteredSongs.slice(index),
-            ...filteredSongs.slice(0, index)
-          ];
-
-          // Convert the array into an object where key = song.id, value = song
-          // const updatedSongs = Object.fromEntries(orderedSongs.map(song => [song.id, song]));
-
-          // Convert array to an object with index-based keys, updating the song id as well
-          const updatedSongs = Object.fromEntries(
-            orderedSongs.map((song, idx) => 
-               [idx, song] // Setting both the key and `id` inside each song
-            )
-          );
-
-          dispatch(playTracks(updatedSongs,0));
-        }
+      if (normalizedSongs.length === 0 || !Array.isArray(listIds)) {
+        return
       }
-    }, [dispatch, songs.data, songs.list?.ids]);
+
+      const filteredSongs = normalizedSongs.filter((song) =>
+        listIds.includes(song.id),
+      )
+
+      if (filteredSongs.length === 0) {
+        return
+      }
+
+      if (!record?.id) {
+        return
+      }
+
+      const index = filteredSongs.findIndex((song) => song.id === record.id)
+
+      if (index === -1) {
+        return
+      }
+
+      const orderedSongs = [
+        ...filteredSongs.slice(index),
+        ...filteredSongs.slice(0, index),
+      ]
+
+      const updatedSongs = Object.fromEntries(
+        orderedSongs.map((song, idx) => [idx, song]),
+      )
+
+      dispatch(playTracks(updatedSongs, 0))
+    },
+    [dispatch, songsData, listIds],
+  )
 
   const toggleableFields = useMemo(() => {
     return {
