@@ -47,7 +47,7 @@ type metadataSongPayloadDTO struct {
 	Album      string          `json:"album"`
 	Genre      string          `json:"genre"`
 	CoverArt   string          `json:"coverArt"`
-	ArtworkURL string          `json:"artworkUrl,omitempty"`
+	ArtworkURL string          `json:"artworkUrl"`
 	Year       json.RawMessage `json:"year"`
 }
 
@@ -113,7 +113,7 @@ func writeJSON(w http.ResponseWriter, payload interface{}) {
 
 type metadataFetcher struct {
 	client        *http.Client
-	coverClient   *http.Client
+	coverArt      *coverArtArchiveClient
 	mu            sync.Mutex
 	nextAvailable time.Time
 }
@@ -122,9 +122,10 @@ var metadataEnricher = newMetadataFetcher()
 
 func newMetadataFetcher() *metadataFetcher {
 	timeout := 10 * time.Second
+	coverClient := &http.Client{Timeout: timeout}
 	return &metadataFetcher{
-		client:      &http.Client{Timeout: timeout},
-		coverClient: &http.Client{Timeout: timeout},
+		client:   &http.Client{Timeout: timeout},
+		coverArt: newCoverArtArchiveClient(coverClient),
 	}
 }
 
@@ -158,12 +159,13 @@ func (f *metadataFetcher) Enrich(ctx context.Context, song metadataSongPayload) 
 			updated.Year = year
 		}
 	}
-	if strings.TrimSpace(updated.CoverArt) == "" {
+	if strings.TrimSpace(updated.ArtworkURL) == "" {
 		if releaseID := recording.PrimaryReleaseID(); releaseID != "" {
-			if artURL, artErr := f.fetchCoverArt(ctx, releaseID); artErr == nil && artURL != "" {
-				updated.ArtworkURL = artURL
-			} else if artErr != nil {
+			artURL, artErr := f.coverArt.Fetch(ctx, releaseID)
+			if artErr != nil {
 				log.Warn(ctx, "Unable to fetch cover art", "songId", song.ID, "err", artErr)
+			} else if artURL != "" {
+				updated.ArtworkURL = artURL
 			}
 		}
 	}
@@ -214,48 +216,6 @@ func (f *metadataFetcher) lookupRecording(ctx context.Context, title, artist str
 	return &result.Recordings[0], nil
 }
 
-func (f *metadataFetcher) fetchCoverArt(ctx context.Context, releaseID string) (string, error) {
-	if releaseID == "" {
-		return "", nil
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, coverArtArchiveURL+releaseID, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", metadataUserAgent)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := f.coverClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return "", nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		log.Warn(ctx, "Cover Art Archive request failed", "status", resp.Status)
-		return "", nil
-	}
-
-	var payload coverArtResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		log.Warn(ctx, "Unable to decode cover art response", "err", err)
-		return "", nil
-	}
-	for _, image := range payload.Images {
-		if image.Front && image.Image != "" {
-			return ensureHTTPSURL(image.Image), nil
-		}
-	}
-	if len(payload.Images) > 0 {
-		return ensureHTTPSURL(payload.Images[0].Image), nil
-	}
-	return "", nil
-}
-
 func (f *metadataFetcher) applyRateLimit() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -291,15 +251,6 @@ type musicBrainzRelease struct {
 
 type musicBrainzRecordingTag struct {
 	Name string `json:"name"`
-}
-
-type coverArtResponse struct {
-	Images []coverArtImage `json:"images"`
-}
-
-type coverArtImage struct {
-	Image string `json:"image"`
-	Front bool   `json:"front"`
 }
 
 func (m musicBrainzRecording) PrimaryArtist() string {
