@@ -17,6 +17,7 @@ import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import FolderIcon from '@material-ui/icons/Folder'
+import LibraryMusicIcon from '@material-ui/icons/LibraryMusic'
 import { useHistory } from 'react-router-dom'
 import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
@@ -279,6 +280,19 @@ const Menu = ({ dense = false }) => {
     )
   }
 
+  const renderMetadataMenuItemLink = () => (
+    <MenuItemLink
+      key="metadata"
+      to="/metadata"
+      activeClassName={classes.active}
+      primaryText="MetaData"
+      leftIcon={<LibraryMusicIcon />}
+      sidebarIsOpen={open}
+      dense={dense}
+      exact
+    />
+  )
+
   const subItems = (subMenu) => (resource) =>
     resource.hasList && resource.options && resource.options.subMenu === subMenu
 
@@ -443,6 +457,7 @@ const Menu = ({ dense = false }) => {
             sidebarIsOpen={open}
             dense={dense}
           />
+          {renderMetadataMenuItemLink()}
           <Divider />
           <PlaylistsSubMenu
             state={state}
@@ -455,6 +470,7 @@ const Menu = ({ dense = false }) => {
         <>
           {renderRetailPlayerMenu()}
           {resources.filter(subItems('discovery')).map(renderResourceMenuItemLink)}
+          {renderMetadataMenuItemLink()}
           {resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)}
         </>
       )}

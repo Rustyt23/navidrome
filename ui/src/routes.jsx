@@ -3,8 +3,10 @@ import { Redirect, Route } from 'react-router-dom'
 import Personal from './personal/Personal'
 import RetailPlayerDashboard from './retailPlayer/RetailPlayerDashboard'
 import RetailPlayerDeviceManagement from './retailPlayer/RetailPlayerDeviceManagement'
+import MetadataPage from './pages/MetadataPage'
 
 const routes = [
+  <Route exact path="/metadata" render={() => <MetadataPage />} key={'metadata'} />,
   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
   <Route
     exact
