@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Box,
+  Button,
   Container,
   LinearProgress,
   Typography,
 } from '@material-ui/core'
+import CircularProgress from '@material-ui/core/CircularProgress'
 import Alert from '@material-ui/lab/Alert'
 import { makeStyles } from '@material-ui/core/styles'
 import { FunctionField, ListContextProvider, TextField } from 'react-admin'
@@ -14,7 +16,53 @@ import { ArtistLinkField } from '../common/ArtistLinkField'
 import { AlbumLinkField } from '../song/AlbumLinkField'
 import subsonic from '../subsonic'
 import { baseUrl } from '../utils'
-import { getAllSongsMetadata } from '../services/metadata'
+import {
+  fetchMissingMetadata,
+  getAllSongsMetadata,
+} from '../services/metadata'
+
+const parseYearValue = (year) => {
+  if (year === null || year === undefined) {
+    return null
+  }
+  if (typeof year === 'number') {
+    return Number.isNaN(year) ? null : year
+  }
+  if (typeof year === 'string') {
+    const trimmed = year.trim()
+    if (!trimmed) {
+      return null
+    }
+    const parsed = Number.parseInt(trimmed, 10)
+    return Number.isNaN(parsed) ? null : parsed
+  }
+  return null
+}
+
+export const findMissingFields = (song) => {
+  if (!song) {
+    return false
+  }
+
+  const normalize = (value) => {
+    if (typeof value === 'string') {
+      return value.trim()
+    }
+    if (typeof value === 'number') {
+      return Number.isNaN(value) ? '' : `${value}`.trim()
+    }
+    return value || ''
+  }
+
+  const album = normalize(song.album)
+  const missingAlbum = !album || album.toLowerCase() === '[unknown album]'
+  const missingArtist = !normalize(song.artist)
+  const missingGenre = !normalize(song.genre)
+  const missingYear = parseYearValue(song.year) === null
+  const missingArtwork = !song.coverArt && !song.artworkUrl
+
+  return missingAlbum || missingArtist || missingGenre || missingYear || missingArtwork
+}
 
 const useStyles = makeStyles((theme) => ({
   pageWrapper: {
@@ -23,6 +71,10 @@ const useStyles = makeStyles((theme) => ({
   },
   header: {
     marginBottom: theme.spacing(3),
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing(2),
   },
   tableWrapper: {
     width: '100%',
@@ -50,6 +102,9 @@ const useStyles = makeStyles((theme) => ({
   alertWrapper: {
     padding: theme.spacing(2),
   },
+  buttonWrapper: {
+    whiteSpace: 'nowrap',
+  },
 }))
 
 const MetadataPage = () => {
@@ -57,6 +112,8 @@ const MetadataPage = () => {
   const [songs, setSongs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState(null)
 
   useEffect(() => {
     let isMounted = true
@@ -135,21 +192,65 @@ const MetadataPage = () => {
     [songsById, songIds, loading, noop],
   )
 
+  const songsMissingMetadata = useMemo(() => songs.filter(findMissingFields), [songs])
+  const hasMissingSongs = songsMissingMetadata.length > 0
+
+  const handleFetchMissingMetadata = useCallback(async () => {
+    if (!hasMissingSongs || fetching) {
+      return
+    }
+
+    setFetchError(null)
+    setFetching(true)
+    try {
+      const updates = await fetchMissingMetadata(
+        songsMissingMetadata.filter((song) => song?.id),
+      )
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return
+      }
+      const updatesById = updates.reduce((map, song) => {
+        if (song?.id) {
+          map.set(song.id, song)
+        }
+        return map
+      }, new Map())
+
+      if (updatesById.size === 0) {
+        return
+      }
+
+      setSongs((prevSongs) =>
+        prevSongs.map((song) => {
+          if (!song?.id || !updatesById.has(song.id)) {
+            return song
+          }
+          return { ...song, ...updatesById.get(song.id) }
+        }),
+      )
+    } catch (err) {
+      setFetchError(err)
+    } finally {
+      setFetching(false)
+    }
+  }, [fetching, hasMissingSongs, songsMissingMetadata])
+
   const renderArtwork = (record) => {
     if (!record) {
       return null
     }
 
-    if (!record.coverArt && !record.id) {
+    const artworkUrl = record.coverArt
+      ? baseUrl(subsonic.url('getCoverArt', record.coverArt || record.id, { size: 120 }))
+      : record.artworkUrl
+
+    if (!artworkUrl) {
       return <div className={classes.artworkPlaceholder} />
     }
 
-    const artId = record.coverArt || record.id
-    const imageUrl = baseUrl(subsonic.url('getCoverArt', artId, { size: 120 }))
-
     return (
       <img
-        src={imageUrl}
+        src={artworkUrl}
         alt={`${record.title || 'Song'} artwork`}
         className={classes.artwork}
       />
@@ -159,12 +260,28 @@ const MetadataPage = () => {
   return (
     <Container maxWidth="lg" className={classes.pageWrapper}>
       <div className={classes.header}>
-        <Typography variant="h3" component="h1" gutterBottom>
-          MetaData
-        </Typography>
-        <Typography variant="subtitle1" color="textSecondary">
-          Manage and enhance song metadata
-        </Typography>
+        <div>
+          <Typography variant="h3" component="h1" gutterBottom>
+            MetaData
+          </Typography>
+          <Typography variant="subtitle1" color="textSecondary">
+            Manage and enhance song metadata
+          </Typography>
+        </div>
+        <div className={classes.buttonWrapper}>
+          <Button
+            color="primary"
+            variant="contained"
+            onClick={handleFetchMissingMetadata}
+            disabled={!hasMissingSongs || fetching}
+          >
+            {fetching ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : (
+              'Fetch Missing Metadata'
+            )}
+          </Button>
+        </div>
       </div>
       <Box className={classes.tableWrapper}>
         {loading && <LinearProgress />}
@@ -172,6 +289,13 @@ const MetadataPage = () => {
           <div className={classes.alertWrapper}>
             <Alert severity="error">
               {error.message || 'Unable to load song metadata.'}
+            </Alert>
+          </div>
+        )}
+        {fetchError && (
+          <div className={classes.alertWrapper}>
+            <Alert severity="warning">
+              {fetchError.message || 'Unable to fetch missing metadata.'}
             </Alert>
           </div>
         )}

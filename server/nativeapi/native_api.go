@@ -120,6 +120,7 @@ func (n *Router) routes() http.Handler {
 		n.addSongDiscoveriesRoute(r)
 		n.addQueueRoute(r)
 		n.addMissingFilesRoute(r)
+		n.addMetadataRoute(r)
 		n.addNotificationsRoute(r)
 		n.addKeepAliveRoute(r)
 		n.addInsightsRoute(r)

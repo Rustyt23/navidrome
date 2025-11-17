@@ -42,3 +42,29 @@ export const getAllSongsMetadata = async () => {
 
   return allSongs
 }
+
+export const fetchMissingMetadata = async (songs = []) => {
+  if (!Array.isArray(songs) || songs.length === 0) {
+    return []
+  }
+
+  const response = await httpClient('/api/metadata/fetch', {
+    method: 'POST',
+    body: JSON.stringify({ songs }),
+    headers: new Headers({
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }),
+  })
+
+  const payload = response?.json ?? response?.data
+  if (!payload) {
+    return []
+  }
+
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  return Array.isArray(payload.songs) ? payload.songs : []
+}
