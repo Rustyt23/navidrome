@@ -2,8 +2,10 @@ package artwork
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
@@ -53,6 +55,9 @@ func (a *mediafileArtworkReader) LastUpdated() time.Time {
 
 func (a *mediafileArtworkReader) Reader(ctx context.Context) (io.ReadCloser, string, error) {
 	var ff []sourceFunc
+	if conf.Server.EnableMediaFileCoverArt {
+		ff = append(ff, fromStoredMediaArtwork(a.mediafile.ID))
+	}
 	if a.mediafile.CoverArtID().Kind == model.KindMediaFileArtwork {
 		path := a.mediafile.AbsolutePath()
 		ff = []sourceFunc{
@@ -62,4 +67,20 @@ func (a *mediafileArtworkReader) Reader(ctx context.Context) (io.ReadCloser, str
 	}
 	ff = append(ff, fromAlbum(ctx, a.a, a.mediafile.AlbumCoverArtID()))
 	return selectImageReader(ctx, a.artID, ff...)
+}
+
+func fromStoredMediaArtwork(mediafileID string) sourceFunc {
+	return func() (io.ReadCloser, string, error) {
+		if mediafileID == "" {
+			return nil, "", nil
+		}
+		r, err := OpenMediaArtwork(mediafileID)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, "", nil
+			}
+			return nil, "", err
+		}
+		return r, mediaArtworkPath(mediafileID), nil
+	}
 }

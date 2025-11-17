@@ -30,6 +30,7 @@ type Router struct {
 	insights  metrics.Insights
 	libs      core.Library
 	devices   *retailPlayerDeviceResolver
+	metadata  *metadataFetcher
 }
 
 func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
@@ -40,6 +41,7 @@ func New(ds model.DataStore, share core.Share, playlists core.Playlists, insight
 		insights:  insights,
 		libs:      libraryService,
 		devices:   newRetailPlayerDeviceResolver(),
+		metadata:  newMetadataFetcher(ds),
 	}
 	r.preloadRetailPlayerDeviceMappings()
 	r.Handler = r.routes()

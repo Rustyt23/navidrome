@@ -1,9 +1,11 @@
 package nativeapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,7 +14,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
 )
 
 const (
@@ -88,10 +92,15 @@ func (n *Router) fetchMetadataHandler() http.HandlerFunc {
 			return
 		}
 
+		if n.metadata == nil {
+			http.Error(w, "metadata fetcher unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		updates := make([]metadataSongPayload, 0, len(req.Songs))
+		requestCtx := n.metadata.NewRequestContext()
 		for _, song := range req.Songs {
 			normalized := normalizeSongPayload(song)
-			enriched, err := metadataEnricher.Enrich(ctx, normalized)
+			enriched, err := n.metadata.Enrich(ctx, requestCtx, normalized)
 			if err != nil {
 				log.Warn(ctx, "Unable to enrich song metadata", "songId", normalized.ID, "err", err)
 				updates = append(updates, normalized)
@@ -111,24 +120,37 @@ func writeJSON(w http.ResponseWriter, payload interface{}) {
 	}
 }
 
+type metadataRequestContext struct {
+	coverCache map[string]*coverArtAsset
+}
+
+type coverArtAsset struct {
+	URL  string
+	Data []byte
+}
+
 type metadataFetcher struct {
 	client        *http.Client
 	coverClient   *http.Client
 	mu            sync.Mutex
 	nextAvailable time.Time
+	ds            model.DataStore
 }
 
-var metadataEnricher = newMetadataFetcher()
-
-func newMetadataFetcher() *metadataFetcher {
+func newMetadataFetcher(ds model.DataStore) *metadataFetcher {
 	timeout := 10 * time.Second
 	return &metadataFetcher{
 		client:      &http.Client{Timeout: timeout},
 		coverClient: &http.Client{Timeout: timeout},
+		ds:          ds,
 	}
 }
 
-func (f *metadataFetcher) Enrich(ctx context.Context, song metadataSongPayload) (metadataSongPayload, error) {
+func (f *metadataFetcher) NewRequestContext() *metadataRequestContext {
+	return &metadataRequestContext{coverCache: make(map[string]*coverArtAsset)}
+}
+
+func (f *metadataFetcher) Enrich(ctx context.Context, reqCtx *metadataRequestContext, song metadataSongPayload) (metadataSongPayload, error) {
 	title := strings.TrimSpace(song.Title)
 	artist := strings.TrimSpace(song.Artist)
 	if title == "" || artist == "" {
@@ -160,10 +182,17 @@ func (f *metadataFetcher) Enrich(ctx context.Context, song metadataSongPayload) 
 	}
 	if strings.TrimSpace(updated.CoverArt) == "" {
 		if releaseID := recording.PrimaryReleaseID(); releaseID != "" {
-			if artURL, artErr := f.fetchCoverArt(ctx, releaseID); artErr == nil && artURL != "" {
-				updated.ArtworkURL = artURL
-			} else if artErr != nil {
+			asset, artErr := f.fetchCoverArt(ctx, reqCtx, releaseID)
+			if artErr != nil {
 				log.Warn(ctx, "Unable to fetch cover art", "songId", song.ID, "err", artErr)
+			} else if asset != nil {
+				coverID, saveErr := f.saveCoverArt(ctx, song.ID, asset)
+				if saveErr != nil {
+					log.Warn(ctx, "Unable to store cover art", "songId", song.ID, "err", saveErr)
+				} else if coverID != "" {
+					updated.CoverArt = coverID
+					updated.ArtworkURL = asset.URL
+				}
 			}
 		}
 	}
@@ -214,46 +243,126 @@ func (f *metadataFetcher) lookupRecording(ctx context.Context, title, artist str
 	return &result.Recordings[0], nil
 }
 
-func (f *metadataFetcher) fetchCoverArt(ctx context.Context, releaseID string) (string, error) {
+func (f *metadataFetcher) fetchCoverArt(ctx context.Context, reqCtx *metadataRequestContext, releaseID string) (*coverArtAsset, error) {
 	if releaseID == "" {
-		return "", nil
+		return nil, nil
+	}
+	if reqCtx != nil {
+		if asset, ok := reqCtx.coverCache[releaseID]; ok {
+			return asset, nil
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, coverArtArchiveURL+releaseID, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", metadataUserAgent)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := f.coverClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", nil
+		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
 		log.Warn(ctx, "Cover Art Archive request failed", "status", resp.Status)
-		return "", nil
+		return nil, nil
 	}
 
 	var payload coverArtResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		log.Warn(ctx, "Unable to decode cover art response", "err", err)
-		return "", nil
+		return nil, nil
 	}
-	for _, image := range payload.Images {
-		if image.Front && image.Image != "" {
-			return ensureHTTPSURL(image.Image), nil
+	imageURL := selectCoverArtURL(payload.Images)
+	if imageURL == "" {
+		return nil, nil
+	}
+	normalized := ensureHTTPSURL(imageURL)
+	data, err := f.downloadCoverArt(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	asset := &coverArtAsset{URL: normalized, Data: data}
+	if reqCtx != nil {
+		reqCtx.coverCache[releaseID] = asset
+	}
+	return asset, nil
+}
+
+func (f *metadataFetcher) downloadCoverArt(ctx context.Context, imageURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", metadataUserAgent)
+	resp, err := f.coverClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return body, nil
+	case http.StatusNotFound:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("cover art download failed: %s", resp.Status)
+	}
+}
+
+func selectCoverArtURL(images []coverArtImage) string {
+	for _, image := range images {
+		if image.Front && strings.TrimSpace(image.Image) != "" {
+			return image.Image
 		}
 	}
-	if len(payload.Images) > 0 {
-		return ensureHTTPSURL(payload.Images[0].Image), nil
+	for _, image := range images {
+		if strings.TrimSpace(image.Image) != "" {
+			return image.Image
+		}
 	}
-	return "", nil
+	return ""
+}
+
+func (f *metadataFetcher) saveCoverArt(ctx context.Context, songID string, asset *coverArtAsset) (string, error) {
+	if asset == nil || songID == "" || len(asset.Data) == 0 {
+		return "", nil
+	}
+	if _, err := artwork.SaveMediaArtwork(songID, bytes.NewReader(asset.Data)); err != nil {
+		return "", err
+	}
+	if f.ds == nil {
+		return model.NewArtworkID(model.KindMediaFileArtwork, songID, nil).String(), nil
+	}
+	mfRepo := f.ds.MediaFile(ctx)
+	if mfRepo == nil {
+		return model.NewArtworkID(model.KindMediaFileArtwork, songID, nil).String(), nil
+	}
+	mf, err := mfRepo.Get(songID)
+	if err != nil {
+		return "", err
+	}
+	mf.HasCoverArt = true
+	now := time.Now()
+	mf.UpdatedAt = now
+	if err := mfRepo.Put(mf); err != nil {
+		return "", err
+	}
+	return mf.CoverArtID().String(), nil
 }
 
 func (f *metadataFetcher) applyRateLimit() {

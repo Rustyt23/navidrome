@@ -293,10 +293,11 @@ const MetadataPage = () => {
       return null
     }
 
-    const artworkUrl = record.artworkUrl
-      || (record.coverArt
-        ? baseUrl(subsonic.url('getCoverArt', record.coverArt || record.id, { size: 120 }))
-        : '')
+    const coverArtId = record.coverArt && record.coverArt.trim()
+    const coverArtUrl = coverArtId
+      ? baseUrl(subsonic.url('getCoverArt', coverArtId, { size: 120 }))
+      : ''
+    const artworkUrl = coverArtUrl || record.artworkUrl
 
     if (!artworkUrl) {
       return <div className={classes.artworkPlaceholder} />
