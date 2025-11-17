@@ -211,7 +211,67 @@ func (f *metadataFetcher) lookupRecording(ctx context.Context, title, artist str
 		return nil, nil
 	}
 
-	return &result.Recordings[0], nil
+	recording := result.Recordings[0]
+	if recording.PrimaryReleaseID() != "" && len(recording.Tags) > 0 {
+		return &recording, nil
+	}
+
+	if recording.ID == "" {
+		return &recording, nil
+	}
+
+	detailed, err := f.lookupRecordingByID(ctx, recording.ID)
+	if err != nil {
+		log.Warn(ctx, "Unable to fetch recording details", "recordingId", recording.ID, "err", err)
+		return &recording, nil
+	}
+	if detailed == nil {
+		return &recording, nil
+	}
+	return detailed, nil
+}
+
+func (f *metadataFetcher) lookupRecordingByID(ctx context.Context, recordingID string) (*musicBrainzRecording, error) {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return nil, nil
+	}
+
+	query := url.Values{}
+	query.Set("fmt", "json")
+	query.Set("inc", "releases+tags")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, musicBrainzRecordingURL+recordingID+"?"+query.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	f.applyRateLimit()
+	req.Header.Set("User-Agent", metadataUserAgent)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		time.Sleep(time.Second)
+		return f.lookupRecordingByID(ctx, recordingID)
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("musicbrainz lookup failed: %s", resp.Status)
+	}
+
+	var recording musicBrainzRecording
+	if err := json.NewDecoder(resp.Body).Decode(&recording); err != nil {
+		return nil, err
+	}
+	return &recording, nil
 }
 
 func (f *metadataFetcher) fetchCoverArt(ctx context.Context, releaseID string) (string, error) {
@@ -272,6 +332,7 @@ type musicBrainzRecordingResponse struct {
 }
 
 type musicBrainzRecording struct {
+	ID               string                    `json:"id"`
 	Title            string                    `json:"title"`
 	ArtistCredit     []musicBrainzArtistCredit `json:"artist-credit"`
 	Releases         []musicBrainzRelease      `json:"releases"`
