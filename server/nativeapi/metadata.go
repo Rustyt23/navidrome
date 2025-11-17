@@ -253,15 +253,6 @@ type musicBrainzRecordingTag struct {
 	Name string `json:"name"`
 }
 
-type coverArtResponse struct {
-	Images []coverArtImage `json:"images"`
-}
-
-type coverArtImage struct {
-	Image string `json:"image"`
-	Front bool   `json:"front"`
-}
-
 func (m musicBrainzRecording) PrimaryArtist() string {
 	if len(m.ArtistCredit) == 0 {
 		return ""
