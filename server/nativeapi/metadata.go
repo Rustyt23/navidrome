@@ -205,6 +205,7 @@ func (f *metadataFetcher) lookupRecording(ctx context.Context, title, artist str
 	query.Set("query", fmt.Sprintf("%s AND artist:%s", title, artist))
 	query.Set("fmt", "json")
 	query.Set("limit", "1")
+	query.Set("inc", "artist-credits+releases+release-groups+tags")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, musicBrainzRecordingURL+"?"+query.Encode(), nil)
 	if err != nil {
