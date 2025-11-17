@@ -324,6 +324,101 @@ var _ = Describe("Album Lists", func() {
 		})
 	})
 
+	Describe("GetSongs", func() {
+		var mockMediaFileRepo *tests.MockMediaFileRepo
+
+		BeforeEach(func() {
+			mockMediaFileRepo = ds.MediaFile(ctx).(*tests.MockMediaFileRepo)
+		})
+
+		It("should return songs respecting pagination", func() {
+			mockMediaFileRepo.SetData(model.MediaFiles{
+				{ID: "1", Title: "Song 1"},
+				{ID: "2", Title: "Song 2"},
+			})
+			r := newGetRequest("count=2", "offset=0")
+
+			resp, err := router.GetSongs(r)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Songs).ToNot(BeNil())
+			Expect(resp.Songs.Songs).To(HaveLen(2))
+			Expect(mockMediaFileRepo.Options.Max).To(Equal(2))
+			Expect(mockMediaFileRepo.Options.Offset).To(Equal(0))
+		})
+
+		Context("with musicFolderId parameter", func() {
+			var user model.User
+			var ctx context.Context
+
+			BeforeEach(func() {
+				user = model.User{
+					ID: "test-user",
+					Libraries: []model.Library{
+						{ID: 1, Name: "Library 1"},
+						{ID: 2, Name: "Library 2"},
+						{ID: 3, Name: "Library 3"},
+					},
+				}
+				ctx = request.WithUser(context.Background(), user)
+			})
+
+			It("should filter songs by specific library when musicFolderId is provided", func() {
+				mockMediaFileRepo.SetData(model.MediaFiles{
+					{ID: "1", Title: "Song 1"},
+					{ID: "2", Title: "Song 2"},
+				})
+				r := newGetRequest("count=2", "musicFolderId=1")
+				r = r.WithContext(ctx)
+
+				resp, err := router.GetSongs(r)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.Songs.Songs).To(HaveLen(2))
+				// Verify that library filter was applied
+				query, args, _ := mockMediaFileRepo.Options.Filters.ToSql()
+				Expect(query).To(ContainSubstring("library_id IN (?)"))
+				Expect(args).To(ContainElement(1))
+			})
+
+			It("should filter songs by multiple libraries when multiple musicFolderId are provided", func() {
+				mockMediaFileRepo.SetData(model.MediaFiles{
+					{ID: "1", Title: "Song 1"},
+					{ID: "2", Title: "Song 2"},
+				})
+				r := newGetRequest("count=2", "musicFolderId=1", "musicFolderId=2")
+				r = r.WithContext(ctx)
+
+				resp, err := router.GetSongs(r)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.Songs.Songs).To(HaveLen(2))
+				// Verify that library filter was applied
+				query, args, _ := mockMediaFileRepo.Options.Filters.ToSql()
+				Expect(query).To(ContainSubstring("library_id IN (?,?)"))
+				Expect(args).To(ContainElements(1, 2))
+			})
+
+			It("should return all accessible songs when no musicFolderId is provided", func() {
+				mockMediaFileRepo.SetData(model.MediaFiles{
+					{ID: "1", Title: "Song 1"},
+					{ID: "2", Title: "Song 2"},
+				})
+				r := newGetRequest("count=2")
+				r = r.WithContext(ctx)
+
+				resp, err := router.GetSongs(r)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.Songs.Songs).To(HaveLen(2))
+				// Verify that library filter was applied
+				query, args, _ := mockMediaFileRepo.Options.Filters.ToSql()
+				Expect(query).To(ContainSubstring("library_id IN (?,?,?)"))
+				Expect(args).To(ContainElements(1, 2, 3))
+			})
+		})
+	})
+
 	Describe("GetSongsByGenre", func() {
 		var mockMediaFileRepo *tests.MockMediaFileRepo
 
