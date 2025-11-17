@@ -4,6 +4,7 @@ import {
   Button,
   Container,
   LinearProgress,
+  Snackbar,
   Typography,
 } from '@material-ui/core'
 import CircularProgress from '@material-ui/core/CircularProgress'
@@ -20,6 +21,57 @@ import {
   fetchMissingMetadata,
   getAllSongsMetadata,
 } from '../services/metadata'
+
+const MERGEABLE_FIELDS = ['title', 'artist', 'album', 'genre', 'year', 'coverArt', 'artworkUrl']
+
+const mergeUpdatedMetadata = (oldSongs = [], updatedSongs = []) => {
+  if (!Array.isArray(updatedSongs) || updatedSongs.length === 0) {
+    return oldSongs
+  }
+
+  const updates = new Map()
+  updatedSongs.forEach((song) => {
+    if (song?.id) {
+      updates.set(song.id, song)
+    }
+  })
+
+  if (updates.size === 0) {
+    return oldSongs
+  }
+
+  let didUpdate = false
+
+  const merged = oldSongs.map((song) => {
+    if (!song?.id || !updates.has(song.id)) {
+      return song
+    }
+
+    const update = updates.get(song.id)
+    let changed = false
+    const nextSong = { ...song }
+
+    MERGEABLE_FIELDS.forEach((field) => {
+      if (!Object.prototype.hasOwnProperty.call(update, field)) {
+        return
+      }
+      const nextValue = update[field]
+      if (nextSong[field] !== nextValue) {
+        nextSong[field] = nextValue
+        changed = true
+      }
+    })
+
+    if (changed) {
+      didUpdate = true
+      return nextSong
+    }
+
+    return song
+  })
+
+  return didUpdate ? merged : oldSongs
+}
 
 const parseYearValue = (year) => {
   if (year === null || year === undefined) {
@@ -39,7 +91,7 @@ const parseYearValue = (year) => {
   return null
 }
 
-export const findMissingFields = (song) => {
+const findMissingFields = (song) => {
   if (!song) {
     return false
   }
@@ -114,6 +166,7 @@ const MetadataPage = () => {
   const [error, setError] = useState(null)
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState(null)
+  const [fetchSuccess, setFetchSuccess] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -201,6 +254,7 @@ const MetadataPage = () => {
     }
 
     setFetchError(null)
+    setFetchSuccess(false)
     setFetching(true)
     try {
       const updates = await fetchMissingMetadata(
@@ -209,25 +263,17 @@ const MetadataPage = () => {
       if (!Array.isArray(updates) || updates.length === 0) {
         return
       }
-      const updatesById = updates.reduce((map, song) => {
-        if (song?.id) {
-          map.set(song.id, song)
+      let updated = false
+      setSongs((prevSongs) => {
+        const merged = mergeUpdatedMetadata(prevSongs, updates)
+        if (merged !== prevSongs) {
+          updated = true
         }
-        return map
-      }, new Map())
-
-      if (updatesById.size === 0) {
-        return
+        return merged
+      })
+      if (updated) {
+        setFetchSuccess(true)
       }
-
-      setSongs((prevSongs) =>
-        prevSongs.map((song) => {
-          if (!song?.id || !updatesById.has(song.id)) {
-            return song
-          }
-          return { ...song, ...updatesById.get(song.id) }
-        }),
-      )
     } catch (err) {
       setFetchError(err)
     } finally {
@@ -235,14 +281,22 @@ const MetadataPage = () => {
     }
   }, [fetching, hasMissingSongs, songsMissingMetadata])
 
+  const handleCloseToast = useCallback((_, reason) => {
+    if (reason === 'clickaway') {
+      return
+    }
+    setFetchSuccess(false)
+  }, [])
+
   const renderArtwork = (record) => {
     if (!record) {
       return null
     }
 
-    const artworkUrl = record.coverArt
-      ? baseUrl(subsonic.url('getCoverArt', record.coverArt || record.id, { size: 120 }))
-      : record.artworkUrl
+    const artworkUrl = record.artworkUrl
+      || (record.coverArt
+        ? baseUrl(subsonic.url('getCoverArt', record.coverArt || record.id, { size: 120 }))
+        : '')
 
     if (!artworkUrl) {
       return <div className={classes.artworkPlaceholder} />
@@ -274,12 +328,11 @@ const MetadataPage = () => {
             variant="contained"
             onClick={handleFetchMissingMetadata}
             disabled={!hasMissingSongs || fetching}
+            startIcon={
+              fetching ? <CircularProgress size={18} color="inherit" /> : null
+            }
           >
-            {fetching ? (
-              <CircularProgress size={20} color="inherit" />
-            ) : (
-              'Fetch Missing Metadata'
-            )}
+            Fetch Missing Metadata
           </Button>
         </div>
       </div>
@@ -341,6 +394,16 @@ const MetadataPage = () => {
           </ListContextProvider>
         </Box>
       </Box>
+      <Snackbar
+        open={fetchSuccess}
+        autoHideDuration={4000}
+        onClose={handleCloseToast}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert elevation={6} variant="filled" severity="success" onClose={handleCloseToast}>
+          Metadata updated
+        </Alert>
+      </Snackbar>
     </Container>
   )
 }

@@ -35,9 +35,9 @@ type metadataSongPayload struct {
 	Artist     string `json:"artist"`
 	Album      string `json:"album"`
 	Genre      string `json:"genre"`
-	Year       *int   `json:"year,omitempty"`
+	Year       *int   `json:"year"`
 	CoverArt   string `json:"coverArt"`
-	ArtworkURL string `json:"artworkUrl,omitempty"`
+	ArtworkURL string `json:"artworkUrl"`
 }
 
 type metadataSongPayloadDTO struct {
@@ -90,13 +90,14 @@ func (n *Router) fetchMetadataHandler() http.HandlerFunc {
 
 		updates := make([]metadataSongPayload, 0, len(req.Songs))
 		for _, song := range req.Songs {
-			enriched, err := metadataEnricher.Enrich(ctx, song)
+			normalized := normalizeSongPayload(song)
+			enriched, err := metadataEnricher.Enrich(ctx, normalized)
 			if err != nil {
-				log.Warn(ctx, "Unable to enrich song metadata", "songId", song.ID, "err", err)
-				updates = append(updates, song)
+				log.Warn(ctx, "Unable to enrich song metadata", "songId", normalized.ID, "err", err)
+				updates = append(updates, normalized)
 				continue
 			}
-			updates = append(updates, enriched)
+			updates = append(updates, normalizeSongPayload(enriched))
 		}
 
 		writeJSON(w, metadataFetchResponse{Songs: updates})
@@ -157,9 +158,13 @@ func (f *metadataFetcher) Enrich(ctx context.Context, song metadataSongPayload) 
 			updated.Year = year
 		}
 	}
-	if updated.CoverArt == "" {
-		if artURL, err := f.fetchCoverArt(ctx, recording.PrimaryReleaseID()); err == nil && artURL != "" {
-			updated.ArtworkURL = artURL
+	if strings.TrimSpace(updated.CoverArt) == "" {
+		if releaseID := recording.PrimaryReleaseID(); releaseID != "" {
+			if artURL, artErr := f.fetchCoverArt(ctx, releaseID); artErr == nil && artURL != "" {
+				updated.ArtworkURL = artURL
+			} else if artErr != nil {
+				log.Warn(ctx, "Unable to fetch cover art", "songId", song.ID, "err", artErr)
+			}
 		}
 	}
 
@@ -231,20 +236,22 @@ func (f *metadataFetcher) fetchCoverArt(ctx context.Context, releaseID string) (
 		return "", nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("cover art request failed: %s", resp.Status)
+		log.Warn(ctx, "Cover Art Archive request failed", "status", resp.Status)
+		return "", nil
 	}
 
 	var payload coverArtResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", err
+		log.Warn(ctx, "Unable to decode cover art response", "err", err)
+		return "", nil
 	}
 	for _, image := range payload.Images {
 		if image.Front && image.Image != "" {
-			return image.Image, nil
+			return ensureHTTPSURL(image.Image), nil
 		}
 	}
 	if len(payload.Images) > 0 {
-		return payload.Images[0].Image, nil
+		return ensureHTTPSURL(payload.Images[0].Image), nil
 	}
 	return "", nil
 }
@@ -378,4 +385,37 @@ func parseYearRaw(raw json.RawMessage) *int {
 		}
 	}
 	return nil
+}
+
+func normalizeSongPayload(song metadataSongPayload) metadataSongPayload {
+	song.ID = strings.TrimSpace(song.ID)
+	song.Title = strings.TrimSpace(song.Title)
+	song.Artist = strings.TrimSpace(song.Artist)
+	song.Album = strings.TrimSpace(song.Album)
+	song.Genre = strings.TrimSpace(song.Genre)
+	song.CoverArt = strings.TrimSpace(song.CoverArt)
+	song.ArtworkURL = ensureHTTPSURL(song.ArtworkURL)
+	if song.Year != nil {
+		year := *song.Year
+		if year == 0 {
+			song.Year = nil
+		}
+	}
+	return song
+}
+
+func ensureHTTPSURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.HasPrefix(trimmed, "https://"):
+		return trimmed
+	case strings.HasPrefix(trimmed, "http://"):
+		return "https://" + strings.TrimPrefix(trimmed, "http://")
+	case strings.HasPrefix(trimmed, "//"):
+		return "https:" + trimmed
+	default:
+		return trimmed
+	}
 }
