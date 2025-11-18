@@ -166,7 +166,7 @@ const MetadataPage = () => {
   const [error, setError] = useState(null)
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState(null)
-  const [fetchSuccess, setFetchSuccess] = useState(false)
+  const [fetchSuccessCount, setFetchSuccessCount] = useState(0)
 
   useEffect(() => {
     let isMounted = true
@@ -254,7 +254,7 @@ const MetadataPage = () => {
     }
 
     setFetchError(null)
-    setFetchSuccess(false)
+    setFetchSuccessCount(0)
     setFetching(true)
     try {
       const updates = await fetchMissingMetadata(
@@ -263,6 +263,10 @@ const MetadataPage = () => {
       if (!Array.isArray(updates) || updates.length === 0) {
         return
       }
+      const persistedCount = updates.reduce(
+        (count, song) => (song?.persisted ? count + 1 : count),
+        0,
+      )
       let updated = false
       setSongs((prevSongs) => {
         const merged = mergeUpdatedMetadata(prevSongs, updates)
@@ -271,8 +275,8 @@ const MetadataPage = () => {
         }
         return merged
       })
-      if (updated) {
-        setFetchSuccess(true)
+      if (updated && persistedCount > 0) {
+        setFetchSuccessCount(persistedCount)
       }
     } catch (err) {
       setFetchError(err)
@@ -285,7 +289,7 @@ const MetadataPage = () => {
     if (reason === 'clickaway') {
       return
     }
-    setFetchSuccess(false)
+    setFetchSuccessCount(0)
   }, [])
 
   const renderArtwork = (record) => {
@@ -395,13 +399,13 @@ const MetadataPage = () => {
         </Box>
       </Box>
       <Snackbar
-        open={fetchSuccess}
+        open={fetchSuccessCount > 0}
         autoHideDuration={4000}
         onClose={handleCloseToast}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
         <Alert elevation={6} variant="filled" severity="success" onClose={handleCloseToast}>
-          Metadata updated
+          {`Metadata permanently updated for ${fetchSuccessCount} track${fetchSuccessCount === 1 ? '' : 's'}`}
         </Alert>
       </Snackbar>
     </Container>

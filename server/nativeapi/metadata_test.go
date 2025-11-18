@@ -32,8 +32,12 @@ func TestPersistMetadataSongUpdatesFields(t *testing.T) {
 		Year:   &year,
 	}
 
-	if err := persistMetadataSong(repo, update); err != nil {
+	changed, err := persistMetadataSong(repo, update)
+	if err != nil {
 		t.Fatalf("persistMetadataSong returned error: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected metadata update to be applied")
 	}
 
 	stored, err := repo.Get("song-1")
@@ -80,7 +84,7 @@ func TestApplyMetadataUpdateNoChanges(t *testing.T) {
 // Ensure helper can be used without repository context; this mirrors handler usage.
 func TestPersistMetadataSongHandlesMissingSong(t *testing.T) {
 	repo := tests.CreateMockMediaFileRepo()
-	err := persistMetadataSong(repo, metadataSongPayload{ID: "missing"})
+	_, err := persistMetadataSong(repo, metadataSongPayload{ID: "missing"})
 	if err == nil {
 		t.Fatalf("expected error when song does not exist")
 	}
