@@ -245,15 +245,44 @@ func (f *metadataFetcher) fetchCoverArt(ctx context.Context, releaseID string) (
 		log.Warn(ctx, "Unable to decode cover art response", "err", err)
 		return "", nil
 	}
-	for _, image := range payload.Images {
-		if image.Front && image.Image != "" {
-			return ensureHTTPSURL(image.Image), nil
-		}
+	if len(payload.Images) == 0 {
+		return "", nil
 	}
-	if len(payload.Images) > 0 {
-		return ensureHTTPSURL(payload.Images[0].Image), nil
+	selected := selectBestCoverArtImage(payload.Images)
+	if selected == nil {
+		return "", nil
+	}
+	if url := ensureHTTPSURL(selected.bestURL()); url != "" {
+		return url, nil
 	}
 	return "", nil
+}
+
+func selectBestCoverArtImage(images []coverArtImage) *coverArtImage {
+	if len(images) == 0 {
+		return nil
+	}
+	var fallback *coverArtImage
+	for i := range images {
+		img := &images[i]
+		if fallback == nil {
+			fallback = img
+		}
+		if img.Front {
+			return img
+		}
+	}
+	return fallback
+}
+
+func (img coverArtImage) bestURL() string {
+	if strings.TrimSpace(img.Image) != "" {
+		return img.Image
+	}
+	if strings.TrimSpace(img.Thumbnails.Size500) != "" {
+		return img.Thumbnails.Size500
+	}
+	return ""
 }
 
 func (f *metadataFetcher) applyRateLimit() {
@@ -298,8 +327,13 @@ type coverArtResponse struct {
 }
 
 type coverArtImage struct {
-	Image string `json:"image"`
-	Front bool   `json:"front"`
+	Image      string             `json:"image"`
+	Front      bool               `json:"front"`
+	Thumbnails coverArtThumbnails `json:"thumbnails"`
+}
+
+type coverArtThumbnails struct {
+	Size500 string `json:"500"`
 }
 
 func (m musicBrainzRecording) PrimaryArtist() string {
