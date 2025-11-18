@@ -28,6 +28,7 @@ var _ = Describe("Queue Endpoints", func() {
 		userRepo = tests.CreateMockUserRepo()
 		_ = userRepo.Put(&user)
 		ds = &tests.MockDataStore{MockedPlayQueue: repo, MockedUser: userRepo, MockedProperty: &tests.MockedPropertyRepo{}}
+		ds.MockedRetailPlayerDeviceMapping = newRetailPlayerDeviceMappingRepoStub()
 	})
 
 	Describe("POST /queue", func() {

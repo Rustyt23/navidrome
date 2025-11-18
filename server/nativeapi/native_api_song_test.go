@@ -44,6 +44,7 @@ var _ = Describe("Song Endpoints", func() {
 			MockedUser:      userRepo,
 			MockedProperty:  &tests.MockedPropertyRepo{},
 		}
+		ds.MockedRetailPlayerDeviceMapping = newRetailPlayerDeviceMappingRepoStub()
 
 		// Initialize auth system
 		auth.Init(ds)

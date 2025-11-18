@@ -28,7 +28,9 @@ var _ = Describe("Library API", func() {
 
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
-		ds = &tests.MockDataStore{}
+		mockDS := &tests.MockDataStore{}
+		mockDS.MockedRetailPlayerDeviceMapping = newRetailPlayerDeviceMappingRepoStub()
+		ds = mockDS
 		auth.Init(ds)
 		nativeRouter := New(ds, nil, nil, nil, core.NewMockLibraryService())
 		router = server.JWTVerifier(nativeRouter)
