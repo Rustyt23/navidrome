@@ -20,6 +20,7 @@ import (
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server"
+	"github.com/navidrome/navidrome/server/events"
 )
 
 type Router struct {
@@ -30,9 +31,10 @@ type Router struct {
 	insights  metrics.Insights
 	libs      core.Library
 	devices   *retailPlayerDeviceResolver
+	broker    events.Broker
 }
 
-func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
+func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library, broker events.Broker) *Router {
 	r := &Router{
 		ds:        ds,
 		share:     share,
@@ -40,6 +42,7 @@ func New(ds model.DataStore, share core.Share, playlists core.Playlists, insight
 		insights:  insights,
 		libs:      libraryService,
 		devices:   newRetailPlayerDeviceResolver(),
+		broker:    broker,
 	}
 	r.preloadRetailPlayerDeviceMappings()
 	r.Handler = r.routes()

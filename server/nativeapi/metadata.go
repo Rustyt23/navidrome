@@ -1,11 +1,16 @@
 package nativeapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/server/events"
 	"github.com/navidrome/navidrome/utils/str"
 )
 
@@ -40,6 +46,7 @@ type metadataSongPayload struct {
 	Year       *int   `json:"year"`
 	CoverArt   string `json:"coverArt"`
 	ArtworkURL string `json:"artworkUrl"`
+	Persisted  bool   `json:"persisted,omitempty"`
 }
 
 type metadataSongPayloadDTO struct {
@@ -50,6 +57,7 @@ type metadataSongPayloadDTO struct {
 	Genre      string          `json:"genre"`
 	CoverArt   string          `json:"coverArt"`
 	ArtworkURL string          `json:"artworkUrl,omitempty"`
+	Persisted  bool            `json:"persisted,omitempty"`
 	Year       json.RawMessage `json:"year"`
 }
 
@@ -66,6 +74,7 @@ func (m *metadataSongPayload) UnmarshalJSON(data []byte) error {
 	m.Genre = dto.Genre
 	m.CoverArt = dto.CoverArt
 	m.ArtworkURL = dto.ArtworkURL
+	m.Persisted = dto.Persisted
 	m.Year = parseYearRaw(dto.Year)
 	return nil
 }
@@ -92,6 +101,7 @@ func (n *Router) fetchMetadataHandler() http.HandlerFunc {
 
 		repo := n.ds.MediaFile(ctx)
 		updates := make([]metadataSongPayload, 0, len(req.Songs))
+		changedIDs := make(map[string]struct{})
 		for _, song := range req.Songs {
 			normalized := normalizeSongPayload(song)
 			enriched, err := metadataEnricher.Enrich(ctx, normalized)
@@ -101,12 +111,40 @@ func (n *Router) fetchMetadataHandler() http.HandlerFunc {
 				continue
 			}
 			saved := normalizeSongPayload(enriched)
-			if repo != nil {
-				if err := persistMetadataSong(repo, saved); err != nil {
-					log.Warn(ctx, "Unable to persist song metadata", "songId", saved.ID, "err", err)
+			if repo != nil && saved.ID != "" {
+				existing, err := repo.Get(saved.ID)
+				if err != nil {
+					log.Warn(ctx, "Unable to load song metadata for persistence", "songId", saved.ID, "err", err)
+				} else {
+					if wrote, writeErr := writeTagsToFile(ctx, existing, saved); writeErr != nil {
+						log.Warn(ctx, "Unable to write metadata tags to file", "songId", saved.ID, "err", writeErr)
+					} else if wrote {
+						saved.Persisted = true
+					}
+					if changed, persistErr := persistMetadataSongWithCurrent(repo, existing, saved); persistErr != nil {
+						log.Warn(ctx, "Unable to persist song metadata", "songId", saved.ID, "err", persistErr)
+					} else if changed {
+						changedIDs[saved.ID] = struct{}{}
+					}
 				}
 			}
+			if saved.Persisted {
+				changedIDs[saved.ID] = struct{}{}
+			}
 			updates = append(updates, saved)
+		}
+
+		if len(changedIDs) > 0 && n.broker != nil {
+			ids := make([]string, 0, len(changedIDs))
+			for id := range changedIDs {
+				if id != "" {
+					ids = append(ids, id)
+				}
+			}
+			if len(ids) > 0 {
+				event := &events.RefreshResource{}
+				n.broker.SendMessage(ctx, event.With("song", ids...))
+			}
 		}
 
 		writeJSON(w, metadataFetchResponse{Songs: updates})
@@ -128,6 +166,7 @@ type metadataFetcher struct {
 }
 
 var metadataEnricher = newMetadataFetcher()
+var artworkDownloadClient = &http.Client{Timeout: 20 * time.Second}
 
 func newMetadataFetcher() *metadataFetcher {
 	timeout := 10 * time.Second
@@ -429,22 +468,29 @@ func ensureHTTPSURL(raw string) string {
 	}
 }
 
-func persistMetadataSong(repo model.MediaFileRepository, update metadataSongPayload) error {
+func persistMetadataSong(repo model.MediaFileRepository, update metadataSongPayload) (bool, error) {
 	if repo == nil {
-		return nil
+		return false, nil
 	}
 	if strings.TrimSpace(update.ID) == "" {
-		return nil
+		return false, nil
 	}
 	current, err := repo.Get(update.ID)
 	if err != nil {
-		return err
+		return false, err
+	}
+	return persistMetadataSongWithCurrent(repo, current, update)
+}
+
+func persistMetadataSongWithCurrent(repo model.MediaFileRepository, current *model.MediaFile, update metadataSongPayload) (bool, error) {
+	if repo == nil || current == nil {
+		return false, nil
 	}
 	if !applyMetadataUpdate(current, update) {
-		return nil
+		return false, nil
 	}
 	current.UpdatedAt = time.Now()
-	return repo.Put(current)
+	return true, repo.Put(current)
 }
 
 func applyMetadataUpdate(mf *model.MediaFile, update metadataSongPayload) bool {
@@ -494,4 +540,155 @@ func applyMetadataUpdate(mf *model.MediaFile, update metadataSongPayload) bool {
 		}
 	}
 	return changed
+}
+
+func writeTagsToFile(ctx context.Context, mf *model.MediaFile, update metadataSongPayload) (bool, error) {
+	if mf == nil {
+		return false, nil
+	}
+	originalPath := strings.TrimSpace(mf.AbsolutePath())
+	if originalPath == "" {
+		return false, fmt.Errorf("media file path is empty for %s", mf.ID)
+	}
+	args, cleanup, err := buildExiftoolArgs(ctx, mf, update)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		return false, err
+	}
+	if len(args) == 0 {
+		return false, nil
+	}
+	tempPath, err := createTempCopy(originalPath)
+	if err != nil {
+		return false, err
+	}
+	replaced := false
+	defer func() {
+		if !replaced {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	cmdArgs := append([]string{"-overwrite_original", "-q", "-q"}, args...)
+	cmdArgs = append(cmdArgs, tempPath)
+	cmd := exec.CommandContext(ctx, "exiftool", cmdArgs...) // #nosec G204
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("exiftool failed: %w %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if err := replaceOriginalFile(originalPath, tempPath); err != nil {
+		return false, err
+	}
+	replaced = true
+	return true, nil
+}
+
+func buildExiftoolArgs(ctx context.Context, mf *model.MediaFile, update metadataSongPayload) ([]string, func(), error) {
+	args := make([]string, 0, 6)
+	cleanup := func() {}
+	addField := func(flag, current, next string) {
+		next = strings.TrimSpace(next)
+		if next == "" {
+			return
+		}
+		if strings.TrimSpace(current) == next {
+			return
+		}
+		args = append(args, fmt.Sprintf("-%s=%s", flag, next))
+	}
+	addField("Title", mf.Title, update.Title)
+	addField("Artist", mf.Artist, update.Artist)
+	addField("Album", mf.Album, update.Album)
+	addField("Genre", mf.Genre, update.Genre)
+	if update.Year != nil {
+		year := *update.Year
+		if year > 0 && mf.Year != year {
+			args = append(args, fmt.Sprintf("-Year=%d", year))
+		}
+	}
+	trimmedArtwork := strings.TrimSpace(update.ArtworkURL)
+	if trimmedArtwork != "" {
+		artPath, err := downloadArtwork(ctx, trimmedArtwork)
+		if err != nil {
+			return nil, nil, err
+		}
+		if artPath != "" {
+			cleanup = func() { _ = os.Remove(artPath) }
+			args = append(args, fmt.Sprintf("-Picture=@%s", artPath))
+		}
+	}
+	if len(args) == 0 {
+		return args, nil, nil
+	}
+	return args, cleanup, nil
+}
+
+func downloadArtwork(ctx context.Context, artworkURL string) (string, error) {
+	client := artworkDownloadClient
+	if client == nil {
+		client = &http.Client{Timeout: 20 * time.Second}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artworkURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unable to download artwork: %s", resp.Status)
+	}
+	file, err := os.CreateTemp("", "navidrome-art-")
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	return file.Name(), nil
+}
+
+func createTempCopy(src string) (string, error) {
+	info, err := os.Stat(src)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(src)
+	ext := filepath.Ext(src)
+	tempName := filepath.Join(dir, fmt.Sprintf(".nd-meta-%d%s", time.Now().UnixNano(), ext))
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(tempName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return "", err
+	}
+	if err := out.Sync(); err != nil {
+		return "", err
+	}
+	return tempName, nil
+}
+
+func replaceOriginalFile(originalPath, tempPath string) error {
+	backupPath := fmt.Sprintf("%s.ndbackup", originalPath)
+	if err := os.Rename(originalPath, backupPath); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, originalPath); err != nil {
+		_ = os.Rename(backupPath, originalPath)
+		return err
+	}
+	return os.Remove(backupPath)
 }
