@@ -53,6 +53,9 @@ func (a *mediafileArtworkReader) LastUpdated() time.Time {
 
 func (a *mediafileArtworkReader) Reader(ctx context.Context) (io.ReadCloser, string, error) {
 	var ff []sourceFunc
+	if a.a.store != nil && a.a.store.HasMediaArtwork(a.mediafile.ID) {
+		ff = append(ff, fromMediaStore(ctx, a.a.store, a.mediafile.ID))
+	}
 	if a.mediafile.CoverArtID().Kind == model.KindMediaFileArtwork {
 		path := a.mediafile.AbsolutePath()
 		ff = []sourceFunc{

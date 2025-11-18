@@ -70,6 +70,24 @@ func TestPersistMetadataSongUpdatesFields(t *testing.T) {
 	}
 }
 
+func TestPersistMetadataSongUpdatesCoverArt(t *testing.T) {
+	repo := tests.CreateMockMediaFileRepo()
+	original := model.MediaFile{ID: "song-3", AlbumID: "album-9"}
+	repo.SetData(model.MediaFiles{original})
+	coverID := model.NewArtworkID(model.KindMediaFileArtwork, "song-3", nil)
+	update := metadataSongPayload{ID: "song-3", CoverArt: coverID.String()}
+	if err := persistMetadataSong(repo, update); err != nil {
+		t.Fatalf("persistMetadataSong returned error: %v", err)
+	}
+	stored, err := repo.Get("song-3")
+	if err != nil {
+		t.Fatalf("expected song to exist: %v", err)
+	}
+	if !stored.HasCoverArt {
+		t.Fatalf("expected cover art flag to be set")
+	}
+}
+
 func TestApplyMetadataUpdateNoChanges(t *testing.T) {
 	mf := &model.MediaFile{ID: "song-2", Title: "Existing"}
 	if applyMetadataUpdate(mf, metadataSongPayload{ID: "song-2"}) {
