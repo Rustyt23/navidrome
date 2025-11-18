@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/str"
@@ -21,6 +23,7 @@ const (
 	musicBrainzRecordingURL = "https://musicbrainz.org/ws/2/recording/"
 	coverArtArchiveURL      = "https://coverartarchive.org/release/"
 	metadataUserAgent       = "NavidromeMetadataFetcher/1.0 (+https://www.navidrome.org)"
+	maxCoverArtBytes        = 10 * 1024 * 1024
 )
 
 type metadataFetchRequest struct {
@@ -123,6 +126,7 @@ func writeJSON(w http.ResponseWriter, payload interface{}) {
 type metadataFetcher struct {
 	client        *http.Client
 	coverClient   *http.Client
+	store         artwork.MediaStore
 	mu            sync.Mutex
 	nextAvailable time.Time
 }
@@ -134,6 +138,7 @@ func newMetadataFetcher() *metadataFetcher {
 	return &metadataFetcher{
 		client:      &http.Client{Timeout: timeout},
 		coverClient: &http.Client{Timeout: timeout},
+		store:       artwork.NewMediaStore(),
 	}
 }
 
@@ -167,12 +172,17 @@ func (f *metadataFetcher) Enrich(ctx context.Context, song metadataSongPayload) 
 			updated.Year = year
 		}
 	}
-	if strings.TrimSpace(updated.CoverArt) == "" {
+	if strings.TrimSpace(updated.CoverArt) == "" && strings.TrimSpace(song.ID) != "" {
 		if releaseID := recording.PrimaryReleaseID(); releaseID != "" {
-			if artURL, artErr := f.fetchCoverArt(ctx, releaseID); artErr == nil && artURL != "" {
-				updated.ArtworkURL = artURL
-			} else if artErr != nil {
+			if art, artErr := f.fetchCoverArt(ctx, releaseID); artErr != nil {
 				log.Warn(ctx, "Unable to fetch cover art", "songId", song.ID, "err", artErr)
+			} else if art != nil && len(art.Data) > 0 {
+				if artID, storeErr := f.store.SaveMediaArtwork(ctx, song.ID, art.Data); storeErr != nil {
+					log.Warn(ctx, "Unable to persist cover art", "songId", song.ID, "err", storeErr)
+				} else {
+					updated.CoverArt = artID.String()
+					updated.ArtworkURL = internalArtworkURL(artID)
+				}
 			}
 		}
 	}
@@ -223,46 +233,131 @@ func (f *metadataFetcher) lookupRecording(ctx context.Context, title, artist str
 	return &result.Recordings[0], nil
 }
 
-func (f *metadataFetcher) fetchCoverArt(ctx context.Context, releaseID string) (string, error) {
+func (f *metadataFetcher) fetchCoverArt(ctx context.Context, releaseID string) (*coverArtData, error) {
 	if releaseID == "" {
-		return "", nil
+		return nil, nil
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, coverArtArchiveURL+releaseID, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", metadataUserAgent)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := f.coverClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", nil
+		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
 		log.Warn(ctx, "Cover Art Archive request failed", "status", resp.Status)
-		return "", nil
+		return nil, nil
 	}
 
 	var payload coverArtResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		log.Warn(ctx, "Unable to decode cover art response", "err", err)
-		return "", nil
+		return nil, nil
 	}
-	for _, image := range payload.Images {
-		if image.Front && image.Image != "" {
-			return ensureHTTPSURL(image.Image), nil
+	bestURL := selectBestCoverArtURL(payload.Images)
+	if bestURL == "" {
+		return nil, nil
+	}
+	data, err := f.downloadCoverArt(ctx, bestURL)
+	if err != nil {
+		return nil, err
+	}
+	return &coverArtData{URL: bestURL, Data: data}, nil
+}
+
+func (f *metadataFetcher) downloadCoverArt(ctx context.Context, artURL string) ([]byte, error) {
+	if artURL == "" {
+		return nil, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", metadataUserAgent)
+	resp, err := f.coverClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("cover art download failed: %s", resp.Status)
+	}
+	reader := io.LimitReader(resp.Body, maxCoverArtBytes+1)
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxCoverArtBytes {
+		return nil, fmt.Errorf("cover art exceeds %d bytes", maxCoverArtBytes)
+	}
+	return data, nil
+}
+
+func selectBestCoverArtURL(images []coverArtImage) string {
+	var fallback string
+	for _, image := range images {
+		candidate := bestCoverArtCandidate(image)
+		if candidate == "" {
+			continue
+		}
+		if image.Front {
+			return candidate
+		}
+		if fallback == "" {
+			fallback = candidate
 		}
 	}
-	if len(payload.Images) > 0 {
-		return ensureHTTPSURL(payload.Images[0].Image), nil
+	return fallback
+}
+
+func bestCoverArtCandidate(image coverArtImage) string {
+	switch {
+	case strings.TrimSpace(image.Image) != "":
+		return ensureHTTPSURL(image.Image)
+	case len(image.Thumbnails) == 0:
+		return ""
 	}
-	return "", nil
+	if url := image.Thumbnails["1200"]; strings.TrimSpace(url) != "" {
+		return ensureHTTPSURL(url)
+	}
+	bestURL := ""
+	bestSize := 0
+	for size, candidate := range image.Thumbnails {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if parsed, err := strconv.Atoi(size); err == nil {
+			if parsed > bestSize {
+				bestSize = parsed
+				bestURL = candidate
+			}
+		} else if bestURL == "" {
+			bestURL = candidate
+		}
+	}
+	return ensureHTTPSURL(bestURL)
+}
+
+func internalArtworkURL(artID model.ArtworkID) string {
+	id := strings.TrimSpace(artID.String())
+	if id == "" {
+		return ""
+	}
+	values := url.Values{}
+	values.Set("id", id)
+	values.Set("size", "600")
+	return "/rest/getCoverArt?" + values.Encode()
 }
 
 func (f *metadataFetcher) applyRateLimit() {
@@ -306,9 +401,15 @@ type coverArtResponse struct {
 	Images []coverArtImage `json:"images"`
 }
 
+type coverArtData struct {
+	URL  string
+	Data []byte
+}
+
 type coverArtImage struct {
-	Image string `json:"image"`
-	Front bool   `json:"front"`
+	Image      string            `json:"image"`
+	Front      bool              `json:"front"`
+	Thumbnails map[string]string `json:"thumbnails"`
 }
 
 func (m musicBrainzRecording) PrimaryArtist() string {
@@ -490,6 +591,12 @@ func applyMetadataUpdate(mf *model.MediaFile, update metadataSongPayload) bool {
 		year := *update.Year
 		if mf.Year != year {
 			mf.Year = year
+			changed = true
+		}
+	}
+	if coverArt := strings.TrimSpace(update.CoverArt); coverArt != "" {
+		if mf.CoverArtID().String() != coverArt || !mf.HasCoverArt {
+			mf.HasCoverArt = true
 			changed = true
 		}
 	}

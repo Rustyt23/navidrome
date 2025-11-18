@@ -288,28 +288,32 @@ const MetadataPage = () => {
     setFetchSuccess(false)
   }, [])
 
-  const renderArtwork = (record) => {
-    if (!record) {
-      return null
-    }
+const renderArtwork = (record) => {
+if (!record) {
+return null
+}
 
-    const artworkUrl = record.artworkUrl
-      || (record.coverArt
-        ? baseUrl(subsonic.url('getCoverArt', record.coverArt || record.id, { size: 120 }))
-        : '')
+let artworkUrl = ''
+if (record.coverArt) {
+artworkUrl = baseUrl(subsonic.url('getCoverArt', record.coverArt, { size: 120 }))
+} else if (record.artworkUrl) {
+artworkUrl = record.artworkUrl
+} else if (record.id) {
+artworkUrl = baseUrl(subsonic.url('getCoverArt', record.id, { size: 120 }))
+}
 
     if (!artworkUrl) {
       return <div className={classes.artworkPlaceholder} />
     }
 
-    return (
-      <img
-        src={artworkUrl}
-        alt={`${record.title || 'Song'} artwork`}
-        className={classes.artwork}
-      />
-    )
-  }
+return (
+<img
+src={artworkUrl}
+alt={`${record.title || 'Song'} artwork`}
+className={classes.artwork}
+/>
+)
+}
 
   return (
     <Container maxWidth="lg" className={classes.pageWrapper}>

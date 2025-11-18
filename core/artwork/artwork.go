@@ -27,7 +27,7 @@ type Artwork interface {
 }
 
 func NewArtwork(ds model.DataStore, cache cache.FileCache, ffmpeg ffmpeg.FFmpeg, provider external.Provider) Artwork {
-	return &artwork{ds: ds, cache: cache, ffmpeg: ffmpeg, provider: provider}
+	return &artwork{ds: ds, cache: cache, ffmpeg: ffmpeg, provider: provider, store: NewMediaStore()}
 }
 
 type artwork struct {
@@ -35,6 +35,7 @@ type artwork struct {
 	cache    cache.FileCache
 	ffmpeg   ffmpeg.FFmpeg
 	provider external.Provider
+	store    MediaStore
 }
 
 type artworkReader interface {
