@@ -9,11 +9,14 @@ import config from '../config'
 
 let store
 
+const noop = () => {}
+
 vi.mock('react-admin', () => ({
   AppBar: ({ userMenu }) => <div data-testid="appbar">{userMenu}</div>,
   useTranslate: () => (x) => x,
   usePermissions: () => ({ permissions: 'admin' }),
   getResources: () => [],
+  useNotify: () => noop,
 }))
 
 vi.mock('./NowPlayingPanel', () => ({
@@ -21,6 +24,9 @@ vi.mock('./NowPlayingPanel', () => ({
 }))
 vi.mock('./ActivityPanel', () => ({
   default: () => <div data-testid="activity-panel" />,
+}))
+vi.mock('./MissingTracksPanel', () => ({
+  default: () => <div data-testid="missing-tracks-panel" />,
 }))
 vi.mock('./PersonalMenu', () => ({
   default: () => <div />,

@@ -27,7 +27,9 @@ var _ = Describe("Config API", func() {
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.DevUIShowConfig = true // Enable config endpoint for tests
-		ds = &tests.MockDataStore{}
+		mockDS := &tests.MockDataStore{}
+		mockDS.MockedRetailPlayerDeviceMapping = newRetailPlayerDeviceMappingRepoStub()
+		ds = mockDS
 		auth.Init(ds)
 		nativeRouter := New(ds, nil, nil, nil, core.NewMockLibraryService())
 		router = server.JWTVerifier(nativeRouter)
