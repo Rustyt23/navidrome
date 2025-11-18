@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/utils/str"
 )
 
 const (
@@ -88,6 +90,7 @@ func (n *Router) fetchMetadataHandler() http.HandlerFunc {
 			return
 		}
 
+		repo := n.ds.MediaFile(ctx)
 		updates := make([]metadataSongPayload, 0, len(req.Songs))
 		for _, song := range req.Songs {
 			normalized := normalizeSongPayload(song)
@@ -97,7 +100,13 @@ func (n *Router) fetchMetadataHandler() http.HandlerFunc {
 				updates = append(updates, normalized)
 				continue
 			}
-			updates = append(updates, normalizeSongPayload(enriched))
+			saved := normalizeSongPayload(enriched)
+			if repo != nil {
+				if err := persistMetadataSong(repo, saved); err != nil {
+					log.Warn(ctx, "Unable to persist song metadata", "songId", saved.ID, "err", err)
+				}
+			}
+			updates = append(updates, saved)
 		}
 
 		writeJSON(w, metadataFetchResponse{Songs: updates})
@@ -418,4 +427,71 @@ func ensureHTTPSURL(raw string) string {
 	default:
 		return trimmed
 	}
+}
+
+func persistMetadataSong(repo model.MediaFileRepository, update metadataSongPayload) error {
+	if repo == nil {
+		return nil
+	}
+	if strings.TrimSpace(update.ID) == "" {
+		return nil
+	}
+	current, err := repo.Get(update.ID)
+	if err != nil {
+		return err
+	}
+	if !applyMetadataUpdate(current, update) {
+		return nil
+	}
+	current.UpdatedAt = time.Now()
+	return repo.Put(current)
+}
+
+func applyMetadataUpdate(mf *model.MediaFile, update metadataSongPayload) bool {
+	if mf == nil {
+		return false
+	}
+	changed := false
+	if title := strings.TrimSpace(update.Title); title != "" && mf.Title != title {
+		mf.Title = title
+		mf.OrderTitle = str.SanitizeFieldForSorting(title)
+		if mf.SortTitle == "" || mf.SortTitle == mf.Title {
+			mf.SortTitle = title
+		}
+		changed = true
+	}
+	if artist := strings.TrimSpace(update.Artist); artist != "" && mf.Artist != artist {
+		mf.Artist = artist
+		mf.OrderArtistName = str.SanitizeFieldForSorting(artist)
+		if mf.SortArtistName == "" || mf.SortArtistName == mf.Artist {
+			mf.SortArtistName = artist
+		}
+		changed = true
+	}
+	if album := strings.TrimSpace(update.Album); album != "" && mf.Album != album {
+		mf.Album = album
+		mf.OrderAlbumName = str.SanitizeFieldForSortingNoArticle(album)
+		if mf.SortAlbumName == "" || mf.SortAlbumName == mf.Album {
+			mf.SortAlbumName = album
+		}
+		changed = true
+	}
+	if genre := strings.TrimSpace(update.Genre); genre != "" && mf.Genre != genre {
+		mf.Genre = genre
+		if mf.Tags == nil {
+			mf.Tags = make(model.Tags)
+		}
+		mf.Tags[model.TagGenre] = []string{genre}
+		tag := model.NewTag(model.TagGenre, genre)
+		mf.Genres = model.Genres{{ID: tag.ID, Name: genre}}
+		changed = true
+	}
+	if update.Year != nil {
+		year := *update.Year
+		if mf.Year != year {
+			mf.Year = year
+			changed = true
+		}
+	}
+	return changed
 }
