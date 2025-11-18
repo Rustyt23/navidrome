@@ -62,6 +62,14 @@ const mergeUpdatedMetadata = (oldSongs = [], updatedSongs = []) => {
       }
     })
 
+    if (nextSong.artworkUrl) {
+      const artworkUrl = nextSong.artworkUrl
+      if (nextSong.coverArt !== artworkUrl) {
+        nextSong.coverArt = artworkUrl
+        changed = true
+      }
+    }
+
     if (changed) {
       didUpdate = true
       return nextSong
