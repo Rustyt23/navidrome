@@ -158,13 +158,11 @@ func (f *metadataFetcher) Enrich(ctx context.Context, song metadataSongPayload) 
 			updated.Year = year
 		}
 	}
-	if strings.TrimSpace(updated.CoverArt) == "" {
-		if releaseID := recording.PrimaryReleaseID(); releaseID != "" {
-			if artURL, artErr := f.fetchCoverArt(ctx, releaseID); artErr == nil && artURL != "" {
-				updated.ArtworkURL = artURL
-			} else if artErr != nil {
-				log.Warn(ctx, "Unable to fetch cover art", "songId", song.ID, "err", artErr)
-			}
+	if strings.TrimSpace(updated.ArtworkURL) == "" {
+		if artURL, artErr := f.fetchCoverArtForRecording(ctx, recording); artErr == nil && artURL != "" {
+			updated.ArtworkURL = artURL
+		} else if artErr != nil {
+			log.Warn(ctx, "Unable to fetch cover art", "songId", song.ID, "err", artErr)
 		}
 	}
 
@@ -212,6 +210,32 @@ func (f *metadataFetcher) lookupRecording(ctx context.Context, title, artist str
 	}
 
 	return &result.Recordings[0], nil
+}
+
+func (f *metadataFetcher) fetchCoverArtForRecording(ctx context.Context, recording *musicBrainzRecording) (string, error) {
+	if recording == nil {
+		return "", nil
+	}
+
+	var firstErr error
+	for _, release := range recording.Releases {
+		releaseID := strings.TrimSpace(release.ID)
+		if releaseID == "" {
+			continue
+		}
+		artURL, err := f.fetchCoverArt(ctx, releaseID)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("release %s: %w", releaseID, err)
+			}
+			continue
+		}
+		if artURL != "" {
+			return artURL, nil
+		}
+	}
+
+	return "", firstErr
 }
 
 func (f *metadataFetcher) fetchCoverArt(ctx context.Context, releaseID string) (string, error) {
