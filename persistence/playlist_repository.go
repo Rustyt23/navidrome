@@ -132,7 +132,9 @@ func (r *playlistRepository) movePlaylistFile(pls *model.Playlist) error {
 		return nil
 	}
 
-	destDir := filepath.Join(filepath.Dir(pls.Path), "deleted playlist")
+	playlistDir := filepath.Dir(pls.Path)
+	parentDir := filepath.Dir(playlistDir)
+	destDir := filepath.Join(parentDir, "deleted playlists")
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("creating deleted playlist folder %s: %w", destDir, err)
 	}

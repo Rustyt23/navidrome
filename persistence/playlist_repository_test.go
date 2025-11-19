@@ -120,7 +120,7 @@ var _ = Describe("PlaylistRepository", func() {
 		_, err := os.Stat(playlistPath)
 		Expect(os.IsNotExist(err)).To(BeTrue())
 
-		deletedDir := filepath.Join(playlistDir, "deleted playlist")
+		deletedDir := filepath.Join(filepath.Dir(playlistDir), "deleted playlists")
 		entries, err := os.ReadDir(deletedDir)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(entries).ToNot(BeEmpty())
