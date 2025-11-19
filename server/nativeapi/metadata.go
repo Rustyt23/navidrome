@@ -97,7 +97,11 @@ func (n *Router) fetchMetadataHandler() http.HandlerFunc {
 				updates = append(updates, normalized)
 				continue
 			}
-			updates = append(updates, normalizeSongPayload(enriched))
+			updated := normalizeSongPayload(enriched)
+			if err := n.persistMetadata(ctx, updated); err != nil {
+				log.Warn(ctx, "Unable to persist metadata to media file", "songId", updated.ID, "err", err)
+			}
+			updates = append(updates, updated)
 		}
 
 		writeJSON(w, metadataFetchResponse{Songs: updates})
