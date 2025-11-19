@@ -23,7 +23,6 @@ import {
   SongContextMenu,
   SongDatagrid,
   SongTitleField,
-  SongSimpleList,
   QualityInfo,
   useSelectedFields,
   useResourceRefresh,
@@ -198,7 +197,6 @@ const PlaylistSongs = ({
   const ids = contextIds
   const data = contextData
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
-  const isMobile = useMediaQuery('(max-width:768px)')
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
   const dataProvider = useDataProvider()
@@ -507,34 +505,23 @@ const PlaylistSongs = ({
               />
             </BulkActionsToolbar>
             {showDuplicatesOnly && listContext.loading && <LinearProgress />}
-            {isMobile ? (
-              <SongSimpleList
+            <ReorderableList
+              readOnly={readOnly}
+              onDragEnd={handleDragEnd}
+              nodeSelector={'tr'}
+              handleSelector={'.draggable'}
+            >
+              <SongDatagrid
+                rowClick={handleRowClick}
                 {...filteredListContext}
                 hasBulkActions={!readOnly}
-                selectedIds={selectedIds}
-                contextMenuProps={contextMenuProps}
-              />
-            ) : (
-              <ReorderableList
-                readOnly={readOnly}
-                onDragEnd={handleDragEnd}
-                nodeSelector={'tr'}
-                handleSelector={'.draggable'}
+                contextAlwaysVisible={!isDesktop}
+                classes={{ row: classes.row }}
               >
-                <SongDatagrid
-                  rowClick={handleRowClick}
-                  {...filteredListContext}
-                  hasBulkActions={!readOnly}
-                  contextAlwaysVisible={!isDesktop}
-                  classes={{ row: classes.row }}
-                >
-                  {columns}
-                  <SongContextMenu
-                    {...contextMenuProps}
-                  />
-                </SongDatagrid>
-              </ReorderableList>
-            )}
+                {columns}
+                <SongContextMenu {...contextMenuProps} />
+              </SongDatagrid>
+            </ReorderableList>
           </Card>
         </div>
       </ListContextProvider>
