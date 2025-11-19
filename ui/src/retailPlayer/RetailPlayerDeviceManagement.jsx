@@ -51,6 +51,14 @@ const mapChannelListResponse = (payload) => {
     return { name: '', channels: [] }
   }
 
+  const listName = normalizeValue(
+    payload.name ||
+      payload.channelListName ||
+      payload.channelList?.name ||
+      payload.listName ||
+      payload.displayName,
+  )
+
   const channels = Array.isArray(payload.channels)
     ? payload.channels
         .map((channel) => {
@@ -67,7 +75,7 @@ const mapChannelListResponse = (payload) => {
         .filter(Boolean)
     : []
 
-  return { name: normalizeValue(payload.name), channels }
+  return { name: listName, channels }
 }
 
 const useStyles = makeStyles((theme) => {
@@ -187,7 +195,7 @@ const useStyles = makeStyles((theme) => {
   listHeader: {
     display: 'grid',
     gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(200px, 1.4fr) minmax(96px, 0.8fr)',
+      '64px minmax(220px, 2.1fr) minmax(150px, 1.1fr) minmax(240px, 1.5fr) minmax(96px, 0.8fr)',
     paddingTop: theme.spacing(0),
     paddingBottom: theme.spacing(0),
     paddingLeft: theme.spacing(1.7),
@@ -202,7 +210,7 @@ const useStyles = makeStyles((theme) => {
     gap: theme.spacing (1),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns:
-        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(160px, 1.2fr) 72px',
+        '56px minmax(180px, 2fr) minmax(140px, 1.05fr) minmax(190px, 1.3fr) 72px',
       fontSize: theme.typography.pxToRem(11),
       letterSpacing: 0.6,
     },
@@ -222,7 +230,7 @@ const useStyles = makeStyles((theme) => {
 row: {
   display: 'grid',
   gridTemplateColumns:
-    '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(200px, 1.4fr) minmax(96px, 0.8fr)',
+    '64px minmax(220px, 2.1fr) minmax(150px, 1.1fr) minmax(240px, 1.5fr) minmax(96px, 0.8fr)',
   alignItems: 'center',
   padding: '1px 2px',
 
@@ -241,7 +249,7 @@ row: {
   },
   [theme.breakpoints.down('sm')]: {
     gridTemplateColumns:
-      '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(160px, 1.2fr) 72px',
+      '56px minmax(180px, 2fr) minmax(140px, 1.05fr) minmax(190px, 1.3fr) 72px',
   },
 },
 
