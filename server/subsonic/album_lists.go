@@ -251,6 +251,32 @@ func (api *Router) GetRandomSongs(r *http.Request) (*responses.Subsonic, error) 
 	return response, nil
 }
 
+func (api *Router) GetSongs(r *http.Request) (*responses.Subsonic, error) {
+	p := req.Params(r)
+	count := min(p.IntOr("count", 500), 500)
+	offset := p.IntOr("offset", 0)
+
+	// Get optional library IDs from musicFolderId parameter
+	musicFolderIds, err := selectedMusicFolderIds(r, false)
+	if err != nil {
+		return nil, err
+	}
+	opts := filter.Options{Sort: "title"}
+	opts = filter.ApplyLibraryFilter(opts, musicFolderIds)
+
+	ctx := r.Context()
+	songs, err := api.getSongs(ctx, offset, count, opts)
+	if err != nil {
+		log.Error(r, "Error retrieving songs", err)
+		return nil, err
+	}
+
+	response := newResponse()
+	response.Songs = &responses.Songs{}
+	response.Songs.Songs = slice.MapWithArg(songs, ctx, childFromMediaFile)
+	return response, nil
+}
+
 func (api *Router) GetSongsByGenre(r *http.Request) (*responses.Subsonic, error) {
 	p := req.Params(r)
 	count := min(p.IntOr("count", 10), 500)

@@ -124,6 +124,7 @@ func (api *Router) routes() http.Handler {
 			} else {
 				h501(r, "getNowPlaying")
 			}
+			h(r, "getSongs", api.GetSongs)
 			h(r, "getRandomSongs", api.GetRandomSongs)
 			h(r, "getSongsByGenre", api.GetSongsByGenre)
 		})
