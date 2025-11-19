@@ -646,43 +646,13 @@ const RetailPlayerDeviceRow = memo(
     onToggleSelection,
     onKeyDown,
     onEdit,
-    isApiEnabled,
+    isOnline,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
       deviceId: node.id,
       deviceName: node.name,
       origin: 'management-list',
     })
-
-    const [isOnline, setIsOnline] = useState(null)
-
-    useEffect(() => {
-      const deviceId = node.apiId || node.id
-      if (!isApiEnabled || !deviceId) {
-        setIsOnline(null)
-        return undefined
-      }
-
-      const abortController = new AbortController()
-      const statusUrl = `/api/retailplayer/devices/${encodeURIComponent(
-        deviceId,
-      )}/status`
-
-      httpClient(statusUrl, { signal: abortController.signal })
-        .then(({ json }) => {
-          const uptime = json?.status?.upTime ?? json?.status?.uptime
-          const hasStatus =
-            uptime !== undefined && uptime !== null && String(uptime).trim() !== ''
-          setIsOnline(hasStatus)
-        })
-        .catch((error) => {
-          if (error?.name !== 'AbortError') {
-            setIsOnline(false)
-          }
-        })
-
-      return () => abortController.abort()
-    }, [isApiEnabled, node.apiId, node.id])
 
     return (
       <div
@@ -757,11 +727,12 @@ RetailPlayerDeviceRow.propTypes = {
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
-  isApiEnabled: PropTypes.bool.isRequired,
+  isOnline: PropTypes.bool,
 }
 
 RetailPlayerDeviceRow.defaultProps = {
   channelCount: null,
+  isOnline: null,
 }
 
 RetailPlayerDeviceRow.displayName = 'RetailPlayerDeviceRow'
@@ -786,6 +757,8 @@ const RetailPlayerDeviceManagement = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deviceStatusMap, setDeviceStatusMap] = useState(() => new Map())
+  const [statusLoading, setStatusLoading] = useState(false)
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
   const { countsByDeviceId: channelCountsByDeviceId } =
     useRetailPlayerChannelCounts(devices, isApiEnabled)
@@ -810,6 +783,71 @@ const RetailPlayerDeviceManagement = () => {
     })
     return map
   }, [devices])
+
+  useEffect(() => {
+    if (!isApiEnabled) {
+      setDeviceStatusMap(new Map())
+      setStatusLoading(false)
+      return undefined
+    }
+
+    if (!devices?.length) {
+      setDeviceStatusMap(new Map())
+      setStatusLoading(false)
+      return undefined
+    }
+
+    const abortController = new AbortController()
+    let isCancelled = false
+
+    const fetchStatuses = async () => {
+      setStatusLoading(true)
+      const results = await Promise.all(
+        devices.map(async (device) => {
+          const deviceId = device.apiId || device.id
+          if (!deviceId) {
+            return [device.id, null]
+          }
+
+          try {
+            const statusUrl = `/api/retailplayer/devices/${encodeURIComponent(
+              deviceId,
+            )}/status`
+            const { json } = await httpClient(statusUrl, {
+              signal: abortController.signal,
+            })
+            const uptime = json?.status?.upTime ?? json?.status?.uptime
+            const hasStatus =
+              uptime !== undefined &&
+              uptime !== null &&
+              String(uptime).trim() !== ''
+            return [device.id, hasStatus]
+          } catch (error) {
+            if (error?.name === 'AbortError') {
+              return null
+            }
+            return [device.id, false]
+          }
+        }),
+      )
+
+      if (isCancelled) {
+        return
+      }
+
+      const nextStatusMap = new Map(results.filter(Boolean))
+      setDeviceStatusMap(nextStatusMap)
+      setStatusLoading(false)
+    }
+
+    fetchStatuses()
+
+    return () => {
+      isCancelled = true
+      abortController.abort()
+      setStatusLoading(false)
+    }
+  }, [devices, isApiEnabled])
 
   const folderChildrenMap = useMemo(() => {
     const map = new Map()
@@ -1325,6 +1363,8 @@ const RetailPlayerDeviceManagement = () => {
     }, 0)
   }, [])
 
+  const isLoading = loading || statusLoading
+
   const renderRows = (nodes) =>
     nodes.map((node) => {
       if (node.type === 'folder') {
@@ -1348,19 +1388,20 @@ const RetailPlayerDeviceManagement = () => {
       const isSelected = selectedIds.has(node.id)
       const rowKey = node.treeKey || node.id
       const channelCount = channelCountsByDeviceId?.[node.id]
+      const isOnline = deviceStatusMap.get(node.id) ?? null
       return (
-          <RetailPlayerDeviceRow
-            key={`device-row-${rowKey}`}
-            node={node}
-            isSelected={isSelected}
-            classes={classes}
-            channelCount={channelCount}
-            onNavigate={handleNavigateToDevice}
-            onToggleSelection={toggleNodeSelection}
-            onKeyDown={handleRowKeyDown}
-            onEdit={handleEditDevice}
-            isApiEnabled={isApiEnabled}
-          />
+        <RetailPlayerDeviceRow
+          key={`device-row-${rowKey}`}
+          node={node}
+          isSelected={isSelected}
+          classes={classes}
+          channelCount={channelCount}
+          onNavigate={handleNavigateToDevice}
+          onToggleSelection={toggleNodeSelection}
+          onKeyDown={handleRowKeyDown}
+          onEdit={handleEditDevice}
+          isOnline={isOnline}
+        />
       )
     })
 
@@ -1493,7 +1534,7 @@ const RetailPlayerDeviceManagement = () => {
           <span>Devices / Channels</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
-        {loading ? (
+        {isLoading ? (
           <div className={classes.loaderState}>
             <CircularProgress size={20} />
             <Typography variant="body2">Loading devices…</Typography>
