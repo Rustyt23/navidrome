@@ -44,6 +44,7 @@ import {
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
 import useRetailPlayerChannelCounts from './useRetailPlayerChannelCounts'
+import httpClient from '../dataProvider/httpClient'
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
@@ -250,6 +251,12 @@ row: {
     color: theme.palette.primary.main,
     fontSize: theme.typography.pxToRem(16.5),
   },
+  onlineIcon: {
+    color: theme.palette.success.main,
+  },
+  offlineIcon: {
+    color: theme.palette.secondary.main,
+  },
   nameLabel: {
     display: 'flex',
     flexDirection: 'column',
@@ -332,6 +339,88 @@ row: {
   dragging: dndStyles.dragItem,
   }
 })
+
+const upTimeIsPresent = (value) => {
+  if (value === undefined || value === null) {
+    return false
+  }
+  if (typeof value === 'string') {
+    return value.trim() !== ''
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+  }
+  return true
+}
+
+const useRetailPlayerDeviceStatuses = (devices, isApiEnabled) => {
+  const [statusByDeviceId, setStatusByDeviceId] = useState({})
+
+  const fetchStatuses = useCallback(
+    (signal) => {
+      if (!isApiEnabled) {
+        setStatusByDeviceId({})
+        return Promise.resolve()
+      }
+
+      const ids = Array.from(
+        new Set(
+          (devices || [])
+            .map((device) => device?.apiId || device?.id)
+            .filter(Boolean),
+        ),
+      )
+
+      if (!ids.length) {
+        setStatusByDeviceId({})
+        return Promise.resolve()
+      }
+
+      return Promise.all(
+        ids.map((deviceId) =>
+          httpClient(
+            `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/status`,
+            { signal },
+          )
+            .then(({ json }) => ({
+              deviceId,
+              online: upTimeIsPresent(json?.status?.upTime),
+            }))
+            .catch(() => ({ deviceId, online: false })),
+        ),
+      ).then((results) => {
+        if (signal?.aborted) {
+          return
+        }
+        setStatusByDeviceId((previous) => {
+          const next = { ...previous }
+          results.forEach(({ deviceId, online }) => {
+            next[deviceId] = online
+          })
+          return next
+        })
+      })
+    },
+    [devices, isApiEnabled],
+  )
+
+  useEffect(() => {
+    const abortController = new AbortController()
+    fetchStatuses(abortController.signal)
+
+    const interval = setInterval(() => {
+      const refreshController = new AbortController()
+      fetchStatuses(refreshController.signal)
+    }, 10000)
+
+    return () => {
+      abortController.abort()
+      clearInterval(interval)
+    }
+  }, [fetchStatuses])
+
+  return statusByDeviceId
+}
 
 const FolderDialog = ({ open, onClose, onSubmit, initialValues }) => {
   const classes = useStyles()
@@ -638,6 +727,7 @@ const RetailPlayerDeviceRow = memo(
     isSelected,
     classes,
     channelCount,
+    statusByDeviceId,
     onNavigate,
     onToggleSelection,
     onKeyDown,
@@ -648,6 +738,13 @@ const RetailPlayerDeviceRow = memo(
       deviceName: node.name,
       origin: 'management-list',
     })
+
+    const isOnline = statusByDeviceId?.[node.apiId || node.id]
+    const iconClass = clsx(
+      classes.nameIcon,
+      isOnline === true && classes.onlineIcon,
+      isOnline === false && classes.offlineIcon,
+    )
 
     return (
       <div
@@ -678,7 +775,7 @@ const RetailPlayerDeviceRow = memo(
           />
         </div>
         <div className={classes.nameCell}>
-          <SpeakerGroupIcon className={classes.nameIcon} />
+          <SpeakerGroupIcon className={iconClass} />
           <div className={classes.nameLabel}>
             <Typography variant="body1" className={classes.nameTitle}>
               {node.name}
@@ -716,6 +813,7 @@ RetailPlayerDeviceRow.propTypes = {
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
   channelCount: PropTypes.number,
+  statusByDeviceId: PropTypes.object,
   onNavigate: PropTypes.func.isRequired,
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
@@ -724,6 +822,7 @@ RetailPlayerDeviceRow.propTypes = {
 
 RetailPlayerDeviceRow.defaultProps = {
   channelCount: null,
+  statusByDeviceId: null,
 }
 
 RetailPlayerDeviceRow.displayName = 'RetailPlayerDeviceRow'
@@ -751,6 +850,7 @@ const RetailPlayerDeviceManagement = () => {
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
   const { countsByDeviceId: channelCountsByDeviceId } =
     useRetailPlayerChannelCounts(devices, isApiEnabled)
+  const statusByDeviceId = useRetailPlayerDeviceStatuses(devices, isApiEnabled)
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -1317,6 +1417,7 @@ const RetailPlayerDeviceManagement = () => {
           isSelected={isSelected}
           classes={classes}
           channelCount={channelCount}
+          statusByDeviceId={statusByDeviceId}
           onNavigate={handleNavigateToDevice}
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
