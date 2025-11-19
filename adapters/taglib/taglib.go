@@ -1,11 +1,16 @@
 package taglib
 
+import "C"
+
 import (
+	"fmt"
 	"io/fs"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/storage/local"
@@ -86,6 +91,34 @@ func (e extractor) extractMetadata(filePath string) (*metadata.Info, error) {
 		AudioProperties: ap,
 		HasPicture:      tags["has_picture"] != nil && len(tags["has_picture"]) > 0 && tags["has_picture"][0] == "true",
 	}, nil
+}
+
+func WriteComment(filename string, comment string) (err error) {
+	debug.SetPanicOnFault(true)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("extractor: recovered from panic when writing comment", "file", filename, "error", r)
+			err = fmt.Errorf("extractor: recovered from panic: %v", r)
+		}
+	}()
+
+	fp := getFilename(filename)
+	defer C.free(unsafe.Pointer(fp))
+
+	cmt := C.CString(comment)
+	defer C.free(unsafe.Pointer(cmt))
+
+	res := C.taglib_write_comment(fp, cmt)
+	switch res {
+	case 0:
+		return nil
+	case C.TAGLIB_ERR_PARSE:
+		return fmt.Errorf("taglib: cannot parse file %s", filename)
+	case C.TAGLIB_ERR_AUDIO_PROPS:
+		return fmt.Errorf("taglib: cannot write tags to file %s", filename)
+	default:
+		return fmt.Errorf("taglib: unexpected error writing comment to file %s", filename)
+	}
 }
 
 // parseLyrics make sure lyrics tags have language

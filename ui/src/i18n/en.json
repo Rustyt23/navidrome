@@ -46,7 +46,19 @@
         "shuffleAll": "Shuffle All",
         "download": "Download",
         "playNext": "Play Next",
-        "info": "Get Info"
+        "info": "Get Info",
+        "editComments": "+ Edit Comments"
+      },
+      "dialogs": {
+        "editComments": {
+          "title": "Edit comments for %{smart_count} song |||| Edit comments for %{smart_count} songs",
+          "commentLabel": "Comment",
+          "save": "Save",
+          "cancel": "Cancel"
+        }
+      },
+      "notifications": {
+        "commentsUpdated": "Comment updated for %{smart_count} song |||| Comment updated for %{smart_count} songs"
       }
     },
     "album": {

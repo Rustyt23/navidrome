@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,15 +21,35 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+type mockSongCommentWriter struct {
+	calls []struct {
+		path    string
+		comment string
+	}
+	err error
+}
+
+func (m *mockSongCommentWriter) Update(path, comment string) error {
+	m.calls = append(m.calls, struct {
+		path    string
+		comment string
+	}{path: path, comment: comment})
+	if m.err != nil {
+		return m.err
+	}
+	return nil
+}
+
 var _ = Describe("Song Endpoints", func() {
 	var (
-		router    http.Handler
-		ds        *tests.MockDataStore
-		mfRepo    *tests.MockMediaFileRepo
-		userRepo  *tests.MockedUserRepo
-		w         *httptest.ResponseRecorder
-		testUser  model.User
-		testSongs model.MediaFiles
+		router        http.Handler
+		ds            *tests.MockDataStore
+		mfRepo        *tests.MockMediaFileRepo
+		userRepo      *tests.MockedUserRepo
+		w             *httptest.ResponseRecorder
+		testUser      model.User
+		testSongs     model.MediaFiles
+		commentWriter *mockSongCommentWriter
 	)
 
 	BeforeEach(func() {
@@ -62,40 +83,46 @@ var _ = Describe("Song Endpoints", func() {
 		// Create test songs
 		testSongs = model.MediaFiles{
 			{
-				ID:        "song-1",
-				Title:     "Test Song 1",
-				Artist:    "Test Artist 1",
-				Album:     "Test Album 1",
-				AlbumID:   "album-1",
-				ArtistID:  "artist-1",
-				Duration:  180.5,
-				BitRate:   320,
-				Path:      "/music/song1.mp3",
-				Suffix:    "mp3",
-				Size:      5242880,
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				ID:          "song-1",
+				Title:       "Test Song 1",
+				Artist:      "Test Artist 1",
+				Album:       "Test Album 1",
+				AlbumID:     "album-1",
+				ArtistID:    "artist-1",
+				LibraryID:   1,
+				LibraryPath: "/music/library1",
+				Duration:    180.5,
+				BitRate:     320,
+				Path:        "song1.mp3",
+				Suffix:      "mp3",
+				Size:        5242880,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
 			},
 			{
-				ID:        "song-2",
-				Title:     "Test Song 2",
-				Artist:    "Test Artist 2",
-				Album:     "Test Album 2",
-				AlbumID:   "album-2",
-				ArtistID:  "artist-2",
-				Duration:  240.0,
-				BitRate:   256,
-				Path:      "/music/song2.mp3",
-				Suffix:    "mp3",
-				Size:      7340032,
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				ID:          "song-2",
+				Title:       "Test Song 2",
+				Artist:      "Test Artist 2",
+				Album:       "Test Album 2",
+				AlbumID:     "album-2",
+				ArtistID:    "artist-2",
+				LibraryID:   1,
+				LibraryPath: "/music/library1",
+				Duration:    240.0,
+				BitRate:     256,
+				Path:        "song2.mp3",
+				Suffix:      "mp3",
+				Size:        7340032,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
 			},
 		}
 		mfRepo.SetData(testSongs)
 
 		// Create the native API router and wrap it with the JWTVerifier middleware
 		nativeRouter := New(ds, nil, nil, nil, core.NewMockLibraryService())
+		commentWriter = &mockSongCommentWriter{}
+		nativeRouter.tagWriter = commentWriter
 		router = server.JWTVerifier(nativeRouter)
 		w = httptest.NewRecorder()
 	})
@@ -209,7 +236,7 @@ var _ = Describe("Song Endpoints", func() {
 		})
 	})
 
-	Describe("Song endpoints are read-only", func() {
+	Describe("Song modification endpoints", func() {
 		Context("POST /song", func() {
 			It("should not be available (songs are not persistable)", func() {
 				newSong := model.MediaFile{
@@ -229,21 +256,41 @@ var _ = Describe("Song Endpoints", func() {
 		})
 
 		Context("PUT /song/{id}", func() {
-			It("should not be available (songs are not persistable)", func() {
-				updatedSong := model.MediaFile{
-					ID:       "song-1",
-					Title:    "Updated Song",
-					Artist:   "Updated Artist",
-					Album:    "Updated Album",
-					Duration: 250.0,
-				}
-
-				body, _ := json.Marshal(updatedSong)
+			It("updates the comment and writes metadata", func() {
+				payload := map[string]string{"comment": "Updated comment"}
+				body, _ := json.Marshal(payload)
 				req := createAuthenticatedRequest("PUT", "/song/song-1", body)
 				router.ServeHTTP(w, req)
 
-				// Should return 405 Method Not Allowed or 404 Not Found
-				Expect(w.Code).To(Equal(http.StatusMethodNotAllowed))
+				Expect(w.Code).To(Equal(http.StatusOK))
+
+				var response model.MediaFile
+				Expect(json.Unmarshal(w.Body.Bytes(), &response)).To(Succeed())
+				Expect(response.Comment).To(Equal("Updated comment"))
+
+				stored := mfRepo.Data["song-1"]
+				Expect(stored.Comment).To(Equal("Updated comment"))
+				Expect(commentWriter.calls).To(HaveLen(1))
+				Expect(commentWriter.calls[0].path).To(Equal("/music/library1/song1.mp3"))
+				Expect(commentWriter.calls[0].comment).To(Equal("Updated comment"))
+			})
+
+			It("returns bad request when comment is missing", func() {
+				body, _ := json.Marshal(map[string]string{})
+				req := createAuthenticatedRequest("PUT", "/song/song-1", body)
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusBadRequest))
+			})
+
+			It("propagates writer errors", func() {
+				commentWriter.err = errors.New("write failed")
+				payload := map[string]string{"comment": "Another comment"}
+				body, _ := json.Marshal(payload)
+				req := createAuthenticatedRequest("PUT", "/song/song-1", body)
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusInternalServerError))
 			})
 		})
 

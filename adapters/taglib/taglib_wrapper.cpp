@@ -20,6 +20,7 @@
 #include <wavfile.h>
 #include <wavfile.h>
 #include <wavpackfile.h>
+#include <tag.h>
 
 #include "taglib_wrapper.h"
 
@@ -198,6 +199,36 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
   // Cover art has to be handled separately
   if (has_cover(f)) {
     goPutStr(id, (char *)"has_picture", (char *)"true");
+  }
+
+  return 0;
+}
+
+int taglib_write_comment(const FILENAME_CHAR_T *filename, const char *comment) {
+  TagLib::FileRef f(filename, false);
+
+  if (f.isNull()) {
+    return TAGLIB_ERR_PARSE;
+  }
+
+  TagLib::Tag *tag = f.tag();
+  if (tag == NULL) {
+    return TAGLIB_ERR_PARSE;
+  }
+
+  TagLib::File *file = f.file();
+  if (file == NULL || !file->isWritable()) {
+    return TAGLIB_ERR_AUDIO_PROPS;
+  }
+
+  if (comment == NULL) {
+    tag->setComment(TagLib::String());
+  } else {
+    tag->setComment(TagLib::String(comment, TagLib::String::UTF8));
+  }
+
+  if (!file->save()) {
+    return TAGLIB_ERR_AUDIO_PROPS;
   }
 
   return 0;

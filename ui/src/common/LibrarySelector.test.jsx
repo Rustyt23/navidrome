@@ -31,6 +31,7 @@ vi.mock('react-admin', () => ({
   useGetIdentity: () => ({ identity: mockIdentity }),
   useTranslate: () => mockTranslate,
   useRefresh: () => mockRefresh,
+  useNotify: vi.fn(() => vi.fn()),
 }))
 
 // Mock Material-UI components

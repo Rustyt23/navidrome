@@ -30,6 +30,7 @@ type Router struct {
 	insights  metrics.Insights
 	libs      core.Library
 	devices   *retailPlayerDeviceResolver
+	tagWriter songCommentWriter
 }
 
 func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
@@ -40,6 +41,7 @@ func New(ds model.DataStore, share core.Share, playlists core.Playlists, insight
 		insights:  insights,
 		libs:      libraryService,
 		devices:   newRetailPlayerDeviceResolver(),
+		tagWriter: newSongCommentWriter(),
 	}
 	r.preloadRetailPlayerDeviceMappings()
 	r.Handler = r.routes()
@@ -100,7 +102,7 @@ func (n *Router) routes() http.Handler {
 		r.Use(server.JWTRefresher)
 		r.Use(server.UpdateLastAccessMiddleware(n.ds))
 		n.R(r, "/user", model.User{}, true)
-		n.R(r, "/song", model.MediaFile{}, false)
+		n.addSongRoute(r)
 		n.R(r, "/album", model.Album{}, false)
 		n.R(r, "/artist", model.Artist{}, false)
 		n.R(r, "/genre", model.Genre{}, false)

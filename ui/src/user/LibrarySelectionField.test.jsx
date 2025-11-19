@@ -10,6 +10,7 @@ vi.mock('react-admin', () => ({
   useInput: vi.fn(),
   useTranslate: vi.fn(),
   useRecordContext: vi.fn(),
+  useNotify: vi.fn(() => vi.fn()),
 }))
 
 // Mock the SelectLibraryInput component

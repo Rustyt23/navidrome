@@ -31,6 +31,7 @@ vi.mock('react-admin', () => ({
       {children}
     </a>
   ),
+  useNotify: vi.fn(() => vi.fn()),
 }))
 
 describe('ArtistLinkField', () => {
