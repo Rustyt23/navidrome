@@ -43,7 +43,42 @@ import {
   useRetailPlayerFolderDrop,
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
-import useRetailPlayerChannelCounts from './useRetailPlayerChannelCounts'
+import httpClient from '../dataProvider/httpClient'
+import { normalizeValue } from './deviceUtils'
+
+const mapChannelListResponse = (payload) => {
+  if (!payload || typeof payload !== 'object') {
+    return { name: '', channels: [] }
+  }
+
+  const listName = normalizeValue(
+    payload.name ||
+      payload.channelListName ||
+      payload.channelList?.name ||
+      payload.channelList?.label ||
+      payload.listName ||
+      payload.displayName ||
+      payload.label,
+  )
+
+  const channels = Array.isArray(payload.channels)
+    ? payload.channels
+        .map((channel) => {
+          if (!channel || typeof channel !== 'object') {
+            return null
+          }
+          const id = normalizeValue(channel.id)
+          const name = normalizeValue(channel.name)
+          if (!id && !name) {
+            return null
+          }
+          return { id, name: name || id }
+        })
+        .filter(Boolean)
+    : []
+
+  return { name: listName, channels }
+}
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
@@ -162,7 +197,7 @@ const useStyles = makeStyles((theme) => {
   listHeader: {
     display: 'grid',
     gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
+      '64px minmax(210px, 1.9fr) minmax(170px, 1.15fr) minmax(270px, 1.6fr) minmax(96px, 0.85fr)',
     paddingTop: theme.spacing(0),
     paddingBottom: theme.spacing(0),
     paddingLeft: theme.spacing(1.7),
@@ -176,7 +211,8 @@ const useStyles = makeStyles((theme) => {
     alignItems: 'center',
     gap: theme.spacing (1),
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+      gridTemplateColumns:
+        '56px minmax(170px, 1.8fr) minmax(150px, 1.1fr) minmax(210px, 1.4fr) 72px',
       fontSize: theme.typography.pxToRem(11),
       letterSpacing: 0.6,
     },
@@ -193,31 +229,31 @@ const useStyles = makeStyles((theme) => {
     justifySelf: 'flex-end',
   },
 
-row: {
-  display: 'grid',
-  gridTemplateColumns:
-    '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
-  alignItems: 'center',
-  padding: '1px 2px',
-
-
-  borderTop: `1px solid ${theme.palette.divider}`,
-  minHeight: 28, // 🔥 ensures consistent compact row height
-  '& .MuiTypography-body1': {
-    fontSize: '0.8rem', // reduce font size inside cell
-    lineHeight: 1.2,
-  },
-  '& .MuiIconButton-root': {
-    padding: 2, // shrink edit icon area
-  },
-  '& .MuiCheckbox-root': {
-    padding: 2, // shrink checkbox hit area
-  },
-  [theme.breakpoints.down('sm')]: {
+  row: {
+    display: 'grid',
     gridTemplateColumns:
-      '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+      '64px minmax(210px, 1.9fr) minmax(170px, 1.15fr) minmax(270px, 1.6fr) minmax(96px, 0.85fr)',
+    alignItems: 'center',
+    padding: '1px 2px',
+
+
+    borderTop: `1px solid ${theme.palette.divider}`,
+    minHeight: 28, // 🔥 ensures consistent compact row height
+    '& .MuiTypography-body1': {
+      fontSize: '0.8rem', // reduce font size inside cell
+      lineHeight: 1.2,
+    },
+    '& .MuiIconButton-root': {
+      padding: 2, // shrink edit icon area
+    },
+    '& .MuiCheckbox-root': {
+      padding: 2, // shrink checkbox hit area
+    },
+    [theme.breakpoints.down('sm')]: {
+      gridTemplateColumns:
+        '56px minmax(170px, 1.8fr) minmax(150px, 1.1fr) minmax(210px, 1.4fr) 72px',
+    },
   },
-},
 
   folderRow: {
     backgroundColor: fade(theme.palette.primary.main, 0.04),
@@ -265,14 +301,13 @@ row: {
     color: theme.palette.common.white,
     fontWeight: theme.typography.fontWeightMedium,
   },
-  typeCell: {
+  channelCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
   },
-  countCell: {
+  channelListCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
-    textAlign: 'center',
   },
   actionsCell: {
     display: 'flex',
@@ -541,7 +576,6 @@ DeviceDialog.defaultProps = {
 const RetailPlayerFolderRow = memo(
   ({
     node,
-    deviceCount,
     isSelected,
     classes,
     onEnterFolder,
@@ -594,8 +628,8 @@ const RetailPlayerFolderRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>Folder</div>
-        <div className={classes.countCell}>{deviceCount}</div>
+        <div className={classes.channelCell}>—</div>
+        <div className={classes.channelListCell}>—</div>
         <div className={classes.actionsCell}>
           <Tooltip title="Edit folder">
             <IconButton
@@ -620,7 +654,6 @@ RetailPlayerFolderRow.propTypes = {
     id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
   }).isRequired,
-  deviceCount: PropTypes.number.isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
   onEnterFolder: PropTypes.func.isRequired,
@@ -637,11 +670,12 @@ const RetailPlayerDeviceRow = memo(
     node,
     isSelected,
     classes,
-    channelCount,
     onNavigate,
     onToggleSelection,
     onKeyDown,
     onEdit,
+    channelLabel,
+    channelListLabel,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
       deviceId: node.id,
@@ -685,10 +719,8 @@ const RetailPlayerDeviceRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>Device</div>
-        <div className={classes.countCell}>
-          {typeof channelCount === 'number' ? channelCount : '—'}
-        </div>
+        <div className={classes.channelCell}>{channelLabel || '—'}</div>
+        <div className={classes.channelListCell}>{channelListLabel || '—'}</div>
         <div className={classes.actionsCell}>
           <Tooltip title="Edit device">
             <IconButton
@@ -715,15 +747,12 @@ RetailPlayerDeviceRow.propTypes = {
   }).isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
-  channelCount: PropTypes.number,
   onNavigate: PropTypes.func.isRequired,
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
-}
-
-RetailPlayerDeviceRow.defaultProps = {
-  channelCount: null,
+  channelLabel: PropTypes.string,
+  channelListLabel: PropTypes.string,
 }
 
 RetailPlayerDeviceRow.displayName = 'RetailPlayerDeviceRow'
@@ -749,8 +778,7 @@ const RetailPlayerDeviceManagement = () => {
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
-  const { countsByDeviceId: channelCountsByDeviceId } =
-    useRetailPlayerChannelCounts(devices, isApiEnabled)
+  const [channelListDetails, setChannelListDetails] = useState({})
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -773,6 +801,75 @@ const RetailPlayerDeviceManagement = () => {
     return map
   }, [devices])
 
+  useEffect(() => {
+    if (!isApiEnabled) {
+      setChannelListDetails({})
+      return undefined
+    }
+
+    const uniqueChannelListIds = Array.from(
+      new Set(
+        devices
+          .map((device) => normalizeValue(device.channelList))
+          .filter(Boolean),
+      ),
+    )
+    const missing = uniqueChannelListIds.filter(
+      (channelListId) => !channelListDetails[channelListId],
+    )
+
+    if (!missing.length) {
+      return undefined
+    }
+
+    const abortController = new AbortController()
+
+    missing.forEach((channelListId) => {
+      httpClient(
+        `/api/retailplayer/channel-lists/${encodeURIComponent(
+          channelListId,
+        )}/channels`,
+        { signal: abortController.signal },
+      )
+        .then(({ json }) => {
+          if (abortController.signal.aborted) {
+            return
+          }
+          const mapped = mapChannelListResponse(json)
+          setChannelListDetails((previous) => {
+            if (previous[channelListId]) {
+              return previous
+            }
+            return {
+              ...previous,
+              [channelListId]: {
+                name: mapped.name || '',
+                channels: mapped.channels,
+              },
+            }
+          })
+        })
+        .catch(() => {
+          if (abortController.signal.aborted) {
+            return
+          }
+          setChannelListDetails((previous) => {
+            if (previous[channelListId]) {
+              return previous
+            }
+            return {
+              ...previous,
+              [channelListId]: { name: '', channels: [] },
+            }
+          })
+        })
+    })
+
+    return () => {
+      abortController.abort()
+    }
+  }, [channelListDetails, devices, isApiEnabled])
+
   const folderChildrenMap = useMemo(() => {
     const map = new Map()
     folders.forEach((folder) => {
@@ -786,6 +883,26 @@ const RetailPlayerDeviceManagement = () => {
     })
     return map
   }, [folders])
+
+  const deviceChannelLabels = useMemo(() => {
+    const mapping = {}
+
+    devices.forEach((device) => {
+      const channelListId = normalizeValue(device.channelList)
+      const channelId = normalizeValue(device.channel)
+      const listDetails = channelListId ? channelListDetails[channelListId] : null
+      const channelName = channelId
+        ? listDetails?.channels.find((channel) => channel.id === channelId)?.name ||
+          channelId
+        : ''
+      mapping[device.id] = {
+        channel: channelName,
+        channelList: listDetails?.name || '',
+      }
+    })
+
+    return mapping
+  }, [channelListDetails, devices])
 
   const collectDescendantFolderIds = useCallback(
     (rootId) => {
@@ -1275,28 +1392,14 @@ const RetailPlayerDeviceManagement = () => {
     }
   }
 
-  const countDevices = useCallback((node) => {
-    if (!node || !Array.isArray(node.children)) {
-      return 0
-    }
-    return node.children.reduce((acc, child) => {
-      if (child.type === 'device') {
-        return acc + 1
-      }
-      return acc + countDevices(child)
-    }, 0)
-  }, [])
-
   const renderRows = (nodes) =>
     nodes.map((node) => {
       if (node.type === 'folder') {
-        const deviceCount = countDevices(node)
         const isSelected = selectedIds.has(node.id)
         return (
           <RetailPlayerFolderRow
             key={`folder-row-${node.id}`}
             node={node}
-            deviceCount={deviceCount}
             isSelected={isSelected}
             classes={classes}
             onEnterFolder={handleEnterFolder}
@@ -1309,18 +1412,18 @@ const RetailPlayerDeviceManagement = () => {
       }
       const isSelected = selectedIds.has(node.id)
       const rowKey = node.treeKey || node.id
-      const channelCount = channelCountsByDeviceId?.[node.id]
       return (
         <RetailPlayerDeviceRow
           key={`device-row-${rowKey}`}
           node={node}
           isSelected={isSelected}
           classes={classes}
-          channelCount={channelCount}
           onNavigate={handleNavigateToDevice}
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
           onEdit={handleEditDevice}
+          channelLabel={deviceChannelLabels[node.id]?.channel}
+          channelListLabel={deviceChannelLabels[node.id]?.channelList}
         />
       )
     })
@@ -1450,8 +1553,8 @@ const RetailPlayerDeviceManagement = () => {
             />
           </div>
           <span>Name</span>
-          <span>Type</span>
-          <span>Devices / Channels</span>
+          <span>Channel</span>
+          <span>Channel List</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
         {loading ? (
