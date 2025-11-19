@@ -758,7 +758,6 @@ const RetailPlayerDeviceManagement = () => {
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deviceStatusMap, setDeviceStatusMap] = useState(() => new Map())
-  const [statusLoading, setStatusLoading] = useState(false)
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
   const { countsByDeviceId: channelCountsByDeviceId } =
     useRetailPlayerChannelCounts(devices, isApiEnabled)
@@ -785,15 +784,33 @@ const RetailPlayerDeviceManagement = () => {
   }, [devices])
 
   useEffect(() => {
-    if (!isApiEnabled) {
+    if (!devices?.length) {
       setDeviceStatusMap(new Map())
-      setStatusLoading(false)
       return undefined
     }
 
-    if (!devices?.length) {
-      setDeviceStatusMap(new Map())
-      setStatusLoading(false)
+    try {
+      const rawCache = sessionStorage.getItem('retailPlayerDeviceStatusMap')
+      if (rawCache) {
+        const parsedCache = JSON.parse(rawCache)
+        if (parsedCache && typeof parsedCache === 'object') {
+          const hydrated = new Map()
+          devices.forEach((device) => {
+            const cachedValue = parsedCache[device.id]
+            if (typeof cachedValue === 'boolean') {
+              hydrated.set(device.id, cachedValue)
+            }
+          })
+          if (hydrated.size) {
+            setDeviceStatusMap(hydrated)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Unable to hydrate retail player device statuses', err)
+    }
+
+    if (!isApiEnabled) {
       return undefined
     }
 
@@ -801,7 +818,6 @@ const RetailPlayerDeviceManagement = () => {
     let isCancelled = false
 
     const fetchStatuses = async () => {
-      setStatusLoading(true)
       const results = await Promise.all(
         devices.map(async (device) => {
           const deviceId = device.apiId || device.id
@@ -837,7 +853,21 @@ const RetailPlayerDeviceManagement = () => {
 
       const nextStatusMap = new Map(results.filter(Boolean))
       setDeviceStatusMap(nextStatusMap)
-      setStatusLoading(false)
+
+      try {
+        const cachePayload = {}
+        nextStatusMap.forEach((value, key) => {
+          if (typeof value === 'boolean') {
+            cachePayload[key] = value
+          }
+        })
+        sessionStorage.setItem(
+          'retailPlayerDeviceStatusMap',
+          JSON.stringify(cachePayload),
+        )
+      } catch (err) {
+        console.warn('Unable to cache retail player device statuses', err)
+      }
     }
 
     fetchStatuses()
@@ -845,7 +875,6 @@ const RetailPlayerDeviceManagement = () => {
     return () => {
       isCancelled = true
       abortController.abort()
-      setStatusLoading(false)
     }
   }, [devices, isApiEnabled])
 
@@ -1363,7 +1392,7 @@ const RetailPlayerDeviceManagement = () => {
     }, 0)
   }, [])
 
-  const isLoading = loading || statusLoading
+  const isLoading = loading
 
   const renderRows = (nodes) =>
     nodes.map((node) => {
