@@ -13,6 +13,7 @@ import (
 
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/utils/str"
 )
 
 type fileMetadataUpdate struct {
@@ -59,10 +60,66 @@ func (n *Router) persistMetadata(ctx context.Context, song metadataSongPayload) 
 		ArtworkURL:  song.ArtworkURL,
 	}
 
-	if err := writeTagsWithExiftool(ctx, mf.AbsolutePath(), update); err != nil {
+	artWritten, err := writeTagsWithExiftool(ctx, mf.AbsolutePath(), update)
+	if err != nil {
 		return err
 	}
-	return nil
+	return updateMediaFileRecord(repo, mf, update, artWritten)
+}
+
+func updateMediaFileRecord(repo model.MediaFileRepository, mf *model.MediaFile, update fileMetadataUpdate, artWritten bool) error {
+	if repo == nil || mf == nil {
+		return errors.New("media file repository unavailable")
+	}
+	if !applyUpdateToMediaFile(mf, update, artWritten) {
+		return nil
+	}
+	return repo.Put(mf)
+}
+
+func applyUpdateToMediaFile(mf *model.MediaFile, update fileMetadataUpdate, artWritten bool) bool {
+	changed := false
+	if update.Title != "" && update.Title != mf.Title {
+		mf.Title = update.Title
+		mf.OrderTitle = str.SanitizeFieldForSorting(mf.Title)
+		changed = true
+	}
+	if update.Artist != "" && update.Artist != mf.Artist {
+		mf.Artist = update.Artist
+		mf.OrderArtistName = str.SanitizeFieldForSortingNoArticle(mf.Artist)
+		changed = true
+	}
+	if update.Album != "" && update.Album != mf.Album {
+		mf.Album = update.Album
+		mf.OrderAlbumName = str.SanitizeFieldForSortingNoArticle(mf.Album)
+		changed = true
+	}
+	if update.AlbumArtist != "" && update.AlbumArtist != mf.AlbumArtist {
+		mf.AlbumArtist = update.AlbumArtist
+		mf.OrderAlbumArtistName = str.SanitizeFieldForSortingNoArticle(mf.AlbumArtist)
+		changed = true
+	}
+	if update.Genre != "" && update.Genre != mf.Genre {
+		mf.Genre = update.Genre
+		changed = true
+	}
+	if update.Year > 0 && update.Year != mf.Year {
+		mf.Year = update.Year
+		changed = true
+	}
+	if update.Track > 0 && update.Track != mf.TrackNumber {
+		mf.TrackNumber = update.Track
+		changed = true
+	}
+	if update.Disc > 0 && update.Disc != mf.DiscNumber {
+		mf.DiscNumber = update.Disc
+		changed = true
+	}
+	if artWritten && !mf.HasCoverArt {
+		mf.HasCoverArt = true
+		changed = true
+	}
+	return changed
 }
 
 func coalesceString(values ...string) string {
@@ -90,12 +147,13 @@ func selectYear(songYear *int, current int) int {
 	return 0
 }
 
-func writeTagsWithExiftool(ctx context.Context, filePath string, update fileMetadataUpdate) error {
+func writeTagsWithExiftool(ctx context.Context, filePath string, update fileMetadataUpdate) (bool, error) {
 	if filePath == "" {
-		return errors.New("empty media file path")
+		return false, errors.New("empty media file path")
 	}
 
 	args := []string{"-overwrite_original"}
+	artWritten := false
 	addString := func(key, value string) {
 		if strings.TrimSpace(value) == "" {
 			return
@@ -124,6 +182,7 @@ func writeTagsWithExiftool(ctx context.Context, filePath string, update fileMeta
 			cleanup = closer
 			args = append(args, "-Picture=")
 			args = append(args, fmt.Sprintf("-Picture<=%s", artPath))
+			artWritten = true
 		} else {
 			log.Warn(ctx, "Unable to download artwork for metadata persistence", "url", update.ArtworkURL, "err", err)
 		}
@@ -132,16 +191,16 @@ func writeTagsWithExiftool(ctx context.Context, filePath string, update fileMeta
 
 	if len(args) == 1 {
 		// No updates to write
-		return nil
+		return artWritten, nil
 	}
 
 	args = append(args, filePath)
 	cmd := exec.CommandContext(ctx, "exiftool", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("exiftool failed: %w: %s", err, strings.TrimSpace(string(output)))
+		return false, fmt.Errorf("exiftool failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	return nil
+	return artWritten, nil
 }
 
 func downloadArtworkFile(ctx context.Context, url string) (string, func(), error) {
