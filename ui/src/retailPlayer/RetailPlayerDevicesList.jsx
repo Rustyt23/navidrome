@@ -1,10 +1,44 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
 import { Typography, ButtonBase, TextField } from '@material-ui/core'
 import { Title, useTranslate } from 'react-admin'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import { useHistory } from 'react-router-dom'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
+import httpClient from '../dataProvider/httpClient'
+import { normalizeValue } from './deviceUtils'
+
+const mapChannelListResponse = (payload) => {
+  if (!payload || typeof payload !== 'object') {
+    return { name: '', channels: [] }
+  }
+
+  const listName = normalizeValue(
+    payload.name ||
+      payload.channelListName ||
+      payload.channelList?.name ||
+      payload.listName ||
+      payload.displayName,
+  )
+
+  const channels = Array.isArray(payload.channels)
+    ? payload.channels
+        .map((channel) => {
+          if (!channel || typeof channel !== 'object') {
+            return null
+          }
+          const id = normalizeValue(channel.id)
+          const name = normalizeValue(channel.name)
+          if (!id && !name) {
+            return null
+          }
+          return { id, name: name || id }
+        })
+        .filter(Boolean)
+    : []
+
+  return { name: listName, channels }
+}
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -163,7 +197,9 @@ const RetailPlayerDevicesList = () => {
     devices,
     error: devicesError,
     isLoading: devicesLoading,
+    isApiEnabled,
   } = useRetailPlayerDevices()
+  const [channelListDetails, setChannelListDetails] = useState({})
 
   const handleNavigate = (device) => {
     if (!device) {
@@ -184,6 +220,96 @@ const RetailPlayerDevicesList = () => {
       device.name.toLowerCase().includes(normalizedTerm),
     )
   }, [devices, searchTerm])
+
+  useEffect(() => {
+    if (!isApiEnabled) {
+      setChannelListDetails({})
+      return undefined
+    }
+
+    const uniqueChannelListIds = Array.from(
+      new Set(
+        devices
+          .map((device) => normalizeValue(device.channelList))
+          .filter(Boolean),
+      ),
+    )
+
+    const missing = uniqueChannelListIds.filter(
+      (channelListId) => !channelListDetails[channelListId],
+    )
+
+    if (!missing.length) {
+      return undefined
+    }
+
+    const abortController = new AbortController()
+
+    missing.forEach((channelListId) => {
+      httpClient(
+        `/api/retailplayer/channel-lists/${encodeURIComponent(
+          channelListId,
+        )}/channels`,
+        { signal: abortController.signal },
+      )
+        .then(({ json }) => {
+          if (abortController.signal.aborted) {
+            return
+          }
+          const mapped = mapChannelListResponse(json)
+          setChannelListDetails((previous) => {
+            if (previous[channelListId]) {
+              return previous
+            }
+            return {
+              ...previous,
+              [channelListId]: {
+                name: mapped.name || channelListId,
+                channels: mapped.channels,
+              },
+            }
+          })
+        })
+        .catch(() => {
+          if (abortController.signal.aborted) {
+            return
+          }
+          setChannelListDetails((previous) => {
+            if (previous[channelListId]) {
+              return previous
+            }
+            return {
+              ...previous,
+              [channelListId]: { name: channelListId, channels: [] },
+            }
+          })
+        })
+    })
+
+    return () => {
+      abortController.abort()
+    }
+  }, [channelListDetails, devices, isApiEnabled])
+
+  const deviceChannelLabels = useMemo(() => {
+    const mapping = {}
+
+    devices.forEach((device) => {
+      const channelListId = normalizeValue(device.channelList)
+      const channelId = normalizeValue(device.channel)
+      const listDetails = channelListId ? channelListDetails[channelListId] : null
+      const channelName = channelId
+        ? listDetails?.channels.find((channel) => channel.id === channelId)?.name ||
+          channelId
+        : ''
+      mapping[device.id] = {
+        channel: channelName,
+        channelList: listDetails?.name || channelListId,
+      }
+    })
+
+    return mapping
+  }, [channelListDetails, devices])
 
   return (
     <div className={classes.root}>
@@ -229,34 +355,38 @@ const RetailPlayerDevicesList = () => {
             {translate('menu.retailPlayer.error', { _: 'Unable to load devices' })}
           </div>
         ) : filteredDevices.length > 0 ? (
-          filteredDevices.map((device) => (
-          <ButtonBase
-            key={device.apiId || device.id}
-              className={classes.buttonBase}
-              onClick={() => handleNavigate(device)}
-              focusRipple
-              aria-label={`Open ${device.name}`}
-            >
-              <span className={classes.rowButton}>
-                <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
-                  View
-                  <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+          filteredDevices.map((device) => {
+            const labels = deviceChannelLabels[device.id] || {}
+
+            return (
+              <ButtonBase
+                key={device.apiId || device.id}
+                className={classes.buttonBase}
+                onClick={() => handleNavigate(device)}
+                focusRipple
+                aria-label={`Open ${device.name}`}
+              >
+                <span className={classes.rowButton}>
+                  <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
+                    View
+                    <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+                  </span>
+                  <span className={classes.cell} data-area="name">
+                    {device.name}
+                  </span>
+                  <span className={classes.cell} data-area="channel">
+                    {labels.channel || device.channel || '—'}
+                  </span>
+                  <span className={classes.cell} data-area="channelList">
+                    {labels.channelList || device.channelList || '—'}
+                  </span>
+                  <span className={classes.cell} data-area="organization">
+                    {device.organization}
+                  </span>
                 </span>
-                <span className={classes.cell} data-area="name">
-                  {device.name}
-                </span>
-                <span className={classes.cell} data-area="channel">
-                  {device.channel}
-                </span>
-                <span className={classes.cell} data-area="channelList">
-                  {device.channelList}
-                </span>
-                <span className={classes.cell} data-area="organization">
-                  {device.organization}
-                </span>
-              </span>
-            </ButtonBase>
-          ))
+              </ButtonBase>
+            )
+          })
         ) : (
           <div className={classes.noResults}>No devices match this search.</div>
         )}
