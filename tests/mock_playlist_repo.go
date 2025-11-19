@@ -10,6 +10,10 @@ type MockPlaylistRepo struct {
 
 	Entity *model.Playlist
 	Error  error
+
+	LastUpdatedCommentIDs []string
+	LastComment           string
+	UpdateCommentError    error
 }
 
 func (m *MockPlaylistRepo) Get(_ string) (*model.Playlist, error) {
@@ -34,4 +38,20 @@ func (m *MockPlaylistRepo) Count(_ ...rest.QueryOptions) (int64, error) {
 
 func (m *MockPlaylistRepo) GetSyncedByDirectory(string) (model.Playlists, error) {
 	return nil, nil
+}
+
+func (m *MockPlaylistRepo) UpdateComment(ids []string, comment string) error {
+	if m.Error != nil {
+		return m.Error
+	}
+	if m.UpdateCommentError != nil {
+		return m.UpdateCommentError
+	}
+	m.LastUpdatedCommentIDs = append([]string{}, ids...)
+	m.LastComment = comment
+	return nil
+}
+
+func CreateMockPlaylistRepo() *MockPlaylistRepo {
+	return &MockPlaylistRepo{}
 }

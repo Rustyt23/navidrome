@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -124,6 +125,47 @@ var _ = Describe("PlaylistRepository", func() {
 			pls, err := repo.GetPlaylists("9999")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pls).To(HaveLen(0))
+		})
+	})
+
+	Describe("UpdateComment", func() {
+		It("updates the comment for playlists", func() {
+			ids := []string{plsBest.ID, plsCool.ID}
+			Expect(repo.UpdateComment(ids, "Bulk playlist comment")).To(Succeed())
+
+			updated, err := repo.Get(plsBest.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.Comment).To(Equal("Bulk playlist comment"))
+		})
+
+		Context("when user is not admin", func() {
+			var (
+				ownerRepo model.PlaylistRepository
+				otherRepo model.PlaylistRepository
+			)
+
+			BeforeEach(func() {
+				ownerCtx := log.NewContext(context.TODO())
+				ownerCtx = request.WithUser(ownerCtx, model.User{ID: "userid", UserName: "userid", IsAdmin: false})
+				ownerRepo = NewPlaylistRepository(ownerCtx, GetDBXBuilder())
+
+				otherCtx := log.NewContext(context.TODO())
+				otherCtx = request.WithUser(otherCtx, model.User{ID: "other", UserName: "other", IsAdmin: false})
+				otherRepo = NewPlaylistRepository(otherCtx, GetDBXBuilder())
+			})
+
+			It("allows the playlist owner to update comments", func() {
+				Expect(ownerRepo.UpdateComment([]string{plsBest.ID}, "Owner comment")).To(Succeed())
+
+				updated, err := ownerRepo.Get(plsBest.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(updated.Comment).To(Equal("Owner comment"))
+			})
+
+			It("denies updates for non-owners", func() {
+				err := otherRepo.UpdateComment([]string{plsBest.ID}, "Should fail")
+				Expect(err).To(MatchError(rest.ErrPermissionDenied))
+			})
 		})
 	})
 

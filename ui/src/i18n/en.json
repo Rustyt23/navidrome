@@ -42,11 +42,18 @@
         "addToQueue": "Play Later",
         "playNow": "Play Now",
         "addToPlaylist": "Add to Playlist",
+        "editComment": "Edit Comment",
         "showInPlaylist": "Show in Playlist",
         "shuffleAll": "Shuffle All",
         "download": "Download",
         "playNext": "Play Next",
         "info": "Get Info"
+      },
+      "dialogs": {
+        "editComment": {
+          "title": "Edit Comment",
+          "description": "Update the comment metadata for the selected song. |||| Update the comment metadata for the selected songs."
+        }
       }
     },
     "album": {
@@ -221,7 +228,8 @@
         "searchOrCreate": "Search playlists or type to create new...",
         "pressEnterToCreate": "Press Enter to create new playlist",
         "removeFromSelection": "Remove from selection",
-        "setPosition": "Set song position"
+        "setPosition": "Set song position",
+        "editComment": "Edit Comment"
       },
       "notifications": {
         "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
@@ -231,6 +239,12 @@
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
         "noPlaylists": "No playlists available"
+      },
+      "dialogs": {
+        "editComment": {
+          "title": "Edit Comment",
+          "description": "Update the comment for the selected playlist. |||| Update the comment for the selected playlists."
+        }
       },
       "dialog": {
         "setPositionTitle": "Set song position",

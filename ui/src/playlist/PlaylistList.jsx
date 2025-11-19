@@ -19,6 +19,7 @@ import Switch from '@material-ui/core/Switch'
 import { useMediaQuery } from '@material-ui/core'
 import {
   DurationField,
+  EditSongCommentButton,
   List,
   Writable,
   isWritable,
@@ -116,6 +117,7 @@ const PlaylistListBulkActions = (props) => (
   <>
     <ChangePublicStatusButton public={true} {...props} />
     <ChangePublicStatusButton public={false} {...props} />
+    <EditSongCommentButton {...props} />
     <BulkDeleteButton {...props} />
   </>
 )

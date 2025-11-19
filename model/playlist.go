@@ -127,6 +127,8 @@ type PlaylistRepository interface {
 
 	UpdatePlaylistFolder(id string, playlistFolderId *string) error
 
+	UpdateComment(ids []string, comment string) error
+
 	GetAllByPlaylistFolder(options ...QueryOptions) (Playlists, error)
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/consts"
@@ -22,13 +23,14 @@ import (
 
 var _ = Describe("Song Endpoints", func() {
 	var (
-		router    http.Handler
-		ds        *tests.MockDataStore
-		mfRepo    *tests.MockMediaFileRepo
-		userRepo  *tests.MockedUserRepo
-		w         *httptest.ResponseRecorder
-		testUser  model.User
-		testSongs model.MediaFiles
+		router       http.Handler
+		ds           *tests.MockDataStore
+		mfRepo       *tests.MockMediaFileRepo
+		playlistRepo *tests.MockPlaylistRepo
+		userRepo     *tests.MockedUserRepo
+		w            *httptest.ResponseRecorder
+		testUser     model.User
+		testSongs    model.MediaFiles
 	)
 
 	BeforeEach(func() {
@@ -37,10 +39,12 @@ var _ = Describe("Song Endpoints", func() {
 
 		// Setup mock repositories
 		mfRepo = tests.CreateMockMediaFileRepo()
+		playlistRepo = tests.CreateMockPlaylistRepo()
 		userRepo = tests.CreateMockUserRepo()
 
 		ds = &tests.MockDataStore{
 			MockedMediaFile: mfRepo,
+			MockedPlaylist:  playlistRepo,
 			MockedUser:      userRepo,
 			MockedProperty:  &tests.MockedPropertyRepo{},
 		}
@@ -225,6 +229,138 @@ var _ = Describe("Song Endpoints", func() {
 
 				// Should return 405 Method Not Allowed or 404 Not Found
 				Expect(w.Code).To(Equal(http.StatusMethodNotAllowed))
+			})
+
+			Describe("PUT /song/comment", func() {
+				var adminUser model.User
+
+				BeforeEach(func() {
+					adminUser = model.User{
+						ID:       "admin-1",
+						UserName: "admin",
+						Name:     "Admin",
+						IsAdmin:  true,
+					}
+					Expect(userRepo.Put(&adminUser)).To(Succeed())
+				})
+
+				It("updates comments for the given songs", func() {
+					payload := map[string]any{
+						"ids":     []string{"song-1", "song-2"},
+						"comment": "New comment",
+					}
+					body, _ := json.Marshal(payload)
+					req := createUnauthenticatedRequest("PUT", "/song/comment", body)
+
+					token, err := auth.CreateToken(&adminUser)
+					Expect(err).ToNot(HaveOccurred())
+					req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusOK))
+					Expect(mfRepo.LastComment).To(Equal("New comment"))
+					Expect(mfRepo.LastUpdatedCommentIDs).To(ConsistOf("song-1", "song-2"))
+				})
+
+				It("returns forbidden for non-admin users", func() {
+					payload := map[string]any{
+						"ids":     []string{"song-1"},
+						"comment": "Should fail",
+					}
+					body, _ := json.Marshal(payload)
+					req := createAuthenticatedRequest("PUT", "/song/comment", body)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusForbidden))
+				})
+
+				It("validates presence of ids", func() {
+					payload := map[string]any{
+						"ids":     []string{},
+						"comment": "Missing ids",
+					}
+					body, _ := json.Marshal(payload)
+					req := createUnauthenticatedRequest("PUT", "/song/comment", body)
+
+					token, err := auth.CreateToken(&adminUser)
+					Expect(err).ToNot(HaveOccurred())
+					req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusBadRequest))
+				})
+			})
+
+			Describe("PUT /playlist/comment", func() {
+				var adminUser model.User
+
+				BeforeEach(func() {
+					adminUser = model.User{
+						ID:       "admin-1",
+						UserName: "admin",
+						Name:     "Admin",
+						IsAdmin:  true,
+					}
+					Expect(userRepo.Put(&adminUser)).To(Succeed())
+				})
+
+				It("updates comments for the given playlists", func() {
+					payload := map[string]any{
+						"ids":     []string{"playlist-1", "playlist-2"},
+						"comment": "Playlist note",
+					}
+					body, _ := json.Marshal(payload)
+					req := createUnauthenticatedRequest("PUT", "/playlist/comment", body)
+
+					token, err := auth.CreateToken(&adminUser)
+					Expect(err).ToNot(HaveOccurred())
+					req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusOK))
+					Expect(playlistRepo.LastComment).To(Equal("Playlist note"))
+					Expect(playlistRepo.LastUpdatedCommentIDs).To(ConsistOf("playlist-1", "playlist-2"))
+				})
+
+				It("returns forbidden when repository denies access", func() {
+					playlistRepo.UpdateCommentError = rest.ErrPermissionDenied
+
+					payload := map[string]any{
+						"ids":     []string{"playlist-1"},
+						"comment": "Should fail",
+					}
+					body, _ := json.Marshal(payload)
+					req := createUnauthenticatedRequest("PUT", "/playlist/comment", body)
+
+					token, err := auth.CreateToken(&adminUser)
+					Expect(err).ToNot(HaveOccurred())
+					req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusForbidden))
+				})
+
+				It("validates presence of ids", func() {
+					payload := map[string]any{
+						"ids":     []string{},
+						"comment": "Missing ids",
+					}
+					body, _ := json.Marshal(payload)
+					req := createUnauthenticatedRequest("PUT", "/playlist/comment", body)
+
+					token, err := auth.CreateToken(&adminUser)
+					Expect(err).ToNot(HaveOccurred())
+					req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusBadRequest))
+				})
 			})
 		})
 
