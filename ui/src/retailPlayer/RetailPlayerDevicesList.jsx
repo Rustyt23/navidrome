@@ -378,7 +378,7 @@ const RetailPlayerDevicesList = () => {
                     {labels.channel || device.channel || '—'}
                   </span>
                   <span className={classes.cell} data-area="channelList">
-                    {labels.channelList || device.channelList || '—'}
+                    {labels.channelList || '-'}
                   </span>
                   <span className={classes.cell} data-area="organization">
                     {device.organization}
