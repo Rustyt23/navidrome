@@ -35,6 +35,7 @@ import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
 import PropTypes from 'prop-types'
 import { useHistory } from 'react-router-dom'
+import httpClient from '../dataProvider/httpClient'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 import AddToFolderDialog from './AddToFolderDialog'
 import useAssignRetailPlayerDeviceToFolder from './useAssignRetailPlayerDeviceToFolder'
@@ -249,6 +250,9 @@ row: {
   nameIcon: {
     color: theme.palette.primary.main,
     fontSize: theme.typography.pxToRem(16.5),
+  },
+  onlineIcon: {
+    color: theme.palette.success.main,
   },
   nameLabel: {
     display: 'flex',
@@ -642,12 +646,43 @@ const RetailPlayerDeviceRow = memo(
     onToggleSelection,
     onKeyDown,
     onEdit,
+    isApiEnabled,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
       deviceId: node.id,
       deviceName: node.name,
       origin: 'management-list',
     })
+
+    const [isOnline, setIsOnline] = useState(null)
+
+    useEffect(() => {
+      const deviceId = node.apiId || node.id
+      if (!isApiEnabled || !deviceId) {
+        setIsOnline(null)
+        return undefined
+      }
+
+      const abortController = new AbortController()
+      const statusUrl = `/api/retailplayer/devices/${encodeURIComponent(
+        deviceId,
+      )}/status`
+
+      httpClient(statusUrl, { signal: abortController.signal })
+        .then(({ json }) => {
+          const uptime = json?.status?.upTime ?? json?.status?.uptime
+          const hasStatus =
+            uptime !== undefined && uptime !== null && String(uptime).trim() !== ''
+          setIsOnline(hasStatus)
+        })
+        .catch((error) => {
+          if (error?.name !== 'AbortError') {
+            setIsOnline(false)
+          }
+        })
+
+      return () => abortController.abort()
+    }, [isApiEnabled, node.apiId, node.id])
 
     return (
       <div
@@ -678,7 +713,9 @@ const RetailPlayerDeviceRow = memo(
           />
         </div>
         <div className={classes.nameCell}>
-          <SpeakerGroupIcon className={classes.nameIcon} />
+          <SpeakerGroupIcon
+            className={clsx(classes.nameIcon, isOnline && classes.onlineIcon)}
+          />
           <div className={classes.nameLabel}>
             <Typography variant="body1" className={classes.nameTitle}>
               {node.name}
@@ -720,6 +757,7 @@ RetailPlayerDeviceRow.propTypes = {
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
+  isApiEnabled: PropTypes.bool.isRequired,
 }
 
 RetailPlayerDeviceRow.defaultProps = {
@@ -1311,17 +1349,18 @@ const RetailPlayerDeviceManagement = () => {
       const rowKey = node.treeKey || node.id
       const channelCount = channelCountsByDeviceId?.[node.id]
       return (
-        <RetailPlayerDeviceRow
-          key={`device-row-${rowKey}`}
-          node={node}
-          isSelected={isSelected}
-          classes={classes}
-          channelCount={channelCount}
-          onNavigate={handleNavigateToDevice}
-          onToggleSelection={toggleNodeSelection}
-          onKeyDown={handleRowKeyDown}
-          onEdit={handleEditDevice}
-        />
+          <RetailPlayerDeviceRow
+            key={`device-row-${rowKey}`}
+            node={node}
+            isSelected={isSelected}
+            classes={classes}
+            channelCount={channelCount}
+            onNavigate={handleNavigateToDevice}
+            onToggleSelection={toggleNodeSelection}
+            onKeyDown={handleRowKeyDown}
+            onEdit={handleEditDevice}
+            isApiEnabled={isApiEnabled}
+          />
       )
     })
 
