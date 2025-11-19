@@ -264,7 +264,7 @@ const RetailPlayerDevicesList = () => {
             return {
               ...previous,
               [channelListId]: {
-                name: mapped.name || channelListId,
+                name: mapped.name || '',
                 channels: mapped.channels,
               },
             }
@@ -280,7 +280,7 @@ const RetailPlayerDevicesList = () => {
             }
             return {
               ...previous,
-              [channelListId]: { name: channelListId, channels: [] },
+              [channelListId]: { name: '', channels: [] },
             }
           })
         })
@@ -304,7 +304,7 @@ const RetailPlayerDevicesList = () => {
         : ''
       mapping[device.id] = {
         channel: channelName,
-        channelList: listDetails?.name || channelListId,
+        channelList: listDetails?.name || '',
       }
     })
 
