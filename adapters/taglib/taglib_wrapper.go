@@ -75,6 +75,36 @@ func Read(filename string) (tags map[string][]string, err error) {
 	return m, nil
 }
 
+func UpdateComment(filename, comment string) (err error) {
+	debug.SetPanicOnFault(true)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("taglib: recovered from panic when updating comment", "file", filename, "error", r)
+			err = fmt.Errorf("taglib: recovered from panic: %s", r)
+		}
+	}()
+
+	fp := getFilename(filename)
+	defer C.free(unsafe.Pointer(fp))
+
+	cc := C.CString(comment)
+	defer C.free(unsafe.Pointer(cc))
+
+	res := C.taglib_update_comment(fp, cc)
+	switch res {
+	case 0:
+		return nil
+	case C.TAGLIB_ERR_PARSE:
+		return fmt.Errorf("cannot open media file for writing")
+	case C.TAGLIB_ERR_PERMISSION:
+		return fmt.Errorf("navidrome does not have permission to update media metadata")
+	case C.TAGLIB_ERR_SAVE:
+		return fmt.Errorf("failed to persist updated comment to media file")
+	default:
+		return fmt.Errorf("unexpected error updating media file comment")
+	}
+}
+
 type tagMap map[string][]string
 
 var allMaps sync.Map

@@ -206,9 +206,7 @@ func (db *MockDataStore) RetailPlayerDeviceMapping(ctx context.Context) model.Re
 		if db.RealDS != nil {
 			db.MockedRetailPlayerDeviceMapping = db.RealDS.RetailPlayerDeviceMapping(ctx)
 		} else {
-			db.MockedRetailPlayerDeviceMapping = struct {
-				model.RetailPlayerDeviceMappingRepository
-			}{}
+			return nil
 		}
 	}
 	return db.MockedRetailPlayerDeviceMapping

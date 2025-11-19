@@ -1,5 +1,7 @@
 #define TAGLIB_ERR_PARSE -1
 #define TAGLIB_ERR_AUDIO_PROPS -2
+#define TAGLIB_ERR_SAVE -3
+#define TAGLIB_ERR_PERMISSION -4
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +20,7 @@ extern void goPutLyrics(unsigned long id, char *lang, char *val);
 extern void goPutLyricLine(unsigned long id, char *lang, char *text, int time);
 int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id);
 char* taglib_version();
+int taglib_update_comment(const FILENAME_CHAR_T *filename, const char *comment);
 
 #ifdef __cplusplus
 }

@@ -28,6 +28,7 @@ var _ = Describe("Song Endpoints", func() {
 		userRepo  *tests.MockedUserRepo
 		w         *httptest.ResponseRecorder
 		testUser  model.User
+		adminUser model.User
 		testSongs model.MediaFiles
 	)
 
@@ -57,6 +58,16 @@ var _ = Describe("Song Endpoints", func() {
 			NewPassword: "testpass",
 		}
 		err := userRepo.Put(&testUser)
+		Expect(err).ToNot(HaveOccurred())
+
+		adminUser = model.User{
+			ID:          "user-admin",
+			UserName:    "adminuser",
+			Name:        "Admin User",
+			IsAdmin:     true,
+			NewPassword: "adminpass",
+		}
+		err = userRepo.Put(&adminUser)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create test songs
@@ -123,6 +134,16 @@ var _ = Describe("Song Endpoints", func() {
 		// Add JWT token to Authorization header
 		req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
 
+		return req
+	}
+
+	createAdminRequest := func(method, path string, body []byte) *http.Request {
+		req := createUnauthenticatedRequest(method, path, body)
+
+		token, err := auth.CreateToken(&adminUser)
+		Expect(err).ToNot(HaveOccurred())
+
+		req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
 		return req
 	}
 
@@ -209,7 +230,7 @@ var _ = Describe("Song Endpoints", func() {
 		})
 	})
 
-	Describe("Song endpoints are read-only", func() {
+	Describe("Song write operations", func() {
 		Context("POST /song", func() {
 			It("should not be available (songs are not persistable)", func() {
 				newSong := model.MediaFile{
@@ -229,21 +250,54 @@ var _ = Describe("Song Endpoints", func() {
 		})
 
 		Context("PUT /song/{id}", func() {
-			It("should not be available (songs are not persistable)", func() {
-				updatedSong := model.MediaFile{
-					ID:       "song-1",
-					Title:    "Updated Song",
-					Artist:   "Updated Artist",
-					Album:    "Updated Album",
-					Duration: 250.0,
-				}
+			It("updates the song comment when user is admin", func() {
+				payload := map[string]string{"comment": "Updated comment"}
+				body, err := json.Marshal(payload)
+				Expect(err).ToNot(HaveOccurred())
 
-				body, _ := json.Marshal(updatedSong)
+				req := createAdminRequest("PUT", "/song/song-1", body)
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusOK))
+
+				var response model.MediaFile
+				err = json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response.ID).To(Equal("song-1"))
+				Expect(response.Comment).To(Equal("Updated comment"))
+				Expect(mfRepo.Data["song-1"].Comment).To(Equal("Updated comment"))
+			})
+
+			It("returns forbidden for non-admin users", func() {
+				payload := map[string]string{"comment": "Blocked"}
+				body, err := json.Marshal(payload)
+				Expect(err).ToNot(HaveOccurred())
+
 				req := createAuthenticatedRequest("PUT", "/song/song-1", body)
 				router.ServeHTTP(w, req)
 
-				// Should return 405 Method Not Allowed or 404 Not Found
-				Expect(w.Code).To(Equal(http.StatusMethodNotAllowed))
+				Expect(w.Code).To(Equal(http.StatusForbidden))
+			})
+
+			It("returns bad request when comment is missing", func() {
+				body, err := json.Marshal(map[string]string{})
+				Expect(err).ToNot(HaveOccurred())
+
+				req := createAdminRequest("PUT", "/song/song-1", body)
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusBadRequest))
+			})
+
+			It("returns not found for missing song", func() {
+				payload := map[string]string{"comment": "Updated"}
+				body, err := json.Marshal(payload)
+				Expect(err).ToNot(HaveOccurred())
+
+				req := createAdminRequest("PUT", "/song/missing-song", body)
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusNotFound))
 			})
 		})
 
