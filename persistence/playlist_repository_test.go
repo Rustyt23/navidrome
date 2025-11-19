@@ -2,6 +2,9 @@ package persistence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
@@ -101,6 +104,35 @@ var _ = Describe("PlaylistRepository", func() {
 
 		By("returns error if tries to retrieve the deleted playlist")
 		Expect(repo.Exists(newPls.ID)).To(BeFalse())
+	})
+
+	It("moves synced playlist files into a deleted folder", func() {
+		playlistDir := filepath.Join(GinkgoT().TempDir(), "playlist")
+		Expect(os.MkdirAll(playlistDir, 0o755)).To(Succeed())
+		playlistPath := filepath.Join(playlistDir, "to-delete.m3u")
+		Expect(os.WriteFile(playlistPath, []byte("song1\n"), 0o644)).To(Succeed())
+
+		syncedPls := model.Playlist{Name: "To Delete", OwnerID: "userid", Path: playlistPath, Sync: true}
+		Expect(repo.Put(&syncedPls)).To(Succeed())
+
+		Expect(repo.Delete(syncedPls.ID)).To(Succeed())
+
+		_, err := os.Stat(playlistPath)
+		Expect(os.IsNotExist(err)).To(BeTrue())
+
+		deletedDir := filepath.Join(filepath.Dir(playlistDir), "deleted playlists")
+		entries, err := os.ReadDir(deletedDir)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(entries).ToNot(BeEmpty())
+
+		baseName := filepath.Base(playlistPath)
+		moved := false
+		for _, entry := range entries {
+			if entry.Name() == baseName || strings.HasPrefix(entry.Name(), baseName+"-") {
+				moved = true
+			}
+		}
+		Expect(moved).To(BeTrue())
 	})
 
 	Describe("GetAll", func() {

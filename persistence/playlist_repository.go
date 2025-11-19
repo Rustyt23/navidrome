@@ -99,17 +99,58 @@ func (r *playlistRepository) Exists(id string) (bool, error) {
 }
 
 func (r *playlistRepository) Delete(id string) error {
-	usr := loggedUser(r.ctx)
-	if !usr.IsAdmin {
-		pls, err := r.Get(id)
-		if err != nil {
-			return err
-		}
-		if pls.OwnerID != usr.ID {
-			return rest.ErrPermissionDenied
-		}
+	pls, err := r.Get(id)
+	if err != nil {
+		return err
 	}
+
+	usr := loggedUser(r.ctx)
+	if !usr.IsAdmin && pls.OwnerID != usr.ID {
+		return rest.ErrPermissionDenied
+	}
+
+	if err := r.movePlaylistFile(pls); err != nil {
+		return err
+	}
+
 	return r.delete(And{Eq{"id": id}, r.userFilter()})
+}
+
+func (r *playlistRepository) movePlaylistFile(pls *model.Playlist) error {
+	if pls == nil || pls.Path == "" || !pls.Sync {
+		return nil
+	}
+
+	info, err := os.Stat(pls.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat playlist file %s: %w", pls.Path, err)
+	}
+	if info.IsDir() {
+		return nil
+	}
+
+	playlistDir := filepath.Dir(pls.Path)
+	parentDir := filepath.Dir(playlistDir)
+	destDir := filepath.Join(parentDir, "deleted playlists")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("creating deleted playlist folder %s: %w", destDir, err)
+	}
+
+	destPath := filepath.Join(destDir, filepath.Base(pls.Path))
+	if _, err := os.Stat(destPath); err == nil {
+		ext := filepath.Ext(pls.Path)
+		name := strings.TrimSuffix(filepath.Base(pls.Path), ext)
+		destPath = filepath.Join(destDir, fmt.Sprintf("%s-%d%s", name, time.Now().UnixNano(), ext))
+	}
+
+	if err := os.Rename(pls.Path, destPath); err != nil {
+		return fmt.Errorf("moving playlist file to %s: %w", destPath, err)
+	}
+
+	return nil
 }
 
 func (r *playlistRepository) Put(p *model.Playlist) error {
