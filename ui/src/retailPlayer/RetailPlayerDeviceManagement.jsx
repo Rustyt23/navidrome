@@ -43,7 +43,6 @@ import {
   useRetailPlayerFolderDrop,
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
-import useRetailPlayerChannelCounts from './useRetailPlayerChannelCounts'
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
@@ -162,7 +161,7 @@ const useStyles = makeStyles((theme) => {
   listHeader: {
     display: 'grid',
     gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(200px, 1.4fr) minmax(96px, 0.8fr)',
     paddingTop: theme.spacing(0),
     paddingBottom: theme.spacing(0),
     paddingLeft: theme.spacing(1.7),
@@ -176,7 +175,8 @@ const useStyles = makeStyles((theme) => {
     alignItems: 'center',
     gap: theme.spacing (1),
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+      gridTemplateColumns:
+        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(160px, 1.2fr) 72px',
       fontSize: theme.typography.pxToRem(11),
       letterSpacing: 0.6,
     },
@@ -196,7 +196,7 @@ const useStyles = makeStyles((theme) => {
 row: {
   display: 'grid',
   gridTemplateColumns:
-    '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
+    '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(200px, 1.4fr) minmax(96px, 0.8fr)',
   alignItems: 'center',
   padding: '1px 2px',
 
@@ -215,7 +215,7 @@ row: {
   },
   [theme.breakpoints.down('sm')]: {
     gridTemplateColumns:
-      '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+      '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(160px, 1.2fr) 72px',
   },
 },
 
@@ -265,14 +265,13 @@ row: {
     color: theme.palette.common.white,
     fontWeight: theme.typography.fontWeightMedium,
   },
-  typeCell: {
+  channelCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
   },
-  countCell: {
+  channelListCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
-    textAlign: 'center',
   },
   actionsCell: {
     display: 'flex',
@@ -541,7 +540,6 @@ DeviceDialog.defaultProps = {
 const RetailPlayerFolderRow = memo(
   ({
     node,
-    deviceCount,
     isSelected,
     classes,
     onEnterFolder,
@@ -594,8 +592,8 @@ const RetailPlayerFolderRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>Folder</div>
-        <div className={classes.countCell}>{deviceCount}</div>
+        <div className={classes.channelCell}>—</div>
+        <div className={classes.channelListCell}>—</div>
         <div className={classes.actionsCell}>
           <Tooltip title="Edit folder">
             <IconButton
@@ -620,7 +618,6 @@ RetailPlayerFolderRow.propTypes = {
     id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
   }).isRequired,
-  deviceCount: PropTypes.number.isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
   onEnterFolder: PropTypes.func.isRequired,
@@ -637,7 +634,6 @@ const RetailPlayerDeviceRow = memo(
     node,
     isSelected,
     classes,
-    channelCount,
     onNavigate,
     onToggleSelection,
     onKeyDown,
@@ -685,10 +681,8 @@ const RetailPlayerDeviceRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>Device</div>
-        <div className={classes.countCell}>
-          {typeof channelCount === 'number' ? channelCount : '—'}
-        </div>
+        <div className={classes.channelCell}>{node.channel || '—'}</div>
+        <div className={classes.channelListCell}>{node.channelList || '—'}</div>
         <div className={classes.actionsCell}>
           <Tooltip title="Edit device">
             <IconButton
@@ -715,15 +709,10 @@ RetailPlayerDeviceRow.propTypes = {
   }).isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
-  channelCount: PropTypes.number,
   onNavigate: PropTypes.func.isRequired,
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
-}
-
-RetailPlayerDeviceRow.defaultProps = {
-  channelCount: null,
 }
 
 RetailPlayerDeviceRow.displayName = 'RetailPlayerDeviceRow'
@@ -749,8 +738,6 @@ const RetailPlayerDeviceManagement = () => {
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
-  const { countsByDeviceId: channelCountsByDeviceId } =
-    useRetailPlayerChannelCounts(devices, isApiEnabled)
 
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
@@ -1275,28 +1262,14 @@ const RetailPlayerDeviceManagement = () => {
     }
   }
 
-  const countDevices = useCallback((node) => {
-    if (!node || !Array.isArray(node.children)) {
-      return 0
-    }
-    return node.children.reduce((acc, child) => {
-      if (child.type === 'device') {
-        return acc + 1
-      }
-      return acc + countDevices(child)
-    }, 0)
-  }, [])
-
   const renderRows = (nodes) =>
     nodes.map((node) => {
       if (node.type === 'folder') {
-        const deviceCount = countDevices(node)
         const isSelected = selectedIds.has(node.id)
         return (
           <RetailPlayerFolderRow
             key={`folder-row-${node.id}`}
             node={node}
-            deviceCount={deviceCount}
             isSelected={isSelected}
             classes={classes}
             onEnterFolder={handleEnterFolder}
@@ -1309,14 +1282,12 @@ const RetailPlayerDeviceManagement = () => {
       }
       const isSelected = selectedIds.has(node.id)
       const rowKey = node.treeKey || node.id
-      const channelCount = channelCountsByDeviceId?.[node.id]
       return (
         <RetailPlayerDeviceRow
           key={`device-row-${rowKey}`}
           node={node}
           isSelected={isSelected}
           classes={classes}
-          channelCount={channelCount}
           onNavigate={handleNavigateToDevice}
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
@@ -1450,8 +1421,8 @@ const RetailPlayerDeviceManagement = () => {
             />
           </div>
           <span>Name</span>
-          <span>Type</span>
-          <span>Devices / Channels</span>
+          <span>Channel</span>
+          <span>Channel List</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
         {loading ? (
