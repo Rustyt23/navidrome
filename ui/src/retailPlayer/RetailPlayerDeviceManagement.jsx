@@ -55,8 +55,10 @@ const mapChannelListResponse = (payload) => {
     payload.name ||
       payload.channelListName ||
       payload.channelList?.name ||
+      payload.channelList?.label ||
       payload.listName ||
-      payload.displayName,
+      payload.displayName ||
+      payload.label,
   )
 
   const channels = Array.isArray(payload.channels)
@@ -195,7 +197,7 @@ const useStyles = makeStyles((theme) => {
   listHeader: {
     display: 'grid',
     gridTemplateColumns:
-      '64px minmax(220px, 2.1fr) minmax(150px, 1.1fr) minmax(240px, 1.5fr) minmax(96px, 0.8fr)',
+      '64px minmax(210px, 1.9fr) minmax(170px, 1.15fr) minmax(270px, 1.6fr) minmax(96px, 0.85fr)',
     paddingTop: theme.spacing(0),
     paddingBottom: theme.spacing(0),
     paddingLeft: theme.spacing(1.7),
@@ -210,7 +212,7 @@ const useStyles = makeStyles((theme) => {
     gap: theme.spacing (1),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns:
-        '56px minmax(180px, 2fr) minmax(140px, 1.05fr) minmax(190px, 1.3fr) 72px',
+        '56px minmax(170px, 1.8fr) minmax(150px, 1.1fr) minmax(210px, 1.4fr) 72px',
       fontSize: theme.typography.pxToRem(11),
       letterSpacing: 0.6,
     },
@@ -227,31 +229,31 @@ const useStyles = makeStyles((theme) => {
     justifySelf: 'flex-end',
   },
 
-row: {
-  display: 'grid',
-  gridTemplateColumns:
-    '64px minmax(220px, 2.1fr) minmax(150px, 1.1fr) minmax(240px, 1.5fr) minmax(96px, 0.8fr)',
-  alignItems: 'center',
-  padding: '1px 2px',
-
-
-  borderTop: `1px solid ${theme.palette.divider}`,
-  minHeight: 28, // 🔥 ensures consistent compact row height
-  '& .MuiTypography-body1': {
-    fontSize: '0.8rem', // reduce font size inside cell
-    lineHeight: 1.2,
-  },
-  '& .MuiIconButton-root': {
-    padding: 2, // shrink edit icon area
-  },
-  '& .MuiCheckbox-root': {
-    padding: 2, // shrink checkbox hit area
-  },
-  [theme.breakpoints.down('sm')]: {
+  row: {
+    display: 'grid',
     gridTemplateColumns:
-      '56px minmax(180px, 2fr) minmax(140px, 1.05fr) minmax(190px, 1.3fr) 72px',
+      '64px minmax(210px, 1.9fr) minmax(170px, 1.15fr) minmax(270px, 1.6fr) minmax(96px, 0.85fr)',
+    alignItems: 'center',
+    padding: '1px 2px',
+
+
+    borderTop: `1px solid ${theme.palette.divider}`,
+    minHeight: 28, // 🔥 ensures consistent compact row height
+    '& .MuiTypography-body1': {
+      fontSize: '0.8rem', // reduce font size inside cell
+      lineHeight: 1.2,
+    },
+    '& .MuiIconButton-root': {
+      padding: 2, // shrink edit icon area
+    },
+    '& .MuiCheckbox-root': {
+      padding: 2, // shrink checkbox hit area
+    },
+    [theme.breakpoints.down('sm')]: {
+      gridTemplateColumns:
+        '56px minmax(170px, 1.8fr) minmax(150px, 1.1fr) minmax(210px, 1.4fr) 72px',
+    },
   },
-},
 
   folderRow: {
     backgroundColor: fade(theme.palette.primary.main, 0.04),
@@ -841,7 +843,7 @@ const RetailPlayerDeviceManagement = () => {
             return {
               ...previous,
               [channelListId]: {
-                name: mapped.name || channelListId,
+                name: mapped.name || '',
                 channels: mapped.channels,
               },
             }
@@ -857,7 +859,7 @@ const RetailPlayerDeviceManagement = () => {
             }
             return {
               ...previous,
-              [channelListId]: { name: channelListId, channels: [] },
+              [channelListId]: { name: '', channels: [] },
             }
           })
         })
@@ -895,7 +897,7 @@ const RetailPlayerDeviceManagement = () => {
         : ''
       mapping[device.id] = {
         channel: channelName,
-        channelList: listDetails?.name || channelListId,
+        channelList: listDetails?.name || '',
       }
     })
 
