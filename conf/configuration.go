@@ -52,6 +52,7 @@ type configOptions struct {
 	AutoImportPlaylists             bool
 	DefaultPlaylistPublicVisibility bool
 	PlaylistsPath                   string
+	DeletedPlaylistsPath            string
 	DiscoveryPath                   string
 	SyncFolder                      string
 	SmartPlaylistRefreshDelay       time.Duration
@@ -541,6 +542,7 @@ func setViperDefaults() {
 	viper.SetDefault("autoimportplaylists", true)
 	viper.SetDefault("defaultplaylistpublicvisibility", false)
 	viper.SetDefault("playlistspath", "")
+	viper.SetDefault("deletedplaylistspath", "")
 	viper.SetDefault("discoverypath", "")
 	viper.SetDefault("smartPlaylistRefreshDelay", 5*time.Second)
 	viper.SetDefault("enabledownloads", true)

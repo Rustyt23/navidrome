@@ -135,6 +135,39 @@ var _ = Describe("PlaylistRepository", func() {
 		Expect(moved).To(BeTrue())
 	})
 
+	It("moves synced playlist files into a configured deleted folder", func() {
+		playlistDir := filepath.Join(GinkgoT().TempDir(), "playlist")
+		Expect(os.MkdirAll(playlistDir, 0o755)).To(Succeed())
+		playlistPath := filepath.Join(playlistDir, "to-delete.m3u")
+		Expect(os.WriteFile(playlistPath, []byte("song1\n"), 0o644)).To(Succeed())
+
+		customDeleteDir := filepath.Join(GinkgoT().TempDir(), "custom", "deleted")
+		originalPath := conf.Server.DeletedPlaylistsPath
+		conf.Server.DeletedPlaylistsPath = customDeleteDir
+		DeferCleanup(func() { conf.Server.DeletedPlaylistsPath = originalPath })
+
+		syncedPls := model.Playlist{Name: "To Delete", OwnerID: "userid", Path: playlistPath, Sync: true}
+		Expect(repo.Put(&syncedPls)).To(Succeed())
+
+		Expect(repo.Delete(syncedPls.ID)).To(Succeed())
+
+		_, err := os.Stat(playlistPath)
+		Expect(os.IsNotExist(err)).To(BeTrue())
+
+		entries, err := os.ReadDir(customDeleteDir)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(entries).ToNot(BeEmpty())
+
+		baseName := filepath.Base(playlistPath)
+		moved := false
+		for _, entry := range entries {
+			if entry.Name() == baseName || strings.HasPrefix(entry.Name(), baseName+"-") {
+				moved = true
+			}
+		}
+		Expect(moved).To(BeTrue())
+	})
+
 	Describe("GetAll", func() {
 		It("returns all playlists from DB", func() {
 			all, err := repo.GetAll()
