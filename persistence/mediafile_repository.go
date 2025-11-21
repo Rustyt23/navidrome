@@ -10,6 +10,7 @@ import (
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
 	"github.com/google/uuid"
+	"github.com/navidrome/navidrome/adapters/taglib"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -20,6 +21,8 @@ import (
 type mediaFileRepository struct {
 	sqlRepository
 }
+
+var writeMediaFileComment = taglib.WriteComment
 
 type dbMediaFile struct {
 	*model.MediaFile `structs:",flatten"`
@@ -227,6 +230,48 @@ func (r *mediaFileRepository) DeleteMissing(ids []string) error {
 			Eq{"id": ids},
 		},
 	)
+}
+
+func (r *mediaFileRepository) UpdateComment(ids []string, comment string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	user := loggedUser(r.ctx)
+	if !user.IsAdmin {
+		return rest.ErrPermissionDenied
+	}
+
+	idSeq := slice.SeqFunc(ids, func(id string) string { return id })
+	for chunk := range slice.CollectChunks(idSeq, 200) {
+		mediaFiles, err := r.GetAll(model.QueryOptions{Filters: Eq{"media_file.id": chunk}})
+		if err != nil {
+			return err
+		}
+		for _, mf := range mediaFiles {
+			if mf.Path == "" || mf.LibraryPath == "" {
+				log.Warn(r.ctx, "Skipping comment write for mediafile without path", "id", mf.ID, "path", mf.Path, "libraryPath", mf.LibraryPath)
+				continue
+			}
+			absPath := mf.AbsolutePath()
+			if err := writeMediaFileComment(absPath, comment); err != nil {
+				log.Error(r.ctx, "Error updating mediafile comment tag", "id", mf.ID, "path", absPath, err)
+				return err
+			}
+		}
+
+		upd := Update(r.tableName).
+			Set("comment", comment).
+			Set("updated_at", time.Now()).
+			Where(Eq{"id": chunk})
+		if _, err := r.executeSQL(upd); err != nil {
+			log.Error(r.ctx, "Error updating mediafile comments", "ids", chunk, err)
+			return err
+		}
+		log.Debug(r.ctx, "Updated mediafile comments", "total", len(chunk), "ids", chunk)
+	}
+
+	return nil
 }
 
 func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile) error {

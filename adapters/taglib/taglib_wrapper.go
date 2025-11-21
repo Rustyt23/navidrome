@@ -75,6 +75,34 @@ func Read(filename string) (tags map[string][]string, err error) {
 	return m, nil
 }
 
+func WriteComment(filename, comment string) (err error) {
+	debug.SetPanicOnFault(true)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("extractor: recovered from panic when writing comment", "file", filename, "error", r)
+			err = fmt.Errorf("extractor: recovered from panic: %s", r)
+		}
+	}()
+
+	fp := getFilename(filename)
+	defer C.free(unsafe.Pointer(fp))
+
+	cComment := C.CString(comment)
+	defer C.free(unsafe.Pointer(cComment))
+
+	res := C.taglib_write_comment(fp, cComment)
+	switch res {
+	case 0:
+		return nil
+	case C.TAGLIB_ERR_PARSE:
+		return fmt.Errorf("cannot open media file for writing comment")
+	case C.TAGLIB_ERR_SAVE:
+		return fmt.Errorf("cannot save media file after writing comment")
+	default:
+		return fmt.Errorf("unknown error writing comment: %d", int(res))
+	}
+}
+
 type tagMap map[string][]string
 
 var allMaps sync.Map

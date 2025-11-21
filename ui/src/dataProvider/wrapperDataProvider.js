@@ -4,6 +4,25 @@ import { REST_URL } from '../consts'
 
 const dataProvider = jsonServerProvider(REST_URL, httpClient)
 
+const updateSongComments = async (ids, data) => {
+  const payload = {
+    ids: ids || [],
+    comment: data?.comment ?? '',
+  }
+
+  const response = await httpClient(`${REST_URL}/song/comment`, {
+    method: 'PUT',
+    headers: new Headers({
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }),
+    body: JSON.stringify(payload),
+  })
+
+  const updated = Array.isArray(response?.json?.ids) ? response.json.ids : []
+  return { data: updated }
+}
+
 const isAdmin = () => {
   const role = localStorage.getItem('role')
   return role === 'admin'
@@ -195,6 +214,9 @@ const wrapperDataProvider = {
     })
   },
   updateMany: (resource, params) => {
+    if (resource === 'song' && params?.data?.comment !== undefined) {
+      return updateSongComments(params?.ids || [], params.data)
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.updateMany(r, p)
   },

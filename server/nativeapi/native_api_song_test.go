@@ -226,6 +226,69 @@ var _ = Describe("Song Endpoints", func() {
 				// Should return 405 Method Not Allowed or 404 Not Found
 				Expect(w.Code).To(Equal(http.StatusMethodNotAllowed))
 			})
+
+			Describe("PUT /song/comment", func() {
+				var adminUser model.User
+
+				BeforeEach(func() {
+					adminUser = model.User{
+						ID:       "admin-1",
+						UserName: "admin",
+						Name:     "Admin",
+						IsAdmin:  true,
+					}
+					Expect(userRepo.Put(&adminUser)).To(Succeed())
+				})
+
+				It("updates comments for the given songs", func() {
+					payload := map[string]any{
+						"ids":     []string{"song-1", "song-2"},
+						"comment": "New comment",
+					}
+					body, _ := json.Marshal(payload)
+					req := createUnauthenticatedRequest("PUT", "/song/comment", body)
+
+					token, err := auth.CreateToken(&adminUser)
+					Expect(err).ToNot(HaveOccurred())
+					req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusOK))
+					Expect(mfRepo.LastComment).To(Equal("New comment"))
+					Expect(mfRepo.LastUpdatedCommentIDs).To(ConsistOf("song-1", "song-2"))
+				})
+
+				It("returns forbidden for non-admin users", func() {
+					payload := map[string]any{
+						"ids":     []string{"song-1"},
+						"comment": "Should fail",
+					}
+					body, _ := json.Marshal(payload)
+					req := createAuthenticatedRequest("PUT", "/song/comment", body)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusForbidden))
+				})
+
+				It("validates presence of ids", func() {
+					payload := map[string]any{
+						"ids":     []string{},
+						"comment": "Missing ids",
+					}
+					body, _ := json.Marshal(payload)
+					req := createUnauthenticatedRequest("PUT", "/song/comment", body)
+
+					token, err := auth.CreateToken(&adminUser)
+					Expect(err).ToNot(HaveOccurred())
+					req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+
+					router.ServeHTTP(w, req)
+
+					Expect(w.Code).To(Equal(http.StatusBadRequest))
+				})
+			})
 		})
 
 		Context("PUT /song/{id}", func() {
