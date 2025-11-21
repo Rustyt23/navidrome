@@ -35,6 +35,7 @@ import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
 import PropTypes from 'prop-types'
 import { useHistory } from 'react-router-dom'
+import httpClient from '../dataProvider/httpClient'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 import AddToFolderDialog from './AddToFolderDialog'
 import useAssignRetailPlayerDeviceToFolder from './useAssignRetailPlayerDeviceToFolder'
@@ -249,6 +250,9 @@ row: {
   nameIcon: {
     color: theme.palette.primary.main,
     fontSize: theme.typography.pxToRem(16.5),
+  },
+  onlineIcon: {
+    color: theme.palette.success.main,
   },
   nameLabel: {
     display: 'flex',
@@ -642,6 +646,7 @@ const RetailPlayerDeviceRow = memo(
     onToggleSelection,
     onKeyDown,
     onEdit,
+    isOnline,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
       deviceId: node.id,
@@ -678,7 +683,9 @@ const RetailPlayerDeviceRow = memo(
           />
         </div>
         <div className={classes.nameCell}>
-          <SpeakerGroupIcon className={classes.nameIcon} />
+          <SpeakerGroupIcon
+            className={clsx(classes.nameIcon, isOnline && classes.onlineIcon)}
+          />
           <div className={classes.nameLabel}>
             <Typography variant="body1" className={classes.nameTitle}>
               {node.name}
@@ -720,10 +727,12 @@ RetailPlayerDeviceRow.propTypes = {
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
+  isOnline: PropTypes.bool,
 }
 
 RetailPlayerDeviceRow.defaultProps = {
   channelCount: null,
+  isOnline: null,
 }
 
 RetailPlayerDeviceRow.displayName = 'RetailPlayerDeviceRow'
@@ -748,6 +757,7 @@ const RetailPlayerDeviceManagement = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deviceStatusMap, setDeviceStatusMap] = useState(() => new Map())
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
   const { countsByDeviceId: channelCountsByDeviceId } =
     useRetailPlayerChannelCounts(devices, isApiEnabled)
@@ -772,6 +782,101 @@ const RetailPlayerDeviceManagement = () => {
     })
     return map
   }, [devices])
+
+  useEffect(() => {
+    if (!devices?.length) {
+      setDeviceStatusMap(new Map())
+      return undefined
+    }
+
+    try {
+      const rawCache = sessionStorage.getItem('retailPlayerDeviceStatusMap')
+      if (rawCache) {
+        const parsedCache = JSON.parse(rawCache)
+        if (parsedCache && typeof parsedCache === 'object') {
+          const hydrated = new Map()
+          devices.forEach((device) => {
+            const cachedValue = parsedCache[device.id]
+            if (typeof cachedValue === 'boolean') {
+              hydrated.set(device.id, cachedValue)
+            }
+          })
+          if (hydrated.size) {
+            setDeviceStatusMap(hydrated)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Unable to hydrate retail player device statuses', err)
+    }
+
+    if (!isApiEnabled) {
+      return undefined
+    }
+
+    const abortController = new AbortController()
+    let isCancelled = false
+
+    const fetchStatuses = async () => {
+      const results = await Promise.all(
+        devices.map(async (device) => {
+          const deviceId = device.apiId || device.id
+          if (!deviceId) {
+            return [device.id, null]
+          }
+
+          try {
+            const statusUrl = `/api/retailplayer/devices/${encodeURIComponent(
+              deviceId,
+            )}/status`
+            const { json } = await httpClient(statusUrl, {
+              signal: abortController.signal,
+            })
+            const uptime = json?.status?.upTime ?? json?.status?.uptime
+            const hasStatus =
+              uptime !== undefined &&
+              uptime !== null &&
+              String(uptime).trim() !== ''
+            return [device.id, hasStatus]
+          } catch (error) {
+            if (error?.name === 'AbortError') {
+              return null
+            }
+            return [device.id, false]
+          }
+        }),
+      )
+
+      if (isCancelled) {
+        return
+      }
+
+      const nextStatusMap = new Map(results.filter(Boolean))
+      setDeviceStatusMap(nextStatusMap)
+
+      try {
+        const cachePayload = {}
+        nextStatusMap.forEach((value, key) => {
+          if (typeof value === 'boolean') {
+            cachePayload[key] = value
+          }
+        })
+        sessionStorage.setItem(
+          'retailPlayerDeviceStatusMap',
+          JSON.stringify(cachePayload),
+        )
+      } catch (err) {
+        console.warn('Unable to cache retail player device statuses', err)
+      }
+    }
+
+    fetchStatuses()
+
+    return () => {
+      isCancelled = true
+      abortController.abort()
+    }
+  }, [devices, isApiEnabled])
 
   const folderChildrenMap = useMemo(() => {
     const map = new Map()
@@ -1287,6 +1392,8 @@ const RetailPlayerDeviceManagement = () => {
     }, 0)
   }, [])
 
+  const isLoading = loading
+
   const renderRows = (nodes) =>
     nodes.map((node) => {
       if (node.type === 'folder') {
@@ -1310,6 +1417,7 @@ const RetailPlayerDeviceManagement = () => {
       const isSelected = selectedIds.has(node.id)
       const rowKey = node.treeKey || node.id
       const channelCount = channelCountsByDeviceId?.[node.id]
+      const isOnline = deviceStatusMap.get(node.id) ?? null
       return (
         <RetailPlayerDeviceRow
           key={`device-row-${rowKey}`}
@@ -1321,6 +1429,7 @@ const RetailPlayerDeviceManagement = () => {
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
           onEdit={handleEditDevice}
+          isOnline={isOnline}
         />
       )
     })
@@ -1454,7 +1563,7 @@ const RetailPlayerDeviceManagement = () => {
           <span>Devices / Channels</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
-        {loading ? (
+        {isLoading ? (
           <div className={classes.loaderState}>
             <CircularProgress size={20} />
             <Typography variant="body2">Loading devices…</Typography>
