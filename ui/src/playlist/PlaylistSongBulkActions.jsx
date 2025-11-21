@@ -1,8 +1,9 @@
-import React, { Fragment, useEffect } from 'react'
+import React, { Fragment, useEffect, useState } from 'react'
 import {
   BulkDeleteButton,
   useListContext,
   useUnselectAll,
+  useDataProvider,
   ResourceContextProvider,
 } from 'react-admin'
 import { MdOutlinePlaylistRemove } from 'react-icons/md'
@@ -28,14 +29,55 @@ const PlaylistSongBulkActions = ({
   const unselectAll = useUnselectAll()
   const listContext = useListContext()
   const data = listContext?.data
+  const dataProvider = useDataProvider()
+  const [selectedMediaIds, setSelectedMediaIds] = useState([])
   useEffect(() => {
     unselectAll('playlistTrack')
   }, [unselectAll])
 
   const mappedResource = `playlist/${playlistId}/tracks`
-  const selectedMediaIds = (selectedIds || []).map(
-    (id) => data?.[id]?.mediaFileId ?? id,
-  )
+  useEffect(() => {
+    if (!selectedIds?.length) {
+      setSelectedMediaIds([])
+      return
+    }
+
+    const getMediaIdFromData = (id) => {
+      const track = data?.[id] ?? data?.[String(id)]
+      return track?.mediaFileId
+    }
+
+    const missingIds = selectedIds.filter(
+      (id) => getMediaIdFromData(id) == null,
+    )
+
+    if (!missingIds.length) {
+      setSelectedMediaIds(
+        selectedIds.map((id) => String(getMediaIdFromData(id) ?? id)),
+      )
+      return
+    }
+
+    dataProvider
+      .getMany('playlistTrack', { ids: missingIds })
+      .then(({ data: tracks }) => {
+        const missingMediaIds = tracks.reduce((acc, track) => {
+          acc[String(track.id)] = track.mediaFileId ?? track.id
+          return acc
+        }, {})
+
+        setSelectedMediaIds(
+          selectedIds.map((id) => {
+            const mediaId =
+              getMediaIdFromData(id) ?? missingMediaIds[String(id)] ?? id
+            return String(mediaId)
+          }),
+        )
+      })
+      .catch(() =>
+        setSelectedMediaIds(selectedIds.map((id) => String(getMediaIdFromData(id) ?? id))),
+      )
+  }, [dataProvider, data, selectedIds])
   return (
     <ResourceContextProvider value={mappedResource}>
       <Fragment>
