@@ -8,6 +8,7 @@ import {
 import { MdOutlinePlaylistRemove } from 'react-icons/md'
 import PropTypes from 'prop-types'
 import { AddToPlaylistButton } from '../common/AddToPlaylistButton'
+import { EditSongCommentButton } from '../common/EditSongCommentButton'
 import { makeStyles } from '@material-ui/core/styles'
 
 const useStyles = makeStyles((theme) => ({
@@ -19,7 +20,6 @@ const useStyles = makeStyles((theme) => ({
 // Replace original resource with "fake" one for removing tracks from playlist
 const PlaylistSongBulkActions = ({
   playlistId,
-  resource,
   selectedIds,
   onUnselectItems,
   ...rest
@@ -33,7 +33,7 @@ const PlaylistSongBulkActions = ({
   }, [unselectAll])
 
   const mappedResource = `playlist/${playlistId}/tracks`
-  const selectedMediaIds = selectedIds.map(
+  const selectedMediaIds = (selectedIds || []).map(
     (id) => data?.[id]?.mediaFileId ?? id,
   )
   return (
@@ -52,6 +52,13 @@ const PlaylistSongBulkActions = ({
           selectedIds={selectedMediaIds} // Pass the mapped media IDs
           className={classes.button} // Apply custom styles
         />
+        <EditSongCommentButton
+          resource={'song'}
+          selectedIds={selectedMediaIds}
+          recordIds={selectedIds}
+          unselectResource={'playlistTrack'}
+          className={classes.button}
+        />
       </Fragment>
     </ResourceContextProvider>
   )
@@ -59,7 +66,6 @@ const PlaylistSongBulkActions = ({
 
 PlaylistSongBulkActions.propTypes = {
   playlistId: PropTypes.string.isRequired,
-  resource: PropTypes.string.isRequired,
   selectedIds: PropTypes.arrayOf(
     PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   ).isRequired,

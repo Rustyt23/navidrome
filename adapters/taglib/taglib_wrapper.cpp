@@ -25,6 +25,39 @@
 
 char has_cover(const TagLib::FileRef f);
 
+int taglib_write_comment(const FILENAME_CHAR_T *filename, const char *comment) {
+  TagLib::FileRef f(filename, false, TagLib::AudioProperties::Fast);
+
+  if (f.isNull() || f.file() == nullptr) {
+    return TAGLIB_ERR_PARSE;
+  }
+
+  const char *value = comment != nullptr ? comment : "";
+  TagLib::String tagValue(value, TagLib::String::UTF8);
+
+  if (f.tag() != nullptr) {
+    f.tag()->setComment(tagValue);
+  }
+
+  TagLib::PropertyMap properties = f.file()->properties();
+  if (tagValue.isEmpty()) {
+    properties.erase("COMMENT");
+    properties.erase("comment");
+  } else {
+    TagLib::StringList list;
+    list.append(tagValue);
+    properties.replace("COMMENT", list);
+    properties.replace("comment", list);
+  }
+  f.file()->setProperties(properties);
+
+  if (!f.file()->save()) {
+    return TAGLIB_ERR_SAVE;
+  }
+
+  return 0;
+}
+
 static char TAGLIB_VERSION[16];
 
 char* taglib_version() {

@@ -1,0 +1,256 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import PropTypes from 'prop-types'
+import clsx from 'clsx'
+import {
+  Button as RaButton,
+  useDataProvider,
+  useListContext,
+  useNotify,
+  usePermissions,
+  useRefresh,
+  useTranslate,
+  useUnselectAll,
+} from 'react-admin'
+import {
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  TextField,
+  Button as MuiButton,
+} from '@material-ui/core'
+import { makeStyles } from '@material-ui/core/styles'
+import CommentIcon from '@material-ui/icons/Comment'
+
+const useStyles = makeStyles((theme) => ({
+  button: {
+    color: theme.palette.type === 'dark' ? 'white' : undefined,
+  },
+}))
+
+const findRecord = (data, id) => {
+  if (!data) {
+    return undefined
+  }
+
+  if (Array.isArray(data)) {
+    return data.find(
+      (record) =>
+        record &&
+        (record.id === id ||
+          record.id === String(id) ||
+          record.id === Number(id)),
+    )
+  }
+
+  return data[id] ?? data[String(id)] ?? data[Number(id)]
+}
+
+export const EditSongCommentButton = ({
+  resource,
+  selectedIds,
+  className,
+  recordIds,
+  unselectResource,
+  onSuccess,
+}) => {
+  const classes = useStyles()
+  const translate = useTranslate()
+  const notify = useNotify()
+  const refresh = useRefresh()
+  const unselectAll = useUnselectAll()
+  const dataProvider = useDataProvider()
+  const listContext = useListContext()
+  const { permissions } = usePermissions()
+
+  const [open, setOpen] = useState(false)
+  const [comment, setComment] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const idsForRecords = recordIds ?? selectedIds
+
+  const selectedRecords = useMemo(() => {
+    if (!idsForRecords?.length) {
+      return []
+    }
+
+    const data = listContext?.data
+    return idsForRecords
+      .map((id) => findRecord(data, id))
+      .filter((record) => record != null)
+  }, [idsForRecords, listContext?.data])
+
+  const sharedComment = useMemo(() => {
+    if (!selectedRecords.length) {
+      return ''
+    }
+
+    const firstComment = selectedRecords[0]?.comment ?? ''
+    return selectedRecords.every(
+      (record) => (record?.comment ?? '') === firstComment,
+    )
+      ? firstComment
+      : ''
+  }, [selectedRecords])
+
+  useEffect(() => {
+    if (open) {
+      setComment(sharedComment || '')
+    }
+  }, [open, sharedComment])
+
+  const handleOpen = useCallback(() => {
+    if (!selectedIds?.length) {
+      return
+    }
+    setOpen(true)
+  }, [selectedIds])
+
+  const handleClose = useCallback(() => {
+    if (saving) {
+      return
+    }
+    setOpen(false)
+  }, [saving])
+
+  const handleSubmit = useCallback(
+    async (event) => {
+      event.preventDefault()
+
+      if (!selectedIds?.length || saving) {
+        return
+      }
+
+      setSaving(true)
+      try {
+        const response = await dataProvider.updateMany(resource, {
+          ids: selectedIds,
+          data: { comment: comment || '' },
+        })
+        const updatedIds = Array.isArray(response?.data)
+          ? response.data
+          : selectedIds
+
+        if (updatedIds.length > 0) {
+          notify('ra.notification.updated', {
+            type: 'info',
+            messageArgs: { smart_count: updatedIds.length },
+          })
+        }
+
+        if (typeof onSuccess === 'function') {
+          onSuccess(updatedIds)
+        }
+
+        setOpen(false)
+        unselectAll(unselectResource ?? resource)
+        refresh({ hard: true })
+      } catch (error) {
+        notify(error?.message || 'ra.notification.http_error', {
+          type: 'warning',
+        })
+      } finally {
+        setSaving(false)
+      }
+    },
+    [
+      comment,
+      dataProvider,
+      notify,
+      refresh,
+      saving,
+      selectedIds,
+      unselectAll,
+      resource,
+      unselectResource,
+      onSuccess,
+    ],
+  )
+
+  const selectedCount = selectedIds?.length || 0
+  const title = translate('resources.song.dialogs.editComment.title', {
+    smart_count: selectedCount,
+  })
+  const description = translate(
+    'resources.song.dialogs.editComment.description',
+    { smart_count: selectedCount },
+  )
+
+  if (permissions !== 'admin') {
+    return null
+  }
+
+  return (
+    <>
+      <RaButton
+        onClick={handleOpen}
+        className={clsx(classes.button, className)}
+        label={translate('resources.song.actions.editComment')}
+        disabled={!selectedIds?.length}
+      >
+        <CommentIcon />
+      </RaButton>
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        aria-labelledby="edit-song-comment-dialog-title"
+        fullWidth
+        maxWidth="sm"
+      >
+        <form onSubmit={handleSubmit}>
+          <DialogTitle id="edit-song-comment-dialog-title">
+            {title}
+          </DialogTitle>
+          <DialogContent>
+            <DialogContentText>{description}</DialogContentText>
+            <TextField
+              autoFocus
+              margin="dense"
+              id="edit-song-comment-input"
+              type="text"
+              fullWidth
+              multiline
+              rows={3}
+              variant="outlined"
+              value={comment}
+              onChange={(event) => setComment(event.target.value)}
+              disabled={saving}
+            />
+          </DialogContent>
+          <DialogActions>
+            <MuiButton onClick={handleClose} disabled={saving}>
+              {translate('ra.action.cancel')}
+            </MuiButton>
+            <MuiButton color="primary" type="submit" disabled={saving}>
+              {translate('ra.action.save')}
+            </MuiButton>
+          </DialogActions>
+        </form>
+      </Dialog>
+    </>
+  )
+}
+
+EditSongCommentButton.propTypes = {
+  resource: PropTypes.string.isRequired,
+  selectedIds: PropTypes.arrayOf(
+    PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  ),
+  className: PropTypes.string,
+  recordIds: PropTypes.arrayOf(
+    PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  ),
+  unselectResource: PropTypes.string,
+  onSuccess: PropTypes.func,
+}
+
+EditSongCommentButton.defaultProps = {
+  selectedIds: [],
+  className: undefined,
+  recordIds: undefined,
+  unselectResource: undefined,
+  onSuccess: undefined,
+}
+
+export default EditSongCommentButton

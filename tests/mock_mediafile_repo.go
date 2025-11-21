@@ -31,6 +31,8 @@ type MockMediaFileRepo struct {
 	// Add fields for cross-library move detection tests
 	FindRecentFilesByMBZTrackIDFunc func(missing model.MediaFile, since time.Time) (model.MediaFiles, error)
 	FindRecentFilesByPropertiesFunc func(missing model.MediaFile, since time.Time) (model.MediaFiles, error)
+	LastUpdatedCommentIDs           []string
+	LastComment                     string
 }
 
 func (m *MockMediaFileRepo) SetError(err bool) {
@@ -113,6 +115,20 @@ func (m *MockMediaFileRepo) Delete(id string) error {
 		return model.ErrNotFound
 	}
 	delete(m.Data, id)
+	return nil
+}
+
+func (m *MockMediaFileRepo) UpdateComment(ids []string, comment string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	m.LastComment = comment
+	m.LastUpdatedCommentIDs = slices.Clone(ids)
+	for _, id := range ids {
+		if mf, ok := m.Data[id]; ok {
+			mf.Comment = comment
+		}
+	}
 	return nil
 }
 
