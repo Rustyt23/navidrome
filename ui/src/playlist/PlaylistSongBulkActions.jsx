@@ -42,13 +42,18 @@ const PlaylistSongBulkActions = ({
       return
     }
 
+    const getMediaIdFromData = (id) => {
+      const track = data?.[id] ?? data?.[String(id)]
+      return track?.mediaFileId
+    }
+
     const missingIds = selectedIds.filter(
-      (id) => data?.[id]?.mediaFileId == null,
+      (id) => getMediaIdFromData(id) == null,
     )
 
     if (!missingIds.length) {
       setSelectedMediaIds(
-        selectedIds.map((id) => data?.[id]?.mediaFileId ?? id),
+        selectedIds.map((id) => String(getMediaIdFromData(id) ?? id)),
       )
       return
     }
@@ -57,17 +62,21 @@ const PlaylistSongBulkActions = ({
       .getMany('playlistTrack', { ids: missingIds })
       .then(({ data: tracks }) => {
         const missingMediaIds = tracks.reduce((acc, track) => {
-          acc[track.id] = track.mediaFileId ?? track.id
+          acc[String(track.id)] = track.mediaFileId ?? track.id
           return acc
         }, {})
 
         setSelectedMediaIds(
-          selectedIds.map(
-            (id) => data?.[id]?.mediaFileId ?? missingMediaIds[id] ?? id,
-          ),
+          selectedIds.map((id) => {
+            const mediaId =
+              getMediaIdFromData(id) ?? missingMediaIds[String(id)] ?? id
+            return String(mediaId)
+          }),
         )
       })
-      .catch(() => setSelectedMediaIds(selectedIds))
+      .catch(() =>
+        setSelectedMediaIds(selectedIds.map((id) => String(getMediaIdFromData(id) ?? id))),
+      )
   }, [dataProvider, data, selectedIds])
   return (
     <ResourceContextProvider value={mappedResource}>
