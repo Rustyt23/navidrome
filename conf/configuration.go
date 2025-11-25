@@ -85,6 +85,7 @@ type configOptions struct {
 	EnableCoverAnimation            bool
 	EnableNowPlaying                bool
 	GATrackingID                    string
+	RetailPlayerApiKey              string
 	EnableLogRedacting              bool
 	AuthRequestLimit                int
 	AuthWindowLength                time.Duration
@@ -617,6 +618,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.enabled", false)
 	viper.SetDefault("retailplayer.baseurl", "")
 	viper.SetDefault("retailplayer.orgid", "")
+	viper.SetDefault("retailplayerapikey", "DUMMY_API_KEY")
 	viper.SetDefault("retailplayer.apikey", "")
 	viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
 	viper.SetDefault("retailplayer.pagesize", 0)
