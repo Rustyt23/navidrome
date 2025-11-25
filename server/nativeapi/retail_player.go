@@ -27,10 +27,7 @@ import (
 	"github.com/navidrome/navidrome/utils"
 )
 
-const (
-	retailPlayerDefaultKeyHeader = "x-retailplayer-apikey"
-	retailPlayerLegacyKeyHeader  = "X-API-Key"
-)
+const retailPlayerRemoteControlKeyHeader = "x-retailplayer-rc-apikey"
 
 var retailPlayerHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
@@ -279,6 +276,9 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
 		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
 		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
+		r.Get("/triggers", n.handleRetailPlayerTriggers())
+		r.Post("/play", n.handleRetailPlayerPlayCue())
+		r.Post("/stop", n.handleRetailPlayerStop())
 	})
 }
 
@@ -1255,6 +1255,112 @@ func (n *Router) handleRetailPlayerDeviceDislike() http.HandlerFunc {
 	}
 }
 
+func (n *Router) handleRetailPlayerTriggers() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(r.URL.Query().Get("device"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		response, err := n.fetchRetailPlayerTriggers(ctx, deviceID)
+		if err != nil {
+			log.Error(ctx, "Unable to fetch retail player triggers", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to fetch retail player triggers", http.StatusBadGateway)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"triggers": response})
+	}
+}
+
+func (n *Router) handleRetailPlayerPlayCue() http.HandlerFunc {
+	type playRequest struct {
+		Device string `json:"device"`
+		Cue    string `json:"cue"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+
+		var payload playRequest
+		if err := decoder.Decode(&payload); err != nil {
+			http.Error(w, "Invalid play payload", http.StatusBadRequest)
+			return
+		}
+
+		deviceID := strings.TrimSpace(payload.Device)
+		cueID := strings.TrimSpace(payload.Cue)
+		if deviceID == "" || cueID == "" {
+			http.Error(w, "Device id and cue id are required", http.StatusBadRequest)
+			return
+		}
+
+		responseBody, err := n.sendRetailPlayerCueAction(ctx, deviceID, "play", map[string]string{"device": deviceID, "cue": cueID})
+		if err != nil {
+			log.Error(ctx, "Unable to send retail player cue command", "deviceID", deviceID, "cueID", cueID, "err", err)
+			http.Error(w, "Unable to play cue", http.StatusBadGateway)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"success": true, "message": responseBody})
+	}
+}
+
+func (n *Router) handleRetailPlayerStop() http.HandlerFunc {
+	type stopRequest struct {
+		Device string `json:"device"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+
+		var payload stopRequest
+		if err := decoder.Decode(&payload); err != nil {
+			http.Error(w, "Invalid stop payload", http.StatusBadRequest)
+			return
+		}
+
+		deviceID := strings.TrimSpace(payload.Device)
+		if deviceID == "" {
+			http.Error(w, "Device id is required", http.StatusBadRequest)
+			return
+		}
+
+		responseBody, err := n.sendRetailPlayerCueAction(ctx, deviceID, "stop", map[string]string{"device": deviceID})
+		if err != nil {
+			log.Error(ctx, "Unable to send retail player stop command", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to stop device", http.StatusBadGateway)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"success": true, "message": responseBody})
+	}
+}
+
 func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
@@ -1534,6 +1640,12 @@ type retailPlayerStatusArtwork struct {
 	URL         string `json:"url,omitempty"`
 }
 
+type retailPlayerTrigger struct {
+	ID    string `json:"id"`
+	Name  string `json:"name,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
 func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID string, command retailPlayerCommandRequest) (string, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
@@ -1598,6 +1710,149 @@ func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID str
 	}
 
 	return trimmedBody, nil
+}
+
+func retailPlayerRequestConfigWithDefaults() retailPlayerConfig {
+	cfg := conf.Server.RetailPlayer
+
+	return retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            strings.TrimSpace(cfg.APIKey),
+		APIKeyHeader:      cfg.APIKeyHeader,
+		PageSize:          cfg.PageSize,
+		Page:              cfg.Page,
+		Filters:           cfg.Filters,
+		OrderBy:           cfg.OrderBy,
+		OrderDirection:    cfg.OrderDirection,
+		Search:            cfg.Search,
+		Fields:            cfg.Fields,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+}
+
+func (n *Router) fetchRetailPlayerTriggers(ctx context.Context, deviceID string) ([]retailPlayerTrigger, error) {
+	cfg := retailPlayerRequestConfigWithDefaults()
+	if cfg.BaseURL == "" {
+		return nil, errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return nil, errors.New("retail player device id is empty")
+	}
+
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	endpoint := fmt.Sprintf("%s/rest/v1/device-control/%s/triggers", baseURL, url.PathEscape(trimmedID))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	applyRetailPlayerHeaders(req, cfg)
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errRetailPlayerDeviceNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		Triggers []retailPlayerTrigger `json:"triggers"`
+		Data     []retailPlayerTrigger `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	triggers := payload.Triggers
+	if len(triggers) == 0 {
+		triggers = payload.Data
+	}
+
+	return triggers, nil
+}
+
+func (n *Router) sendRetailPlayerCueAction(ctx context.Context, deviceID, action string, payload map[string]string) (string, error) {
+	cfg := retailPlayerRequestConfigWithDefaults()
+	if cfg.BaseURL == "" {
+		return "", errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return "", errors.New("retail player device id is empty")
+	}
+
+	trimmedAction := strings.Trim(strings.TrimSpace(action), "/")
+	if trimmedAction == "" {
+		return "", errors.New("retail player action is empty")
+	}
+
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	endpoint := fmt.Sprintf("%s/rest/v1/device-control/%s/triggers", baseURL, url.PathEscape(trimmedID))
+
+	var bodyPayload map[string]string
+
+	switch strings.ToLower(trimmedAction) {
+	case "play":
+		cueID := strings.TrimSpace(payload["cue"])
+		if cueID == "" {
+			return "", errors.New("retail player cue id is empty")
+		}
+		bodyPayload = map[string]string{"action": "PLAY", "value": cueID}
+	case "stop":
+		bodyPayload = map[string]string{"action": "STOP"}
+	default:
+		return "", fmt.Errorf("unsupported retail player action: %s", trimmedAction)
+	}
+
+	body, err := json.Marshal(bodyPayload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+	req.ContentLength = int64(len(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	applyRetailPlayerHeaders(req, cfg)
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if len(bodyBytes) > 0 {
+			return "", fmt.Errorf("retail player action failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		}
+		return "", fmt.Errorf("retail player action failed with status %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(bodyBytes)), nil
 }
 
 func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, r *http.Request, deviceID string) (retailPlayerDeviceStatusResponse, error) {
@@ -1900,19 +2155,7 @@ func applyRetailPlayerHeaders(req *http.Request, cfg retailPlayerConfig) {
 
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if apiKey != "" {
-		headerName := strings.TrimSpace(cfg.APIKeyHeader)
-		if headerName == "" {
-			headerName = retailPlayerDefaultKeyHeader
-		}
-
-		req.Header.Set(headerName, apiKey)
-
-		if !strings.EqualFold(headerName, retailPlayerDefaultKeyHeader) {
-			req.Header.Set(retailPlayerDefaultKeyHeader, apiKey)
-		}
-		if !strings.EqualFold(headerName, retailPlayerLegacyKeyHeader) {
-			req.Header.Set(retailPlayerLegacyKeyHeader, apiKey)
-		}
+		req.Header.Set(retailPlayerRemoteControlKeyHeader, apiKey)
 	}
 
 	for key, value := range cfg.AdditionalHeaders {

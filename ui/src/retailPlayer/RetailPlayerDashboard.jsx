@@ -15,8 +15,10 @@ import ArrowBackIcon from '@material-ui/icons/ArrowBack'
 import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
+import { BsRecordCircle } from 'react-icons/bs'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
+import RetailPlayerCueDrawer from './RetailPlayerCueDrawer'
 import httpClient from '../dataProvider/httpClient'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
@@ -637,6 +639,9 @@ const useStyles = makeStyles((theme) => {
       fontSize: theme.typography.pxToRem(28),
       display: 'inline-flex',
     },
+    cueControlIcon: {
+      color: '#2196f3',
+    },
     volumeSection: {
       display: 'flex',
       flexDirection: 'column',
@@ -761,6 +766,7 @@ const RetailPlayerDashboard = () => {
   const [previousNowPlaying, setPreviousNowPlaying] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
+  const [isCueDrawerOpen, setCueDrawerOpen] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -829,6 +835,16 @@ const RetailPlayerDashboard = () => {
     () => Boolean(isApiEnabled && deviceApiId),
     [deviceApiId, isApiEnabled],
   )
+
+  const handleOpenCueDrawer = useCallback(() => {
+    if (canControlDevice) {
+      setCueDrawerOpen(true)
+    }
+  }, [canControlDevice])
+
+  const handleCloseCueDrawer = useCallback(() => {
+    setCueDrawerOpen(false)
+  }, [])
 
   const resolveDeviceTime = useCallback((sourceDevice) => {
     if (!sourceDevice) {
@@ -1803,6 +1819,20 @@ const trackPool = useMemo(() => {
                     <MdSkipNext fontSize="inherit" />
                   </span>
                 </ButtonBase>
+                <ButtonBase
+                  className={classes.controlButton}
+                  aria-label="Cue"
+                  onClick={handleOpenCueDrawer}
+                  focusRipple
+                >
+                  <span
+                    className={combineClasses(classes.controlIcon, classes.cueControlIcon)}
+                    role="img"
+                    aria-hidden="true"
+                  >
+                    <BsRecordCircle fontSize="inherit" />
+                  </span>
+                </ButtonBase>
               </section>
 
               <section className={classes.volumeSection} aria-label="Volume">
@@ -1944,6 +1974,13 @@ const trackPool = useMemo(() => {
           </div>
         </section>
       </div>
+
+      <RetailPlayerCueDrawer
+        open={isCueDrawerOpen}
+        onClose={handleCloseCueDrawer}
+        deviceId={deviceApiId}
+        onActionComplete={refreshStatus}
+      />
     </div>
   )
 }
