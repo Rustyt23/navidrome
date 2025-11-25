@@ -23,7 +23,7 @@ import {
   setVolume,
   syncQueue,
 } from '../actions'
-import PlayerToolbar from './PlayerToolbar'
+import PlayerControls from '../components/PlayerControls'
 import { sendNotification } from '../utils'
 import subsonic from '../subsonic'
 import locale from './locale'
@@ -193,7 +193,7 @@ const Player = () => {
       autoPlay: playerState.clear || playerState.playIndex === 0,
       clearPriorAudioLists: playerState.clear,
       extendsContent: (
-        <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
+        <PlayerControls id={current.trackId} isRadio={current.isRadio} />
       ),
       defaultVolume: isMobilePlayer ? 1 : playerState.volume,
       showMediaSession: !current.isRadio,

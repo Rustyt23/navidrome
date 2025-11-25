@@ -20,6 +20,7 @@ import (
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server"
+	"github.com/navidrome/navidrome/server/api"
 )
 
 type Router struct {
@@ -99,6 +100,7 @@ func (n *Router) routes() http.Handler {
 		r.Use(server.Authenticator(n.ds))
 		r.Use(server.JWTRefresher)
 		r.Use(server.UpdateLastAccessMiddleware(n.ds))
+		api.AddRetailPlayerRoutes(r)
 		n.R(r, "/user", model.User{}, true)
 		n.R(r, "/song", model.MediaFile{}, false)
 		n.R(r, "/album", model.Album{}, false)
