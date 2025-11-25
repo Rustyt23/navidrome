@@ -109,6 +109,7 @@ type configOptions struct {
 	RetailPlayer                    retailPlayerOptions `json:",omitzero"`
 	Tags                            map[string]TagConf  `json:",omitempty"`
 	Agents                          string
+	RetailPlayerApiKey              string
 
 	// DevFlags. These are used to enable/disable debugging and incomplete features
 	DevLogLevels                     map[string]string `json:",omitempty"`
@@ -606,6 +607,7 @@ func setViperDefaults() {
 	viper.SetDefault("subsonic.defaultreportrealpath", false)
 	viper.SetDefault("subsonic.legacyclients", "DSub")
 	viper.SetDefault("agents", "lastfm,spotify,deezer")
+	viper.SetDefault("retailplayerapikey", "DUMMY_API_KEY")
 	viper.SetDefault("lastfm.enabled", true)
 	viper.SetDefault("lastfm.language", "en")
 	viper.SetDefault("lastfm.apikey", "")

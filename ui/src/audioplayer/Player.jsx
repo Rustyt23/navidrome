@@ -24,6 +24,7 @@ import {
   syncQueue,
 } from '../actions'
 import PlayerToolbar from './PlayerToolbar'
+import PlayerControls from '../components/PlayerControls'
 import { sendNotification } from '../utils'
 import subsonic from '../subsonic'
 import locale from './locale'
@@ -360,6 +361,7 @@ const Player = () => {
         onBeforeDestroy={onBeforeDestroy}
         getAudioInstance={setAudioInstance}
       />
+      <PlayerControls />
       <GlobalHotKeys handlers={handlers} keyMap={keyMap} allowChanges />
     </ThemeProvider>
   )
