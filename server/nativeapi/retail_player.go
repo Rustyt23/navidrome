@@ -27,12 +27,7 @@ import (
 	"github.com/navidrome/navidrome/utils"
 )
 
-const (
-	retailPlayerDefaultKeyHeader = "x-retailplayer-apikey"
-	retailPlayerLegacyKeyHeader  = "X-API-Key"
-)
-
-var RetailPlayerApiKey = "DUMMY_API_KEY"
+const retailPlayerRemoteControlKeyHeader = "x-retailplayer-rc-apikey"
 
 var retailPlayerHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
@@ -1720,15 +1715,10 @@ func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID str
 func retailPlayerRequestConfigWithDefaults() retailPlayerConfig {
 	cfg := conf.Server.RetailPlayer
 
-	apiKey := strings.TrimSpace(cfg.APIKey)
-	if apiKey == "" {
-		apiKey = RetailPlayerApiKey
-	}
-
 	return retailPlayerConfig{
 		BaseURL:           cfg.BaseURL,
 		OrgID:             cfg.OrgID,
-		APIKey:            apiKey,
+		APIKey:            strings.TrimSpace(cfg.APIKey),
 		APIKeyHeader:      cfg.APIKeyHeader,
 		PageSize:          cfg.PageSize,
 		Page:              cfg.Page,
@@ -1743,7 +1733,7 @@ func retailPlayerRequestConfigWithDefaults() retailPlayerConfig {
 
 func (n *Router) fetchRetailPlayerTriggers(ctx context.Context, deviceID string) ([]retailPlayerTrigger, error) {
 	cfg := retailPlayerRequestConfigWithDefaults()
-	if cfg.BaseURL == "" || cfg.OrgID == "" {
+	if cfg.BaseURL == "" {
 		return nil, errors.New("retail player API not configured")
 	}
 
@@ -1752,10 +1742,15 @@ func (n *Router) fetchRetailPlayerTriggers(ctx context.Context, deviceID string)
 		return nil, errors.New("retail player device id is empty")
 	}
 
-	req, err := buildRetailPlayerRequest(ctx, cfg, trimmedID, "triggers")
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	endpoint := fmt.Sprintf("%s/rest/v1/device-control/%s/triggers", baseURL, url.PathEscape(trimmedID))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
+
+	applyRetailPlayerHeaders(req, cfg)
 
 	resp, err := retailPlayerHTTPClient.Do(req)
 	if err != nil {
@@ -1788,7 +1783,7 @@ func (n *Router) fetchRetailPlayerTriggers(ctx context.Context, deviceID string)
 
 func (n *Router) sendRetailPlayerCueAction(ctx context.Context, deviceID, action string, payload map[string]string) (string, error) {
 	cfg := retailPlayerRequestConfigWithDefaults()
-	if cfg.BaseURL == "" || cfg.OrgID == "" {
+	if cfg.BaseURL == "" {
 		return "", errors.New("retail player API not configured")
 	}
 
@@ -1802,13 +1797,28 @@ func (n *Router) sendRetailPlayerCueAction(ctx context.Context, deviceID, action
 		return "", errors.New("retail player action is empty")
 	}
 
-	body, err := json.Marshal(payload)
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	endpoint := fmt.Sprintf("%s/rest/v1/device-control/%s/triggers", baseURL, url.PathEscape(trimmedID))
+
+	var bodyPayload map[string]string
+
+	switch strings.ToLower(trimmedAction) {
+	case "play":
+		cueID := strings.TrimSpace(payload["cue"])
+		if cueID == "" {
+			return "", errors.New("retail player cue id is empty")
+		}
+		bodyPayload = map[string]string{"action": "PLAY", "value": cueID}
+	case "stop":
+		bodyPayload = map[string]string{"action": "STOP"}
+	default:
+		return "", fmt.Errorf("unsupported retail player action: %s", trimmedAction)
+	}
+
+	body, err := json.Marshal(bodyPayload)
 	if err != nil {
 		return "", err
 	}
-
-	baseURL := strings.TrimRight(cfg.BaseURL, "/")
-	endpoint := fmt.Sprintf("%s/orgs/%s/devices/%s/%s", baseURL, url.PathEscape(cfg.OrgID), url.PathEscape(trimmedID), url.PathEscape(trimmedAction))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -2145,19 +2155,7 @@ func applyRetailPlayerHeaders(req *http.Request, cfg retailPlayerConfig) {
 
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if apiKey != "" {
-		headerName := strings.TrimSpace(cfg.APIKeyHeader)
-		if headerName == "" {
-			headerName = retailPlayerDefaultKeyHeader
-		}
-
-		req.Header.Set(headerName, apiKey)
-
-		if !strings.EqualFold(headerName, retailPlayerDefaultKeyHeader) {
-			req.Header.Set(retailPlayerDefaultKeyHeader, apiKey)
-		}
-		if !strings.EqualFold(headerName, retailPlayerLegacyKeyHeader) {
-			req.Header.Set(retailPlayerLegacyKeyHeader, apiKey)
-		}
+		req.Header.Set(retailPlayerRemoteControlKeyHeader, apiKey)
 	}
 
 	for key, value := range cfg.AdditionalHeaders {
