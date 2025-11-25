@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	retailPlayerDefaultKeyHeader = "x-retailplayer-apikey"
-	retailPlayerLegacyKeyHeader  = "X-API-Key"
+	retailPlayerDefaultKeyHeader              = "x-retailplayer-apikey"
+	retailPlayerLegacyKeyHeader               = "X-API-Key"
+	retailPlayerRemoteControlDefaultKeyHeader = "x-retailplayer-rc-apikey"
 )
 
 var retailPlayerHTTPClient = &http.Client{Timeout: 15 * time.Second}
@@ -256,6 +257,23 @@ type retailPlayerChannelsResponse struct {
 	Channels []retailPlayerChannel `json:"channels"`
 }
 
+type retailPlayerTriggerAsset struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	MIME string `json:"mime"`
+}
+
+type retailPlayerTrigger struct {
+	ID      string                    `json:"id"`
+	Name    string                    `json:"name"`
+	Ordinal int                       `json:"ordinal"`
+	Asset   *retailPlayerTriggerAsset `json:"asset,omitempty"`
+}
+
+type retailPlayerTriggerAPIResponse struct {
+	Value []retailPlayerTrigger `json:"value"`
+}
+
 type retailPlayerConfig struct {
 	BaseURL           string
 	OrgID             string
@@ -271,9 +289,17 @@ type retailPlayerConfig struct {
 	AdditionalHeaders map[string]string
 }
 
+type retailPlayerRemoteControlConfig struct {
+	BaseURL           string
+	APIKey            string
+	APIKeyHeader      string
+	AdditionalHeaders map[string]string
+}
+
 func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
+		r.Get("/devices/{deviceID}/triggers", n.handleRetailPlayerDeviceTriggers())
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
 		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
@@ -595,6 +621,39 @@ func (n *Router) handleAssignRetailPlayerDeviceFolders() http.HandlerFunc {
 		}
 
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": map[string]any{"deviceId": deviceID, "folderIds": normalized}})
+	}
+}
+
+func (n *Router) handleRetailPlayerDeviceTriggers() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Fetching retail player device triggers", "deviceID", deviceID)
+
+		triggers, err := fetchRetailPlayerDeviceTriggers(ctx, deviceID)
+		if err != nil {
+			if errors.Is(err, errRetailPlayerDeviceNotFound) {
+				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				return
+			}
+
+			log.Error(ctx, "Unable to fetch retail player device triggers", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to fetch retail player device triggers", http.StatusBadGateway)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"triggers": triggers})
 	}
 }
 
@@ -1425,6 +1484,96 @@ func fetchRetailPlayerDevice(ctx context.Context, deviceID string) (retailPlayer
 	return device, nil
 }
 
+func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]retailPlayerTrigger, error) {
+	cfg := conf.Server.RetailPlayer
+	baseURL := strings.TrimSpace(cfg.RemoteControlBaseURL)
+	if baseURL == "" {
+		baseURL = cfg.BaseURL
+	}
+
+	apiKey := strings.TrimSpace(cfg.RemoteControlAPIKey)
+	if apiKey == "" {
+		apiKey = cfg.APIKey
+	}
+
+	apiKeyHeader := strings.TrimSpace(cfg.RemoteControlAPIKeyHeader)
+	if apiKeyHeader == "" {
+		apiKeyHeader = retailPlayerRemoteControlDefaultKeyHeader
+	}
+
+	if baseURL == "" {
+		return nil, errors.New("retail player remote control API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return nil, errors.New("retail player device id is empty")
+	}
+
+	requestConfig := retailPlayerRemoteControlConfig{
+		BaseURL:           baseURL,
+		APIKey:            apiKey,
+		APIKeyHeader:      apiKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerRemoteControlRequest(ctx, requestConfig, trimmedID, "triggers")
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest {
+		return nil, errRetailPlayerDeviceNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("retail player triggers request failed with status %d", resp.StatusCode)
+	}
+
+	var payload retailPlayerTriggerAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	triggers := make([]retailPlayerTrigger, 0, len(payload.Value))
+	for _, trigger := range payload.Value {
+		id := strings.TrimSpace(trigger.ID)
+		name := strings.TrimSpace(trigger.Name)
+		if id == "" && name == "" {
+			continue
+		}
+
+		ordinal := trigger.Ordinal
+		if ordinal < 0 {
+			ordinal = 0
+		}
+
+		var asset *retailPlayerTriggerAsset
+		if trigger.Asset != nil {
+			assetID := strings.TrimSpace(trigger.Asset.ID)
+			assetName := strings.TrimSpace(trigger.Asset.Name)
+			assetMIME := strings.TrimSpace(trigger.Asset.MIME)
+			if assetID != "" || assetName != "" || assetMIME != "" {
+				asset = &retailPlayerTriggerAsset{ID: assetID, Name: assetName, MIME: assetMIME}
+			}
+		}
+
+		triggers = append(triggers, retailPlayerTrigger{
+			ID:      id,
+			Name:    name,
+			Ordinal: ordinal,
+			Asset:   asset,
+		})
+	}
+
+	return triggers, nil
+}
+
 func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID string) (retailPlayerChannelsResponse, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
@@ -1909,6 +2058,69 @@ func applyRetailPlayerHeaders(req *http.Request, cfg retailPlayerConfig) {
 
 		if !strings.EqualFold(headerName, retailPlayerDefaultKeyHeader) {
 			req.Header.Set(retailPlayerDefaultKeyHeader, apiKey)
+		}
+		if !strings.EqualFold(headerName, retailPlayerLegacyKeyHeader) {
+			req.Header.Set(retailPlayerLegacyKeyHeader, apiKey)
+		}
+	}
+
+	for key, value := range cfg.AdditionalHeaders {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey != "" && trimmedValue != "" {
+			req.Header.Set(trimmedKey, trimmedValue)
+		}
+	}
+}
+
+func buildRetailPlayerRemoteControlRequest(ctx context.Context, cfg retailPlayerRemoteControlConfig, deviceID string, pathParts ...string) (*http.Request, error) {
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	if baseURL == "" {
+		return nil, errors.New("retail player remote control base URL is empty")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return nil, errors.New("retail player device id is empty")
+	}
+
+	endpoint := fmt.Sprintf("%s/device-control/%s", baseURL, url.PathEscape(trimmedID))
+	for _, part := range pathParts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		endpoint = fmt.Sprintf("%s/%s", endpoint, url.PathEscape(trimmed))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	applyRetailPlayerRemoteControlHeaders(req, cfg)
+
+	return req, nil
+}
+
+func applyRetailPlayerRemoteControlHeaders(req *http.Request, cfg retailPlayerRemoteControlConfig) {
+	if req == nil {
+		return
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	if apiKey != "" {
+		headerName := strings.TrimSpace(cfg.APIKeyHeader)
+		if headerName == "" {
+			headerName = retailPlayerRemoteControlDefaultKeyHeader
+		}
+
+		req.Header.Set(headerName, apiKey)
+
+		if !strings.EqualFold(headerName, retailPlayerRemoteControlDefaultKeyHeader) {
+			req.Header.Set(retailPlayerRemoteControlDefaultKeyHeader, apiKey)
 		}
 		if !strings.EqualFold(headerName, retailPlayerLegacyKeyHeader) {
 			req.Header.Set(retailPlayerLegacyKeyHeader, apiKey)

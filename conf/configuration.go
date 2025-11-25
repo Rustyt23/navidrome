@@ -199,20 +199,23 @@ type retailPlayerNotificationOptions struct {
 }
 
 type retailPlayerOptions struct {
-	Enabled           bool
-	BaseURL           string
-	OrgID             string
-	APIKey            string
-	APIKeyHeader      string
-	PageSize          int
-	Page              int
-	Filters           string
-	OrderBy           string
-	OrderDirection    string
-	Search            string
-	Fields            []string                        `json:",omitempty"`
-	AdditionalHeaders map[string]string               `json:",omitempty"`
-	Notifications     retailPlayerNotificationOptions `json:",omitempty"`
+	Enabled                   bool
+	BaseURL                   string
+	OrgID                     string
+	APIKey                    string
+	APIKeyHeader              string
+	RemoteControlBaseURL      string
+	RemoteControlAPIKey       string
+	RemoteControlAPIKeyHeader string
+	PageSize                  int
+	Page                      int
+	Filters                   string
+	OrderBy                   string
+	OrderDirection            string
+	Search                    string
+	Fields                    []string                        `json:",omitempty"`
+	AdditionalHeaders         map[string]string               `json:",omitempty"`
+	Notifications             retailPlayerNotificationOptions `json:",omitempty"`
 }
 
 type secureOptions struct {
