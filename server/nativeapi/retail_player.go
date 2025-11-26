@@ -208,6 +208,17 @@ type retailPlayerDevice struct {
 	FolderIDs      []string `json:"folderIds,omitempty"`
 }
 
+type retailPlayerDeviceConfigResponse struct {
+	ID                  string `json:"id"`
+	OrgUnit             string `json:"orgUnit"`
+	Organization        string `json:"organization"`
+	Name                string `json:"name"`
+	Channel             string `json:"channel"`
+	ChannelList         string `json:"channelList"`
+	OrgButtonTriggerSet string `json:"orgButtonTriggerSet"`
+	InstalledFirmware   string `json:"installedFirmwareVersion"`
+}
+
 type retailPlayerDevicesResponse struct {
 	Data         []retailPlayerDevice       `json:"data"`
 	Folders      []retailPlayerFolder       `json:"folders,omitempty"`
@@ -309,6 +320,7 @@ type retailPlayerRemoteControl struct {
 
 func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
+		r.Get("/devices/{deviceID}/config", n.handleRetailPlayerDeviceConfig())
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
 		r.Get("/devices/{deviceID}/triggers", n.handleRetailPlayerDeviceTriggers())
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
@@ -665,6 +677,68 @@ func (n *Router) handleRetailPlayerDeviceTriggers() http.HandlerFunc {
 		}
 
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"triggers": triggers})
+	}
+}
+
+func (n *Router) handleRetailPlayerDeviceConfig() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		normalizedID := normalizeRetailPlayerIdentifier(deviceID)
+		if normalizedID == "" {
+			http.Error(w, "Retail player device identifier is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Fetching retail player device config", "identifier", normalizedID, "rawIdentifier", deviceID)
+
+		device, err := n.resolveRetailPlayerDevice(ctx, normalizedID)
+		if err != nil {
+			if errors.Is(err, errRetailPlayerDeviceNotFound) {
+				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				return
+			}
+
+			log.Error(ctx, "Unable to resolve retail player device for config", "identifier", normalizedID, "rawIdentifier", deviceID, "err", err)
+			http.Error(w, "Unable to fetch retail player device config", http.StatusBadGateway)
+			return
+		}
+
+		resolvedID := strings.TrimSpace(device.ID)
+		if resolvedID == "" {
+			log.Info(ctx, "Retail player device missing resolved id for config", "identifier", normalizedID)
+			http.Error(w, "Retail player device not found", http.StatusNotFound)
+			return
+		}
+
+		config, err := fetchRetailPlayerDeviceConfig(ctx, resolvedID)
+		if err != nil {
+			if errors.Is(err, errRetailPlayerDeviceNotFound) {
+				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				return
+			}
+
+			log.Error(ctx, "Unable to fetch retail player device config", "identifier", normalizedID, "rawIdentifier", deviceID, "resolvedID", resolvedID, "err", err)
+			http.Error(w, "Unable to fetch retail player device config", http.StatusBadGateway)
+			return
+		}
+
+		if strings.TrimSpace(config.ID) == "" {
+			config.ID = resolvedID
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, config)
 	}
 }
 
@@ -1495,6 +1569,66 @@ func fetchRetailPlayerDevice(ctx context.Context, deviceID string) (retailPlayer
 	return device, nil
 }
 
+func fetchRetailPlayerDeviceConfig(ctx context.Context, deviceID string) (retailPlayerDeviceConfigResponse, error) {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return retailPlayerDeviceConfigResponse{}, errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return retailPlayerDeviceConfigResponse{}, errors.New("retail player device id is empty")
+	}
+
+	requestConfig := retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerRequest(ctx, requestConfig, trimmedID)
+	if err != nil {
+		return retailPlayerDeviceConfigResponse{}, err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return retailPlayerDeviceConfigResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest {
+		return retailPlayerDeviceConfigResponse{}, errRetailPlayerDeviceNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return retailPlayerDeviceConfigResponse{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return retailPlayerDeviceConfigResponse{}, err
+	}
+
+	var config retailPlayerDeviceConfigResponse
+	if err := json.Unmarshal(body, &config); err != nil || isRetailPlayerDeviceConfigEmpty(config) {
+		var wrapped struct {
+			Data retailPlayerDeviceConfigResponse `json:"data"`
+		}
+		if err := json.Unmarshal(body, &wrapped); err != nil || isRetailPlayerDeviceConfigEmpty(wrapped.Data) {
+			return retailPlayerDeviceConfigResponse{}, errors.New("unable to parse retail player device config response")
+		}
+		config = wrapped.Data
+	}
+
+	if strings.TrimSpace(config.ID) == "" {
+		config.ID = trimmedID
+	}
+
+	return config, nil
+}
+
 func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]retailPlayerTrigger, error) {
 	cfg := conf.Server.RetailPlayer
 	baseURL := strings.TrimSpace(cfg.RemoteControlBaseURL)
@@ -1653,9 +1787,20 @@ func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (str
 		return "", errors.New("retail player device id is empty")
 	}
 
-	organizationID, err := fetchRetailPlayerDeviceOrganizationID(ctx, deviceKey)
+	config, err := fetchRetailPlayerDeviceConfig(ctx, deviceKey)
 	if err != nil {
 		return "", err
+	}
+
+	organizationID := strings.TrimSpace(config.OrgUnit)
+	if organizationID == "" {
+		organizationID = strings.TrimSpace(config.Organization)
+	}
+	if organizationID == "" {
+		organizationID, err = fetchRetailPlayerDeviceOrganizationID(ctx, deviceKey)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	dependents, err := fetchRetailPlayerDependents(ctx, organizationID)
@@ -2304,6 +2449,42 @@ func applyRetailPlayerRemoteControlHeaders(req *http.Request, cfg retailPlayerRe
 			req.Header.Set(trimmedKey, trimmedValue)
 		}
 	}
+}
+
+func isRetailPlayerDeviceConfigEmpty(config retailPlayerDeviceConfigResponse) bool {
+	if strings.TrimSpace(config.ID) != "" {
+		return false
+	}
+
+	if strings.TrimSpace(config.OrgUnit) != "" {
+		return false
+	}
+
+	if strings.TrimSpace(config.Organization) != "" {
+		return false
+	}
+
+	if strings.TrimSpace(config.Name) != "" {
+		return false
+	}
+
+	if strings.TrimSpace(config.Channel) != "" {
+		return false
+	}
+
+	if strings.TrimSpace(config.ChannelList) != "" {
+		return false
+	}
+
+	if strings.TrimSpace(config.OrgButtonTriggerSet) != "" {
+		return false
+	}
+
+	if strings.TrimSpace(config.InstalledFirmware) != "" {
+		return false
+	}
+
+	return true
 }
 
 func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
