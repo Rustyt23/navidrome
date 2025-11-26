@@ -112,6 +112,7 @@ const formatDetailedTime = (date, timeZone) => {
 
 const useStyles = makeStyles((theme) => {
   const headerHeight = 60
+  const cueDrawerWidth = '25vw'
   const successMain =
     (theme.palette.success && theme.palette.success.main) ||
     (theme.palette.secondary && theme.palette.secondary.main) ||
@@ -738,14 +739,25 @@ const useStyles = makeStyles((theme) => {
       },
     },
     cueDrawer: {
-      width: 360,
-      maxWidth: '90vw',
+      width: cueDrawerWidth,
+      maxWidth: cueDrawerWidth,
+      minWidth: 240,
+      flexShrink: 0,
+    },
+    cueDrawerOpen: {
+      paddingRight: cueDrawerWidth,
+      transition: theme.transitions.create('padding-right', {
+        duration: theme.transitions.duration.standard,
+        easing: theme.transitions.easing.easeInOut,
+      }),
       [theme.breakpoints.down('sm')]: {
-        width: 320,
+        paddingRight: 0,
       },
     },
     cueDrawerPaper: {
-      width: '100%',
+      width: cueDrawerWidth,
+      maxWidth: cueDrawerWidth,
+      minWidth: 240,
       boxSizing: 'border-box',
       padding: theme.spacing(2.5),
       display: 'flex',
@@ -1068,6 +1080,32 @@ const RetailPlayerDashboard = () => {
     return fetchCueTriggers()
   }, [fetchCueTriggers, isCueDrawerOpen])
 
+  const sendCueTriggerAction = useCallback(
+    (trigger) => {
+      const triggerId =
+        (typeof trigger?.id === 'string' && trigger.id) ||
+        (typeof trigger?.ID === 'string' && trigger.ID) ||
+        ''
+
+      if (!deviceApiId || !triggerId) {
+        return
+      }
+
+      const headers = new Headers({ 'Content-Type': 'application/json' })
+
+      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/triggers`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'PLAY', value: triggerId }),
+      }).catch((err) => {
+        if (err?.name !== 'AbortError') {
+          setCueError(err)
+        }
+      })
+    },
+    [deviceApiId],
+  )
+
   const activeSchedule = useMemo(() => {
     if (!schedules.length) {
       return null
@@ -1075,6 +1113,11 @@ const RetailPlayerDashboard = () => {
     const matched = schedules.find((schedule) => schedule.key === effectiveActiveChannelKey)
     return matched || schedules[0]
   }, [effectiveActiveChannelKey, schedules])
+
+  const rootClassName = useMemo(
+    () => combineClasses(classes.root, isCueDrawerOpen ? classes.cueDrawerOpen : null),
+    [classes.root, classes.cueDrawerOpen, isCueDrawerOpen],
+  )
 
   const sendDislikeNotification = useCallback(() => {
     if (!isApiEnabled || !deviceApiId) {
@@ -1786,7 +1829,7 @@ const trackPool = useMemo(() => {
   }
 
   return (
-    <div className={classes.root}>
+    <div className={rootClassName}>
       <Title title="Retail Player" />
 
       <header className={classes.headerBar}>
@@ -2085,6 +2128,7 @@ const trackPool = useMemo(() => {
         anchor="right"
         open={isCueDrawerOpen}
         onClose={handleCloseCueDrawer}
+        variant="persistent"
         classes={{ paper: classes.cueDrawerPaper }}
         className={classes.cueDrawer}
       >
@@ -2121,7 +2165,12 @@ const trackPool = useMemo(() => {
                 }
 
                 return (
-                  <ListItem key={trigger?.id || primaryText} className={classes.cueListItem}>
+                  <ListItem
+                    key={trigger?.id || primaryText}
+                    className={classes.cueListItem}
+                    button
+                    onClick={() => sendCueTriggerAction(trigger)}
+                  >
                     <ListItemText
                       primary={primaryText}
                       secondary={secondaryParts.join(' • ')}
