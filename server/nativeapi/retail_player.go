@@ -197,13 +197,15 @@ type retailPlayerChannelListAPIResponse struct {
 }
 
 type retailPlayerDevice struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Channel      string   `json:"channel"`
-	ChannelList  string   `json:"channelList"`
-	Organization string   `json:"organization"`
-	TimeZone     string   `json:"timeZone,omitempty"`
-	FolderIDs    []string `json:"folderIds,omitempty"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	OrganizationID string   `json:"organizationId,omitempty"`
+	OrganisationID string   `json:"organisationid,omitempty"`
+	Channel        string   `json:"channel"`
+	ChannelList    string   `json:"channelList"`
+	Organization   string   `json:"organization"`
+	TimeZone       string   `json:"timeZone,omitempty"`
+	FolderIDs      []string `json:"folderIds,omitempty"`
 }
 
 type retailPlayerDevicesResponse struct {
@@ -1588,13 +1590,75 @@ func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]re
 	return triggers, nil
 }
 
+func fetchRetailPlayerDeviceOrganizationID(ctx context.Context, deviceID string) (string, error) {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return "", errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return "", errors.New("retail player device id is empty")
+	}
+
+	requestConfig := retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerRequest(ctx, requestConfig, trimmedID, "status")
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", errRetailPlayerDeviceNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+	}
+
+	var payload retailPlayerDeviceStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", err
+	}
+
+	if payload.Device != nil {
+		if orgID := strings.TrimSpace(payload.Device.OrganizationID); orgID != "" {
+			return orgID, nil
+		}
+		if orgID := strings.TrimSpace(payload.Device.OrganisationID); orgID != "" {
+			return orgID, nil
+		}
+		if orgID := strings.TrimSpace(payload.Device.Organization); orgID != "" {
+			return orgID, nil
+		}
+	}
+
+	return "", errors.New("retail player device organization id not found")
+}
+
 func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (string, error) {
 	deviceKey := strings.TrimSpace(deviceID)
 	if deviceKey == "" {
 		return "", errors.New("retail player device id is empty")
 	}
 
-	dependents, err := fetchRetailPlayerDependents(ctx)
+	organizationID, err := fetchRetailPlayerDeviceOrganizationID(ctx, deviceKey)
+	if err != nil {
+		return "", err
+	}
+
+	dependents, err := fetchRetailPlayerDependents(ctx, organizationID)
 	if err != nil {
 		return "", err
 	}
@@ -1621,15 +1685,20 @@ func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (str
 	return "", errors.New("retail player remote control id not found")
 }
 
-func fetchRetailPlayerDependents(ctx context.Context) (retailPlayerDependentsResponse, error) {
+func fetchRetailPlayerDependents(ctx context.Context, orgID string) (retailPlayerDependentsResponse, error) {
 	cfg := conf.Server.RetailPlayer
-	if cfg.BaseURL == "" || cfg.OrgID == "" {
+	if cfg.BaseURL == "" {
 		return retailPlayerDependentsResponse{}, errors.New("retail player API not configured")
+	}
+
+	trimmedOrgID := strings.TrimSpace(orgID)
+	if trimmedOrgID == "" {
+		return retailPlayerDependentsResponse{}, errors.New("retail player organization id is empty")
 	}
 
 	requestConfig := retailPlayerConfig{
 		BaseURL:           cfg.BaseURL,
-		OrgID:             cfg.OrgID,
+		OrgID:             trimmedOrgID,
 		APIKey:            cfg.APIKey,
 		APIKeyHeader:      cfg.APIKeyHeader,
 		AdditionalHeaders: cfg.AdditionalHeaders,
