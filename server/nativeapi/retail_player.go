@@ -296,6 +296,15 @@ type retailPlayerRemoteControlConfig struct {
 	AdditionalHeaders map[string]string
 }
 
+type retailPlayerDependentsResponse struct {
+	RemoteControls []retailPlayerRemoteControl `json:"remoteControls"`
+}
+
+type retailPlayerRemoteControl struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
@@ -1510,6 +1519,11 @@ func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]re
 		return nil, errors.New("retail player device id is empty")
 	}
 
+	remoteControlID, err := fetchRetailPlayerRemoteControlID(ctx, trimmedID)
+	if err != nil {
+		return nil, err
+	}
+
 	requestConfig := retailPlayerRemoteControlConfig{
 		BaseURL:           baseURL,
 		APIKey:            apiKey,
@@ -1517,7 +1531,7 @@ func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]re
 		AdditionalHeaders: cfg.AdditionalHeaders,
 	}
 
-	req, err := buildRetailPlayerRemoteControlRequest(ctx, requestConfig, trimmedID, "triggers")
+	req, err := buildRetailPlayerRemoteControlRequest(ctx, requestConfig, remoteControlID, "triggers")
 	if err != nil {
 		return nil, err
 	}
@@ -1572,6 +1586,76 @@ func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]re
 	}
 
 	return triggers, nil
+}
+
+func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (string, error) {
+	deviceKey := strings.TrimSpace(deviceID)
+	if deviceKey == "" {
+		return "", errors.New("retail player device id is empty")
+	}
+
+	dependents, err := fetchRetailPlayerDependents(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	for _, remoteControl := range dependents.RemoteControls {
+		trimmedID := strings.TrimSpace(remoteControl.ID)
+		if trimmedID == "" {
+			continue
+		}
+
+		trimmedName := strings.TrimSpace(remoteControl.Name)
+		if strings.EqualFold(trimmedID, deviceKey) || strings.EqualFold(trimmedName, deviceKey) {
+			return trimmedID, nil
+		}
+	}
+
+	for _, remoteControl := range dependents.RemoteControls {
+		trimmedID := strings.TrimSpace(remoteControl.ID)
+		if trimmedID != "" {
+			return trimmedID, nil
+		}
+	}
+
+	return "", errors.New("retail player remote control id not found")
+}
+
+func fetchRetailPlayerDependents(ctx context.Context) (retailPlayerDependentsResponse, error) {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return retailPlayerDependentsResponse{}, errors.New("retail player API not configured")
+	}
+
+	requestConfig := retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerDependentsRequest(ctx, requestConfig)
+	if err != nil {
+		return retailPlayerDependentsResponse{}, err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return retailPlayerDependentsResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return retailPlayerDependentsResponse{}, fmt.Errorf("retail player dependents request failed with status %d", resp.StatusCode)
+	}
+
+	var payload retailPlayerDependentsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return retailPlayerDependentsResponse{}, err
+	}
+
+	return payload, nil
 }
 
 func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID string) (retailPlayerChannelsResponse, error) {
@@ -2008,6 +2092,23 @@ func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig, pathP
 			}
 		}
 		req.URL.RawQuery = query.Encode()
+	}
+
+	applyRetailPlayerHeaders(req, cfg)
+
+	return req, nil
+}
+
+func buildRetailPlayerDependentsRequest(ctx context.Context, cfg retailPlayerConfig) (*http.Request, error) {
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	if baseURL == "" {
+		return nil, errors.New("retail player base URL is empty")
+	}
+
+	endpoint := fmt.Sprintf("%s/orgs/%s/dependents", baseURL, url.PathEscape(cfg.OrgID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
 	}
 
 	applyRetailPlayerHeaders(req, cfg)
