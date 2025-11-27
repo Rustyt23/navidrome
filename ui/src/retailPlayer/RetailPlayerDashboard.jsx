@@ -1613,6 +1613,14 @@ const trackPool = useMemo(() => {
     [activeCueTriggerId, activeCueTriggerOrdinal],
   )
 
+  const hasCueMetadata = useMemo(
+    () =>
+      Boolean(
+        detectedCuePlayback.triggerId || Number.isFinite(detectedCuePlayback.triggerOrdinal),
+      ),
+    [detectedCuePlayback],
+  )
+
   useEffect(() => {
     const normalizedResource = normalizeValue(activeResource)
     const loweredResource = normalizedResource.toLowerCase()
@@ -1627,6 +1635,20 @@ const trackPool = useMemo(() => {
 
     previousActiveResourceRef.current = normalizedResource || ''
   }, [activeResource, isCuePlaybackActive, persistActiveCueState])
+
+  useEffect(() => {
+    if (!isCuePlaybackActive) {
+      return
+    }
+
+    const normalizedResource = normalizeValue(activeResource)
+    const loweredResource = normalizedResource.toLowerCase()
+    const isCueResource = loweredResource === 'cue'
+
+    if (!isCueResource && !hasCueMetadata) {
+      persistActiveCueState('', null)
+    }
+  }, [activeResource, hasCueMetadata, isCuePlaybackActive, persistActiveCueState])
 
   useEffect(() => {
     previousActiveResourceRef.current = ''
