@@ -900,6 +900,7 @@ const RetailPlayerDashboard = () => {
   const [isCueLoading, setCueLoading] = useState(false)
   const [activeCueTriggerId, setActiveCueTriggerId] = useState('')
   const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
+  const previousActiveResourceRef = useRef('')
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -1589,10 +1590,47 @@ const trackPool = useMemo(() => {
     null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
+  const activeResource = useMemo(() => {
+    if (!device) {
+      return ''
+    }
+
+    const statusActiveResource = normalizeValue(device?.status?.activeResource)
+    if (statusActiveResource) {
+      return statusActiveResource
+    }
+
+    const metadataActiveResource = normalizeValue(device?.nowPlaying?.metadata?.activeResource)
+    if (metadataActiveResource) {
+      return metadataActiveResource
+    }
+
+    return ''
+  }, [device])
+
   const isCuePlaybackActive = useMemo(
     () => Boolean(activeCueTriggerId || Number.isFinite(activeCueTriggerOrdinal)),
     [activeCueTriggerId, activeCueTriggerOrdinal],
   )
+
+  useEffect(() => {
+    const normalizedResource = normalizeValue(activeResource)
+    const loweredResource = normalizedResource.toLowerCase()
+    const previousResource = previousActiveResourceRef.current
+    const previousLowered = previousResource.toLowerCase()
+    const wasCueResource = previousLowered === 'cue'
+    const isCueResource = loweredResource === 'cue'
+
+    if (wasCueResource && !isCueResource && isCuePlaybackActive) {
+      persistActiveCueState('', null)
+    }
+
+    previousActiveResourceRef.current = normalizedResource || ''
+  }, [activeResource, isCuePlaybackActive, persistActiveCueState])
+
+  useEffect(() => {
+    previousActiveResourceRef.current = ''
+  }, [deviceTrackKey])
 
   const deviceTimeZone = useMemo(() => {
     if (device && typeof status.timeZone === 'string') {
