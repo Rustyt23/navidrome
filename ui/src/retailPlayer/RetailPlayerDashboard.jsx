@@ -21,7 +21,6 @@ import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import ArrowBackIcon from '@material-ui/icons/ArrowBack'
 import CloseIcon from '@material-ui/icons/Close'
-import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import StopIcon from '@material-ui/icons/Stop'
 import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
@@ -33,6 +32,13 @@ import httpClient from '../dataProvider/httpClient'
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
+
+const CueIcon = (props) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" width="1em" height="1em" {...props}>
+    <path d="M12 2.75a.75.75 0 0 1 .75.75v9.19l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 1.06-1.06l2.72 2.72V3.5a.75.75 0 0 1 .75-.75Z" />
+    <path d="M4 15.5a8 8 0 0 0 16 0h-1.5a6.5 6.5 0 0 1-13 0Z" />
+  </svg>
+)
 
 const formatTime = (date, timeZone) => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
@@ -643,12 +649,22 @@ const useStyles = makeStyles((theme) => {
         backgroundColor: theme.palette.action.hover,
       },
     },
+    controlButtonCue: {
+      '&:hover $controlIconCue, &:focus-visible $controlIconCue': {
+        color: accentColor,
+      },
+    },
     controlButtonMuted: {
       color: dangerMain,
     },
     controlIcon: {
       fontSize: theme.typography.pxToRem(28),
       display: 'inline-flex',
+    },
+    controlIconCue: {
+      transition: theme.transitions.create(['color'], {
+        duration: theme.transitions.duration.shortest,
+      }),
     },
     volumeSection: {
       display: 'flex',
@@ -855,6 +871,9 @@ const useStyles = makeStyles((theme) => {
       '&:hover, &:focus-visible': {
         color: cueAccentColor,
         backgroundColor: alpha(cueAccentColor, 0.2),
+      },
+      '&:hover $controlIconCue, &:focus-visible $controlIconCue': {
+        color: cueAccentColor,
       },
     },
     controlIconCueActive: {
@@ -2231,6 +2250,7 @@ const trackPool = useMemo(() => {
                 <ButtonBase
                   className={combineClasses(
                     classes.controlButton,
+                    classes.controlButtonCue,
                     isCuePlaybackActive ? classes.controlButtonCueActive : null,
                   )}
                   aria-label="Open cue controls"
@@ -2241,12 +2261,13 @@ const trackPool = useMemo(() => {
                   <span
                     className={combineClasses(
                       classes.controlIcon,
+                      classes.controlIconCue,
                       isCuePlaybackActive ? classes.controlIconCueActive : null,
                     )}
                     role="img"
                     aria-hidden="true"
                   >
-                    <QueueMusicIcon fontSize="inherit" />
+                    <CueIcon fontSize="inherit" />
                   </span>
                 </ButtonBase>
               </section>
