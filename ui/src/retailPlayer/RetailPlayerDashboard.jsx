@@ -22,6 +22,7 @@ import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import ArrowBackIcon from '@material-ui/icons/ArrowBack'
 import CloseIcon from '@material-ui/icons/Close'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
+import StopIcon from '@material-ui/icons/Stop'
 import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
@@ -128,6 +129,7 @@ const useStyles = makeStyles((theme) => {
     (theme.palette.secondary && theme.palette.secondary.main) || theme.palette.primary.main
   const accentColor =
     (theme.palette.secondary && theme.palette.secondary.main) || '#ff6f9f'
+  const cueAccentColor = '#9c27b0'
   const disabledBackground =
     (theme.palette.action && theme.palette.action.disabledBackground) ||
     theme.palette.background.paper
@@ -774,6 +776,43 @@ const useStyles = makeStyles((theme) => {
       fontWeight: theme.typography.fontWeightBold,
       fontSize: theme.typography.pxToRem(20),
     },
+    cueControls: {
+      display: 'flex',
+      justifyContent: 'flex-end',
+    },
+    cueStopButton: {
+      borderRadius: theme.shape.borderRadius,
+      padding: `${theme.spacing(1)}px ${theme.spacing(1.5)}px`,
+      border: `1px solid ${theme.palette.divider}`,
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: theme.spacing(1),
+      color: theme.palette.text.primary,
+      transition: theme.transitions.create(['color', 'background-color', 'border-color'], {
+        duration: theme.transitions.duration.shorter,
+        easing: theme.transitions.easing.easeInOut,
+      }),
+      '&:hover, &:focus-visible': {
+        backgroundColor: theme.palette.action.hover,
+      },
+    },
+    cueStopButtonActive: {
+      borderColor: cueAccentColor,
+      color: cueAccentColor,
+      backgroundColor: alpha(cueAccentColor, 0.12),
+      '&:hover, &:focus-visible': {
+        backgroundColor: alpha(cueAccentColor, 0.2),
+      },
+    },
+    cueStopIcon: {
+      fontSize: theme.typography.pxToRem(22),
+    },
+    cueStopLabel: {
+      fontWeight: theme.typography.fontWeightMedium,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      fontSize: theme.typography.pxToRem(12),
+    },
     cueList: {
       flex: 1,
       overflowY: 'auto',
@@ -783,11 +822,22 @@ const useStyles = makeStyles((theme) => {
       borderRadius: theme.shape.borderRadius,
       marginBottom: theme.spacing(1),
     },
+    cueListItemActive: {
+      borderColor: cueAccentColor,
+      backgroundColor: alpha(cueAccentColor, 0.08),
+      boxShadow: `0 0 0 1px ${alpha(cueAccentColor, 0.2)}`,
+    },
     cueListPrimary: {
       fontWeight: theme.typography.fontWeightMedium,
     },
+    cueListPrimaryActive: {
+      color: cueAccentColor,
+    },
     cueListSecondary: {
       color: theme.palette.text.secondary,
+    },
+    cueListSecondaryActive: {
+      color: alpha(cueAccentColor, 0.85),
     },
     cueError: {
       color: theme.palette.error.main,
@@ -795,6 +845,20 @@ const useStyles = makeStyles((theme) => {
     cueEmpty: {
       color: theme.palette.text.secondary,
       fontStyle: 'italic',
+    },
+    nowPlayingTitleCue: {
+      color: cueAccentColor,
+    },
+    controlButtonCueActive: {
+      color: cueAccentColor,
+      backgroundColor: alpha(cueAccentColor, 0.12),
+      '&:hover, &:focus-visible': {
+        color: cueAccentColor,
+        backgroundColor: alpha(cueAccentColor, 0.2),
+      },
+    },
+    controlIconCueActive: {
+      color: cueAccentColor,
     },
   }
 })
@@ -834,6 +898,8 @@ const RetailPlayerDashboard = () => {
   const [cueTriggers, setCueTriggers] = useState([])
   const [cueError, setCueError] = useState(null)
   const [isCueLoading, setCueLoading] = useState(false)
+  const [activeCueTriggerId, setActiveCueTriggerId] = useState('')
+  const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -854,6 +920,67 @@ const RetailPlayerDashboard = () => {
   useEffect(() => {
     setPreviousNowPlaying(null)
   }, [deviceTrackKey])
+
+  const cueStorageKey = useMemo(() => {
+    if (!deviceTrackKey) {
+      return null
+    }
+
+    return `retailPlayerCue:${deviceTrackKey}`
+  }, [deviceTrackKey])
+
+  useEffect(() => {
+    if (!cueStorageKey) {
+      setActiveCueTriggerId('')
+      setActiveCueTriggerOrdinal(null)
+      return
+    }
+
+    try {
+      const storedValue = window.localStorage.getItem(cueStorageKey)
+      if (!storedValue) {
+        setActiveCueTriggerId('')
+        setActiveCueTriggerOrdinal(null)
+        return
+      }
+
+      const parsed = JSON.parse(storedValue)
+      const storedTriggerId = normalizeValue(parsed?.triggerId) || ''
+      const parsedOrdinal = Number(parsed?.triggerOrdinal)
+      const storedTriggerOrdinal = Number.isFinite(parsedOrdinal) ? parsedOrdinal : null
+
+      setActiveCueTriggerId(storedTriggerId)
+      setActiveCueTriggerOrdinal(storedTriggerOrdinal)
+    } catch (error) {
+      setActiveCueTriggerId('')
+      setActiveCueTriggerOrdinal(null)
+    }
+  }, [cueStorageKey])
+
+  const persistActiveCueState = useCallback(
+    (triggerId, triggerOrdinal) => {
+      setActiveCueTriggerId(triggerId)
+      setActiveCueTriggerOrdinal(triggerOrdinal)
+
+      if (!cueStorageKey) {
+        return
+      }
+
+      try {
+        if (triggerId || Number.isFinite(triggerOrdinal)) {
+          window.localStorage.setItem(
+            cueStorageKey,
+            JSON.stringify({ triggerId, triggerOrdinal }),
+          )
+        } else {
+          window.localStorage.removeItem(cueStorageKey)
+        }
+      } catch (error) {
+        // Ignore storage errors
+      }
+    },
+    [cueStorageKey],
+  )
 
   useEffect(() => {
     if (!isApiEnabled) {
@@ -984,6 +1111,30 @@ const RetailPlayerDashboard = () => {
   )
   const availableSchedulesCount = availableSchedules.length
 
+  const getTriggerIdentifier = useCallback((trigger) => {
+    if (!trigger || typeof trigger !== 'object') {
+      return ''
+    }
+
+    return (
+      normalizeValue(trigger.id) ||
+      normalizeValue(trigger.ID) ||
+      normalizeValue(trigger.name) ||
+      ''
+    )
+  }, [])
+
+  const getTriggerOrdinal = useCallback((trigger) => {
+    if (!trigger || typeof trigger !== 'object') {
+      return null
+    }
+
+    const rawOrdinal =
+      trigger.ordinal ?? trigger.Ordinal ?? trigger.button ?? trigger.buttonNumber
+    const parsedOrdinal = Number(rawOrdinal)
+    return Number.isFinite(parsedOrdinal) ? parsedOrdinal : null
+  }, [])
+
   const sortedCueTriggers = useMemo(() => {
     if (!cueTriggers || !cueTriggers.length) {
       return []
@@ -995,6 +1146,79 @@ const RetailPlayerDashboard = () => {
       return aOrdinal - bOrdinal
     })
   }, [cueTriggers])
+
+  const nowPlayingCueMetadata = useMemo(() => {
+    if (device?.nowPlaying && typeof device.nowPlaying === 'object') {
+      const metadata = device.nowPlaying.metadata
+      if (metadata && typeof metadata === 'object') {
+        return metadata
+      }
+    }
+
+    return null
+  }, [device])
+
+  const detectedCuePlayback = useMemo(() => {
+    const triggerIdCandidates = nowPlayingCueMetadata
+      ? [
+          nowPlayingCueMetadata.triggerId,
+          nowPlayingCueMetadata.trigger_id,
+          nowPlayingCueMetadata.triggerID,
+          nowPlayingCueMetadata.cueId,
+          nowPlayingCueMetadata.cue_id,
+          nowPlayingCueMetadata.cueID,
+          nowPlayingCueMetadata.trigger,
+          nowPlayingCueMetadata.cueTriggerId,
+          nowPlayingCueMetadata.cueTrigger_id,
+        ]
+      : []
+
+    const metadataTriggerId = triggerIdCandidates.map(normalizeValue).find(Boolean) || ''
+    const metadataOrdinalCandidate = nowPlayingCueMetadata
+      ?
+          nowPlayingCueMetadata.triggerOrdinal ??
+          nowPlayingCueMetadata.trigger_ordinal ??
+          nowPlayingCueMetadata.ordinal ??
+          nowPlayingCueMetadata.button ??
+          nowPlayingCueMetadata.buttonNumber
+      : null
+    const parsedMetadataOrdinal = Number(metadataOrdinalCandidate)
+    const resolvedMetadataOrdinal = Number.isFinite(parsedMetadataOrdinal)
+      ? parsedMetadataOrdinal
+      : null
+
+    let matchedTriggerId = metadataTriggerId
+    let matchedTriggerOrdinal = resolvedMetadataOrdinal
+
+    if (!matchedTriggerId && resolvedMetadataOrdinal !== null) {
+      const matchedTrigger = sortedCueTriggers.find((trigger) => {
+        const triggerOrdinal = getTriggerOrdinal(trigger)
+        return triggerOrdinal !== null && triggerOrdinal === resolvedMetadataOrdinal
+      })
+
+      if (matchedTrigger) {
+        matchedTriggerId = getTriggerIdentifier(matchedTrigger)
+        matchedTriggerOrdinal = resolvedMetadataOrdinal
+      }
+    }
+
+    if (matchedTriggerId) {
+      return { triggerId: matchedTriggerId, triggerOrdinal: matchedTriggerOrdinal }
+    }
+
+    return { triggerId: '', triggerOrdinal: matchedTriggerOrdinal }
+  }, [getTriggerIdentifier, getTriggerOrdinal, nowPlayingCueMetadata, sortedCueTriggers])
+
+  useEffect(() => {
+    if (detectedCuePlayback.triggerId || Number.isFinite(detectedCuePlayback.triggerOrdinal)) {
+      persistActiveCueState(
+        detectedCuePlayback.triggerId || '',
+        Number.isFinite(detectedCuePlayback.triggerOrdinal)
+          ? detectedCuePlayback.triggerOrdinal
+          : null,
+      )
+    }
+  }, [detectedCuePlayback, persistActiveCueState])
 
   useEffect(() => {
     if (!isScheduleMenuOpen) {
@@ -1082,10 +1306,13 @@ const RetailPlayerDashboard = () => {
 
   const sendCueTriggerAction = useCallback(
     (trigger) => {
-      const triggerId =
-        (typeof trigger?.id === 'string' && trigger.id) ||
-        (typeof trigger?.ID === 'string' && trigger.ID) ||
-        ''
+      const triggerId = getTriggerIdentifier(trigger)
+      const triggerOrdinal = getTriggerOrdinal(trigger)
+
+      const resolvedOrdinal = Number.isFinite(triggerOrdinal) ? triggerOrdinal : null
+      if (triggerId || Number.isFinite(resolvedOrdinal)) {
+        persistActiveCueState(triggerId || '', resolvedOrdinal)
+      }
 
       if (!deviceApiId || !triggerId) {
         return
@@ -1103,8 +1330,32 @@ const RetailPlayerDashboard = () => {
         }
       })
     },
-    [deviceApiId],
+    [deviceApiId, getTriggerIdentifier, getTriggerOrdinal, persistActiveCueState],
   )
+
+  const stopCuePlayback = useCallback(() => {
+    const triggerId = normalizeValue(activeCueTriggerId)
+
+    if (!deviceApiId) {
+      persistActiveCueState('', null)
+      return
+    }
+
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    const stopValue = triggerId || 'ALL'
+
+    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/triggers`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'STOP', value: stopValue }),
+    }).catch((err) => {
+      if (err?.name !== 'AbortError') {
+        setCueError(err)
+      }
+    })
+
+    persistActiveCueState('', null)
+  }, [activeCueTriggerId, deviceApiId, persistActiveCueState])
 
   const activeSchedule = useMemo(() => {
     if (!schedules.length) {
@@ -1114,10 +1365,7 @@ const RetailPlayerDashboard = () => {
     return matched || schedules[0]
   }, [effectiveActiveChannelKey, schedules])
 
-  const rootClassName = useMemo(
-    () => combineClasses(classes.root, isCueDrawerOpen ? classes.cueDrawerOpen : null),
-    [classes.root, classes.cueDrawerOpen, isCueDrawerOpen],
-  )
+  const rootClassName = classes.root
 
   const sendDislikeNotification = useCallback(() => {
     if (!isApiEnabled || !deviceApiId) {
@@ -1340,6 +1588,11 @@ const trackPool = useMemo(() => {
     normalizeValue(device?.nowPlaying?.artworkUrl) ||
     null
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
+
+  const isCuePlaybackActive = useMemo(
+    () => Boolean(activeCueTriggerId || Number.isFinite(activeCueTriggerOrdinal)),
+    [activeCueTriggerId, activeCueTriggerOrdinal],
+  )
 
   const deviceTimeZone = useMemo(() => {
     if (device && typeof status.timeZone === 'string') {
@@ -1922,7 +2175,10 @@ const trackPool = useMemo(() => {
             <div className={classes.nowPlayingHeader}>
               <Typography
                 component="h2"
-                className={classes.nowPlayingTitle}
+                className={combineClasses(
+                  classes.nowPlayingTitle,
+                  isCuePlaybackActive ? classes.nowPlayingTitleCue : null,
+                )}
                 noWrap
                 title={currentTrack.title}
               >
@@ -1973,13 +2229,23 @@ const trackPool = useMemo(() => {
                   </span>
                 </ButtonBase>
                 <ButtonBase
-                  className={classes.controlButton}
+                  className={combineClasses(
+                    classes.controlButton,
+                    isCuePlaybackActive ? classes.controlButtonCueActive : null,
+                  )}
                   aria-label="Open cue controls"
                   onClick={handleOpenCueDrawer}
                   focusRipple
                   disabled={!deviceApiId}
                 >
-                  <span className={classes.controlIcon} role="img" aria-hidden="true">
+                  <span
+                    className={combineClasses(
+                      classes.controlIcon,
+                      isCuePlaybackActive ? classes.controlIconCueActive : null,
+                    )}
+                    role="img"
+                    aria-hidden="true"
+                  >
                     <QueueMusicIcon fontSize="inherit" />
                   </span>
                 </ButtonBase>
@@ -2128,7 +2394,8 @@ const trackPool = useMemo(() => {
         anchor="right"
         open={isCueDrawerOpen}
         onClose={handleCloseCueDrawer}
-        variant="persistent"
+        variant="temporary"
+        ModalProps={{ keepMounted: true }}
         classes={{ paper: classes.cueDrawerPaper }}
         className={classes.cueDrawer}
       >
@@ -2143,6 +2410,21 @@ const trackPool = useMemo(() => {
             className={classes.headerBackButton}
           >
             <CloseIcon className={classes.headerBackIcon} />
+          </ButtonBase>
+        </div>
+        <div className={classes.cueControls}>
+          <ButtonBase
+            onClick={stopCuePlayback}
+            aria-label="Stop cue playback"
+            focusRipple
+            disabled={!deviceApiId}
+            className={combineClasses(
+              classes.cueStopButton,
+              isCuePlaybackActive ? classes.cueStopButtonActive : null,
+            )}
+          >
+            <StopIcon className={classes.cueStopIcon} />
+            <span className={classes.cueStopLabel}>Stop</span>
           </ButtonBase>
         </div>
         <div className={classes.cueList} role="region" aria-label="Cue buttons list">
@@ -2164,18 +2446,39 @@ const trackPool = useMemo(() => {
                   secondaryParts.push(trigger.asset.name)
                 }
 
+                const triggerId = getTriggerIdentifier(trigger)
+                const triggerOrdinal = getTriggerOrdinal(trigger)
+                const isTriggerActive =
+                  (triggerId && triggerId === activeCueTriggerId) ||
+                  (Number.isFinite(triggerOrdinal) &&
+                    Number.isFinite(activeCueTriggerOrdinal) &&
+                    triggerOrdinal === activeCueTriggerOrdinal)
+
                 return (
                   <ListItem
                     key={trigger?.id || primaryText}
-                    className={classes.cueListItem}
+                    className={combineClasses(
+                      classes.cueListItem,
+                      isTriggerActive ? classes.cueListItemActive : null,
+                    )}
                     button
                     onClick={() => sendCueTriggerAction(trigger)}
                   >
                     <ListItemText
                       primary={primaryText}
                       secondary={secondaryParts.join(' • ')}
-                      primaryTypographyProps={{ className: classes.cueListPrimary }}
-                      secondaryTypographyProps={{ className: classes.cueListSecondary }}
+                      primaryTypographyProps={{
+                        className: combineClasses(
+                          classes.cueListPrimary,
+                          isTriggerActive ? classes.cueListPrimaryActive : null,
+                        ),
+                      }}
+                      secondaryTypographyProps={{
+                        className: combineClasses(
+                          classes.cueListSecondary,
+                          isTriggerActive ? classes.cueListSecondaryActive : null,
+                        ),
+                      }}
                     />
                   </ListItem>
                 )
