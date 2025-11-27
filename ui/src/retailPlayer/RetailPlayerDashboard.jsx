@@ -897,7 +897,7 @@ const RetailPlayerDashboard = () => {
   const [isCueDrawerOpen, setCueDrawerOpen] = useState(false)
   const [cueTriggers, setCueTriggers] = useState([])
   const [cueError, setCueError] = useState(null)
-  const [isCueLoading, setCueLoading] = useState(false)
+  const [isCueLoading, setCueLoading] = useState(true)
   const [activeCueTriggerId, setActiveCueTriggerId] = useState('')
   const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
   const scheduleDropdownRef = useRef(null)
@@ -1262,17 +1262,23 @@ const RetailPlayerDashboard = () => {
   useEffect(() => {
     setCueTriggers([])
     setCueError(null)
+    setCueLoading(true)
   }, [deviceApiId])
 
-  const fetchCueTriggers = useCallback(() => {
+  const fetchCueTriggers = useCallback(({ showLoading = false } = {}) => {
     if (!deviceApiId) {
       setCueError(new Error('Retail player device id unavailable'))
       setCueTriggers([])
+      if (showLoading) {
+        setCueLoading(false)
+      }
       return undefined
     }
 
     const abortController = new AbortController()
-    setCueLoading(true)
+    if (showLoading) {
+      setCueLoading(true)
+    }
     setCueError(null)
 
     httpClient(
@@ -1290,19 +1296,15 @@ const RetailPlayerDashboard = () => {
         }
       })
       .finally(() => {
-        setCueLoading(false)
+        if (showLoading) {
+          setCueLoading(false)
+        }
       })
 
     return () => abortController.abort()
   }, [deviceApiId])
 
-  useEffect(() => {
-    if (!isCueDrawerOpen) {
-      return undefined
-    }
-
-    return fetchCueTriggers()
-  }, [fetchCueTriggers, isCueDrawerOpen])
+  useEffect(() => fetchCueTriggers({ showLoading: true }), [fetchCueTriggers])
 
   const sendCueTriggerAction = useCallback(
     (trigger) => {
@@ -1716,7 +1718,8 @@ const trackPool = useMemo(() => {
 
   const handleOpenCueDrawer = useCallback(() => {
     setCueDrawerOpen(true)
-  }, [])
+    fetchCueTriggers()
+  }, [fetchCueTriggers])
 
   const handleCloseCueDrawer = useCallback(() => {
     setCueDrawerOpen(false)
