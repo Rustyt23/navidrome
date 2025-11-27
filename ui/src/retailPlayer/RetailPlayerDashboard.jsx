@@ -919,9 +919,68 @@ const RetailPlayerDashboard = () => {
 
   useEffect(() => {
     setPreviousNowPlaying(null)
-    setActiveCueTriggerId('')
-    setActiveCueTriggerOrdinal(null)
   }, [deviceTrackKey])
+
+  const cueStorageKey = useMemo(() => {
+    if (!deviceTrackKey) {
+      return null
+    }
+
+    return `retailPlayerCue:${deviceTrackKey}`
+  }, [deviceTrackKey])
+
+  useEffect(() => {
+    if (!cueStorageKey) {
+      setActiveCueTriggerId('')
+      setActiveCueTriggerOrdinal(null)
+      return
+    }
+
+    try {
+      const storedValue = window.localStorage.getItem(cueStorageKey)
+      if (!storedValue) {
+        setActiveCueTriggerId('')
+        setActiveCueTriggerOrdinal(null)
+        return
+      }
+
+      const parsed = JSON.parse(storedValue)
+      const storedTriggerId = normalizeValue(parsed?.triggerId) || ''
+      const parsedOrdinal = Number(parsed?.triggerOrdinal)
+      const storedTriggerOrdinal = Number.isFinite(parsedOrdinal) ? parsedOrdinal : null
+
+      setActiveCueTriggerId(storedTriggerId)
+      setActiveCueTriggerOrdinal(storedTriggerOrdinal)
+    } catch (error) {
+      setActiveCueTriggerId('')
+      setActiveCueTriggerOrdinal(null)
+    }
+  }, [cueStorageKey])
+
+  const persistActiveCueState = useCallback(
+    (triggerId, triggerOrdinal) => {
+      setActiveCueTriggerId(triggerId)
+      setActiveCueTriggerOrdinal(triggerOrdinal)
+
+      if (!cueStorageKey) {
+        return
+      }
+
+      try {
+        if (triggerId || Number.isFinite(triggerOrdinal)) {
+          window.localStorage.setItem(
+            cueStorageKey,
+            JSON.stringify({ triggerId, triggerOrdinal }),
+          )
+        } else {
+          window.localStorage.removeItem(cueStorageKey)
+        }
+      } catch (error) {
+        // Ignore storage errors
+      }
+    },
+    [cueStorageKey],
+  )
 
   useEffect(() => {
     if (!isApiEnabled) {
@@ -1152,14 +1211,14 @@ const RetailPlayerDashboard = () => {
 
   useEffect(() => {
     if (detectedCuePlayback.triggerId || Number.isFinite(detectedCuePlayback.triggerOrdinal)) {
-      setActiveCueTriggerId(detectedCuePlayback.triggerId || '')
-      setActiveCueTriggerOrdinal(
+      persistActiveCueState(
+        detectedCuePlayback.triggerId || '',
         Number.isFinite(detectedCuePlayback.triggerOrdinal)
           ? detectedCuePlayback.triggerOrdinal
           : null,
       )
     }
-  }, [detectedCuePlayback])
+  }, [detectedCuePlayback, persistActiveCueState])
 
   useEffect(() => {
     if (!isScheduleMenuOpen) {
@@ -1250,12 +1309,9 @@ const RetailPlayerDashboard = () => {
       const triggerId = getTriggerIdentifier(trigger)
       const triggerOrdinal = getTriggerOrdinal(trigger)
 
-      if (triggerId) {
-        setActiveCueTriggerId(triggerId)
-      }
-
-      if (Number.isFinite(triggerOrdinal)) {
-        setActiveCueTriggerOrdinal(triggerOrdinal)
+      const resolvedOrdinal = Number.isFinite(triggerOrdinal) ? triggerOrdinal : null
+      if (triggerId || Number.isFinite(resolvedOrdinal)) {
+        persistActiveCueState(triggerId || '', resolvedOrdinal)
       }
 
       if (!deviceApiId || !triggerId) {
@@ -1274,15 +1330,14 @@ const RetailPlayerDashboard = () => {
         }
       })
     },
-    [deviceApiId, getTriggerIdentifier, getTriggerOrdinal],
+    [deviceApiId, getTriggerIdentifier, getTriggerOrdinal, persistActiveCueState],
   )
 
   const stopCuePlayback = useCallback(() => {
     const triggerId = normalizeValue(activeCueTriggerId)
 
     if (!deviceApiId) {
-      setActiveCueTriggerId('')
-      setActiveCueTriggerOrdinal(null)
+      persistActiveCueState('', null)
       return
     }
 
@@ -1299,9 +1354,8 @@ const RetailPlayerDashboard = () => {
       }
     })
 
-    setActiveCueTriggerId('')
-    setActiveCueTriggerOrdinal(null)
-  }, [activeCueTriggerId, deviceApiId])
+    persistActiveCueState('', null)
+  }, [activeCueTriggerId, deviceApiId, persistActiveCueState])
 
   const activeSchedule = useMemo(() => {
     if (!schedules.length) {
@@ -1311,10 +1365,7 @@ const RetailPlayerDashboard = () => {
     return matched || schedules[0]
   }, [effectiveActiveChannelKey, schedules])
 
-  const rootClassName = useMemo(
-    () => combineClasses(classes.root, isCueDrawerOpen ? classes.cueDrawerOpen : null),
-    [classes.root, classes.cueDrawerOpen, isCueDrawerOpen],
-  )
+  const rootClassName = classes.root
 
   const sendDislikeNotification = useCallback(() => {
     if (!isApiEnabled || !deviceApiId) {
@@ -2343,7 +2394,8 @@ const trackPool = useMemo(() => {
         anchor="right"
         open={isCueDrawerOpen}
         onClose={handleCloseCueDrawer}
-        variant="persistent"
+        variant="temporary"
+        ModalProps={{ keepMounted: true }}
         classes={{ paper: classes.cueDrawerPaper }}
         className={classes.cueDrawer}
       >
