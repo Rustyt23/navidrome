@@ -1210,14 +1210,15 @@ const RetailPlayerDashboard = () => {
   }, [getTriggerIdentifier, getTriggerOrdinal, nowPlayingCueMetadata, sortedCueTriggers])
 
   useEffect(() => {
-    if (detectedCuePlayback.triggerId || Number.isFinite(detectedCuePlayback.triggerOrdinal)) {
-      persistActiveCueState(
-        detectedCuePlayback.triggerId || '',
-        Number.isFinite(detectedCuePlayback.triggerOrdinal)
-          ? detectedCuePlayback.triggerOrdinal
-          : null,
-      )
-    }
+    const hasDetectedCue =
+      detectedCuePlayback.triggerId || Number.isFinite(detectedCuePlayback.triggerOrdinal)
+
+    persistActiveCueState(
+      hasDetectedCue ? detectedCuePlayback.triggerId || '' : '',
+      hasDetectedCue && Number.isFinite(detectedCuePlayback.triggerOrdinal)
+        ? detectedCuePlayback.triggerOrdinal
+        : null,
+    )
   }, [detectedCuePlayback, persistActiveCueState])
 
   useEffect(() => {
@@ -1590,8 +1591,8 @@ const trackPool = useMemo(() => {
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
   const isCuePlaybackActive = useMemo(
-    () => Boolean(activeCueTriggerId || Number.isFinite(activeCueTriggerOrdinal)),
-    [activeCueTriggerId, activeCueTriggerOrdinal],
+    () => Boolean(detectedCuePlayback.triggerId || Number.isFinite(detectedCuePlayback.triggerOrdinal)),
+    [detectedCuePlayback],
   )
 
   const deviceTimeZone = useMemo(() => {
