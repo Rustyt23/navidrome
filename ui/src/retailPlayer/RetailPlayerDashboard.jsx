@@ -27,6 +27,7 @@ import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
+import useRemoteControlSocket from './useRemoteControlSocket'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -1043,6 +1044,31 @@ const RetailPlayerDashboard = () => {
     resolvedDevice?.apiId,
     resolvedDevice?.id,
   ])
+
+  const remoteControlId = useMemo(
+    () => normalizeValue(deviceApiId) || 'fda915dd-a953-489e-980a-e3385faa2f5f',
+    [deviceApiId],
+  )
+
+  const {
+    isConnected: isRemoteControlConnected,
+    lastMessage: remoteControlMessage,
+    sendMessage: sendRemoteControlMessage,
+  } = useRemoteControlSocket(remoteControlId)
+
+  useEffect(() => {
+    if (!isRemoteControlConnected || !remoteControlId) {
+      return
+    }
+
+    sendRemoteControlMessage({ type: 'HELLO', deviceUUID: remoteControlId })
+  }, [isRemoteControlConnected, remoteControlId, sendRemoteControlMessage])
+
+  useEffect(() => {
+    if (!remoteControlMessage) {
+      return
+    }
+  }, [remoteControlMessage])
 
   const canControlDevice = useMemo(
     () => Boolean(isApiEnabled && deviceApiId),
