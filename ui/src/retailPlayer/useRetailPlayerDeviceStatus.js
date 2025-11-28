@@ -13,9 +13,6 @@ import useRemoteControlSocket from './useRemoteControlSocket'
 
 const RETAIL_REMOTE_CONTROL_ID = 'fda915dd-a953-489e-980a-e3385faa2f5f'
 
-const buildStatusUrl = (deviceId) =>
-  deviceId ? `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/status` : null
-
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const parseVolume = (value) => {
@@ -637,11 +634,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
   const [deviceState, setDeviceState] = useState(initialDeviceState)
   const [statusState, setStatusState] = useState(initialStatusState)
-  const [refreshIndex, setRefreshIndex] = useState(0)
   const [channelState, setChannelState] = useState(initialChannelState)
-  const [isApiEnabled, setIsApiEnabled] = useState(
-    Boolean(config.retailPlayerDevicesEnabled),
-  )
   const [hasRealtimeStatus, setHasRealtimeStatus] = useState(false)
   const realtimeDeviceRef = useRef(null)
 
@@ -679,8 +672,21 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [deviceState.data, normalizedSlugKey, statusState.data])
 
   const refresh = useCallback(() => {
-    setRefreshIndex((previous) => previous + 1)
-  }, [])
+    setDeviceState((previous) => ({
+      ...initialDeviceState,
+      isLoading: previous.isLoading || Boolean(slugParam),
+    }))
+    setStatusState((previous) => ({
+      ...initialStatusState,
+      isLoading: previous.isLoading || Boolean(slugParam),
+    }))
+    setChannelState((previous) => ({
+      ...initialChannelState,
+      isLoading: previous.isLoading || Boolean(slugParam),
+    }))
+    setHasRealtimeStatus(false)
+    realtimeDeviceRef.current = null
+  }, [slugParam])
 
   const {
     isConnected: isRemoteControlConnected,
@@ -696,135 +702,32 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [baseDevice?.apiId, baseDevice?.id, deviceState.data?.apiId])
 
   useEffect(() => {
-    setDeviceState(initialDeviceState)
-    setStatusState(initialStatusState)
-    setChannelState(initialChannelState)
+    const isLoading = Boolean(slugParam)
+    setDeviceState({ ...initialDeviceState, isLoading })
+    setStatusState({ ...initialStatusState, isLoading })
+    setChannelState({ ...initialChannelState, isLoading })
     setHasRealtimeStatus(false)
     realtimeDeviceRef.current = null
-  }, [normalizedSlugKey])
+  }, [normalizedSlugKey, slugParam])
 
   useEffect(() => {
     if (!slugParam) {
-      setDeviceState(initialDeviceState)
-      setStatusState(initialStatusState)
-      return undefined
-    }
-
-    const url = buildStatusUrl(slugParam)
-    if (!url) {
-      setDeviceState(initialDeviceState)
-      setStatusState(initialStatusState)
       return undefined
     }
 
     if (hasRealtimeStatus) {
       setDeviceState((previous) => ({ ...previous, isLoading: false }))
       setStatusState((previous) => ({ ...previous, isLoading: false }))
+      setChannelState((previous) => ({ ...previous, isLoading: false }))
       return undefined
     }
 
-    const abortController = new AbortController()
     setDeviceState((previous) => ({ ...previous, isLoading: true, error: null }))
     setStatusState((previous) => ({ ...previous, isLoading: true, error: null }))
-
-    httpClient(url, { signal: abortController.signal })
-      .then(({ json }) => {
-        if (abortController.signal.aborted) {
-          return
-        }
-
-        const mappedDevice = mapRetailPlayerDevice(json?.device) || null
-
-        setIsApiEnabled(true)
-        setDeviceState({
-          data: mappedDevice,
-          error: null,
-          isLoading: false,
-          fetchedAt: new Date(),
-        })
-        setStatusState({
-          data: json,
-          error: null,
-          isLoading: false,
-          fetchedAt: new Date(),
-        })
-      })
-      .catch((err) => {
-        if (abortController.signal.aborted) {
-          return
-        }
-
-        if (isIntegrationDisabledError(err)) {
-          setIsApiEnabled(false)
-          setDeviceState(initialDeviceState)
-          setStatusState(initialStatusState)
-          return
-        }
-
-        setIsApiEnabled(true)
-        const nextState = {
-          data: null,
-          error: err,
-          isLoading: false,
-          fetchedAt: new Date(),
-        }
-        setDeviceState(nextState)
-        setStatusState(nextState)
-      })
-
-    return () => {
-      abortController.abort()
-    }
-  }, [hasRealtimeStatus, slugParam, refreshIndex])
-
-  useEffect(() => {
-    if (!isApiEnabled) {
-      setChannelState(initialChannelState)
-      return undefined
-    }
-
-    if (deviceState.isLoading) {
-      return undefined
-    }
-
-    const channelListId = normalizeValue(baseDevice?.channelList)
-    if (!channelListId) {
-      setChannelState(initialChannelState)
-      return undefined
-    }
-
-    const url = `/api/retailplayer/channel-lists/${encodeURIComponent(channelListId)}/channels`
-    const abortController = new AbortController()
     setChannelState((previous) => ({ ...previous, isLoading: true, error: null }))
 
-    httpClient(url, { signal: abortController.signal })
-      .then(({ json }) => {
-        if (abortController.signal.aborted) {
-          return
-        }
-        setChannelState({
-          data: mapChannelListResponse(json),
-          error: null,
-          isLoading: false,
-          fetchedAt: new Date(),
-        })
-      })
-      .catch((err) => {
-        if (abortController.signal.aborted) {
-          return
-        }
-        setChannelState({
-          data: [],
-          error: err,
-          isLoading: false,
-          fetchedAt: new Date(),
-        })
-      })
-
-    return () => {
-      abortController.abort()
-    }
-  }, [baseDevice?.channelList, deviceState.isLoading, isApiEnabled])
+    return undefined
+  }, [hasRealtimeStatus, slugParam])
 
   const normalizedDevice = useMemo(
     () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
@@ -944,7 +847,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         fetchedAt: new Date(),
       })
       setHasRealtimeStatus(true)
-      setIsApiEnabled(true)
 
       if (payloadChannels) {
         setChannelState({
@@ -1116,11 +1018,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const devicesError =
     rawDevicesError && rawDevicesError.status === 404 ? null : rawDevicesError
 
-  const notFound =
-    Boolean(normalizedSlugKey) &&
-    isApiEnabled &&
-    !deviceState.isLoading &&
-    (!baseDevice || (statusState.error && statusState.error.status === 404))
+  const notFound = false
 
   const statusError =
     statusState.error && statusState.error.status !== 404
@@ -1143,7 +1041,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     devicesError,
     channelListError: channelState.error,
     notFound,
-    isApiEnabled,
     lastUpdated: statusState.fetchedAt,
   }
 }
