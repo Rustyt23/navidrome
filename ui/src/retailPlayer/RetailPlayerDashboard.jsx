@@ -1316,12 +1316,12 @@ const RetailPlayerDashboard = () => {
   }, [deviceApiId])
 
   useEffect(() => {
-    if (!isCueDrawerOpen) {
+    if (!deviceApiId) {
       return undefined
     }
 
     return fetchCueTriggers()
-  }, [fetchCueTriggers, isCueDrawerOpen])
+  }, [deviceApiId, fetchCueTriggers])
 
   const sendCueTriggerAction = useCallback(
     (trigger) => {
