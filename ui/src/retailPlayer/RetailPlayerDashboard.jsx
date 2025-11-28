@@ -20,7 +20,6 @@ import DescriptionIcon from '@material-ui/icons/Description'
 import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import ArrowBackIcon from '@material-ui/icons/ArrowBack'
-import CloseIcon from '@material-ui/icons/Close'
 import StopIcon from '@material-ui/icons/Stop'
 import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
@@ -914,6 +913,7 @@ const RetailPlayerDashboard = () => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const [isCueDrawerOpen, setCueDrawerOpen] = useState(false)
+  const [hasCueTriggers, setHasCueTriggers] = useState(false)
   const [cueTriggers, setCueTriggers] = useState([])
   const [cueError, setCueError] = useState(null)
   const [isCueLoading, setCueLoading] = useState(false)
@@ -1281,6 +1281,7 @@ const RetailPlayerDashboard = () => {
   useEffect(() => {
     setCueTriggers([])
     setCueError(null)
+    setHasCueTriggers(false)
   }, [deviceApiId])
 
   const fetchCueTriggers = useCallback(() => {
@@ -1301,11 +1302,13 @@ const RetailPlayerDashboard = () => {
       .then(({ json }) => {
         const triggers = Array.isArray(json?.triggers) ? json.triggers : []
         setCueTriggers(triggers)
+        setHasCueTriggers(Boolean(triggers.length))
       })
       .catch((err) => {
         if (err?.name !== 'AbortError') {
           setCueError(err)
           setCueTriggers([])
+          setHasCueTriggers(false)
         }
       })
       .finally(() => {
@@ -2247,29 +2250,31 @@ const trackPool = useMemo(() => {
                     <MdSkipNext fontSize="inherit" />
                   </span>
                 </ButtonBase>
-                <ButtonBase
-                  className={combineClasses(
-                    classes.controlButton,
-                    classes.controlButtonCue,
-                    isCuePlaybackActive ? classes.controlButtonCueActive : null,
-                  )}
-                  aria-label="Open cue controls"
-                  onClick={handleOpenCueDrawer}
-                  focusRipple
-                  disabled={!deviceApiId}
-                >
-                  <span
+                {hasCueTriggers ? (
+                  <ButtonBase
                     className={combineClasses(
-                      classes.controlIcon,
-                      classes.controlIconCue,
-                      isCuePlaybackActive ? classes.controlIconCueActive : null,
+                      classes.controlButton,
+                      classes.controlButtonCue,
+                      isCuePlaybackActive ? classes.controlButtonCueActive : null,
                     )}
-                    role="img"
-                    aria-hidden="true"
+                    aria-label="Open cue controls"
+                    onClick={handleOpenCueDrawer}
+                    focusRipple
+                    disabled={!deviceApiId}
                   >
-                    <CueIcon fontSize="inherit" />
-                  </span>
-                </ButtonBase>
+                    <span
+                      className={combineClasses(
+                        classes.controlIcon,
+                        classes.controlIconCue,
+                        isCuePlaybackActive ? classes.controlIconCueActive : null,
+                      )}
+                      role="img"
+                      aria-hidden="true"
+                    >
+                      <CueIcon fontSize="inherit" />
+                    </span>
+                  </ButtonBase>
+                ) : null}
               </section>
 
               <section className={classes.volumeSection} aria-label="Volume">
@@ -2424,14 +2429,6 @@ const trackPool = useMemo(() => {
           <Typography component="h2" className={classes.cueDrawerTitle}>
             Cue Buttons
           </Typography>
-          <ButtonBase
-            onClick={handleCloseCueDrawer}
-            aria-label="Close cue drawer"
-            focusRipple
-            className={classes.headerBackButton}
-          >
-            <CloseIcon className={classes.headerBackIcon} />
-          </ButtonBase>
         </div>
         <div className={classes.cueControls}>
           <ButtonBase
