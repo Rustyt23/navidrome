@@ -27,6 +27,7 @@ import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
+import useRemoteControlSocket from './useRemoteControlSocket'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -1043,6 +1044,74 @@ const RetailPlayerDashboard = () => {
     resolvedDevice?.apiId,
     resolvedDevice?.id,
   ])
+
+  const remoteControlId = 'fda915dd-a953-489e-980a-e3385faa2f5f'
+  const remoteControlDeviceId = useMemo(
+    () => normalizeValue(deviceApiId),
+    [deviceApiId],
+  )
+
+  const {
+    isConnected: isRemoteControlConnected,
+    lastMessage: remoteControlMessage,
+    sendMessage: sendRemoteControlMessage,
+  } = useRemoteControlSocket(remoteControlId)
+
+  useEffect(() => {
+    if (!isRemoteControlConnected || !remoteControlId) {
+      return
+    }
+
+    sendRemoteControlMessage({ type: 'HELLO', deviceUUID: remoteControlId })
+  }, [isRemoteControlConnected, remoteControlId, sendRemoteControlMessage])
+
+  useEffect(() => {
+    if (!isRemoteControlConnected || !remoteControlDeviceId || !remoteControlId) {
+      return
+    }
+
+    const subscriptionMessages = [
+      {
+        type: 'subscribe',
+        payload: {
+          subsId: 'remote-control',
+          topic: 'triggerSet-diff',
+          objId: remoteControlDeviceId,
+        },
+      },
+      {
+        type: 'subscribe',
+        payload: {
+          subsId: 'remote-control',
+          topic: 'channelList-diff',
+          objId: remoteControlDeviceId,
+        },
+      },
+      {
+        type: 'subscribe',
+        payload: {
+          subsId: 'remote-control',
+          topic: 'device-diff',
+          objId: remoteControlDeviceId,
+        },
+      },
+    ]
+
+    subscriptionMessages.forEach((message) => {
+      sendRemoteControlMessage(message)
+    })
+  }, [
+    isRemoteControlConnected,
+    remoteControlDeviceId,
+    remoteControlId,
+    sendRemoteControlMessage,
+  ])
+
+  useEffect(() => {
+    if (!remoteControlMessage) {
+      return
+    }
+  }, [remoteControlMessage])
 
   const canControlDevice = useMemo(
     () => Boolean(isApiEnabled && deviceApiId),
