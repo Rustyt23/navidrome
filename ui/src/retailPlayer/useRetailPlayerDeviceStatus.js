@@ -146,6 +146,9 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   }
 
   const status = payload && typeof payload === 'object' ? payload.status || {} : {}
+  const deviceVolume = parseVolume(
+    payload?.device?.volume ?? payload?.volume ?? baseDevice?.volume,
+  )
   const streamMetadata = ensureArray(payload?.streamMetadata).filter(
     (item) => item && typeof item === 'object',
   )
@@ -547,7 +550,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     nowPlayingArtist = ''
   }
 
-  const volume = combinedMetadata.volume ?? parseVolume(status.volume)
+  const statusVolume = parseVolume(status.volume)
+  const volume = combinedMetadata.volume ?? statusVolume ?? deviceVolume
 
   const scheduleStatus = normalizeValue(status.scheduleStatus).toLowerCase()
   const isConnected =
