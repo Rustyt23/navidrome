@@ -1,19 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import subsonic from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
 import { baseUrl } from '../utils'
 import config from '../config'
-import useRetailPlayerDevices from './useRetailPlayerDevices'
-import { useDataProvider } from 'react-admin'
 import {
   buildDeviceSlug,
   deviceSlugKey,
   mapRetailPlayerDevice,
   normalizeValue,
 } from './deviceUtils'
+import useRemoteControlSocket from './useRemoteControlSocket'
 
-const buildStatusUrl = (deviceId) =>
-  deviceId ? `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/status` : null
+const RETAIL_REMOTE_CONTROL_ID = 'fda915dd-a953-489e-980a-e3385faa2f5f'
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
@@ -148,6 +146,9 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   }
 
   const status = payload && typeof payload === 'object' ? payload.status || {} : {}
+  const deviceVolume = parseVolume(
+    payload?.device?.volume ?? payload?.volume ?? baseDevice?.volume,
+  )
   const streamMetadata = ensureArray(payload?.streamMetadata).filter(
     (item) => item && typeof item === 'object',
   )
@@ -549,7 +550,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     nowPlayingArtist = ''
   }
 
-  const volume = combinedMetadata.volume ?? parseVolume(status.volume)
+  const statusVolume = parseVolume(status.volume)
+  const volume = combinedMetadata.volume ?? statusVolume ?? deviceVolume
 
   const scheduleStatus = normalizeValue(status.scheduleStatus).toLowerCase()
   const isConnected =
@@ -622,6 +624,13 @@ const initialChannelState = {
   fetchedAt: null,
 }
 
+const initialTriggerState = {
+  data: [],
+  error: null,
+  isLoading: false,
+  fetchedAt: null,
+}
+
 const useRetailPlayerDeviceStatus = (slugParam) => {
   const normalizedSlugKey = useMemo(() => {
     if (!slugParam) {
@@ -636,11 +645,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
   const [deviceState, setDeviceState] = useState(initialDeviceState)
   const [statusState, setStatusState] = useState(initialStatusState)
-  const [refreshIndex, setRefreshIndex] = useState(0)
   const [channelState, setChannelState] = useState(initialChannelState)
-  const [isApiEnabled, setIsApiEnabled] = useState(
-    Boolean(config.retailPlayerDevicesEnabled),
-  )
+  const [triggerState, setTriggerState] = useState(initialTriggerState)
+  const [hasRealtimeStatus, setHasRealtimeStatus] = useState(false)
+  const realtimeDeviceRef = useRef(null)
 
   const baseDevice = useMemo(() => {
     const ensureMatchingDevice = (device) => {
@@ -676,130 +684,239 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [deviceState.data, normalizedSlugKey, statusState.data])
 
   const refresh = useCallback(() => {
-    setRefreshIndex((previous) => previous + 1)
-  }, [])
+    setDeviceState((previous) => ({
+      ...initialDeviceState,
+      isLoading: previous.isLoading || Boolean(slugParam),
+    }))
+    setStatusState((previous) => ({
+      ...initialStatusState,
+      isLoading: previous.isLoading || Boolean(slugParam),
+    }))
+    setChannelState((previous) => ({
+      ...initialChannelState,
+      isLoading: previous.isLoading || Boolean(slugParam),
+    }))
+    setTriggerState((previous) => ({
+      ...initialTriggerState,
+      isLoading: previous.isLoading || Boolean(slugParam),
+    }))
+    setHasRealtimeStatus(false)
+    realtimeDeviceRef.current = null
+  }, [slugParam])
+
+  const {
+    isConnected: isRemoteControlConnected,
+    lastMessage: remoteControlMessage,
+    sendMessage: sendRemoteControlMessage,
+  } = useRemoteControlSocket(RETAIL_REMOTE_CONTROL_ID)
+
+  const remoteControlDeviceId = useMemo(() => {
+    const deviceId = normalizeValue(
+      baseDevice?.apiId || baseDevice?.id || deviceState.data?.apiId,
+    )
+    return deviceId || ''
+  }, [baseDevice?.apiId, baseDevice?.id, deviceState.data?.apiId])
+
+  useEffect(() => {
+    const isLoading = Boolean(slugParam)
+    setDeviceState({ ...initialDeviceState, isLoading })
+    setStatusState({ ...initialStatusState, isLoading })
+    setChannelState({ ...initialChannelState, isLoading })
+    setTriggerState({ ...initialTriggerState, isLoading })
+    setHasRealtimeStatus(false)
+    realtimeDeviceRef.current = null
+  }, [normalizedSlugKey, slugParam])
 
   useEffect(() => {
     if (!slugParam) {
-      setDeviceState(initialDeviceState)
-      setStatusState(initialStatusState)
       return undefined
     }
 
-    const url = buildStatusUrl(slugParam)
-    if (!url) {
-      setDeviceState(initialDeviceState)
-      setStatusState(initialStatusState)
+    if (hasRealtimeStatus) {
+      setDeviceState((previous) => ({ ...previous, isLoading: false }))
+      setStatusState((previous) => ({ ...previous, isLoading: false }))
+      setChannelState((previous) => ({ ...previous, isLoading: false }))
+      setTriggerState((previous) => ({ ...previous, isLoading: false }))
       return undefined
     }
 
-    const abortController = new AbortController()
     setDeviceState((previous) => ({ ...previous, isLoading: true, error: null }))
     setStatusState((previous) => ({ ...previous, isLoading: true, error: null }))
+    setChannelState((previous) => ({ ...previous, isLoading: true, error: null }))
+    setTriggerState((previous) => ({ ...previous, isLoading: true, error: null }))
 
-    httpClient(url, { signal: abortController.signal })
-      .then(({ json }) => {
-        if (abortController.signal.aborted) {
-          return
-        }
+    return undefined
+  }, [hasRealtimeStatus, slugParam])
 
-        const mappedDevice = mapRetailPlayerDevice(json?.device) || null
+  const normalizedDevice = useMemo(
+    () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
+    [baseDevice, channelState.data, statusState.data],
+  )
 
-        setIsApiEnabled(true)
+  useEffect(() => {
+    if (!isRemoteControlConnected || !RETAIL_REMOTE_CONTROL_ID) {
+      return
+    }
+
+    sendRemoteControlMessage({
+      type: 'HELLO',
+      deviceUUID: RETAIL_REMOTE_CONTROL_ID,
+    })
+  }, [isRemoteControlConnected, sendRemoteControlMessage])
+
+  useEffect(() => {
+    if (!isRemoteControlConnected || !remoteControlDeviceId) {
+      return
+    }
+
+    const subscriptionMessages = [
+      {
+        type: 'subscribe',
+        payload: {
+          subsId: 'remote-control',
+          topic: 'triggerSet-diff',
+          objId: remoteControlDeviceId,
+        },
+      },
+      {
+        type: 'subscribe',
+        payload: {
+          subsId: 'remote-control',
+          topic: 'channelList-diff',
+          objId: remoteControlDeviceId,
+        },
+      },
+      {
+        type: 'subscribe',
+        payload: {
+          subsId: 'remote-control',
+          topic: 'device-diff',
+          objId: remoteControlDeviceId,
+        },
+      },
+    ]
+
+    subscriptionMessages.forEach((message) => {
+      sendRemoteControlMessage(message)
+    })
+  }, [isRemoteControlConnected, remoteControlDeviceId, sendRemoteControlMessage])
+
+  const handleRealtimePayload = useCallback(
+    (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      const payloadDevice = payload.device && typeof payload.device === 'object' ? payload.device : null
+      const payloadChannels = Array.isArray(payload.channels) ? payload.channels : null
+      const payloadTriggers = Array.isArray(payload.buttonTriggers)
+        ? payload.buttonTriggers
+        : null
+
+      if (!payloadDevice) {
+        return
+      }
+
+      const payloadId = normalizeValue(payloadDevice.id || payloadDevice.deviceId)
+      if (remoteControlDeviceId && payloadId && payloadId !== remoteControlDeviceId) {
+        return
+      }
+
+      const previousDevice = realtimeDeviceRef.current || {}
+      const mergedStatus = { ...(previousDevice.status || {}), ...(payloadDevice.status || {}) }
+      const previousExtra = previousDevice.extra && typeof previousDevice.extra === 'object' ? previousDevice.extra : {}
+      const nextExtra = payloadDevice.extra && typeof payloadDevice.extra === 'object' ? payloadDevice.extra : {}
+      const nextStreamMetadata = ensureArray(nextExtra.streamMetadata)
+      const mergedExtra = {
+        ...previousExtra,
+        ...nextExtra,
+        streamMetadata: nextStreamMetadata.length
+          ? nextStreamMetadata
+          : ensureArray(previousExtra.streamMetadata),
+      }
+
+      const mergedDevice = {
+        ...previousDevice,
+        ...payloadDevice,
+        status: mergedStatus,
+        extra: mergedExtra,
+      }
+
+      realtimeDeviceRef.current = mergedDevice
+
+      const mappedDevice = mapRetailPlayerDevice(mergedDevice)
+      if (mappedDevice) {
         setDeviceState({
           data: mappedDevice,
           error: null,
           isLoading: false,
           fetchedAt: new Date(),
         })
-        setStatusState({
-          data: json,
+      }
+
+      const mergedStreamMetadata = ensureArray(mergedDevice.extra?.streamMetadata)
+      const statusPayload = {
+        device: mergedDevice,
+        status: mergedDevice.status || {},
+        streamMetadata: mergedStreamMetadata,
+        artwork: mergedDevice.artwork || payload.artwork,
+      }
+
+      setStatusState({
+        data: statusPayload,
+        error: null,
+        isLoading: false,
+        fetchedAt: new Date(),
+      })
+      setHasRealtimeStatus(true)
+
+      if (payloadChannels) {
+        setChannelState({
+          data: mapChannelListResponse({ channels: payloadChannels }),
           error: null,
           isLoading: false,
           fetchedAt: new Date(),
         })
-      })
-      .catch((err) => {
-        if (abortController.signal.aborted) {
-          return
-        }
+      }
 
-        if (isIntegrationDisabledError(err)) {
-          setIsApiEnabled(false)
-          setDeviceState(initialDeviceState)
-          setStatusState(initialStatusState)
-          return
-        }
-
-        setIsApiEnabled(true)
-        const nextState = {
-          data: null,
-          error: err,
+      if (payloadTriggers) {
+        setTriggerState({
+          data: ensureArray(payloadTriggers),
+          error: null,
           isLoading: false,
           fetchedAt: new Date(),
-        }
-        setDeviceState(nextState)
-        setStatusState(nextState)
-      })
-
-    return () => {
-      abortController.abort()
-    }
-  }, [slugParam, refreshIndex])
+        })
+      }
+    },
+    [remoteControlDeviceId],
+  )
 
   useEffect(() => {
-    if (!isApiEnabled) {
-      setChannelState(initialChannelState)
-      return undefined
+    if (!remoteControlMessage) {
+      return
     }
 
-    if (deviceState.isLoading) {
-      return undefined
+    let parsedMessage = null
+    try {
+      parsedMessage = JSON.parse(remoteControlMessage)
+    } catch (err) {
+      return
     }
 
-    const channelListId = normalizeValue(baseDevice?.channelList)
-    if (!channelListId) {
-      setChannelState(initialChannelState)
-      return undefined
+    if (!parsedMessage || typeof parsedMessage !== 'object') {
+      return
     }
 
-    const url = `/api/retailplayer/channel-lists/${encodeURIComponent(channelListId)}/channels`
-    const abortController = new AbortController()
-    setChannelState((previous) => ({ ...previous, isLoading: true, error: null }))
+    const payload = parsedMessage.payload && typeof parsedMessage.payload === 'object'
+      ? parsedMessage.payload
+      : null
 
-    httpClient(url, { signal: abortController.signal })
-      .then(({ json }) => {
-        if (abortController.signal.aborted) {
-          return
-        }
-        setChannelState({
-          data: mapChannelListResponse(json),
-          error: null,
-          isLoading: false,
-          fetchedAt: new Date(),
-        })
-      })
-      .catch((err) => {
-        if (abortController.signal.aborted) {
-          return
-        }
-        setChannelState({
-          data: [],
-          error: err,
-          isLoading: false,
-          fetchedAt: new Date(),
-        })
-      })
-
-    return () => {
-      abortController.abort()
+    if (!payload) {
+      return
     }
-  }, [baseDevice?.channelList, deviceState.isLoading, isApiEnabled])
 
-  const normalizedDevice = useMemo(
-    () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
-    [baseDevice, channelState.data, statusState.data],
-  )
+    handleRealtimePayload(payload)
+  }, [handleRealtimePayload, remoteControlMessage])
 
   const [artworkUrl, setArtworkUrl] = useState(null)
 
@@ -932,17 +1049,16 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const devicesError =
     rawDevicesError && rawDevicesError.status === 404 ? null : rawDevicesError
 
-  const notFound =
-    Boolean(normalizedSlugKey) &&
-    isApiEnabled &&
-    !deviceState.isLoading &&
-    (!baseDevice || (statusState.error && statusState.error.status === 404))
+  const notFound = false
 
   const statusError =
     statusState.error && statusState.error.status !== 404
       ? statusState.error
       : null
   const error = statusError || devicesError || channelState.error || null
+
+  const hasButtonTriggers = triggerState.data && triggerState.data.length > 0
+  const isTriggerListLoading = triggerState.isLoading && !hasButtonTriggers
 
   return {
     device: deviceWithArtwork,
@@ -954,12 +1070,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     isDeviceListLoading: deviceState.isLoading,
     isStatusLoading: statusState.isLoading,
     isChannelListLoading: channelState.isLoading,
+    isTriggerListLoading,
+    buttonTriggers: triggerState.data,
+    hasButtonTriggers,
     error,
     statusError: statusState.error,
     devicesError,
     channelListError: channelState.error,
     notFound,
-    isApiEnabled,
     lastUpdated: statusState.fetchedAt,
   }
 }
