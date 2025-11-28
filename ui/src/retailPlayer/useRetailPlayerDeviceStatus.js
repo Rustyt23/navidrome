@@ -620,6 +620,13 @@ const initialChannelState = {
   fetchedAt: null,
 }
 
+const initialTriggerState = {
+  data: [],
+  error: null,
+  isLoading: false,
+  fetchedAt: null,
+}
+
 const useRetailPlayerDeviceStatus = (slugParam) => {
   const normalizedSlugKey = useMemo(() => {
     if (!slugParam) {
@@ -635,6 +642,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const [deviceState, setDeviceState] = useState(initialDeviceState)
   const [statusState, setStatusState] = useState(initialStatusState)
   const [channelState, setChannelState] = useState(initialChannelState)
+  const [triggerState, setTriggerState] = useState(initialTriggerState)
   const [hasRealtimeStatus, setHasRealtimeStatus] = useState(false)
   const realtimeDeviceRef = useRef(null)
 
@@ -684,6 +692,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       ...initialChannelState,
       isLoading: previous.isLoading || Boolean(slugParam),
     }))
+    setTriggerState((previous) => ({
+      ...initialTriggerState,
+      isLoading: previous.isLoading || Boolean(slugParam),
+    }))
     setHasRealtimeStatus(false)
     realtimeDeviceRef.current = null
   }, [slugParam])
@@ -706,6 +718,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     setDeviceState({ ...initialDeviceState, isLoading })
     setStatusState({ ...initialStatusState, isLoading })
     setChannelState({ ...initialChannelState, isLoading })
+    setTriggerState({ ...initialTriggerState, isLoading })
     setHasRealtimeStatus(false)
     realtimeDeviceRef.current = null
   }, [normalizedSlugKey, slugParam])
@@ -719,12 +732,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       setDeviceState((previous) => ({ ...previous, isLoading: false }))
       setStatusState((previous) => ({ ...previous, isLoading: false }))
       setChannelState((previous) => ({ ...previous, isLoading: false }))
+      setTriggerState((previous) => ({ ...previous, isLoading: false }))
       return undefined
     }
 
     setDeviceState((previous) => ({ ...previous, isLoading: true, error: null }))
     setStatusState((previous) => ({ ...previous, isLoading: true, error: null }))
     setChannelState((previous) => ({ ...previous, isLoading: true, error: null }))
+    setTriggerState((previous) => ({ ...previous, isLoading: true, error: null }))
 
     return undefined
   }, [hasRealtimeStatus, slugParam])
@@ -790,6 +805,9 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
       const payloadDevice = payload.device && typeof payload.device === 'object' ? payload.device : null
       const payloadChannels = Array.isArray(payload.channels) ? payload.channels : null
+      const payloadTriggers = Array.isArray(payload.buttonTriggers)
+        ? payload.buttonTriggers
+        : null
 
       if (!payloadDevice) {
         return
@@ -851,6 +869,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       if (payloadChannels) {
         setChannelState({
           data: mapChannelListResponse({ channels: payloadChannels }),
+          error: null,
+          isLoading: false,
+          fetchedAt: new Date(),
+        })
+      }
+
+      if (payloadTriggers) {
+        setTriggerState({
+          data: ensureArray(payloadTriggers),
           error: null,
           isLoading: false,
           fetchedAt: new Date(),
@@ -1026,6 +1053,9 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       : null
   const error = statusError || devicesError || channelState.error || null
 
+  const hasButtonTriggers = triggerState.data && triggerState.data.length > 0
+  const isTriggerListLoading = triggerState.isLoading && !hasButtonTriggers
+
   return {
     device: deviceWithArtwork,
     baseDevice,
@@ -1036,6 +1066,9 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     isDeviceListLoading: deviceState.isLoading,
     isStatusLoading: statusState.isLoading,
     isChannelListLoading: channelState.isLoading,
+    isTriggerListLoading,
+    buttonTriggers: triggerState.data,
+    hasButtonTriggers,
     error,
     statusError: statusState.error,
     devicesError,

@@ -897,6 +897,9 @@ const RetailPlayerDashboard = () => {
     refresh: refreshStatus,
     notFound,
     isApiEnabled,
+    buttonTriggers,
+    hasButtonTriggers,
+    isTriggerListLoading,
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const [device, setDevice] = useState(resolvedDevice)
   const [deviceTime, setDeviceTime] = useState(() => new Date())
@@ -914,10 +917,7 @@ const RetailPlayerDashboard = () => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const [isCueDrawerOpen, setCueDrawerOpen] = useState(false)
-  const [hasCueTriggers, setHasCueTriggers] = useState(false)
-  const [cueTriggers, setCueTriggers] = useState([])
   const [cueError, setCueError] = useState(null)
-  const [isCueLoading, setCueLoading] = useState(false)
   const [activeCueTriggerId, setActiveCueTriggerId] = useState('')
   const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
   const scheduleDropdownRef = useRef(null)
@@ -1199,6 +1199,13 @@ const RetailPlayerDashboard = () => {
   )
   const availableSchedulesCount = availableSchedules.length
 
+  const cueTriggers = useMemo(
+    () => (Array.isArray(buttonTriggers) ? buttonTriggers.filter(Boolean) : []),
+    [buttonTriggers],
+  )
+  const hasCueTriggers = hasButtonTriggers || cueTriggers.length > 0
+  const isCueLoading = isTriggerListLoading && !hasCueTriggers
+
   const getTriggerIdentifier = useCallback((trigger) => {
     if (!trigger || typeof trigger !== 'object') {
       return ''
@@ -1346,54 +1353,6 @@ const RetailPlayerDashboard = () => {
       setScheduleMenuOpen(false)
     }
   }, [availableSchedulesCount])
-
-  useEffect(() => {
-    setCueTriggers([])
-    setCueError(null)
-    setHasCueTriggers(false)
-  }, [deviceApiId])
-
-  const fetchCueTriggers = useCallback(() => {
-    if (!deviceApiId) {
-      setCueError(new Error('Retail player device id unavailable'))
-      setCueTriggers([])
-      return undefined
-    }
-
-    const abortController = new AbortController()
-    setCueLoading(true)
-    setCueError(null)
-
-    httpClient(
-      `/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/triggers`,
-      { signal: abortController.signal },
-    )
-      .then(({ json }) => {
-        const triggers = Array.isArray(json?.triggers) ? json.triggers : []
-        setCueTriggers(triggers)
-        setHasCueTriggers(Boolean(triggers.length))
-      })
-      .catch((err) => {
-        if (err?.name !== 'AbortError') {
-          setCueError(err)
-          setCueTriggers([])
-          setHasCueTriggers(false)
-        }
-      })
-      .finally(() => {
-        setCueLoading(false)
-      })
-
-    return () => abortController.abort()
-  }, [deviceApiId])
-
-  useEffect(() => {
-    if (!deviceApiId) {
-      return undefined
-    }
-
-    return fetchCueTriggers()
-  }, [deviceApiId, fetchCueTriggers])
 
   const sendCueTriggerAction = useCallback(
     (trigger) => {
