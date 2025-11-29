@@ -6,7 +6,7 @@ import { mapRetailPlayerDevice } from './deviceUtils'
 
 const buildDevicesUrl = () => '/api/retailplayer/devices'
 
-const fetchRetailPlayerDevices = async (signal) => {
+const fetchRetailPlayerDevices = async (signal, deviceSlug) => {
   const url = buildDevicesUrl()
 
   if (!url) {
@@ -15,7 +15,17 @@ const fetchRetailPlayerDevices = async (signal) => {
 
   let payload
   try {
-    const { json } = await httpClient(url, { signal })
+    const options = { signal }
+    if (deviceSlug) {
+      options.method = 'POST'
+      options.body = JSON.stringify({ name: deviceSlug })
+      options.headers = new Headers({
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      })
+    }
+
+    const { json } = await httpClient(url, options)
     payload = json
   } catch (err) {
     if (err?.status === 404) {
@@ -42,7 +52,7 @@ const fetchRetailPlayerDevices = async (signal) => {
   return { devices, folders, deviceFolders, enabled: true }
 }
 
-const useRetailPlayerDevices = () => {
+const useRetailPlayerDevices = (deviceSlug) => {
   const [devices, setDevices] = useState(() => {
     if (config.retailPlayerDevicesEnabled) {
       return []
@@ -68,7 +78,7 @@ const useRetailPlayerDevices = () => {
     setIsLoading(true)
     setError(null)
 
-    fetchRetailPlayerDevices(abortController.signal)
+    fetchRetailPlayerDevices(abortController.signal, deviceSlug)
       .then((result) => {
         const enabled = Boolean(result?.enabled)
         setIsApiEnabled(enabled)
@@ -100,7 +110,7 @@ const useRetailPlayerDevices = () => {
     return () => {
       abortController.abort()
     }
-  }, [])
+  }, [deviceSlug])
 
   return {
     devices,

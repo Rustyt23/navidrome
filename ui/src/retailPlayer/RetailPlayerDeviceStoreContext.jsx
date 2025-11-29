@@ -8,6 +8,7 @@ import React, {
 } from 'react'
 import PropTypes from 'prop-types'
 import { v4 as uuidv4 } from 'uuid'
+import { useLocation } from 'react-router-dom'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
 import httpClient from '../dataProvider/httpClient'
 import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
@@ -488,6 +489,14 @@ const buildTree = (folders, devices) => {
 
 const RetailPlayerDeviceStoreProvider = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState)
+  const location = useLocation()
+  const deviceSlug = useMemo(() => {
+    const match = /^\/retailplayer\/([^/]+)$/i.exec(location.pathname)
+    if (match) {
+      return decodeURIComponent(match[1])
+    }
+    return null
+  }, [location.pathname])
   const {
     devices: remoteDevices,
     folders: remoteFolders,
@@ -495,7 +504,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
     error,
     isLoading,
     isApiEnabled,
-  } = useRetailPlayerDevices()
+  } = useRetailPlayerDevices(deviceSlug)
 
   useEffect(() => {
     dispatch({ type: 'SET_LOADING', payload: isLoading })

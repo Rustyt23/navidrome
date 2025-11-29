@@ -209,6 +209,10 @@ type retailPlayerDevice struct {
 	RemoteControlID string   `json:"remoteControlId,omitempty"`
 }
 
+type retailPlayerDeviceFilterPayload struct {
+	Name string `json:"name"`
+}
+
 type retailPlayerDeviceConfigResponse struct {
 	ID                  string `json:"id"`
 	OrgUnit             string `json:"orgUnit"`
@@ -335,6 +339,7 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 
 func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Get("/retailplayer/devices", n.handleRetailPlayerDevices())
+	r.Post("/retailplayer/devices", n.handleRetailPlayerDevices())
 	r.Post("/retailplayer/folders", n.handleCreateRetailPlayerFolder())
 	r.Patch("/retailplayer/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
 	r.Post("/retailplayer/folders/delete", n.handleDeleteRetailPlayerFolders())
@@ -353,6 +358,24 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			return
 		}
 
+		var deviceFilter string
+		if r.Method == http.MethodPost {
+			decoder := json.NewDecoder(r.Body)
+			decoder.DisallowUnknownFields()
+
+			var payload retailPlayerDeviceFilterPayload
+			if err := decoder.Decode(&payload); err != nil {
+				http.Error(w, "Invalid retail player device payload", http.StatusBadRequest)
+				return
+			}
+
+			deviceFilter = strings.TrimSpace(payload.Name)
+			if deviceFilter == "" {
+				http.Error(w, "Retail player device name is required", http.StatusBadRequest)
+				return
+			}
+		}
+
 		log.Info(ctx, "Fetching retail player devices from remote API")
 		response, err := fetchRetailPlayerDevices(ctx)
 		if err != nil {
@@ -363,6 +386,18 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 
 		log.Info(ctx, "Retail player devices fetched", "count", len(response.Data))
 
+		if deviceFilter != "" {
+			filtered := filterRetailPlayerDevices(response.Data, deviceFilter)
+			if len(filtered) == 0 {
+				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				return
+			}
+
+			response.Data = filtered
+			response.Total = len(filtered)
+			response.Page = 1
+		}
+
 		n.devices.RememberDevices(response.Data)
 		n.persistRetailPlayerDeviceMappings(ctx, response.Data)
 
@@ -371,6 +406,43 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			log.Error(ctx, "Unable to load retail player folder data", "err", err)
 			http.Error(w, "Unable to load retail player folders", http.StatusInternalServerError)
 			return
+		}
+
+		if deviceFilter != "" {
+			allowedDeviceIDs := make(map[string]struct{}, len(response.Data))
+			for _, device := range response.Data {
+				id := strings.TrimSpace(device.ID)
+				if id == "" {
+					continue
+				}
+
+				allowedDeviceIDs[id] = struct{}{}
+			}
+
+			filteredDeviceFolders := make([]model.RetailPlayerDeviceFolder, 0, len(deviceFolders))
+			for _, deviceFolder := range deviceFolders {
+				if _, ok := allowedDeviceIDs[deviceFolder.DeviceID]; ok {
+					filteredDeviceFolders = append(filteredDeviceFolders, deviceFolder)
+				}
+			}
+
+			deviceFolders = filteredDeviceFolders
+
+			if len(deviceFolders) > 0 {
+				folderIDs := make(map[string]struct{})
+				for _, deviceFolder := range deviceFolders {
+					folderIDs[deviceFolder.FolderID] = struct{}{}
+				}
+
+				filteredFolders := make([]model.RetailPlayerFolder, 0, len(folders))
+				for _, folder := range folders {
+					if _, ok := folderIDs[folder.ID]; ok {
+						filteredFolders = append(filteredFolders, folder)
+					}
+				}
+
+				folders = filteredFolders
+			}
 		}
 
 		if len(deviceFolders) > 0 {
@@ -1667,6 +1739,55 @@ func lookupRetailPlayerDevice(ctx context.Context, identifier string) (retailPla
 	}
 
 	return retailPlayerDevice{}, response.Data, errRetailPlayerDeviceNotFound
+}
+
+func filterRetailPlayerDevices(devices []retailPlayerDevice, identifier string) []retailPlayerDevice {
+	normalizedIdentifier := strings.TrimSpace(identifier)
+	if normalizedIdentifier == "" {
+		return nil
+	}
+
+	slugKey := retailPlayerDeviceSlugKey(normalizedIdentifier)
+	lowerIdentifier := strings.ToLower(normalizedIdentifier)
+	filtered := make([]retailPlayerDevice, 0, 1)
+
+	for _, device := range devices {
+		if strings.EqualFold(strings.TrimSpace(device.ID), normalizedIdentifier) {
+			return []retailPlayerDevice{device}
+		}
+		if strings.EqualFold(strings.TrimSpace(device.Name), normalizedIdentifier) {
+			return []retailPlayerDevice{device}
+		}
+
+		if slugKey == "" {
+			continue
+		}
+
+		if retailPlayerDeviceSlugKey(device.Name) == slugKey {
+			return []retailPlayerDevice{device}
+		}
+		if retailPlayerDeviceSlugKey(device.ID) == slugKey {
+			return []retailPlayerDevice{device}
+		}
+
+		if lowerIdentifier == "" {
+			continue
+		}
+
+		if retailPlayerDeviceSlugKey(device.Channel) == slugKey {
+			filtered = append(filtered, device)
+			continue
+		}
+		if retailPlayerDeviceSlugKey(device.ChannelList) == slugKey {
+			filtered = append(filtered, device)
+			continue
+		}
+		if retailPlayerDeviceSlugKey(device.Organization) == slugKey {
+			filtered = append(filtered, device)
+		}
+	}
+
+	return filtered
 }
 
 func retailPlayerDeviceSlugKey(value string) string {
