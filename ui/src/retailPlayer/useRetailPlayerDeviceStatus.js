@@ -762,6 +762,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return deviceId || ''
   }, [baseDevice?.apiId, baseDevice?.id, deviceState.data?.apiId])
 
+  const baseRemoteControlId = useRef('')
+
+  useEffect(() => {
+    baseRemoteControlId.current = normalizeValue(
+      baseDevice?.remoteControlId || deviceState.data?.remoteControlId,
+    )
+  }, [baseDevice?.remoteControlId, deviceState.data?.remoteControlId])
+
   useEffect(() => {
     const isLoading = Boolean(slugParam)
     setDeviceState({ ...initialDeviceState, isLoading })
@@ -885,6 +893,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         ...payloadDevice,
         status: mergedStatus,
         extra: mergedExtra,
+      }
+
+      const mergedRemoteControlId =
+        normalizeValue(payloadDevice.remoteControlId) ||
+        normalizeValue(previousDevice.remoteControlId) ||
+        baseRemoteControlId.current
+
+      if (mergedRemoteControlId) {
+        mergedDevice.remoteControlId = mergedRemoteControlId
       }
 
       realtimeDeviceRef.current = mergedDevice
