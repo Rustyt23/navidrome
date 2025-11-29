@@ -109,6 +109,7 @@ type configOptions struct {
 	RetailPlayer                    retailPlayerOptions `json:",omitzero"`
 	Tags                            map[string]TagConf  `json:",omitempty"`
 	Agents                          string
+	QRSync                          qrSyncOptions
 
 	// DevFlags. These are used to enable/disable debugging and incomplete features
 	DevLogLevels                     map[string]string `json:",omitempty"`
@@ -216,6 +217,14 @@ type retailPlayerOptions struct {
 	Fields                    []string                        `json:",omitempty"`
 	AdditionalHeaders         map[string]string               `json:",omitempty"`
 	Notifications             retailPlayerNotificationOptions `json:",omitempty"`
+}
+
+type qrSyncOptions struct {
+	RPPLoginURL string `mapstructure:"rpp_login_url"`
+	RPPBaseURL  string `mapstructure:"rpp_base_url"`
+	RPPUsername string `mapstructure:"rpp_username"`
+	RPPPassword string `mapstructure:"rpp_password"`
+	Tenant      string `mapstructure:"tenant"`
 }
 
 type secureOptions struct {
@@ -619,6 +628,11 @@ func setViperDefaults() {
 	viper.SetDefault("deezer.enabled", true)
 	viper.SetDefault("listenbrainz.enabled", true)
 	viper.SetDefault("listenbrainz.baseurl", "https://api.listenbrainz.org/1/")
+	viper.SetDefault("qr_sync.rpp_login_url", "")
+	viper.SetDefault("qr_sync.rpp_base_url", "")
+	viper.SetDefault("qr_sync.rpp_username", "")
+	viper.SetDefault("qr_sync.rpp_password", "")
+	viper.SetDefault("qr_sync.tenant", "")
 	viper.SetDefault("retailplayer.enabled", false)
 	viper.SetDefault("retailplayer.baseurl", "")
 	viper.SetDefault("retailplayer.orgid", "")

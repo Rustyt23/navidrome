@@ -40,11 +40,16 @@ type deviceUpdate struct {
 func (h *QRHandler) RunQRFetchJob() {
 	ctx := log.NewContext(context.Background(), "job", "qr_fetch")
 
-	loginURL := conf.GetString("qr_sync.rpp_login_url")
-	baseURL := strings.TrimSuffix(conf.GetString("qr_sync.rpp_base_url"), "/")
-	username := conf.GetString("qr_sync.rpp_username")
-	password := conf.GetString("qr_sync.rpp_password")
-	tenant := conf.GetString("qr_sync.tenant")
+	loginURL := conf.Server.QRSync.RPPLoginURL
+	baseURL := strings.TrimSuffix(conf.Server.QRSync.RPPBaseURL, "/")
+	username := conf.Server.QRSync.RPPUsername
+	password := conf.Server.QRSync.RPPPassword
+	tenant := conf.Server.QRSync.Tenant
+
+	if loginURL == "" || baseURL == "" || username == "" || password == "" || tenant == "" {
+		log.Error(ctx, "Missing qr_sync configuration values")
+		return
+	}
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
