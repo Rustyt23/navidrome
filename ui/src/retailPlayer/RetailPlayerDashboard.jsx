@@ -900,7 +900,7 @@ const RetailPlayerDashboard = () => {
     hasButtonTriggers,
     isTriggerListLoading,
   } = useRetailPlayerDeviceStatus(deviceSlug)
-  const [device, setDevice] = useState(resolvedDevice)
+  const device = resolvedDevice || null
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
@@ -1090,7 +1090,6 @@ const RetailPlayerDashboard = () => {
   }, [])
 
   useEffect(() => {
-    setDevice(resolvedDevice || null)
     setDeviceTime(resolveDeviceTime(resolvedDevice))
   }, [resolvedDevice, resolveDeviceTime])
 
