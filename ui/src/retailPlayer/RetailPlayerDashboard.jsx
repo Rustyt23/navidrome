@@ -904,10 +904,10 @@ const RetailPlayerDashboard = () => {
   const device = resolvedDevice || null
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(50)
-  const [displayVolume, setDisplayVolume] = useState(50)
+  const [volume, setVolume] = useState(null)
+  const [displayVolume, setDisplayVolume] = useState(null)
   const volumeTimeoutRef = useRef(null)
-  const previousVolumeRef = useRef(50)
+  const previousVolumeRef = useRef(null)
   const volumeSyncReadyRef = useRef(false)
   const lastTrackSignatureRef = useRef('')
   const dislikeTimeoutRef = useRef(null)
@@ -1835,7 +1835,11 @@ const RetailPlayerDashboard = () => {
   const updateVolume = useCallback(
     (nextValue) => {
       setDisplayVolume((previous) => {
-        const rawNext = typeof nextValue === 'function' ? nextValue(previous) : nextValue
+        const safePrevious = typeof previous === 'number' && !Number.isNaN(previous)
+          ? previous
+          : 0
+        const rawNext =
+          typeof nextValue === 'function' ? nextValue(safePrevious) : nextValue
         const clamped = clamp(Math.round(rawNext), 0, 100)
         clearVolumeTimeout()
         setIsMuted(clamped === 0)
@@ -1858,8 +1862,19 @@ const RetailPlayerDashboard = () => {
         type: 'set_mute',
         payload: { muted: false },
       })
+      const restoredVolumeCandidate =
+        typeof previousVolumeRef.current === 'number'
+        && !Number.isNaN(previousVolumeRef.current)
+          ? previousVolumeRef.current
+          : null
       const restoredVolume =
-        previousVolumeRef.current > 0 ? previousVolumeRef.current : 50
+        restoredVolumeCandidate && restoredVolumeCandidate > 0
+          ? restoredVolumeCandidate
+          : typeof volume === 'number' && !Number.isNaN(volume) && volume > 0
+            ? volume
+            : typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
+              ? displayVolume
+              : 0
       updateVolume(restoredVolume)
       return
     }
@@ -2283,7 +2298,9 @@ const RetailPlayerDashboard = () => {
                 <div className={classes.volumeLabelRow}>
                   <Typography component="span">volume</Typography>
                   <Typography className={classes.volumeValue} aria-live="polite">
-                    {displayVolume}
+                    {typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
+                      ? displayVolume
+                      : 0}
                   </Typography>
                 </div>
                 <Slider
@@ -2293,7 +2310,9 @@ const RetailPlayerDashboard = () => {
                     thumb: classes.sliderThumb,
                     rail: classes.sliderRail,
                   }}
-                  value={displayVolume}
+                  value={typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
+                    ? displayVolume
+                    : 0}
                   min={0}
                   max={100}
                   aria-label="Volume"
