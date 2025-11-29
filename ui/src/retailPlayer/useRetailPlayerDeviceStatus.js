@@ -1005,6 +1005,12 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
           isLoading: false,
           fetchedAt: new Date(),
         })
+      } else if (channelState.isLoading) {
+        setChannelState((previous) => ({
+          ...previous,
+          isLoading: false,
+          error: null,
+        }))
       }
 
       if (payloadTriggers) {
@@ -1014,9 +1020,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
           isLoading: false,
           fetchedAt: new Date(),
         })
+      } else if (triggerState.isLoading) {
+        setTriggerState((previous) => ({
+          ...previous,
+          isLoading: false,
+          error: null,
+        }))
       }
     },
-    [channelState.data, remoteControlDeviceId],
+    [channelState.data, channelState.isLoading, remoteControlDeviceId, triggerState.isLoading],
   )
 
   useEffect(() => {
