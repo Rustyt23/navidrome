@@ -10,7 +10,7 @@ import {
   normalizeValue,
 } from './deviceUtils'
 import useRemoteControlSocket from './useRemoteControlSocket'
-import useRetailPlayerDevices from './useRetailPlayerDevices'
+import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
@@ -683,11 +683,13 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const realtimeDeviceRef = useRef(null)
 
   const {
-    devices,
-    error: deviceListError,
-    isApiEnabled,
-    isLoading: deviceListLoading,
-  } = useRetailPlayerDevices({ fetchDevices: false })
+    state: {
+      devices,
+      error: deviceListError,
+      isApiEnabled,
+      loading: deviceListLoading,
+    },
+  } = useRetailPlayerDeviceStore()
 
   const baseDevice = useMemo(() => {
     const ensureMatchingDevice = (device) => {
