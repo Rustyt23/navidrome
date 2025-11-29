@@ -124,6 +124,7 @@ func (n *Router) routes() http.Handler {
 		n.addNotificationsRoute(r)
 		n.addKeepAliveRoute(r)
 		n.addInsightsRoute(r)
+		n.addPopulateQRRoute(r)
 		n.addRetailPlayerPrivateRoutes(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {

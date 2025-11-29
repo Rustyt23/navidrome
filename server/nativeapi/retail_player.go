@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os/exec"
 	"path"
@@ -31,6 +32,11 @@ const (
 	retailPlayerDefaultKeyHeader              = "x-retailplayer-apikey"
 	retailPlayerLegacyKeyHeader               = "X-API-Key"
 	retailPlayerRemoteControlDefaultKeyHeader = "x-retailplayer-rc-apikey"
+	rppLoginURL                               = "https://rpp.jareddietch.com/web/api/v1/login"
+	rppBaseURL                                = "https://rpp.jareddietch.com/web/api/v2/org/1aa59b04-5365-4efe-afb3-deb23c414add"
+	rppUsername                               = "vishal"
+	rppPassword                               = "Musicmatters25!"
+	rppTenant                                 = "barix"
 )
 
 var retailPlayerHTTPClient = &http.Client{Timeout: 15 * time.Second}
@@ -319,6 +325,15 @@ type retailPlayerRemoteControl struct {
 	Name string `json:"name"`
 }
 
+type rppDevice struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type rppDevicesResponse struct {
+	Data []rppDevice `json:"data"`
+}
+
 func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices/{deviceID}/config", n.handleRetailPlayerDeviceConfig())
@@ -333,6 +348,10 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	})
 }
 
+func (n *Router) addPopulateQRRoute(r chi.Router) {
+	r.Get("/populate_qr", n.handlePopulateQR())
+}
+
 func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Get("/retailplayer/devices", n.handleRetailPlayerDevices())
 	r.Post("/retailplayer/folders", n.handleCreateRetailPlayerFolder())
@@ -340,6 +359,19 @@ func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Post("/retailplayer/folders/delete", n.handleDeleteRetailPlayerFolders())
 	r.Put("/retailplayer/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
 	r.Patch("/retailplayer/devices/{deviceID}/remote-control", n.handleUpdateRetailPlayerDeviceRemoteControl())
+}
+
+func (n *Router) handlePopulateQR() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		go n.runPopulateQRSync(context.Background())
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]string{"status": "QR sync started"}); err != nil {
+			log.Error(ctx, "Unable to write populate QR response", "err", err)
+		}
+	}
 }
 
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
@@ -445,6 +477,190 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			log.Error(ctx, "Unable to encode retail player devices response", "err", err)
 		}
 	}
+}
+
+func (n *Router) runPopulateQRSync(ctx context.Context) {
+	log.Info(ctx, "Starting populate QR sync")
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		log.Error(ctx, "Unable to create cookie jar for RPP session", "err", err)
+		return
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second, Jar: jar}
+
+	if err := loginToRPP(ctx, client); err != nil {
+		log.Error(ctx, "Unable to login to RPP", "err", err)
+		return
+	}
+
+	devices, err := fetchRPPDevices(ctx, client)
+	if err != nil {
+		log.Error(ctx, "Unable to fetch RPP devices", "err", err)
+		return
+	}
+
+	if len(devices) == 0 {
+		log.Info(ctx, "No RPP devices found to create QR codes for")
+		return
+	}
+
+	log.Info(ctx, "Creating QR codes for RPP devices", "count", len(devices))
+
+	successfulMappings := make([]model.RetailPlayerDeviceMapping, 0, len(devices))
+	for _, device := range devices {
+		deviceID := strings.TrimSpace(device.ID)
+		deviceName := strings.TrimSpace(device.Name)
+		if deviceID == "" || deviceName == "" {
+			log.Warn(ctx, "Skipping malformed RPP device", "device", device)
+			continue
+		}
+
+		qrID := strings.ToLower(uuid.NewString())
+		if err := createRPPQRCode(ctx, client, deviceID, deviceName, qrID); err != nil {
+			log.Warn(ctx, "Unable to create QR code for device", "deviceID", deviceID, "deviceName", deviceName, "err", err)
+			continue
+		}
+
+		successfulMappings = append(successfulMappings, model.RetailPlayerDeviceMapping{
+			DeviceID:     deviceID,
+			DeviceName:   deviceName,
+			DeviceSlug:   model.RetailPlayerDeviceSlug(deviceName),
+			RemoteCtrlID: qrID,
+		})
+		log.Info(ctx, "QR code created for device", "deviceID", deviceID, "qrID", qrID)
+	}
+
+	if len(successfulMappings) == 0 {
+		log.Warn(ctx, "No QR codes were created; skipping Navidrome update")
+		return
+	}
+
+	if n.ds == nil {
+		log.Error(ctx, "Datastore not available; cannot persist QR mappings")
+		return
+	}
+
+	err = n.ds.WithTx(func(tx model.DataStore) error {
+		repo := tx.RetailPlayerDeviceMapping(ctx)
+		if repo == nil {
+			return errors.New("retail player device mapping repository not available")
+		}
+
+		return repo.PutMany(ctx, successfulMappings)
+	})
+	if err != nil {
+		log.Error(ctx, "Unable to persist QR mappings", "err", err)
+		return
+	}
+
+	log.Info(ctx, "Populate QR sync completed", "updated", len(successfulMappings))
+}
+
+func loginToRPP(ctx context.Context, client *http.Client) error {
+	loginPayload := map[string]string{
+		"tenant":   rppTenant,
+		"username": rppUsername,
+		"password": rppPassword,
+		"platform": "WEB",
+	}
+
+	body, err := json.Marshal(loginPayload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rppLoginURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected RPP login status: %d", resp.StatusCode)
+	}
+
+	loginURL, err := url.Parse(rppLoginURL)
+	if err != nil {
+		return err
+	}
+
+	if len(client.Jar.Cookies(loginURL)) == 0 {
+		return errors.New("RPP login returned no session cookies")
+	}
+
+	return nil
+}
+
+func fetchRPPDevices(ctx context.Context, client *http.Client) ([]rppDevice, error) {
+	devicesURL := fmt.Sprintf("%s/device-table?pageSize=500&page=1", rppBaseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devicesURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected RPP devices status: %d", resp.StatusCode)
+	}
+
+	var devicesResponse rppDevicesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&devicesResponse); err != nil {
+		return nil, err
+	}
+
+	return devicesResponse.Data, nil
+}
+
+func createRPPQRCode(ctx context.Context, client *http.Client, deviceID, deviceName, qrID string) error {
+	payload := map[string]any{
+		"id":                   qrID,
+		"name":                 fmt.Sprintf("QR Code for %s", deviceName),
+		"enabled":              true,
+		"channelChangeEnabled": true,
+		"cuePlayEnabled":       true,
+		"volumeChangeEnabled":  true,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("%s/device/%s/qr-code/%s", rppBaseURL, url.PathEscape(deviceID), url.PathEscape(qrID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected QR creation status: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func (n *Router) handleCreateRetailPlayerFolder() http.HandlerFunc {
