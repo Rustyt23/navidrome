@@ -163,7 +163,11 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     return null
   }
 
-  const status = payload && typeof payload === 'object' ? payload.status || {} : {}
+  const hasStatusPayload = payload && typeof payload === 'object'
+  const payloadDevice = hasStatusPayload && payload.device && typeof payload.device === 'object'
+    ? payload.device
+    : null
+  const status = hasStatusPayload && typeof payload.status === 'object' ? payload.status || {} : {}
   const streamMetadata = ensureArray(payload?.streamMetadata).filter(
     (item) => item && typeof item === 'object',
   )
@@ -538,11 +542,21 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const scheduleArtist = normalizeValue(activeSchedule?.artist)
   const { title: parsedStreamTitle, artist: parsedStreamArtist } = parseActiveStreamInfo(streamName)
 
+  const hasNowPlayingDetails = Boolean(
+    metadataTitle ||
+      statusTitle ||
+      parsedStreamTitle ||
+      streamName ||
+      metadataArtist ||
+      statusArtist ||
+      parsedStreamArtist,
+  )
+
   let nowPlayingTitle =
     metadataTitle ||
     statusTitle ||
     parsedStreamTitle ||
-    scheduleLabel ||
+    (hasNowPlayingDetails ? scheduleLabel : '') ||
     streamName ||
     baseDevice.name
 
@@ -550,7 +564,9 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     metadataArtist ||
     statusArtist ||
     parsedStreamArtist ||
-    scheduleArtist ||
+    (hasNowPlayingDetails ? scheduleArtist : '') ||
+    normalizeValue(baseDevice.organization) ||
+    baseDevice.name ||
     normalizeValue(baseDevice.channel) ||
     'Retail Player'
 
@@ -558,14 +574,16 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const metadataAlbum = normalizeValue(combinedMetadata.album)
 
   const isLoadingNowPlaying =
-    normalizedActiveResource === 'none' && !streamName && !metadataTitle && !metadataArtist
+    (!hasNowPlayingDetails && !streamMetadata.length) ||
+    (normalizedActiveResource === 'none' && !streamName && !metadataTitle && !metadataArtist)
 
   if (isLoadingNowPlaying) {
     nowPlayingTitle = 'Loading'
     nowPlayingArtist = ''
   }
 
-  const volume = combinedMetadata.volume ?? parseVolume(status.volume)
+  const volume =
+    combinedMetadata.volume ?? parseVolume(status.volume) ?? parseVolume(payloadDevice?.volume)
 
   const scheduleStatus = normalizeValue(status.scheduleStatus).toLowerCase()
   const isConnected =
