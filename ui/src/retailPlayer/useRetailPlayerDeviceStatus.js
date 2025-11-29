@@ -741,13 +741,11 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     realtimeDeviceRef.current = null
   }, [slugParam])
 
-  const remoteControlId = useMemo(
-    () =>
-      normalizeValue(
-        baseDevice?.remoteControlId || deviceState.data?.remoteControlId,
-      ),
-    [baseDevice?.remoteControlId, deviceState.data?.remoteControlId],
+  const [remoteControlId, setRemoteControlId] = useState(() =>
+    normalizeValue(baseDevice?.remoteControlId || deviceState.data?.remoteControlId),
   )
+
+  const stickyRemoteControlId = useRef(remoteControlId)
 
   const {
     isConnected: isRemoteControlConnected,
@@ -762,13 +760,21 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     return deviceId || ''
   }, [baseDevice?.apiId, baseDevice?.id, deviceState.data?.apiId])
 
-  const baseRemoteControlId = useRef('')
-
   useEffect(() => {
-    baseRemoteControlId.current = normalizeValue(
+    const latestRemoteControlId = normalizeValue(
       baseDevice?.remoteControlId || deviceState.data?.remoteControlId,
     )
-  }, [baseDevice?.remoteControlId, deviceState.data?.remoteControlId])
+
+    if (latestRemoteControlId && latestRemoteControlId !== stickyRemoteControlId.current) {
+      stickyRemoteControlId.current = latestRemoteControlId
+      setRemoteControlId(latestRemoteControlId)
+      return
+    }
+
+    if (!remoteControlId && stickyRemoteControlId.current) {
+      setRemoteControlId(stickyRemoteControlId.current)
+    }
+  }, [baseDevice?.remoteControlId, deviceState.data?.remoteControlId, remoteControlId])
 
   useEffect(() => {
     const isLoading = Boolean(slugParam)
@@ -778,6 +784,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     setTriggerState({ ...initialTriggerState, isLoading })
     setHasRealtimeStatus(false)
     realtimeDeviceRef.current = null
+    stickyRemoteControlId.current = ''
+    setRemoteControlId('')
   }, [normalizedSlugKey, slugParam])
 
   useEffect(() => {
@@ -898,7 +906,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       const mergedRemoteControlId =
         normalizeValue(payloadDevice.remoteControlId) ||
         normalizeValue(previousDevice.remoteControlId) ||
-        baseRemoteControlId.current
+        stickyRemoteControlId.current
 
       if (mergedRemoteControlId) {
         mergedDevice.remoteControlId = mergedRemoteControlId
