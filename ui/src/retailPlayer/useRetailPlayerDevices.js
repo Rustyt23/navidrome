@@ -4,10 +4,21 @@ import httpClient from '../dataProvider/httpClient'
 import RetailPlayerMockService from './RetailPlayerMockService'
 import { mapRetailPlayerDevice } from './deviceUtils'
 
-const buildDevicesUrl = () => '/api/retailplayer/devices'
+const buildDevicesUrl = (identifier) => {
+  if (!identifier) {
+    return '/api/retailplayer/devices'
+  }
 
-const fetchRetailPlayerDevices = async (signal) => {
-  const url = buildDevicesUrl()
+  try {
+    const params = new URLSearchParams({ identifier })
+    return `/api/retailplayer/devices?${params.toString()}`
+  } catch (err) {
+    return `/api/retailplayer/devices?identifier=${encodeURIComponent(identifier)}`
+  }
+}
+
+const fetchRetailPlayerDevices = async (signal, identifier) => {
+  const url = buildDevicesUrl(identifier)
 
   if (!url) {
     return { devices: null, folders: null, deviceFolders: null, enabled: false }
@@ -42,7 +53,7 @@ const fetchRetailPlayerDevices = async (signal) => {
   return { devices, folders, deviceFolders, enabled: true }
 }
 
-const useRetailPlayerDevices = () => {
+const useRetailPlayerDevices = (identifier) => {
   const [devices, setDevices] = useState(() => {
     if (config.retailPlayerDevicesEnabled) {
       return []
@@ -58,7 +69,7 @@ const useRetailPlayerDevices = () => {
   )
 
   useEffect(() => {
-    const url = buildDevicesUrl()
+    const url = buildDevicesUrl(identifier)
     if (!url) {
       setIsApiEnabled(false)
       return undefined
@@ -68,7 +79,7 @@ const useRetailPlayerDevices = () => {
     setIsLoading(true)
     setError(null)
 
-    fetchRetailPlayerDevices(abortController.signal)
+    fetchRetailPlayerDevices(abortController.signal, identifier)
       .then((result) => {
         const enabled = Boolean(result?.enabled)
         setIsApiEnabled(enabled)
@@ -100,7 +111,7 @@ const useRetailPlayerDevices = () => {
     return () => {
       abortController.abort()
     }
-  }, [])
+  }, [identifier])
 
   return {
     devices,

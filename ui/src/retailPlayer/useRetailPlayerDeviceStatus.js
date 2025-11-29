@@ -687,7 +687,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     error: deviceListError,
     isApiEnabled,
     isLoading: deviceListLoading,
-  } = useRetailPlayerDevices()
+  } = useRetailPlayerDevices(slugParam)
 
   const baseDevice = useMemo(() => {
     const ensureMatchingDevice = (device) => {

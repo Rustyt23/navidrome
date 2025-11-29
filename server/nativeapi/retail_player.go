@@ -353,6 +353,79 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			return
 		}
 
+		if identifier := strings.TrimSpace(r.URL.Query().Get("identifier")); identifier != "" {
+			device, err := n.resolveRetailPlayerDevice(ctx, identifier)
+			if err != nil {
+				status := http.StatusBadGateway
+				if errors.Is(err, errRetailPlayerDeviceNotFound) {
+					status = http.StatusNotFound
+				}
+				log.Error(ctx, "Unable to resolve retail player device", "identifier", identifier, "err", err)
+				http.Error(w, "Unable to fetch retail player device", status)
+				return
+			}
+
+			response := retailPlayerDevicesResponse{
+				Data:         []retailPlayerDevice{device},
+				Page:         1,
+				Total:        1,
+				Folders:      []retailPlayerFolder{},
+				DeviceFolder: []retailPlayerDeviceFolder{},
+			}
+
+			deviceID := strings.TrimSpace(device.ID)
+			if deviceID != "" {
+				folders, deviceFolders, err := n.loadRetailPlayerFolderData(ctx)
+				if err != nil {
+					log.Error(ctx, "Unable to load retail player folder data", "err", err)
+					http.Error(w, "Unable to load retail player folders", http.StatusInternalServerError)
+					return
+				}
+
+				folderSet := make(map[string]struct{})
+				assignments := make([]retailPlayerDeviceFolder, 0)
+				for _, deviceFolder := range deviceFolders {
+					if strings.TrimSpace(deviceFolder.DeviceID) != deviceID {
+						continue
+					}
+					assignments = append(assignments, deviceFolder)
+					folderID := strings.TrimSpace(deviceFolder.FolderID)
+					if folderID != "" {
+						folderSet[folderID] = struct{}{}
+					}
+				}
+
+				if len(assignments) > 0 {
+					folderIDs := make([]string, 0, len(assignments))
+					for _, assignment := range assignments {
+						folderIDs = append(folderIDs, assignment.FolderID)
+					}
+					response.Data[0].FolderIDs = append([]string(nil), folderIDs...)
+
+					response.DeviceFolder = make([]retailPlayerDeviceFolder, 0, len(assignments))
+					for _, assignment := range assignments {
+						response.DeviceFolder = append(response.DeviceFolder, mapModelRetailPlayerDeviceFolder(assignment))
+					}
+				}
+
+				if len(folderSet) > 0 {
+					response.Folders = make([]retailPlayerFolder, 0, len(folderSet))
+					for _, folder := range folders {
+						if _, ok := folderSet[folder.ID]; !ok {
+							continue
+						}
+						response.Folders = append(response.Folders, mapModelRetailPlayerFolder(folder))
+					}
+				}
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				log.Error(ctx, "Unable to encode retail player device response", "identifier", identifier, "err", err)
+			}
+			return
+		}
+
 		log.Info(ctx, "Fetching retail player devices from remote API")
 		response, err := fetchRetailPlayerDevices(ctx)
 		if err != nil {
