@@ -192,6 +192,11 @@ func (h *QRHandler) updateDatabase(ctx context.Context, updates []deviceUpdate) 
 	}
 	defer db.Close()
 
+	if err := ensureRemoteControlColumn(ctx, db); err != nil {
+		log.Error(ctx, "Failed to ensure remote_control_id column", err)
+		return
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		log.Error(ctx, "Failed to start transaction", err)
@@ -217,4 +222,32 @@ func (h *QRHandler) updateDatabase(ctx context.Context, updates []deviceUpdate) 
 	if err := tx.Commit(); err != nil {
 		log.Error(ctx, "Failed to commit transaction", err)
 	}
+}
+
+func ensureRemoteControlColumn(ctx context.Context, db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(retail_player_device_mapping)")
+	if err != nil {
+		return fmt.Errorf("inspect table info: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return fmt.Errorf("scan table info: %w", err)
+		}
+		if name == "remote_control_id" {
+			return nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate table info: %w", err)
+	}
+
+	_, err = db.Exec("ALTER TABLE retail_player_device_mapping ADD COLUMN remote_control_id TEXT DEFAULT ''")
+	return err
 }
