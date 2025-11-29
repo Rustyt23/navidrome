@@ -20,6 +20,7 @@ import (
 )
 
 type configOptions struct {
+	RetailPlayerDevicesEnabled      bool
 	ConfigFile                      string
 	Address                         string
 	Port                            int
@@ -632,6 +633,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.search", "")
 	viper.SetDefault("retailplayer.fields", []string{})
 	viper.SetDefault("retailplayer.additionalheaders", map[string]string{})
+	viper.SetDefault("retailplayerdevicesenabled", true)
 	viper.SetDefault("httpsecurityheaders.customframeoptionsvalue", "DENY")
 	viper.SetDefault("backup.path", "")
 	viper.SetDefault("backup.schedule", "")
