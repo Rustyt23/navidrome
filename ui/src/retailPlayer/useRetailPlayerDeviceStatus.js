@@ -814,10 +814,19 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     [baseDevice, channelState.data, statusState.data],
   )
 
+  const lastHelloIdRef = useRef('')
+  const lastSubscriptionIdRef = useRef('')
+
   useEffect(() => {
     if (!isRemoteControlConnected || !remoteControlId) {
       return
     }
+
+    if (lastHelloIdRef.current === remoteControlId) {
+      return
+    }
+
+    lastHelloIdRef.current = remoteControlId
 
     sendRemoteControlMessage({
       type: 'HELLO',
@@ -829,6 +838,12 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     if (!isRemoteControlConnected || !remoteControlDeviceId) {
       return
     }
+
+    if (lastSubscriptionIdRef.current === remoteControlDeviceId) {
+      return
+    }
+
+    lastSubscriptionIdRef.current = remoteControlDeviceId
 
     const subscriptionMessages = [
       {
@@ -861,6 +876,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       sendRemoteControlMessage(message)
     })
   }, [isRemoteControlConnected, remoteControlDeviceId, sendRemoteControlMessage])
+
+  useEffect(() => {
+    if (remoteControlId) {
+      return
+    }
+
+    lastHelloIdRef.current = ''
+    lastSubscriptionIdRef.current = ''
+  }, [remoteControlId])
 
   const handleRealtimePayload = useCallback(
     (payload) => {
