@@ -1,2 +1,9 @@
 DataFolder = "/var/lib/navidrome"
 MusicFolder = "/opt/navidrome/music"
+
+[qr_sync]
+rpp_login_url = "https://rpp.jareddietch.com/web/api/v1/login"
+rpp_base_url = "https://rpp.jareddietch.com/web/api/v2/org/ORG-ID"
+rpp_username = ""
+rpp_password = ""
+tenant = "barix"
