@@ -908,6 +908,7 @@ const RetailPlayerDashboard = () => {
   const volumeTimeoutRef = useRef(null)
   const previousVolumeRef = useRef(50)
   const volumeSyncReadyRef = useRef(false)
+  const lastTrackSignatureRef = useRef('')
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
@@ -938,6 +939,7 @@ const RetailPlayerDashboard = () => {
 
   useEffect(() => {
     setPreviousNowPlaying(null)
+    lastTrackSignatureRef.current = ''
   }, [deviceTrackKey])
 
   const cueStorageKey = useMemo(() => {
@@ -1510,6 +1512,18 @@ const RetailPlayerDashboard = () => {
       return
     }
 
+    const trackSignature = [
+      normalizedDeviceTrack.title || '',
+      normalizedDeviceTrack.artist || device?.channel || '',
+      normalizedDeviceTrack.artworkUrl || '',
+    ].join('::')
+
+    if (lastTrackSignatureRef.current === trackSignature) {
+      return
+    }
+
+    lastTrackSignatureRef.current = trackSignature
+
     const nextTrack = {
       title: normalizedDeviceTrack.title || 'Now Playing',
       artist: normalizedDeviceTrack.artist || device?.channel || 'Retail Player',
@@ -1547,13 +1561,29 @@ const RetailPlayerDashboard = () => {
     return previousNowPlaying
   }, [normalizedDeviceTrack, previousNowPlaying])
 
-const trackPool = useMemo(() => {
-  return effectiveNowPlaying ? [effectiveNowPlaying] : []
-}, [effectiveNowPlaying])
+  const effectiveTrackSignature = useMemo(() => {
+    if (!effectiveNowPlaying) {
+      return ''
+    }
+
+    return [
+      effectiveNowPlaying.title || '',
+      effectiveNowPlaying.artist || '',
+      effectiveNowPlaying.artworkUrl || '',
+    ].join('::')
+  }, [effectiveNowPlaying])
+
+  const trackPool = useMemo(() => {
+    return effectiveNowPlaying ? [effectiveNowPlaying] : []
+  }, [effectiveNowPlaying])
 
   useEffect(() => {
+    if (!effectiveTrackSignature) {
+      return
+    }
+
     setCurrentTrackIndex(0)
-  }, [effectiveNowPlaying])
+  }, [effectiveTrackSignature])
 
   const currentTrack = useMemo(() => {
     if (!trackPool.length) {
