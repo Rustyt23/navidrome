@@ -111,7 +111,7 @@ func (h *Handler) RunQRPopulateJob() {
 			continue
 		}
 
-		log.Infof(ctx, "Updated QR mapping", "device", device.ID)
+		log.Info(ctx, "Updated QR mapping", "device", device.ID)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -149,7 +149,7 @@ func (h *Handler) loginToRPP(ctx context.Context, client *http.Client, loginURL,
 		return fmt.Errorf("unexpected login status: %d", resp.StatusCode)
 	}
 
-	log.Infof(ctx, "Logged into RPP successfully")
+	log.Info(ctx, "Logged into RPP successfully")
 	return nil
 }
 
