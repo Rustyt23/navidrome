@@ -28,7 +28,6 @@ import {
   SongInfo,
   QuickFilter,
   SongTitleField,
-  SongSimpleList,
   RatingField,
   useResourceRefresh,
   ArtistLinkField,
@@ -164,7 +163,6 @@ const SongFilter = (props) => {
 const ReorderableSongList = (props) => {
   const classes = useStyles()
   const dispatch = useDispatch()
-  const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   useResourceRefresh('song')
 
@@ -400,33 +398,29 @@ const ReorderableSongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        perPage={isXsmall ? 50 : 50}
+        perPage={50}
       >
-        {isXsmall ? (
-          <SongSimpleList />
-        ) : (
-          <SongDatagrid
-            rowClick={handleRowClick}
-            contextAlwaysVisible={!isDesktop}
-            classes={{ row: classes.row }}
-          >
-            {visibleColumns}
-            <SongContextMenu
-              source={'starred_at'}
-              sortByOrder={'DESC'}
-              sortable={config.enableFavourites}
-              className={classes.contextMenu}
-              label={
-                config.enableFavourites && (
-                  <FavoriteBorderIcon
-                    fontSize={'small'}
-                    className={classes.contextHeader}
-                  />
-                )
-              }
-            />
-          </SongDatagrid>
-        )}
+        <SongDatagrid
+          rowClick={handleRowClick}
+          contextAlwaysVisible={!isDesktop}
+          classes={{ row: classes.row }}
+        >
+          {visibleColumns}
+          <SongContextMenu
+            source={'starred_at'}
+            sortByOrder={'DESC'}
+            sortable={config.enableFavourites}
+            className={classes.contextMenu}
+            label={
+              config.enableFavourites && (
+                <FavoriteBorderIcon
+                  fontSize={'small'}
+                  className={classes.contextHeader}
+                />
+              )
+            }
+          />
+        </SongDatagrid>
       </List>
       <ExpandInfoDialog content={<SongInfo />} />
     </>
