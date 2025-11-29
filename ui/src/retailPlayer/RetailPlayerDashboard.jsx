@@ -1045,7 +1045,19 @@ const RetailPlayerDashboard = () => {
     resolvedDevice?.id,
   ])
 
-  const remoteControlId = 'fda915dd-a953-489e-980a-e3385faa2f5f'
+  const remoteControlId = useMemo(
+    () =>
+      normalizeValue(
+        resolvedDevice?.remoteControlId ||
+          device?.remoteControlId ||
+          baseDevice?.remoteControlId,
+      ),
+    [
+      baseDevice?.remoteControlId,
+      device?.remoteControlId,
+      resolvedDevice?.remoteControlId,
+    ],
+  )
   const remoteControlDeviceId = useMemo(
     () => normalizeValue(deviceApiId),
     [deviceApiId],
