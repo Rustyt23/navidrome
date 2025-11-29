@@ -7,6 +7,7 @@ import (
 	"time"
 
 	. "github.com/Masterminds/squirrel"
+	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/pocketbase/dbx"
 )
@@ -21,7 +22,18 @@ func NewRetailPlayerDeviceMappingRepository(ctx context.Context, db dbx.Builder)
 	r.db = db
 	r.tableName = "retail_player_device_mapping"
 	r.registerModel(&model.RetailPlayerDeviceMapping{}, nil)
+	r.ensureRemoteControlColumn()
 	return r
+}
+
+func (r retailPlayerDeviceMappingRepository) ensureRemoteControlColumn() {
+	_, err := r.db.NewQuery(`
+ALTER TABLE retail_player_device_mapping
+ADD COLUMN IF NOT EXISTS remote_control_id TEXT DEFAULT '';
+`).Execute()
+	if err != nil {
+		log.Error(r.ctx, "Unable to ensure remote control column for retail player device mappings", "err", err)
+	}
 }
 
 func (r retailPlayerDeviceMappingRepository) Put(ctx context.Context, mapping model.RetailPlayerDeviceMapping) error {
