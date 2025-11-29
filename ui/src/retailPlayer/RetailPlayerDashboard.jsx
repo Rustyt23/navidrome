@@ -27,7 +27,6 @@ import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
-import useRemoteControlSocket from './useRemoteControlSocket'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -900,15 +899,17 @@ const RetailPlayerDashboard = () => {
     buttonTriggers,
     hasButtonTriggers,
     isTriggerListLoading,
+    sendRemoteControlCommand,
   } = useRetailPlayerDeviceStatus(deviceSlug)
-  const [device, setDevice] = useState(resolvedDevice)
+  const device = resolvedDevice || null
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(50)
-  const [displayVolume, setDisplayVolume] = useState(50)
+  const [volume, setVolume] = useState(null)
+  const [displayVolume, setDisplayVolume] = useState(null)
   const volumeTimeoutRef = useRef(null)
-  const previousVolumeRef = useRef(50)
+  const previousVolumeRef = useRef(null)
   const volumeSyncReadyRef = useRef(false)
+  const lastTrackSignatureRef = useRef('')
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
   const channelRequestControllerRef = useRef(null)
@@ -939,6 +940,7 @@ const RetailPlayerDashboard = () => {
 
   useEffect(() => {
     setPreviousNowPlaying(null)
+    lastTrackSignatureRef.current = ''
   }, [deviceTrackKey])
 
   const cueStorageKey = useMemo(() => {
@@ -1045,74 +1047,6 @@ const RetailPlayerDashboard = () => {
     resolvedDevice?.id,
   ])
 
-  const remoteControlId = 'fda915dd-a953-489e-980a-e3385faa2f5f'
-  const remoteControlDeviceId = useMemo(
-    () => normalizeValue(deviceApiId),
-    [deviceApiId],
-  )
-
-  const {
-    isConnected: isRemoteControlConnected,
-    lastMessage: remoteControlMessage,
-    sendMessage: sendRemoteControlMessage,
-  } = useRemoteControlSocket(remoteControlId)
-
-  useEffect(() => {
-    if (!isRemoteControlConnected || !remoteControlId) {
-      return
-    }
-
-    sendRemoteControlMessage({ type: 'HELLO', deviceUUID: remoteControlId })
-  }, [isRemoteControlConnected, remoteControlId, sendRemoteControlMessage])
-
-  useEffect(() => {
-    if (!isRemoteControlConnected || !remoteControlDeviceId || !remoteControlId) {
-      return
-    }
-
-    const subscriptionMessages = [
-      {
-        type: 'subscribe',
-        payload: {
-          subsId: 'remote-control',
-          topic: 'triggerSet-diff',
-          objId: remoteControlDeviceId,
-        },
-      },
-      {
-        type: 'subscribe',
-        payload: {
-          subsId: 'remote-control',
-          topic: 'channelList-diff',
-          objId: remoteControlDeviceId,
-        },
-      },
-      {
-        type: 'subscribe',
-        payload: {
-          subsId: 'remote-control',
-          topic: 'device-diff',
-          objId: remoteControlDeviceId,
-        },
-      },
-    ]
-
-    subscriptionMessages.forEach((message) => {
-      sendRemoteControlMessage(message)
-    })
-  }, [
-    isRemoteControlConnected,
-    remoteControlDeviceId,
-    remoteControlId,
-    sendRemoteControlMessage,
-  ])
-
-  useEffect(() => {
-    if (!remoteControlMessage) {
-      return
-    }
-  }, [remoteControlMessage])
-
   const canControlDevice = useMemo(
     () => Boolean(isApiEnabled && deviceApiId),
     [deviceApiId, isApiEnabled],
@@ -1159,7 +1093,6 @@ const RetailPlayerDashboard = () => {
   }, [])
 
   useEffect(() => {
-    setDevice(resolvedDevice || null)
     setDeviceTime(resolveDeviceTime(resolvedDevice))
   }, [resolvedDevice, resolveDeviceTime])
 
@@ -1519,6 +1452,11 @@ const RetailPlayerDashboard = () => {
       return undefined
     }
 
+    sendRemoteControlCommand({
+      type: 'set_volume',
+      payload: { volume },
+    })
+
     const abortController = new AbortController()
     const headers = new Headers({ 'Content-Type': 'application/json' })
 
@@ -1537,7 +1475,7 @@ const RetailPlayerDashboard = () => {
     return () => {
       abortController.abort()
     }
-  }, [canControlDevice, deviceApiId, volume])
+  }, [canControlDevice, deviceApiId, sendRemoteControlCommand, volume])
 
   const normalizedDeviceTrack = useMemo(() => {
     if (!device?.nowPlaying) {
@@ -1580,6 +1518,18 @@ const RetailPlayerDashboard = () => {
       return
     }
 
+    const trackSignature = [
+      normalizedDeviceTrack.title || '',
+      normalizedDeviceTrack.artist || device?.channel || '',
+      normalizedDeviceTrack.artworkUrl || '',
+    ].join('::')
+
+    if (lastTrackSignatureRef.current === trackSignature) {
+      return
+    }
+
+    lastTrackSignatureRef.current = trackSignature
+
     const nextTrack = {
       title: normalizedDeviceTrack.title || 'Now Playing',
       artist: normalizedDeviceTrack.artist || device?.channel || 'Retail Player',
@@ -1617,13 +1567,29 @@ const RetailPlayerDashboard = () => {
     return previousNowPlaying
   }, [normalizedDeviceTrack, previousNowPlaying])
 
-const trackPool = useMemo(() => {
-  return effectiveNowPlaying ? [effectiveNowPlaying] : []
-}, [effectiveNowPlaying])
+  const effectiveTrackSignature = useMemo(() => {
+    if (!effectiveNowPlaying) {
+      return ''
+    }
+
+    return [
+      effectiveNowPlaying.title || '',
+      effectiveNowPlaying.artist || '',
+      effectiveNowPlaying.artworkUrl || '',
+    ].join('::')
+  }, [effectiveNowPlaying])
+
+  const trackPool = useMemo(() => {
+    return effectiveNowPlaying ? [effectiveNowPlaying] : []
+  }, [effectiveNowPlaying])
 
   useEffect(() => {
+    if (!effectiveTrackSignature) {
+      return
+    }
+
     setCurrentTrackIndex(0)
-  }, [effectiveNowPlaying])
+  }, [effectiveTrackSignature])
 
   const currentTrack = useMemo(() => {
     if (!trackPool.length) {
@@ -1869,7 +1835,11 @@ const trackPool = useMemo(() => {
   const updateVolume = useCallback(
     (nextValue) => {
       setDisplayVolume((previous) => {
-        const rawNext = typeof nextValue === 'function' ? nextValue(previous) : nextValue
+        const safePrevious = typeof previous === 'number' && !Number.isNaN(previous)
+          ? previous
+          : 0
+        const rawNext =
+          typeof nextValue === 'function' ? nextValue(safePrevious) : nextValue
         const clamped = clamp(Math.round(rawNext), 0, 100)
         clearVolumeTimeout()
         setIsMuted(clamped === 0)
@@ -1888,19 +1858,38 @@ const trackPool = useMemo(() => {
 
   const handleToggleMute = useCallback(() => {
     if (isMuted) {
+      sendRemoteControlCommand({
+        type: 'set_mute',
+        payload: { muted: false },
+      })
+      const restoredVolumeCandidate =
+        typeof previousVolumeRef.current === 'number'
+        && !Number.isNaN(previousVolumeRef.current)
+          ? previousVolumeRef.current
+          : null
       const restoredVolume =
-        previousVolumeRef.current > 0 ? previousVolumeRef.current : 50
+        restoredVolumeCandidate && restoredVolumeCandidate > 0
+          ? restoredVolumeCandidate
+          : typeof volume === 'number' && !Number.isNaN(volume) && volume > 0
+            ? volume
+            : typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
+              ? displayVolume
+              : 0
       updateVolume(restoredVolume)
       return
     }
 
+    sendRemoteControlCommand({
+      type: 'set_mute',
+      payload: { muted: true },
+    })
     updateVolume((current) => {
       if (current > 0) {
         previousVolumeRef.current = current
       }
       return 0
     })
-  }, [isMuted, updateVolume])
+  }, [isMuted, sendRemoteControlCommand, updateVolume])
 
   const handleVolumeChange = useCallback((_, newValue) => {
     const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
@@ -2309,7 +2298,9 @@ const trackPool = useMemo(() => {
                 <div className={classes.volumeLabelRow}>
                   <Typography component="span">volume</Typography>
                   <Typography className={classes.volumeValue} aria-live="polite">
-                    {displayVolume}
+                    {typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
+                      ? displayVolume
+                      : 0}
                   </Typography>
                 </div>
                 <Slider
@@ -2319,7 +2310,9 @@ const trackPool = useMemo(() => {
                     thumb: classes.sliderThumb,
                     rail: classes.sliderRail,
                   }}
-                  value={displayVolume}
+                  value={typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
+                    ? displayVolume
+                    : 0}
                   min={0}
                   max={100}
                   aria-label="Volume"

@@ -14,6 +14,7 @@ type RetailPlayerDeviceMapping struct {
 	ChannelList  string    `db:"channel_list" json:"channelList"`
 	Organization string    `db:"organization" json:"organization"`
 	TimeZone     string    `db:"time_zone" json:"timeZone"`
+	RemoteCtrlID string    `db:"remote_control_id" json:"remoteControlId"`
 	UpdatedAt    time.Time `db:"updated_at" json:"updatedAt"`
 }
 

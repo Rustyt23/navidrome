@@ -7,6 +7,7 @@ import (
 	"time"
 
 	. "github.com/Masterminds/squirrel"
+	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/pocketbase/dbx"
 )
@@ -21,7 +22,25 @@ func NewRetailPlayerDeviceMappingRepository(ctx context.Context, db dbx.Builder)
 	r.db = db
 	r.tableName = "retail_player_device_mapping"
 	r.registerModel(&model.RetailPlayerDeviceMapping{}, nil)
+	r.ensureRemoteControlColumn()
 	return r
+}
+
+func (r retailPlayerDeviceMappingRepository) ensureRemoteControlColumn() {
+	_, err := r.db.NewQuery(`
+ALTER TABLE retail_player_device_mapping
+ADD COLUMN remote_control_id TEXT DEFAULT '';
+`).Execute()
+	if err == nil {
+		return
+	}
+
+	lowerErr := strings.ToLower(err.Error())
+	if strings.Contains(lowerErr, "duplicate column name") || strings.Contains(lowerErr, "already exists") {
+		return
+	}
+
+	log.Error(r.ctx, "Unable to ensure remote control column for retail player device mappings", "err", err)
 }
 
 func (r retailPlayerDeviceMappingRepository) Put(ctx context.Context, mapping model.RetailPlayerDeviceMapping) error {
@@ -39,7 +58,17 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 	now := time.Now().UTC()
 
 	insert := Insert(r.tableName).
-		Columns("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "updated_at")
+		Columns(
+			"device_id",
+			"device_name",
+			"device_slug",
+			"channel",
+			"channel_list",
+			"organization",
+			"time_zone",
+			"remote_control_id",
+			"updated_at",
+		)
 	valuesAdded := 0
 
 	for _, mapping := range mappings {
@@ -65,6 +94,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			strings.TrimSpace(mapping.ChannelList),
 			strings.TrimSpace(mapping.Organization),
 			strings.TrimSpace(mapping.TimeZone),
+			strings.TrimSpace(mapping.RemoteCtrlID),
 			now,
 		)
 		valuesAdded++
@@ -81,6 +111,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
                 channel_list = excluded.channel_list,
                 organization = excluded.organization,
                 time_zone = excluded.time_zone,
+                remote_control_id = COALESCE(NULLIF(excluded.remote_control_id, ''), retail_player_device_mapping.remote_control_id),
                 updated_at = excluded.updated_at`)
 
 	_, err := r.executeSQL(insert)
@@ -104,7 +135,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 	orClause := Or{}
 	orClause = append(orClause, conditions...)
 
-	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
 		From(r.tableName).
 		Where(orClause).
 		OrderBy("updated_at DESC").
@@ -118,7 +149,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 }
 
 func (r retailPlayerDeviceMappingRepository) All(ctx context.Context) ([]model.RetailPlayerDeviceMapping, error) {
-	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
 		From(r.tableName).
 		OrderBy("updated_at DESC")
 

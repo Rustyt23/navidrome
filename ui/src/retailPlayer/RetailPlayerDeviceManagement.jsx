@@ -163,7 +163,7 @@ const useStyles = makeStyles((theme) => {
   listHeader: {
     display: 'grid',
     gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(200px, 1.2fr) minmax(96px, 0.8fr)',
     paddingTop: theme.spacing(0),
     paddingBottom: theme.spacing(0),
     paddingLeft: theme.spacing(1.7),
@@ -175,9 +175,10 @@ const useStyles = makeStyles((theme) => {
     letterSpacing: 0.8,
     fontWeight: theme.typography.fontWeightMedium,
     alignItems: 'center',
-    gap: theme.spacing (1),
+    gap: theme.spacing(1),
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+      gridTemplateColumns:
+        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(180px, 1.1fr) 72px',
       fontSize: theme.typography.pxToRem(11),
       letterSpacing: 0.6,
     },
@@ -194,31 +195,29 @@ const useStyles = makeStyles((theme) => {
     justifySelf: 'flex-end',
   },
 
-row: {
-  display: 'grid',
-  gridTemplateColumns:
-    '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(96px, 0.8fr)',
-  alignItems: 'center',
-  padding: '1px 2px',
-
-
-  borderTop: `1px solid ${theme.palette.divider}`,
-  minHeight: 28, // 🔥 ensures consistent compact row height
-  '& .MuiTypography-body1': {
-    fontSize: '0.8rem', // reduce font size inside cell
-    lineHeight: 1.2,
-  },
-  '& .MuiIconButton-root': {
-    padding: 2, // shrink edit icon area
-  },
-  '& .MuiCheckbox-root': {
-    padding: 2, // shrink checkbox hit area
-  },
-  [theme.breakpoints.down('sm')]: {
+  row: {
+    display: 'grid',
     gridTemplateColumns:
-      '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 72px',
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(200px, 1.2fr) minmax(96px, 0.8fr)',
+    alignItems: 'center',
+    padding: '1px 2px',
+    borderTop: `1px solid ${theme.palette.divider}`,
+    minHeight: 28, // 🔥 ensures consistent compact row height
+    '& .MuiTypography-body1': {
+      fontSize: '0.8rem', // reduce font size inside cell
+      lineHeight: 1.2,
+    },
+    '& .MuiIconButton-root': {
+      padding: 2, // shrink edit icon area
+    },
+    '& .MuiCheckbox-root': {
+      padding: 2, // shrink checkbox hit area
+    },
+    [theme.breakpoints.down('sm')]: {
+      gridTemplateColumns:
+        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(180px, 1.1fr) 72px',
+    },
   },
-},
 
   folderRow: {
     backgroundColor: fade(theme.palette.primary.main, 0.04),
@@ -277,6 +276,13 @@ row: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
     textAlign: 'center',
+  },
+  remoteControlCell: {
+    fontSize: theme.typography.pxToRem(14),
+    color: theme.palette.text.secondary,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   actionsCell: {
     display: 'flex',
@@ -395,33 +401,19 @@ const DeviceDialog = ({
   open,
   onClose,
   onSubmit,
-  parentOptions,
   initialValues,
 }) => {
-  const normalizeInitialFolders = useCallback((values) => {
-    if (!values) {
-      return []
-    }
-    if (Array.isArray(values.folderIds)) {
-      return values.folderIds.filter(Boolean)
-    }
-    if (values.folderId) {
-      return [values.folderId].filter(Boolean)
-    }
-    return []
-  }, [])
-
   const [form, setForm] = useState(() => ({
     name: initialValues?.name || '',
-    folderIds: normalizeInitialFolders(initialValues),
+    remoteControlId: initialValues?.remoteControlId || '',
   }))
 
   useEffect(() => {
     setForm({
       name: initialValues?.name || '',
-      folderIds: normalizeInitialFolders(initialValues),
+      remoteControlId: initialValues?.remoteControlId || '',
     })
-  }, [initialValues, open, normalizeInitialFolders])
+  }, [initialValues, open])
 
   const isRemote = initialValues?.source !== 'local'
 
@@ -429,26 +421,17 @@ const DeviceDialog = ({
     setForm((prev) => ({ ...prev, name: event.target.value }))
   }
 
-  const handleFolderChange = (event) => {
-    const value = event.target.value
-    const nextValue = Array.isArray(value)
-      ? value.filter(Boolean)
-      : value
-      ? [value]
-      : []
-    setForm((prev) => ({ ...prev, folderIds: nextValue }))
+  const handleRemoteControlChange = (event) => {
+    setForm((prev) => ({ ...prev, remoteControlId: event.target.value }))
   }
 
   const handleSubmit = () => {
-    if (!form.name.trim()) {
+    if (!form.name.trim() || !form.remoteControlId.trim()) {
       return
     }
-    const normalizedFolderIds = Array.from(new Set(form.folderIds.filter(Boolean)))
-    const primaryFolderId = normalizedFolderIds[0] || null
     onSubmit({
       name: form.name.trim(),
-      folderIds: normalizedFolderIds,
-      folderId: primaryFolderId,
+      remoteControlId: form.remoteControlId.trim(),
     })
   }
 
@@ -475,38 +458,14 @@ const DeviceDialog = ({
                 : 'Give the device a friendly label for identification.'
             }
           />
-          <FormControl variant="outlined" fullWidth>
-            <InputLabel id="device-folder-label">Folder</InputLabel>
-            <Select
-              labelId="device-folder-label"
-              multiple
-              value={form.folderIds}
-              onChange={handleFolderChange}
-              label="Folder"
-              renderValue={(selected) => {
-                if (!Array.isArray(selected) || !selected.length) {
-                  return 'None'
-                }
-                const labels = parentOptions
-                  .filter((option) => selected.includes(option.id))
-                  .map((option) => option.name)
-                return labels.join(', ')
-              }}
-            >
-              {parentOptions.map((option) => (
-                <MenuItem key={option.id} value={option.id}>
-                  <Checkbox
-                    color="primary"
-                    checked={form.folderIds.includes(option.id)}
-                  />
-                  <ListItemText primary={option.name} />
-                </MenuItem>
-              ))}
-            </Select>
-            <FormHelperText>
-              Use folders to keep devices grouped by location or usage.
-            </FormHelperText>
-          </FormControl>
+          <TextField
+            label="QR ID"
+            fullWidth
+            variant="outlined"
+            value={form.remoteControlId}
+            onChange={handleRemoteControlChange}
+            helperText="Paste the QR identifier used for remote control."
+          />
         </div>
       </DialogContent>
       <DialogActions>
@@ -523,18 +482,13 @@ DeviceDialog.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onSubmit: PropTypes.func.isRequired,
-  parentOptions: PropTypes.arrayOf(
-    PropTypes.shape({
-      id: PropTypes.string.isRequired,
-      name: PropTypes.string.isRequired,
-    }),
-  ).isRequired,
   initialValues: PropTypes.shape({
     id: PropTypes.string,
     name: PropTypes.string,
     folderIds: PropTypes.arrayOf(PropTypes.string),
     folderId: PropTypes.string,
     source: PropTypes.string,
+    remoteControlId: PropTypes.string,
   }),
 }
 
@@ -623,6 +577,7 @@ RetailPlayerFolderRow.propTypes = {
   node: PropTypes.shape({
     id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
+    remoteControlId: PropTypes.string,
   }).isRequired,
   deviceCount: PropTypes.number.isRequired,
   isSelected: PropTypes.bool.isRequired,
@@ -696,6 +651,9 @@ const RetailPlayerDeviceRow = memo(
         <div className={classes.countCell}>
           {typeof channelCount === 'number' ? channelCount : '—'}
         </div>
+        <div className={classes.remoteControlCell}>
+          {node.remoteControlId ? node.remoteControlId : '—'}
+        </div>
         <div className={classes.actionsCell}>
           <Tooltip title="Edit device">
             <IconButton
@@ -761,11 +719,6 @@ const RetailPlayerDeviceManagement = () => {
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
   const { countsByDeviceId: channelCountsByDeviceId } =
     useRetailPlayerChannelCounts(devices, isApiEnabled)
-
-  const folderOptions = useMemo(
-    () => folders.map((folder) => ({ id: folder.id, name: folder.name })),
-    [folders],
-  )
 
   const folderMap = useMemo(() => {
     const map = new Map()
@@ -1561,6 +1514,7 @@ const RetailPlayerDeviceManagement = () => {
           <span>Name</span>
           <span>Type</span>
           <span>Devices / Channels</span>
+          <span>QR ID</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
         {isLoading ? (
@@ -1647,7 +1601,6 @@ const RetailPlayerDeviceManagement = () => {
         open={deviceDialog.open}
         onClose={handleDeviceDialogClose}
         onSubmit={handleDeviceSubmit}
-        parentOptions={folderOptions}
         initialValues={deviceDialog.target}
       />
     </div>
