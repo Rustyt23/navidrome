@@ -493,7 +493,12 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
   const deviceSlug = useMemo(() => {
     const match = /^\/retailplayer\/([^/]+)$/i.exec(location.pathname)
     if (match) {
-      return decodeURIComponent(match[1])
+      const rawSlug = match[1]
+      try {
+        return normalizeValue(decodeURIComponent(rawSlug)) || null
+      } catch (err) {
+        return normalizeValue(rawSlug) || null
+      }
     }
     return null
   }, [location.pathname])
