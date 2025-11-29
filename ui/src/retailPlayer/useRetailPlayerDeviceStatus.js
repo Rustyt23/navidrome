@@ -10,6 +10,7 @@ import {
   normalizeValue,
 } from './deviceUtils'
 import useRemoteControlSocket from './useRemoteControlSocket'
+import useRetailPlayerDevices from './useRetailPlayerDevices'
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
@@ -644,6 +645,13 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const [hasRealtimeStatus, setHasRealtimeStatus] = useState(false)
   const realtimeDeviceRef = useRef(null)
 
+  const {
+    devices,
+    error: devicesError,
+    isApiEnabled,
+    isLoading: deviceListLoading,
+  } = useRetailPlayerDevices()
+
   const baseDevice = useMemo(() => {
     const ensureMatchingDevice = (device) => {
       if (!device) {
@@ -674,8 +682,43 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return ensureMatchingDevice(mapRetailPlayerDevice(payloadDevice))
     }
 
+    if (Array.isArray(devices)) {
+      for (let index = 0; index < devices.length; index += 1) {
+        const match = ensureMatchingDevice(devices[index])
+        if (match) {
+          return match
+        }
+      }
+    }
+
     return null
-  }, [deviceState.data, normalizedSlugKey, statusState.data])
+  }, [deviceState.data, devices, normalizedSlugKey, statusState.data])
+
+  useEffect(() => {
+    if (!slugParam || !Array.isArray(devices) || !devices.length) {
+      return undefined
+    }
+
+    const match = devices.find((device) => {
+      const key = device.slugKey || deviceSlugKey(device.slug || device.name || device.id)
+      return key && key === normalizedSlugKey
+    })
+
+    if (!match) {
+      return undefined
+    }
+
+    const now = new Date()
+    setDeviceState((previous) => ({
+      ...previous,
+      data: match,
+      isLoading: false,
+      error: null,
+      fetchedAt: now,
+    }))
+
+    return undefined
+  }, [devices, normalizedSlugKey, slugParam])
 
   const refresh = useCallback(() => {
     setDeviceState((previous) => ({
@@ -1069,7 +1112,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     isLoading: Boolean(
       deviceState.isLoading || statusState.isLoading || channelState.isLoading,
     ),
-    isDeviceListLoading: deviceState.isLoading,
+    isDeviceListLoading: deviceListLoading || deviceState.isLoading,
     isStatusLoading: statusState.isLoading,
     isChannelListLoading: channelState.isLoading,
     isTriggerListLoading,
@@ -1079,6 +1122,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     statusError: statusState.error,
     devicesError,
     channelListError: channelState.error,
+    isApiEnabled,
     notFound,
     lastUpdated: statusState.fetchedAt,
   }
