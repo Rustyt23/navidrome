@@ -24,6 +24,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server/events"
+	"github.com/navidrome/navidrome/server/handlers"
 	"github.com/navidrome/navidrome/ui"
 )
 
@@ -190,6 +191,7 @@ func (s *Server) initRoutes() {
 	r.Group(func(r chi.Router) {
 		r.Use(defaultMiddlewares...)
 		r.Use(requestLogger)
+		r.Get("/populate_qr", handlers.NewQRHandler().PopulateQR)
 		s.router = r
 	})
 }
