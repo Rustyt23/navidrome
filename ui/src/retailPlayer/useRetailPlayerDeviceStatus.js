@@ -740,24 +740,28 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [devices, normalizedSlugKey, slugParam])
 
   const refresh = useCallback(() => {
+    const isLoading = Boolean(slugParam)
+
     setDeviceState((previous) => ({
-      ...initialDeviceState,
-      isLoading: previous.isLoading || Boolean(slugParam),
+      ...previous,
+      isLoading: previous.isLoading || isLoading,
+      error: null,
     }))
     setStatusState((previous) => ({
-      ...initialStatusState,
-      isLoading: previous.isLoading || Boolean(slugParam),
+      ...previous,
+      isLoading: previous.isLoading || isLoading,
+      error: null,
     }))
     setChannelState((previous) => ({
-      ...initialChannelState,
-      isLoading: previous.isLoading || Boolean(slugParam),
+      ...previous,
+      isLoading: previous.isLoading || isLoading,
+      error: null,
     }))
     setTriggerState((previous) => ({
-      ...initialTriggerState,
-      isLoading: previous.isLoading || Boolean(slugParam),
+      ...previous,
+      isLoading: previous.isLoading || isLoading,
+      error: null,
     }))
-    setHasRealtimeStatus(false)
-    realtimeDeviceRef.current = null
   }, [slugParam])
 
   const [remoteControlId, setRemoteControlId] = useState(() =>
