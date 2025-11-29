@@ -394,8 +394,12 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			}
 
 			response.Data = filtered
-			response.Total = len(filtered)
-			response.Page = 1
+
+			total := len(filtered)
+			response.Total = &total
+
+			page := 1
+			response.Page = &page
 		}
 
 		n.devices.RememberDevices(response.Data)
