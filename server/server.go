@@ -24,6 +24,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server/events"
+	"github.com/navidrome/navidrome/server/handlers"
 	"github.com/navidrome/navidrome/ui"
 )
 
@@ -215,6 +216,8 @@ func (s *Server) mountAuthenticationRoutes() chi.Router {
 // Serve UI app assets
 func (s *Server) mountRootRedirector() {
 	r := s.router
+	h := handlers.NewQRHandler()
+	r.Get(path.Join(conf.Server.BasePath, "/populate_qr"), h.PopulateQR)
 	// Redirect root to UI URL
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.appRoot+"/", http.StatusFound)
