@@ -330,6 +330,7 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
 		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
 		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
+		r.Post("/rc", n.handleRetailPlayerDeviceByName())
 	})
 }
 
@@ -443,6 +444,141 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Error(ctx, "Unable to encode retail player devices response", "err", err)
+		}
+	}
+}
+
+func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		var payload struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player device payload", http.StatusBadRequest)
+			return
+		}
+
+		deviceName := strings.TrimSpace(payload.Name)
+		if deviceName == "" {
+			http.Error(w, "Retail player device name is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Fetching retail player device by name from remote API", "name", deviceName)
+		response, err := fetchRetailPlayerDevices(ctx)
+		if err != nil {
+			log.Error(ctx, "Unable to fetch retail player devices", "err", err)
+			http.Error(w, "Unable to fetch retail player devices", http.StatusBadGateway)
+			return
+		}
+
+		filtered := retailPlayerDevicesResponse{
+			Data: make([]retailPlayerDevice, 0, 1),
+		}
+		for _, device := range response.Data {
+			if strings.EqualFold(strings.TrimSpace(device.Name), deviceName) {
+				filtered.Data = append(filtered.Data, device)
+				break
+			}
+		}
+
+		if len(filtered.Data) == 0 {
+			http.Error(w, "Retail player device not found", http.StatusNotFound)
+			return
+		}
+
+		n.devices.RememberDevices(filtered.Data)
+		n.persistRetailPlayerDeviceMappings(ctx, filtered.Data)
+
+		folders, deviceFolders, err := n.loadRetailPlayerFolderData(ctx)
+		if err != nil {
+			log.Error(ctx, "Unable to load retail player folder data", "err", err)
+			http.Error(w, "Unable to load retail player folders", http.StatusInternalServerError)
+			return
+		}
+
+		if len(deviceFolders) > 0 {
+			folderSet := make(map[string]struct{}, len(folders))
+			for _, folder := range folders {
+				folderSet[folder.ID] = struct{}{}
+			}
+
+			assignments := make(map[string][]string)
+			for _, deviceFolder := range deviceFolders {
+				if _, ok := folderSet[deviceFolder.FolderID]; !ok {
+					continue
+				}
+
+				assignments[deviceFolder.DeviceID] = append(assignments[deviceFolder.DeviceID], deviceFolder.FolderID)
+			}
+
+			for index := range filtered.Data {
+				id := strings.TrimSpace(filtered.Data[index].ID)
+				if id == "" {
+					continue
+				}
+				if folderIDs, ok := assignments[id]; ok {
+					filtered.Data[index].FolderIDs = append([]string(nil), folderIDs...)
+				}
+			}
+		}
+
+		if repo := n.ds.RetailPlayerDeviceMapping(ctx); repo != nil {
+			mappings, err := repo.All(ctx)
+			if err != nil && !errors.Is(err, model.ErrNotFound) {
+				log.Warn(ctx, "Unable to load retail player device mappings", "err", err)
+			}
+
+			if len(mappings) > 0 {
+				remoteControlByID := make(map[string]string, len(mappings))
+				for _, mapping := range mappings {
+					id := strings.TrimSpace(mapping.DeviceID)
+					remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
+					if id == "" || remoteControlID == "" {
+						continue
+					}
+					remoteControlByID[id] = remoteControlID
+				}
+
+				if len(remoteControlByID) > 0 {
+					for index := range filtered.Data {
+						id := strings.TrimSpace(filtered.Data[index].ID)
+						if id == "" {
+							continue
+						}
+						if remoteControlID, ok := remoteControlByID[id]; ok {
+							filtered.Data[index].RemoteControlID = remoteControlID
+						}
+					}
+				}
+			}
+		}
+
+		filtered.Folders = make([]retailPlayerFolder, 0, len(folders))
+		for _, folder := range folders {
+			filtered.Folders = append(filtered.Folders, mapModelRetailPlayerFolder(folder))
+		}
+
+		filtered.DeviceFolder = make([]retailPlayerDeviceFolder, 0, len(deviceFolders))
+		for _, deviceFolder := range deviceFolders {
+			filtered.DeviceFolder = append(filtered.DeviceFolder, mapModelRetailPlayerDeviceFolder(deviceFolder))
+		}
+
+		page := 1
+		total := len(filtered.Data)
+		filtered.Page = &page
+		filtered.Total = &total
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(filtered); err != nil {
+			log.Error(ctx, "Unable to encode retail player device response", "err", err)
 		}
 	}
 }

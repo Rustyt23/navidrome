@@ -675,6 +675,17 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
   }, [slugParam])
 
+  const deviceLookupName = useMemo(() => {
+    if (!slugParam) {
+      return ''
+    }
+    try {
+      return decodeURIComponent(slugParam)
+    } catch (err) {
+      return slugParam
+    }
+  }, [slugParam])
+
   const [deviceState, setDeviceState] = useState(initialDeviceState)
   const [statusState, setStatusState] = useState(initialStatusState)
   const [channelState, setChannelState] = useState(initialChannelState)
@@ -687,7 +698,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     error: deviceListError,
     isApiEnabled,
     isLoading: deviceListLoading,
-  } = useRetailPlayerDevices()
+  } = useRetailPlayerDevices({ deviceName: deviceLookupName })
 
   const baseDevice = useMemo(() => {
     const ensureMatchingDevice = (device) => {

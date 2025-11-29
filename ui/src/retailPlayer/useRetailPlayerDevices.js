@@ -4,10 +4,11 @@ import httpClient from '../dataProvider/httpClient'
 import RetailPlayerMockService from './RetailPlayerMockService'
 import { mapRetailPlayerDevice } from './deviceUtils'
 
-const buildDevicesUrl = () => '/api/retailplayer/devices'
+const buildDevicesUrl = (deviceName) =>
+  deviceName ? '/api/retailplayer/rc' : '/api/retailplayer/devices'
 
-const fetchRetailPlayerDevices = async (signal) => {
-  const url = buildDevicesUrl()
+const fetchRetailPlayerDevices = async (signal, deviceName) => {
+  const url = buildDevicesUrl(deviceName)
 
   if (!url) {
     return { devices: null, folders: null, deviceFolders: null, enabled: false }
@@ -15,7 +16,16 @@ const fetchRetailPlayerDevices = async (signal) => {
 
   let payload
   try {
-    const { json } = await httpClient(url, { signal })
+    const options = { signal }
+    if (deviceName) {
+      const headers = new Headers({ Accept: 'application/json' })
+      headers.set('Content-Type', 'application/json')
+      options.headers = headers
+      options.method = 'POST'
+      options.body = JSON.stringify({ name: deviceName })
+    }
+
+    const { json } = await httpClient(url, options)
     payload = json
   } catch (err) {
     if (err?.status === 404) {
@@ -42,7 +52,7 @@ const fetchRetailPlayerDevices = async (signal) => {
   return { devices, folders, deviceFolders, enabled: true }
 }
 
-const useRetailPlayerDevices = () => {
+const useRetailPlayerDevices = ({ deviceName = '' } = {}) => {
   const [devices, setDevices] = useState(() => {
     if (config.retailPlayerDevicesEnabled) {
       return []
@@ -58,7 +68,7 @@ const useRetailPlayerDevices = () => {
   )
 
   useEffect(() => {
-    const url = buildDevicesUrl()
+    const url = buildDevicesUrl(deviceName)
     if (!url) {
       setIsApiEnabled(false)
       return undefined
@@ -68,7 +78,7 @@ const useRetailPlayerDevices = () => {
     setIsLoading(true)
     setError(null)
 
-    fetchRetailPlayerDevices(abortController.signal)
+    fetchRetailPlayerDevices(abortController.signal, deviceName)
       .then((result) => {
         const enabled = Boolean(result?.enabled)
         setIsApiEnabled(enabled)
@@ -100,7 +110,7 @@ const useRetailPlayerDevices = () => {
     return () => {
       abortController.abort()
     }
-  }, [])
+  }, [deviceName])
 
   return {
     devices,
