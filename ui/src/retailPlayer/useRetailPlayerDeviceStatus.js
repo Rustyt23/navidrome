@@ -816,22 +816,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [normalizedSlugKey, slugParam])
 
   useEffect(() => {
-    if (!slugParam) {
+    if (!slugParam || !hasRealtimeStatus) {
       return undefined
     }
 
-    if (hasRealtimeStatus) {
-      setDeviceState((previous) => ({ ...previous, isLoading: false }))
-      setStatusState((previous) => ({ ...previous, isLoading: false }))
-      setChannelState((previous) => ({ ...previous, isLoading: false }))
-      setTriggerState((previous) => ({ ...previous, isLoading: false }))
-      return undefined
-    }
-
-    setDeviceState((previous) => ({ ...previous, isLoading: true, error: null }))
-    setStatusState((previous) => ({ ...previous, isLoading: true, error: null }))
-    setChannelState((previous) => ({ ...previous, isLoading: true, error: null }))
-    setTriggerState((previous) => ({ ...previous, isLoading: true, error: null }))
+    setDeviceState((previous) => ({ ...previous, isLoading: false }))
+    setStatusState((previous) => ({ ...previous, isLoading: false }))
+    setChannelState((previous) => ({ ...previous, isLoading: false }))
+    setTriggerState((previous) => ({ ...previous, isLoading: false }))
 
     return undefined
   }, [hasRealtimeStatus, slugParam])
