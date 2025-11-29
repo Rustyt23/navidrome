@@ -97,6 +97,7 @@ const baseDeviceShape = (device, existing) => {
   const normalizedChannelList = normalizeValue(device?.channelList)
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
+  const normalizedRemoteControlId = normalizeValue(device?.remoteControlId)
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -121,6 +122,7 @@ const baseDeviceShape = (device, existing) => {
     channelList: normalizedChannelList || '',
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',
+    remoteControlId: normalizedRemoteControlId || '',
     folderIds,
     folderId: primaryFolderId,
     source: existing?.source === 'local' ? 'local' : 'remote',
@@ -226,6 +228,7 @@ const reducer = (state, action) => {
         folderIds: payloadFolderIds,
         folderId,
         attributes,
+        remoteControlId,
       } = action.payload || {}
       const normalizedName = normalizeValue(name) || 'New Device'
       const slug = deviceSlugKey(normalizedName) || uuidv4()
@@ -253,6 +256,7 @@ const reducer = (state, action) => {
         folderIds: normalizedFolderIds,
         folderId: primaryFolderId,
         source: 'local',
+        remoteControlId: normalizeValue(remoteControlId) || '',
         attributes: attributes && typeof attributes === 'object' ? { ...attributes } : {},
       }
       return {
@@ -270,6 +274,7 @@ const reducer = (state, action) => {
         organization,
         folderIds,
         folderId,
+        remoteControlId,
       } = action.payload || {}
       if (!id) {
         return state
@@ -295,6 +300,10 @@ const reducer = (state, action) => {
             normalizeValue(organization) || device.organization,
           folderIds: nextFolderIds,
           folderId: primaryFolderId,
+          remoteControlId:
+            remoteControlId !== undefined
+              ? normalizeValue(remoteControlId)
+              : device.remoteControlId,
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
@@ -628,6 +637,33 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
       const deviceId = typeof basePayload.id === 'string' ? basePayload.id : null
       if (!deviceId) {
         return basePayload
+      }
+
+      const hasRemoteControlId = Object.prototype.hasOwnProperty.call(
+        basePayload,
+        'remoteControlId',
+      )
+
+      if (hasRemoteControlId) {
+        const remoteControlId = normalizeValue(basePayload.remoteControlId)
+        const { json } = await httpClient(
+          `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/remote-control`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ remoteControlId }),
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+          },
+        )
+
+        const normalizedRemoteControlId = normalizeValue(
+          json?.data?.remoteControlId ?? remoteControlId,
+        )
+        if (normalizedRemoteControlId !== undefined) {
+          dispatch({
+            type: 'UPDATE_DEVICE',
+            payload: { id: deviceId, remoteControlId: normalizedRemoteControlId },
+          })
+        }
       }
 
       const hasFolderIds = Object.prototype.hasOwnProperty.call(

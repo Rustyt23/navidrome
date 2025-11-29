@@ -68,6 +68,7 @@ const mapRetailPlayerDevice = (device) => {
         .map((value) => (typeof value === 'string' ? value.trim() : ''))
         .filter(Boolean)
     : []
+  const remoteControlId = normalizeValue(device.remoteControlId)
 
   return {
     id: fallbackId,
@@ -83,6 +84,7 @@ const mapRetailPlayerDevice = (device) => {
       normalizeValue(device.location),
     timeZone: normalizeValue(device.timeZone || device.time_zone),
     folderIds,
+    remoteControlId,
   }
 }
 

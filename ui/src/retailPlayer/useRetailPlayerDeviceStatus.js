@@ -11,8 +11,6 @@ import {
 } from './deviceUtils'
 import useRemoteControlSocket from './useRemoteControlSocket'
 
-const RETAIL_REMOTE_CONTROL_ID = 'fda915dd-a953-489e-980a-e3385faa2f5f'
-
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const parseVolume = (value) => {
@@ -700,11 +698,19 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     realtimeDeviceRef.current = null
   }, [slugParam])
 
+  const remoteControlId = useMemo(
+    () =>
+      normalizeValue(
+        baseDevice?.remoteControlId || deviceState.data?.remoteControlId,
+      ),
+    [baseDevice?.remoteControlId, deviceState.data?.remoteControlId],
+  )
+
   const {
     isConnected: isRemoteControlConnected,
     lastMessage: remoteControlMessage,
     sendMessage: sendRemoteControlMessage,
-  } = useRemoteControlSocket(RETAIL_REMOTE_CONTROL_ID)
+  } = useRemoteControlSocket(remoteControlId)
 
   const remoteControlDeviceId = useMemo(() => {
     const deviceId = normalizeValue(
@@ -750,15 +756,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   )
 
   useEffect(() => {
-    if (!isRemoteControlConnected || !RETAIL_REMOTE_CONTROL_ID) {
+    if (!isRemoteControlConnected || !remoteControlId) {
       return
     }
 
     sendRemoteControlMessage({
       type: 'HELLO',
-      deviceUUID: RETAIL_REMOTE_CONTROL_ID,
+      deviceUUID: remoteControlId,
     })
-  }, [isRemoteControlConnected, sendRemoteControlMessage])
+  }, [isRemoteControlConnected, remoteControlId, sendRemoteControlMessage])
 
   useEffect(() => {
     if (!isRemoteControlConnected || !remoteControlDeviceId) {

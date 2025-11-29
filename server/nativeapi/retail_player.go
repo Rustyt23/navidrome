@@ -197,15 +197,16 @@ type retailPlayerChannelListAPIResponse struct {
 }
 
 type retailPlayerDevice struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	OrganizationID string   `json:"organizationId,omitempty"`
-	OrganisationID string   `json:"organisationid,omitempty"`
-	Channel        string   `json:"channel"`
-	ChannelList    string   `json:"channelList"`
-	Organization   string   `json:"organization"`
-	TimeZone       string   `json:"timeZone,omitempty"`
-	FolderIDs      []string `json:"folderIds,omitempty"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	OrganizationID  string   `json:"organizationId,omitempty"`
+	OrganisationID  string   `json:"organisationid,omitempty"`
+	Channel         string   `json:"channel"`
+	ChannelList     string   `json:"channelList"`
+	Organization    string   `json:"organization"`
+	TimeZone        string   `json:"timeZone,omitempty"`
+	FolderIDs       []string `json:"folderIds,omitempty"`
+	RemoteControlID string   `json:"remoteControlId,omitempty"`
 }
 
 type retailPlayerDeviceConfigResponse struct {
@@ -338,6 +339,7 @@ func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Patch("/retailplayer/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
 	r.Post("/retailplayer/folders/delete", n.handleDeleteRetailPlayerFolders())
 	r.Put("/retailplayer/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
+	r.Patch("/retailplayer/devices/{deviceID}/remote-control", n.handleUpdateRetailPlayerDeviceRemoteControl())
 }
 
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
@@ -393,6 +395,37 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 				}
 				if folderIDs, ok := assignments[id]; ok {
 					response.Data[index].FolderIDs = append([]string(nil), folderIDs...)
+				}
+			}
+		}
+
+		if repo := n.ds.RetailPlayerDeviceMapping(ctx); repo != nil {
+			mappings, err := repo.All(ctx)
+			if err != nil && !errors.Is(err, model.ErrNotFound) {
+				log.Warn(ctx, "Unable to load retail player device mappings", "err", err)
+			}
+
+			if len(mappings) > 0 {
+				remoteControlByID := make(map[string]string, len(mappings))
+				for _, mapping := range mappings {
+					id := strings.TrimSpace(mapping.DeviceID)
+					remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
+					if id == "" || remoteControlID == "" {
+						continue
+					}
+					remoteControlByID[id] = remoteControlID
+				}
+
+				if len(remoteControlByID) > 0 {
+					for index := range response.Data {
+						id := strings.TrimSpace(response.Data[index].ID)
+						if id == "" {
+							continue
+						}
+						if remoteControlID, ok := remoteControlByID[id]; ok {
+							response.Data[index].RemoteControlID = remoteControlID
+						}
+					}
 				}
 			}
 		}
@@ -645,6 +678,78 @@ func (n *Router) handleAssignRetailPlayerDeviceFolders() http.HandlerFunc {
 		}
 
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": map[string]any{"deviceId": deviceID, "folderIds": normalized}})
+	}
+}
+
+func (n *Router) handleUpdateRetailPlayerDeviceRemoteControl() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload struct {
+			RemoteControlID string `json:"remoteControlId"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player device payload", http.StatusBadRequest)
+			return
+		}
+
+		trimmedRemoteID := strings.TrimSpace(payload.RemoteControlID)
+
+		var responseDevice retailPlayerDevice
+		err := n.ds.WithTx(func(tx model.DataStore) error {
+			repo := tx.RetailPlayerDeviceMapping(ctx)
+			if repo == nil {
+				return errors.New("retail player device mapping repository not available")
+			}
+
+			existing, _ := repo.FindByIdentifier(ctx, deviceID)
+
+			mapping := model.RetailPlayerDeviceMapping{
+				DeviceID:     deviceID,
+				DeviceName:   deviceID,
+				DeviceSlug:   model.RetailPlayerDeviceSlug(deviceID),
+				RemoteCtrlID: trimmedRemoteID,
+			}
+
+			if existing != nil {
+				mapping.DeviceName = existing.DeviceName
+				mapping.DeviceSlug = existing.DeviceSlug
+				mapping.Channel = existing.Channel
+				mapping.ChannelList = existing.ChannelList
+				mapping.Organization = existing.Organization
+				mapping.TimeZone = existing.TimeZone
+			}
+
+			if err := repo.Put(ctx, mapping); err != nil {
+				return err
+			}
+
+			responseDevice = mapRetailPlayerMappingToDevice(mapping)
+			return nil
+		})
+		if err != nil {
+			status := http.StatusInternalServerError
+			if isConstraintError(err) {
+				status = http.StatusBadRequest
+			}
+			log.Error(ctx, "Unable to update retail player device remote control", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to update retail player device", status)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": responseDevice})
 	}
 }
 
@@ -1046,17 +1151,19 @@ func mapRetailPlayerDeviceToMapping(device retailPlayerDevice) (model.RetailPlay
 		ChannelList:  strings.TrimSpace(device.ChannelList),
 		Organization: strings.TrimSpace(device.Organization),
 		TimeZone:     strings.TrimSpace(device.TimeZone),
+		RemoteCtrlID: strings.TrimSpace(device.RemoteControlID),
 	}, true
 }
 
 func mapRetailPlayerMappingToDevice(mapping model.RetailPlayerDeviceMapping) retailPlayerDevice {
 	return retailPlayerDevice{
-		ID:           strings.TrimSpace(mapping.DeviceID),
-		Name:         strings.TrimSpace(mapping.DeviceName),
-		Channel:      strings.TrimSpace(mapping.Channel),
-		ChannelList:  strings.TrimSpace(mapping.ChannelList),
-		Organization: strings.TrimSpace(mapping.Organization),
-		TimeZone:     strings.TrimSpace(mapping.TimeZone),
+		ID:              strings.TrimSpace(mapping.DeviceID),
+		Name:            strings.TrimSpace(mapping.DeviceName),
+		Channel:         strings.TrimSpace(mapping.Channel),
+		ChannelList:     strings.TrimSpace(mapping.ChannelList),
+		Organization:    strings.TrimSpace(mapping.Organization),
+		TimeZone:        strings.TrimSpace(mapping.TimeZone),
+		RemoteControlID: strings.TrimSpace(mapping.RemoteCtrlID),
 	}
 }
 
