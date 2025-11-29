@@ -74,7 +74,7 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			"defaultDownsamplingFormat":  conf.Server.DefaultDownsamplingFormat,
 			"separator":                  string(os.PathSeparator),
 			"enableInspect":              conf.Server.Inspect.Enabled,
-			"retailPlayerDevicesEnabled": conf.Server.RetailPlayer.Enabled,
+			"retailPlayerDevicesEnabled": conf.Server.RetailPlayerDevicesEnabled,
 		}
 		if strings.HasPrefix(conf.Server.UILoginBackgroundURL, "/") {
 			appConfig["loginBackgroundURL"] = path.Join(conf.Server.BasePath, conf.Server.UILoginBackgroundURL)
