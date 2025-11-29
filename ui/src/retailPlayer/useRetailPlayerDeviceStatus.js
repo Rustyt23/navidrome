@@ -745,7 +745,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     normalizeValue(baseDevice?.remoteControlId || deviceState.data?.remoteControlId),
   )
 
+  const remoteControlDeviceId = useMemo(() => {
+    const deviceId = normalizeValue(
+      baseDevice?.apiId || baseDevice?.id || deviceState.data?.apiId,
+    )
+    return deviceId || ''
+  }, [baseDevice?.apiId, baseDevice?.id, deviceState.data?.apiId])
+
   const stickyRemoteControlId = useRef(remoteControlId)
+  const stickyRemoteControlDeviceId = useRef(remoteControlDeviceId)
 
   const {
     isConnected: isRemoteControlConnected,
@@ -753,12 +761,11 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     sendMessage: sendRemoteControlMessage,
   } = useRemoteControlSocket(remoteControlId)
 
-  const remoteControlDeviceId = useMemo(() => {
-    const deviceId = normalizeValue(
-      baseDevice?.apiId || baseDevice?.id || deviceState.data?.apiId,
-    )
-    return deviceId || ''
-  }, [baseDevice?.apiId, baseDevice?.id, deviceState.data?.apiId])
+  useEffect(() => {
+    if (remoteControlDeviceId) {
+      stickyRemoteControlDeviceId.current = remoteControlDeviceId
+    }
+  }, [remoteControlDeviceId])
 
   useEffect(() => {
     const latestRemoteControlId = normalizeValue(
@@ -785,6 +792,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     setHasRealtimeStatus(false)
     realtimeDeviceRef.current = null
     stickyRemoteControlId.current = ''
+    stickyRemoteControlDeviceId.current = ''
     setRemoteControlId('')
   }, [normalizedSlugKey, slugParam])
 
@@ -903,8 +911,15 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       }
 
       const payloadId = normalizeValue(payloadDevice.id || payloadDevice.deviceId)
-      if (remoteControlDeviceId && payloadId && payloadId !== remoteControlDeviceId) {
+      const expectedDeviceId =
+        remoteControlDeviceId || stickyRemoteControlDeviceId.current || ''
+
+      if (expectedDeviceId && payloadId && payloadId !== expectedDeviceId) {
         return
+      }
+
+      if (!expectedDeviceId && payloadId) {
+        stickyRemoteControlDeviceId.current = payloadId
       }
 
       const previousDevice = realtimeDeviceRef.current || {}
