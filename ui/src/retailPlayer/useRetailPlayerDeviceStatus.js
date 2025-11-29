@@ -118,8 +118,17 @@ const pickFirstStringValue = (source, candidates) => {
   return ''
 }
 
-const mapChannelListResponse = (payload) =>
-  ensureArray(payload?.channels)
+const mapChannelListResponse = (payload, previousChannels = []) => {
+  const previousById = new Map(
+    ensureArray(previousChannels)
+      .map((channel) => {
+        const id = normalizeValue(channel?.id || channel?.metadata?.channelId)
+        return id ? [id, channel] : null
+      })
+      .filter(Boolean),
+  )
+
+  return ensureArray(payload?.channels)
     .map((item) => {
       if (!item || typeof item !== 'object') {
         return null
@@ -127,17 +136,27 @@ const mapChannelListResponse = (payload) =>
 
       const id = normalizeValue(item.id)
       const name = normalizeValue(item.name)
+      const previousChannel = id ? previousById.get(id) : null
 
       if (!id && !name) {
         return null
       }
 
+      const fallbackLabel = previousChannel?.label || previousChannel?.name
+      const label = name || fallbackLabel || id
+
       return {
         id,
-        name: name || id,
+        name: label,
+        label,
+        metadata: {
+          channelId: id,
+          channelName: label,
+        },
       }
     })
     .filter(Boolean)
+}
 
 const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   if (!baseDevice) {
@@ -981,7 +1000,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
       if (payloadChannels) {
         setChannelState({
-          data: mapChannelListResponse({ channels: payloadChannels }),
+          data: mapChannelListResponse({ channels: payloadChannels }, channelState.data),
           error: null,
           isLoading: false,
           fetchedAt: new Date(),
@@ -997,7 +1016,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         })
       }
     },
-    [remoteControlDeviceId],
+    [channelState.data, remoteControlDeviceId],
   )
 
   useEffect(() => {
