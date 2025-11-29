@@ -647,7 +647,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
   const {
     devices,
-    error: devicesError,
+    error: deviceListError,
     isApiEnabled,
     isLoading: deviceListLoading,
   } = useRetailPlayerDevices()
@@ -1090,9 +1090,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
   }, [artworkUrl, existingArtwork, normalizedDevice])
 
-  const rawDevicesError = deviceState.error
-  const devicesError =
-    rawDevicesError && rawDevicesError.status === 404 ? null : rawDevicesError
+  const rawDeviceError = deviceState.error
+  const deviceError =
+    rawDeviceError && rawDeviceError.status === 404 ? null : rawDeviceError
+  const devicesError = deviceError || deviceListError
 
   const notFound = false
 
