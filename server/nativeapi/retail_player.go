@@ -173,6 +173,10 @@ func normalizeRetailPlayerIdentifier(value string) string {
 	return strings.TrimSpace(decoded)
 }
 
+func intPtr(value int) *int {
+	return &value
+}
+
 type retailPlayerAPIDevice struct {
 	Ordinal      *int   `json:"ordinal"`
 	ID           string `json:"id"`
@@ -395,11 +399,8 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 
 			response.Data = filtered
 
-			total := len(filtered)
-			response.Total = &total
-
-			page := 1
-			response.Page = &page
+			response.Total = intPtr(len(filtered))
+			response.Page = intPtr(1)
 		}
 
 		n.devices.RememberDevices(response.Data)
