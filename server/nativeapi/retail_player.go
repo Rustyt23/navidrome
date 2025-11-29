@@ -330,12 +330,12 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
 		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
 		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
+		r.Post("/rc", n.handleRetailPlayerDeviceByName())
 	})
 }
 
 func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Get("/retailplayer/devices", n.handleRetailPlayerDevices())
-	r.Post("/retailplayer/rc", n.handleRetailPlayerDeviceByName())
 	r.Post("/retailplayer/folders", n.handleCreateRetailPlayerFolder())
 	r.Patch("/retailplayer/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
 	r.Post("/retailplayer/folders/delete", n.handleDeleteRetailPlayerFolders())
