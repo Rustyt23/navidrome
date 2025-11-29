@@ -899,6 +899,7 @@ const RetailPlayerDashboard = () => {
     buttonTriggers,
     hasButtonTriggers,
     isTriggerListLoading,
+    sendRemoteControlCommand,
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const device = resolvedDevice || null
   const [deviceTime, setDeviceTime] = useState(() => new Date())
@@ -1451,6 +1452,11 @@ const RetailPlayerDashboard = () => {
       return undefined
     }
 
+    sendRemoteControlCommand({
+      type: 'set_volume',
+      payload: { volume },
+    })
+
     const abortController = new AbortController()
     const headers = new Headers({ 'Content-Type': 'application/json' })
 
@@ -1469,7 +1475,7 @@ const RetailPlayerDashboard = () => {
     return () => {
       abortController.abort()
     }
-  }, [canControlDevice, deviceApiId, volume])
+  }, [canControlDevice, deviceApiId, sendRemoteControlCommand, volume])
 
   const normalizedDeviceTrack = useMemo(() => {
     if (!device?.nowPlaying) {
@@ -1848,19 +1854,27 @@ const RetailPlayerDashboard = () => {
 
   const handleToggleMute = useCallback(() => {
     if (isMuted) {
+      sendRemoteControlCommand({
+        type: 'set_mute',
+        payload: { muted: false },
+      })
       const restoredVolume =
         previousVolumeRef.current > 0 ? previousVolumeRef.current : 50
       updateVolume(restoredVolume)
       return
     }
 
+    sendRemoteControlCommand({
+      type: 'set_mute',
+      payload: { muted: true },
+    })
     updateVolume((current) => {
       if (current > 0) {
         previousVolumeRef.current = current
       }
       return 0
     })
-  }, [isMuted, updateVolume])
+  }, [isMuted, sendRemoteControlCommand, updateVolume])
 
   const handleVolumeChange = useCallback((_, newValue) => {
     const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue

@@ -784,6 +784,17 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     sendMessage: sendRemoteControlMessage,
   } = useRemoteControlSocket(remoteControlId)
 
+  const sendRemoteControlCommand = useCallback(
+    (message) => {
+      if (!remoteControlId || !isRemoteControlConnected) {
+        return false
+      }
+
+      return sendRemoteControlMessage(message)
+    },
+    [isRemoteControlConnected, remoteControlId, sendRemoteControlMessage],
+  )
+
   useEffect(() => {
     if (remoteControlDeviceId) {
       stickyRemoteControlDeviceId.current = remoteControlDeviceId
@@ -837,25 +848,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     [baseDevice, channelState.data, statusState.data],
   )
 
-  const lastHelloIdRef = useRef('')
   const lastSubscriptionIdRef = useRef('')
-
-  useEffect(() => {
-    if (!isRemoteControlConnected || !remoteControlId) {
-      return
-    }
-
-    if (lastHelloIdRef.current === remoteControlId) {
-      return
-    }
-
-    lastHelloIdRef.current = remoteControlId
-
-    sendRemoteControlMessage({
-      type: 'HELLO',
-      deviceUUID: remoteControlId,
-    })
-  }, [isRemoteControlConnected, remoteControlId, sendRemoteControlMessage])
 
   useEffect(() => {
     if (!isRemoteControlConnected || !remoteControlDeviceId) {
@@ -905,7 +898,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return
     }
 
-    lastHelloIdRef.current = ''
     lastSubscriptionIdRef.current = ''
   }, [remoteControlId])
 
@@ -1223,6 +1215,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     isApiEnabled,
     notFound,
     lastUpdated: statusState.fetchedAt,
+    sendRemoteControlCommand,
   }
 }
 
