@@ -1,4 +1,6 @@
 import { baseUrl } from '../utils'
+
+const defaultCoverArtUrl = baseUrl('/android-chrome-512x512.png')
 import { httpClient } from '../dataProvider'
 
 const url = (command, id, options) => {
@@ -73,18 +75,21 @@ const getCoverArtUrl = (record, size, square) => {
   }
 
   // TODO Move this logic to server
+  let coverArtUrl = ''
   if (record.type === 'discovery') {
-    return baseUrl(url('getCoverArt', `dc-${record.id}`, options))
+    coverArtUrl = baseUrl(url('getCoverArt', `dc-${record.id}`, options))
   } else if (record.album) {
-    return baseUrl(url('getCoverArt', 'mf-' + record.id, options))
+    coverArtUrl = baseUrl(url('getCoverArt', 'mf-' + record.id, options))
   } else if (record.albumArtist) {
-    return baseUrl(url('getCoverArt', 'al-' + record.id, options))
+    coverArtUrl = baseUrl(url('getCoverArt', 'al-' + record.id, options))
   } else if (record.sync !== undefined) {
     // This is a playlist
-    return baseUrl(url('getCoverArt', 'pl-' + record.id, options))
+    coverArtUrl = baseUrl(url('getCoverArt', 'pl-' + record.id, options))
   } else {
-    return baseUrl(url('getCoverArt', 'ar-' + record.id, options))
+    coverArtUrl = baseUrl(url('getCoverArt', 'ar-' + record.id, options))
   }
+
+  return coverArtUrl || defaultCoverArtUrl
 }
 
 const getArtistInfo = (id) => {
@@ -132,3 +137,5 @@ export default {
   getTopSongs,
   getSimilarSongs2,
 }
+
+export { defaultCoverArtUrl }
