@@ -1072,7 +1072,11 @@ const RetailPlayerDashboard = () => {
         : {}
 
     const localTimeValue =
-      typeof status.localTime === 'string' ? status.localTime : null
+      typeof status.writeDate === 'string'
+        ? status.writeDate
+        : typeof status.localTime === 'string'
+          ? status.localTime
+          : null
     if (localTimeValue) {
       const parsedLocal = new Date(localTimeValue)
       if (!Number.isNaN(parsedLocal.getTime())) {
@@ -1081,7 +1085,11 @@ const RetailPlayerDashboard = () => {
     }
 
     const systemTimeValue =
-      typeof status.localTime === 'string' ? status.localTime : null
+      typeof status.writeDate === 'string'
+        ? status.writeDate
+        : typeof status.localTime === 'string'
+          ? status.localTime
+          : null
     if (systemTimeValue) {
       const parsedSystem = new Date(systemTimeValue)
       if (!Number.isNaN(parsedSystem.getTime())) {

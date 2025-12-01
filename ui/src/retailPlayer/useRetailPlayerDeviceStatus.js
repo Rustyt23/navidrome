@@ -596,7 +596,12 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
   const deviceTimeZone =
     normalizeValue(baseDevice.timeZone) || normalizeValue(status.timeZone)
-  const localTime = typeof status.localTime === 'string' ? status.localTime : null
+  const localTime =
+    typeof status.writeDate === 'string'
+      ? status.writeDate
+      : typeof status.localTime === 'string'
+        ? status.localTime
+        : null
 
   const normalizedStatus = { ...status }
   if (deviceTimeZone && !normalizedStatus.timeZone) {
@@ -606,11 +611,14 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     normalizedStatus.localTime = localTime
   }
 
+  const isMuted =
+    typeof payloadDevice?.muted === 'boolean' ? payloadDevice.muted : volume === 0
+
   return {
     ...baseDevice,
     isConnected,
     hasSignal,
-    isMuted: volume === 0,
+    isMuted,
     volume: Number.isFinite(volume) ? volume : null,
     schedules,
     nowPlaying: {
