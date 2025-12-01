@@ -40,6 +40,7 @@ func New(ds model.DataStore, broker events.Broker, insights metrics.Insights) *S
 	initialSetup(ds)
 	auth.Init(s.ds)
 	s.initRoutes()
+	s.mountQRPopulateRoute()
 	s.mountAuthenticationRoutes()
 	s.mountRootRedirector()
 	checkFFmpegInstallation()
