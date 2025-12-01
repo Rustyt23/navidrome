@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import subsonic from '../subsonic'
+import subsonic, { defaultCoverArtUrl } from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
 import { baseUrl } from '../utils'
 import config from '../config'
@@ -1133,7 +1133,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
 
     if (!metadataTitle) {
-      setArtworkUrl(null)
+      setArtworkUrl(defaultCoverArtUrl())
       lastArtworkSignatureRef.current = artworkSignature
       return undefined
     }
@@ -1176,10 +1176,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
           setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
           return
         }
-        setArtworkUrl(null)
+        setArtworkUrl(defaultCoverArtUrl())
       } catch (err) {
         if (!isCancelled) {
-          setArtworkUrl(null)
+          setArtworkUrl(defaultCoverArtUrl())
         }
       }
     }
