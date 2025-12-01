@@ -1107,18 +1107,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const metadataTitle = normalizeValue(nowPlayingMetadata.title)
   const metadataArtist = normalizeValue(nowPlayingMetadata.artist)
 
-  const lastArtworkSignatureRef = useRef(null)
-
   useEffect(() => {
     if (!normalizedDevice) {
       setArtworkUrl(null)
-      lastArtworkSignatureRef.current = null
       return undefined
     }
 
     if (existingArtwork) {
       setArtworkUrl(existingArtwork)
-      lastArtworkSignatureRef.current = artworkSignature
       return undefined
     }
 
@@ -1128,21 +1124,18 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         square: true,
       })
       setArtworkUrl(baseUrl(coverArtPath))
-      lastArtworkSignatureRef.current = artworkSignature
+      return undefined
+    }
+
+    if (!statusState.data) {
+      setArtworkUrl(null)
       return undefined
     }
 
     if (!metadataTitle) {
       setArtworkUrl(null)
-      lastArtworkSignatureRef.current = artworkSignature
       return undefined
     }
-
-    if (lastArtworkSignatureRef.current === artworkSignature) {
-      return undefined
-    }
-
-    lastArtworkSignatureRef.current = artworkSignature
 
     let isCancelled = false
     const fetchArtwork = async () => {
@@ -1196,6 +1189,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     metadataArtist,
     metadataTitle,
     normalizedDevice,
+    statusState.data,
   ])
 
   const deviceWithArtwork = useMemo(() => {
