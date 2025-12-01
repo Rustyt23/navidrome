@@ -1,6 +1,9 @@
 import { baseUrl } from '../utils'
 
-const defaultCoverArtUrl = baseUrl('/android-chrome-512x512.png')
+const defaultCoverArtUrl = () => {
+  const coverArtPath = url('getCoverArt')
+  return coverArtPath ? baseUrl(coverArtPath) : ''
+}
 import { httpClient } from '../dataProvider'
 
 const url = (command, id, options) => {
@@ -89,7 +92,7 @@ const getCoverArtUrl = (record, size, square) => {
     coverArtUrl = baseUrl(url('getCoverArt', 'ar-' + record.id, options))
   }
 
-  return coverArtUrl || defaultCoverArtUrl
+  return coverArtUrl || defaultCoverArtUrl()
 }
 
 const getArtistInfo = (id) => {

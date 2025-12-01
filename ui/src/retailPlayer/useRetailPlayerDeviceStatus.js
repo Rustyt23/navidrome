@@ -1133,7 +1133,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
 
     if (!metadataTitle) {
-      setArtworkUrl(defaultCoverArtUrl)
+      setArtworkUrl(defaultCoverArtUrl())
       lastArtworkSignatureRef.current = artworkSignature
       return undefined
     }
@@ -1176,10 +1176,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
           setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
           return
         }
-        setArtworkUrl(defaultCoverArtUrl)
+        setArtworkUrl(defaultCoverArtUrl())
       } catch (err) {
         if (!isCancelled) {
-          setArtworkUrl(defaultCoverArtUrl)
+          setArtworkUrl(defaultCoverArtUrl())
         }
       }
     }
