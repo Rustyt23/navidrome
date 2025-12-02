@@ -92,6 +92,7 @@ func (n *Router) routes() http.Handler {
 
 	// Public
 	n.addRetailPlayerPublicRoutes(r)
+	n.addPublicSongRoute(r)
 	n.RX(r, "/translation", newTranslationRepository, false)
 
 	// Protected
@@ -205,6 +206,20 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 				}
 				w.WriteHeader(http.StatusNoContent)
 			})
+		})
+	})
+}
+
+func (n *Router) addPublicSongRoute(r chi.Router) {
+	constructor := func(ctx context.Context) rest.Repository {
+		return n.ds.Resource(ctx, model.MediaFile{})
+	}
+
+	r.Route("/song", func(r chi.Router) {
+		r.Get("/", rest.GetAll(constructor))
+		r.Route("/{id}", func(r chi.Router) {
+			r.Use(server.URLParamsMiddleware)
+			r.Get("/", rest.Get(constructor))
 		})
 	})
 }
