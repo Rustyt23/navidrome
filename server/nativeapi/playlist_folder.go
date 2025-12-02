@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	. "github.com/Masterminds/squirrel"
+	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/model"
@@ -385,4 +386,52 @@ func collectDescendantFolderIDs(ctx context.Context, repo model.PlaylistFolderRe
 	}
 
 	return result, nil
+}
+
+func updatePlaylistFolder(ds model.DataStore, playlists core.Playlists, constructor rest.RepositoryConstructor) http.HandlerFunc {
+	put := rest.Put(constructor)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		catcher := newResponseCatcher(w)
+		put(catcher, r)
+
+		if catcher.status >= http.StatusBadRequest {
+			catcher.Flush()
+			return
+		}
+
+		id := chi.URLParam(r, "id")
+		if err := syncPlaylistsUnderFolder(playlists, ds, r.Context(), id); err != nil {
+			http.Error(w, err.Error(), statusFor(err))
+			return
+		}
+
+		catcher.Flush()
+	}
+}
+
+func syncPlaylistsUnderFolder(playlists core.Playlists, ds model.DataStore, ctx context.Context, folderID string) error {
+	folder := folderID
+	descendants, err := collectDescendantFolderIDs(ctx, ds.PlaylistFolder(ctx), &folder)
+	if err != nil {
+		return err
+	}
+
+	ids := append([]string{folderID}, descendants...)
+	filter := Eq{"folder_id": uniqueStrings(ids)}
+	playlistsInFolder, err := ds.Playlist(ctx).GetAll(model.QueryOptions{Filters: filter})
+	if err != nil {
+		return err
+	}
+
+	for _, pls := range playlistsInFolder {
+		if !pls.Sync {
+			continue
+		}
+		if err := playlists.Update(ctx, pls.ID, &pls.Name, &pls.Comment, &pls.Public, nil, nil); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
