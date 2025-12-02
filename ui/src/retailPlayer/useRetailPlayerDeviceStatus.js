@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import subsonic, { defaultCoverArtUrl } from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
+import { REST_URL } from '../consts'
 import { baseUrl } from '../utils'
 import config from '../config'
 import {
@@ -1164,11 +1165,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       appendLibraryFilters(params)
 
       try {
-        const rootPath = config.publicBaseUrl || '/share'
-        const normalizedRoot = rootPath.endsWith('/')
-          ? rootPath.slice(0, -1)
-          : rootPath
-        const requestPath = `${normalizedRoot}/getcoverart?${params.toString()}`
+        const requestPath = `${REST_URL}/song?${params.toString()}`
         const response = await httpClient(requestPath)
         if (isCancelled) {
           return
