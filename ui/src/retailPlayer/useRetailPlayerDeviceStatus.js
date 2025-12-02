@@ -119,6 +119,15 @@ const pickFirstStringValue = (source, candidates) => {
   return ''
 }
 
+const getBasename = (value) => {
+  if (!value || typeof value !== 'string') {
+    return ''
+  }
+
+  const normalized = value.replace(/\\/g, '/').split('/').pop()
+  return normalizeValue(normalized)
+}
+
 const mapChannelListResponse = (payload, previousChannels = []) => {
   const previousById = new Map(
     ensureArray(previousChannels)
@@ -1109,6 +1118,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const nowPlayingMetadata = nowPlaying.metadata || {}
   const metadataTitle = normalizeValue(nowPlayingMetadata.title)
   const metadataArtist = normalizeValue(nowPlayingMetadata.artist)
+  const streamName = normalizeValue(nowPlaying.streamName)
+  const streamBaseName = getBasename(streamName)
 
   const lastArtworkSignatureRef = useRef(null)
 
@@ -1135,12 +1146,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    if (!metadataTitle) {
-      setArtworkUrl(defaultCoverArtUrl())
-      lastArtworkSignatureRef.current = artworkSignature
-      return undefined
-    }
-
     if (lastArtworkSignatureRef.current === artworkSignature) {
       return undefined
     }
@@ -1149,37 +1154,71 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
     let isCancelled = false
     const fetchArtwork = async () => {
-      const params = new URLSearchParams()
-      params.set('_start', '0')
-      params.set('_end', '1')
-      params.set('_sort', 'id')
-      params.set('_order', 'ASC')
-      if (!isAdminUser()) {
-        params.set('missing', 'false')
-      }
-      params.set('title', metadataTitle)
-      if (metadataArtist) {
-        params.set('artist', metadataArtist)
+      const buildBaseParams = () => {
+        const params = new URLSearchParams()
+        params.set('_start', '0')
+        params.set('_end', '1')
+        params.set('_sort', 'id')
+        params.set('_order', 'ASC')
+        if (!isAdminUser()) {
+          params.set('missing', 'false')
+        }
+
+        appendLibraryFilters(params)
+        return params
       }
 
-      appendLibraryFilters(params)
+      const searchParamsList = []
 
-      try {
-        const requestPath = `${REST_URL}/song?${params.toString()}`
-        const response = await httpClient(requestPath)
-        if (isCancelled) {
-          return
+      if (streamBaseName) {
+        const exactParams = buildBaseParams()
+        exactParams.set('path', streamBaseName)
+        searchParamsList.push(exactParams)
+
+        const withoutExtension = streamBaseName.replace(/\.[^./\\]+$/, '')
+        if (withoutExtension && withoutExtension !== streamBaseName) {
+          const withoutExtParams = buildBaseParams()
+          withoutExtParams.set('path', withoutExtension)
+          searchParamsList.push(withoutExtParams)
         }
-        const songs = Array.isArray(response?.json) ? response.json : []
-        if (songs.length > 0) {
-          setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
-          return
+      }
+
+      if (metadataTitle) {
+        const metadataParams = buildBaseParams()
+        metadataParams.set('title', metadataTitle)
+        if (metadataArtist) {
+          metadataParams.set('artist', metadataArtist)
         }
+        searchParamsList.push(metadataParams)
+      }
+
+      if (!searchParamsList.length) {
         setArtworkUrl(defaultCoverArtUrl())
-      } catch (err) {
-        if (!isCancelled) {
-          setArtworkUrl(defaultCoverArtUrl())
+        return
+      }
+
+      for (let index = 0; index < searchParamsList.length; index += 1) {
+        const params = searchParamsList[index]
+        try {
+          const requestPath = `${REST_URL}/song?${params.toString()}`
+          const response = await httpClient(requestPath)
+          if (isCancelled) {
+            return
+          }
+          const songs = Array.isArray(response?.json) ? response.json : []
+          if (songs.length > 0) {
+            setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
+            return
+          }
+        } catch (err) {
+          if (isCancelled) {
+            return
+          }
         }
+      }
+
+      if (!isCancelled) {
+        setArtworkUrl(defaultCoverArtUrl())
       }
     }
 
@@ -1195,6 +1234,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     metadataArtist,
     metadataTitle,
     normalizedDevice,
+    streamBaseName,
   ])
 
   const deviceWithArtwork = useMemo(() => {
