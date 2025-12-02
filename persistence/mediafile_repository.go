@@ -3,7 +3,9 @@ package persistence
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,6 +104,17 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		"missing":    booleanFilter,
 		"artists_id": artistFilter,
 		"library_id": libraryIdFilter,
+"filename": func(_ string, value any) Sqlizer {
+filename := strings.TrimSpace(value.(string))
+if filename == "" {
+return nil
+}
+base := filepath.Base(filename)
+if base == "" {
+return nil
+}
+return containsFilter("media_file.path")("media_file.path", base)
+},
 	}
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {
