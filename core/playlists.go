@@ -464,6 +464,7 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 			return err
 		}
 		oldPath := pls.Path
+		newPath := oldPath
 
 		if len(idxToRemove) > 0 {
 			pls.RemoveTracks(idxToRemove)
@@ -487,10 +488,17 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 			if ext == "" {
 				ext = ".m3u"
 			}
-			newPath, err := s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
+			newPath, err = s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
 			if err != nil {
 				return err
 			}
+			pls.Path = newPath
+		} else if oldPath != "" && name != nil {
+			ext := filepath.Ext(oldPath)
+			if ext == "" {
+				ext = ".m3u"
+			}
+			newPath = filepath.Join(filepath.Dir(oldPath), sanitizeName(pls.Name)+ext)
 			pls.Path = newPath
 		}
 
@@ -504,7 +512,7 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 			return err
 		}
 
-		if pls.Sync {
+		if pls.Path != "" {
 			if err := os.MkdirAll(filepath.Dir(pls.Path), 0o755); err != nil {
 				return err
 			}
@@ -513,6 +521,9 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 					return err
 				}
 			}
+		}
+
+		if pls.Sync {
 			if err := s.writePlaylistFile(pls.Path, pls, false); err != nil {
 				return err
 			}

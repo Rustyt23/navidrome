@@ -183,6 +183,34 @@ var _ = Describe("Playlists", func() {
 
 				})
 			})
+
+			Describe("Update", func() {
+				It("renames playlist file on disk when name changes", func() {
+					DeferCleanup(configtest.SetupConfig())
+
+					playlistsDir := GinkgoT().TempDir()
+					conf.Server.PlaylistsPath = playlistsDir
+					ps = NewPlaylists(ds)
+
+					oldPath := filepath.Join(playlistsDir, "old-name.m3u")
+					Expect(os.WriteFile(oldPath, []byte("#EXTM3U\n"), 0o644)).To(Succeed())
+
+					pls := &model.Playlist{
+						ID:      "1",
+						Name:    "Old Name",
+						Path:    oldPath,
+						OwnerID: "123",
+					}
+					mockPlsRepo.stored = map[string]*model.Playlist{"1": pls}
+
+					newName := "New Name"
+					Expect(ps.Update(ctx, "1", &newName, nil, nil, nil, nil)).To(Succeed())
+
+					newPath := filepath.Join(playlistsDir, "New Name.m3u")
+					Expect(newPath).To(BeAnExistingFile())
+					Expect(oldPath).ToNot(BeAnExistingFile())
+				})
+			})
 		})
 
 		Describe("NSP", func() {
