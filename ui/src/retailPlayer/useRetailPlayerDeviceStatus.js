@@ -1183,15 +1183,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         }
       }
 
-      if (metadataTitle) {
-        const metadataParams = buildBaseParams()
-        metadataParams.set('title', metadataTitle)
-        if (metadataArtist) {
-          metadataParams.set('artist', metadataArtist)
-        }
-        searchParamsList.push(metadataParams)
-      }
-
       if (!searchParamsList.length) {
         setArtworkUrl(defaultCoverArtUrl())
         return
