@@ -1108,6 +1108,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const nowPlayingMetadata = nowPlaying.metadata || {}
   const metadataTitle = normalizeValue(nowPlayingMetadata.title)
   const metadataArtist = normalizeValue(nowPlayingMetadata.artist)
+  const streamName = normalizeValue(nowPlaying.streamName)
+  const { title: streamTitle, artist: streamArtist } = parseActiveStreamInfo(streamName)
+  const lookupTitle = metadataTitle || streamTitle
+  const lookupArtist = metadataArtist || streamArtist
 
   const lastArtworkSignatureRef = useRef(null)
 
@@ -1134,7 +1138,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    if (!metadataTitle) {
+    if (!lookupTitle) {
       setArtworkUrl(defaultCoverArtUrl())
       lastArtworkSignatureRef.current = artworkSignature
       return undefined
@@ -1147,42 +1151,70 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     lastArtworkSignatureRef.current = artworkSignature
 
     let isCancelled = false
+    const addSearch = (list, title, artist) => {
+      const normalizedTitle = normalizeValue(title)
+      if (!normalizedTitle) {
+        return
+      }
+      const normalizedArtist = normalizeValue(artist)
+      const signature = `${normalizedTitle}::${normalizedArtist}`
+      if (list.some((entry) => entry.signature === signature)) {
+        return
+      }
+      list.push({ title: normalizedTitle, artist: normalizedArtist, signature })
+    }
+
+    const searchCandidates = []
+    const normalizedStreamName = normalizeValue(streamName)
+    if (normalizedStreamName) {
+      addSearch(searchCandidates, normalizedStreamName, '')
+      const streamBaseName = normalizedStreamName.replace(/\.[^./\\]+$/, '')
+      if (streamBaseName && streamBaseName !== normalizedStreamName) {
+        addSearch(searchCandidates, streamBaseName, '')
+      }
+    }
+
     const fetchArtwork = async () => {
-      const params = new URLSearchParams()
-      params.set('_start', '0')
-      params.set('_end', '1')
-      params.set('_sort', 'id')
-      params.set('_order', 'ASC')
-      if (!isAdminUser()) {
-        params.set('missing', 'false')
-      }
-      params.set('title', metadataTitle)
-      if (metadataArtist) {
-        params.set('artist', metadataArtist)
-      }
-
-      appendLibraryFilters(params)
-
-      try {
-        const rootPath = config.publicBaseUrl || '/share'
-        const normalizedRoot = rootPath.endsWith('/')
-          ? rootPath.slice(0, -1)
-          : rootPath
-        const requestPath = `${normalizedRoot}/getcoverart?${params.toString()}`
-        const response = await httpClient(requestPath)
-        if (isCancelled) {
-          return
-        }
-        const songs = Array.isArray(response?.json) ? response.json : []
-        if (songs.length > 0) {
-          setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
-          return
-        }
+      if (!searchCandidates.length) {
         setArtworkUrl(defaultCoverArtUrl())
-      } catch (err) {
-        if (!isCancelled) {
-          setArtworkUrl(defaultCoverArtUrl())
+        return
+      }
+
+      const rootPath = config.publicBaseUrl || '/share'
+      const normalizedRoot = rootPath.endsWith('/') ? rootPath.slice(0, -1) : rootPath
+
+      for (let index = 0; index < searchCandidates.length; index += 1) {
+        const { title } = searchCandidates[index]
+        const params = new URLSearchParams()
+        params.set('_start', '0')
+        params.set('_end', '1')
+        params.set('_sort', 'id')
+        params.set('_order', 'ASC')
+        if (!isAdminUser()) {
+          params.set('missing', 'false')
         }
+        params.set('path', title)
+
+        appendLibraryFilters(params)
+
+        try {
+          const requestPath = `${normalizedRoot}/getcoverart?${params.toString()}`
+          const response = await httpClient(requestPath)
+          if (isCancelled) {
+            return
+          }
+          const songs = Array.isArray(response?.json) ? response.json : []
+          if (songs.length > 0) {
+            setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
+            return
+          }
+        } catch (err) {
+          // Continue to the next candidate if this search fails
+        }
+      }
+
+      if (!isCancelled) {
+        setArtworkUrl(defaultCoverArtUrl())
       }
     }
 
@@ -1195,9 +1227,12 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     artworkSignature,
     backendArtworkId,
     existingArtwork,
-    metadataArtist,
-    metadataTitle,
+    lookupArtist,
+    lookupTitle,
     normalizedDevice,
+    streamArtist,
+    streamName,
+    streamTitle,
   ])
 
   const deviceWithArtwork = useMemo(() => {
