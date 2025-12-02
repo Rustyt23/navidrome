@@ -1164,16 +1164,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       list.push({ title: normalizedTitle, artist: normalizedArtist, signature })
     }
 
-    const streamBaseName = normalizeValue(streamName).replace(/\.[^./\\]+$/, '')
     const searchCandidates = []
-    addSearch(searchCandidates, lookupTitle, lookupArtist)
-    addSearch(searchCandidates, lookupTitle, '')
-    if (streamTitle && streamTitle !== lookupTitle) {
-      addSearch(searchCandidates, streamTitle, streamArtist)
-    }
-    if (streamBaseName && streamBaseName !== lookupTitle) {
-      addSearch(searchCandidates, streamBaseName, lookupArtist)
-      addSearch(searchCandidates, streamBaseName, '')
+    const normalizedStreamName = normalizeValue(streamName)
+    if (normalizedStreamName) {
+      addSearch(searchCandidates, normalizedStreamName, '')
+      const streamBaseName = normalizedStreamName.replace(/\.[^./\\]+$/, '')
+      if (streamBaseName && streamBaseName !== normalizedStreamName) {
+        addSearch(searchCandidates, streamBaseName, '')
+      }
     }
 
     const fetchArtwork = async () => {
@@ -1186,7 +1184,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       const normalizedRoot = rootPath.endsWith('/') ? rootPath.slice(0, -1) : rootPath
 
       for (let index = 0; index < searchCandidates.length; index += 1) {
-        const { title, artist } = searchCandidates[index]
+        const { title } = searchCandidates[index]
         const params = new URLSearchParams()
         params.set('_start', '0')
         params.set('_end', '1')
@@ -1195,10 +1193,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         if (!isAdminUser()) {
           params.set('missing', 'false')
         }
-        params.set('title', title)
-        if (artist) {
-          params.set('artist', artist)
-        }
+        params.set('path', title)
 
         appendLibraryFilters(params)
 
