@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import subsonic, { defaultCoverArtUrl } from '../subsonic'
 import httpClient from '../dataProvider/httpClient'
-import { REST_URL } from '../consts'
 import { baseUrl } from '../utils'
 import config from '../config'
 import {
@@ -117,15 +116,6 @@ const pickFirstStringValue = (source, candidates) => {
   }
 
   return ''
-}
-
-const getBasename = (value) => {
-  if (!value || typeof value !== 'string') {
-    return ''
-  }
-
-  const normalized = value.replace(/\\/g, '/').split('/').pop()
-  return normalizeValue(normalized)
 }
 
 const mapChannelListResponse = (payload, previousChannels = []) => {
@@ -1118,8 +1108,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const nowPlayingMetadata = nowPlaying.metadata || {}
   const metadataTitle = normalizeValue(nowPlayingMetadata.title)
   const metadataArtist = normalizeValue(nowPlayingMetadata.artist)
-  const streamName = normalizeValue(nowPlaying.streamName)
-  const streamBaseName = getBasename(streamName)
 
   const lastArtworkSignatureRef = useRef(null)
 
@@ -1146,6 +1134,12 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
+    if (!metadataTitle) {
+      setArtworkUrl(defaultCoverArtUrl())
+      lastArtworkSignatureRef.current = artworkSignature
+      return undefined
+    }
+
     if (lastArtworkSignatureRef.current === artworkSignature) {
       return undefined
     }
@@ -1154,62 +1148,41 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
     let isCancelled = false
     const fetchArtwork = async () => {
-      const buildBaseParams = () => {
-        const params = new URLSearchParams()
-        params.set('_start', '0')
-        params.set('_end', '1')
-        params.set('_sort', 'id')
-        params.set('_order', 'ASC')
-        if (!isAdminUser()) {
-          params.set('missing', 'false')
-        }
-
-        appendLibraryFilters(params)
-        return params
+      const params = new URLSearchParams()
+      params.set('_start', '0')
+      params.set('_end', '1')
+      params.set('_sort', 'id')
+      params.set('_order', 'ASC')
+      if (!isAdminUser()) {
+        params.set('missing', 'false')
+      }
+      params.set('title', metadataTitle)
+      if (metadataArtist) {
+        params.set('artist', metadataArtist)
       }
 
-      const searchParamsList = []
+      appendLibraryFilters(params)
 
-      if (streamBaseName) {
-        const exactParams = buildBaseParams()
-        exactParams.set('path', streamBaseName)
-        searchParamsList.push(exactParams)
-
-        const withoutExtension = streamBaseName.replace(/\.[^./\\]+$/, '')
-        if (withoutExtension && withoutExtension !== streamBaseName) {
-          const withoutExtParams = buildBaseParams()
-          withoutExtParams.set('path', withoutExtension)
-          searchParamsList.push(withoutExtParams)
+      try {
+        const rootPath = config.publicBaseUrl || '/share'
+        const normalizedRoot = rootPath.endsWith('/')
+          ? rootPath.slice(0, -1)
+          : rootPath
+        const requestPath = `${normalizedRoot}/getcoverart?${params.toString()}`
+        const response = await httpClient(requestPath)
+        if (isCancelled) {
+          return
         }
-      }
-
-      if (!searchParamsList.length) {
+        const songs = Array.isArray(response?.json) ? response.json : []
+        if (songs.length > 0) {
+          setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
+          return
+        }
         setArtworkUrl(defaultCoverArtUrl())
-        return
-      }
-
-      for (let index = 0; index < searchParamsList.length; index += 1) {
-        const params = searchParamsList[index]
-        try {
-          const requestPath = `${REST_URL}/song?${params.toString()}`
-          const response = await httpClient(requestPath)
-          if (isCancelled) {
-            return
-          }
-          const songs = Array.isArray(response?.json) ? response.json : []
-          if (songs.length > 0) {
-            setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
-            return
-          }
-        } catch (err) {
-          if (isCancelled) {
-            return
-          }
+      } catch (err) {
+        if (!isCancelled) {
+          setArtworkUrl(defaultCoverArtUrl())
         }
-      }
-
-      if (!isCancelled) {
-        setArtworkUrl(defaultCoverArtUrl())
       }
     }
 
@@ -1225,7 +1198,6 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     metadataArtist,
     metadataTitle,
     normalizedDevice,
-    streamBaseName,
   ])
 
   const deviceWithArtwork = useMemo(() => {

@@ -101,7 +101,6 @@ func (n *Router) routes() http.Handler {
 		r.Use(server.JWTRefresher)
 		r.Use(server.UpdateLastAccessMiddleware(n.ds))
 		n.R(r, "/user", model.User{}, true)
-		n.R(r, "/song", model.MediaFile{}, false)
 		n.R(r, "/album", model.Album{}, false)
 		n.R(r, "/artist", model.Artist{}, false)
 		n.R(r, "/genre", model.Genre{}, false)
