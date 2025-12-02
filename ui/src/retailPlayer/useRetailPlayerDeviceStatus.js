@@ -1108,6 +1108,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const nowPlayingMetadata = nowPlaying.metadata || {}
   const metadataTitle = normalizeValue(nowPlayingMetadata.title)
   const metadataArtist = normalizeValue(nowPlayingMetadata.artist)
+  const streamName = normalizeValue(nowPlaying.streamName)
+  const { title: streamTitle, artist: streamArtist } = parseActiveStreamInfo(streamName)
+  const lookupTitle = metadataTitle || streamTitle
+  const lookupArtist = metadataArtist || streamArtist
 
   const lastArtworkSignatureRef = useRef(null)
 
@@ -1134,7 +1138,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return undefined
     }
 
-    if (!metadataTitle) {
+    if (!lookupTitle) {
       setArtworkUrl(defaultCoverArtUrl())
       lastArtworkSignatureRef.current = artworkSignature
       return undefined
@@ -1156,9 +1160,9 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       if (!isAdminUser()) {
         params.set('missing', 'false')
       }
-      params.set('title', metadataTitle)
-      if (metadataArtist) {
-        params.set('artist', metadataArtist)
+      params.set('title', lookupTitle)
+      if (lookupArtist) {
+        params.set('artist', lookupArtist)
       }
 
       appendLibraryFilters(params)
@@ -1195,8 +1199,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     artworkSignature,
     backendArtworkId,
     existingArtwork,
-    metadataArtist,
-    metadataTitle,
+    lookupArtist,
+    lookupTitle,
     normalizedDevice,
   ])
 
