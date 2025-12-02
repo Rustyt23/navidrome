@@ -207,6 +207,14 @@ type retailPlayerOptions struct {
 	RemoteControlBaseURL      string
 	RemoteControlAPIKey       string
 	RemoteControlAPIKeyHeader string
+	QRLoginURL                string
+	QRBaseURL                 string
+	QRTenant                  string
+	QRUsername                string
+	QRPassword                string
+	QRPlatform                string
+	QRPageSize                int
+	QRPage                    int
 	PageSize                  int
 	Page                      int
 	Filters                   string
@@ -624,6 +632,14 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.orgid", "")
 	viper.SetDefault("retailplayer.apikey", "")
 	viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
+	viper.SetDefault("retailplayer.qrloginurl", "")
+	viper.SetDefault("retailplayer.qrbaseurl", "")
+	viper.SetDefault("retailplayer.qrtenant", "")
+	viper.SetDefault("retailplayer.qrusername", "")
+	viper.SetDefault("retailplayer.qrpassword", "")
+	viper.SetDefault("retailplayer.qrplatform", "WEB")
+	viper.SetDefault("retailplayer.qrpagesize", 500)
+	viper.SetDefault("retailplayer.qrpage", 1)
 	viper.SetDefault("retailplayer.pagesize", 0)
 	viper.SetDefault("retailplayer.page", 0)
 	viper.SetDefault("retailplayer.filters", "")

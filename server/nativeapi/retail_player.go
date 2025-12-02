@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os/exec"
 	"path"
@@ -319,6 +320,19 @@ type retailPlayerRemoteControl struct {
 	Name string `json:"name"`
 }
 
+type retailPlayerQRSyncResult struct {
+	DeviceID        string `json:"deviceId"`
+	DeviceName      string `json:"deviceName"`
+	RemoteControlID string `json:"remoteControlId"`
+	Created         bool   `json:"created"`
+	Error           string `json:"error,omitempty"`
+}
+
+type retailPlayerQRDevice struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices/{deviceID}/config", n.handleRetailPlayerDeviceConfig())
@@ -340,6 +354,7 @@ func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Patch("/retailplayer/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
 	r.Post("/retailplayer/folders/delete", n.handleDeleteRetailPlayerFolders())
 	r.Put("/retailplayer/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
+	r.Post("/retailplayer/qr", n.handleRetailPlayerSyncQR())
 	r.Patch("/retailplayer/devices/{deviceID}/remote-control", n.handleUpdateRetailPlayerDeviceRemoteControl())
 }
 
@@ -817,6 +832,26 @@ func (n *Router) handleAssignRetailPlayerDeviceFolders() http.HandlerFunc {
 	}
 }
 
+func (n *Router) handleRetailPlayerSyncQR() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		results, err := n.syncRetailPlayerQR(ctx)
+		if err != nil {
+			log.Error(ctx, "Unable to sync retail player QR codes", "err", err)
+			http.Error(w, "Unable to sync retail player QR codes", http.StatusBadGateway)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": results})
+	}
+}
+
 func (n *Router) handleUpdateRetailPlayerDeviceRemoteControl() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -843,38 +878,7 @@ func (n *Router) handleUpdateRetailPlayerDeviceRemoteControl() http.HandlerFunc 
 
 		trimmedRemoteID := strings.TrimSpace(payload.RemoteControlID)
 
-		var responseDevice retailPlayerDevice
-		err := n.ds.WithTx(func(tx model.DataStore) error {
-			repo := tx.RetailPlayerDeviceMapping(ctx)
-			if repo == nil {
-				return errors.New("retail player device mapping repository not available")
-			}
-
-			existing, _ := repo.FindByIdentifier(ctx, deviceID)
-
-			mapping := model.RetailPlayerDeviceMapping{
-				DeviceID:     deviceID,
-				DeviceName:   deviceID,
-				DeviceSlug:   model.RetailPlayerDeviceSlug(deviceID),
-				RemoteCtrlID: trimmedRemoteID,
-			}
-
-			if existing != nil {
-				mapping.DeviceName = existing.DeviceName
-				mapping.DeviceSlug = existing.DeviceSlug
-				mapping.Channel = existing.Channel
-				mapping.ChannelList = existing.ChannelList
-				mapping.Organization = existing.Organization
-				mapping.TimeZone = existing.TimeZone
-			}
-
-			if err := repo.Put(ctx, mapping); err != nil {
-				return err
-			}
-
-			responseDevice = mapRetailPlayerMappingToDevice(mapping)
-			return nil
-		})
+		responseDevice, err := n.saveRetailPlayerRemoteControlMapping(ctx, deviceID, trimmedRemoteID, "")
 		if err != nil {
 			status := http.StatusInternalServerError
 			if isConstraintError(err) {
@@ -1180,6 +1184,56 @@ func (n *Router) findRetailPlayerDeviceMapping(ctx context.Context, identifier s
 	}
 
 	return device, nil
+}
+
+func (n *Router) saveRetailPlayerRemoteControlMapping(ctx context.Context, deviceID, remoteControlID, deviceName string) (retailPlayerDevice, error) {
+	trimmedDeviceID := strings.TrimSpace(deviceID)
+	if trimmedDeviceID == "" {
+		return retailPlayerDevice{}, errors.New("retail player device id is required")
+	}
+
+	var responseDevice retailPlayerDevice
+	err := n.ds.WithTx(func(tx model.DataStore) error {
+		repo := tx.RetailPlayerDeviceMapping(ctx)
+		if repo == nil {
+			return errors.New("retail player device mapping repository not available")
+		}
+
+		existing, _ := repo.FindByIdentifier(ctx, trimmedDeviceID)
+
+		mapping := model.RetailPlayerDeviceMapping{
+			DeviceID:     trimmedDeviceID,
+			DeviceName:   trimmedDeviceID,
+			DeviceSlug:   model.RetailPlayerDeviceSlug(trimmedDeviceID),
+			RemoteCtrlID: strings.TrimSpace(remoteControlID),
+		}
+
+		if existing != nil {
+			mapping.DeviceName = existing.DeviceName
+			mapping.DeviceSlug = existing.DeviceSlug
+			mapping.Channel = existing.Channel
+			mapping.ChannelList = existing.ChannelList
+			mapping.Organization = existing.Organization
+			mapping.TimeZone = existing.TimeZone
+		}
+
+		if name := strings.TrimSpace(deviceName); name != "" {
+			mapping.DeviceName = name
+			mapping.DeviceSlug = model.RetailPlayerDeviceSlug(name)
+		}
+
+		if err := repo.Put(ctx, mapping); err != nil {
+			return err
+		}
+
+		responseDevice = mapRetailPlayerMappingToDevice(mapping)
+		return nil
+	})
+	if err != nil {
+		return retailPlayerDevice{}, err
+	}
+
+	return responseDevice, nil
 }
 
 func (n *Router) persistRetailPlayerDeviceMappings(ctx context.Context, devices []retailPlayerDevice) {
@@ -3066,6 +3120,305 @@ func sendRetailPlayerDislikeNotification(ctx context.Context, clientIP, trackTit
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("curl command failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
+func (n *Router) syncRetailPlayerQR(ctx context.Context) ([]retailPlayerQRSyncResult, error) {
+	cfg := conf.Server.RetailPlayer
+	loginURL := strings.TrimSpace(cfg.QRLoginURL)
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.QRBaseURL), "/")
+	if baseURL == "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	}
+
+	if loginURL == "" || baseURL == "" {
+		return nil, errors.New("retail player QR API not configured")
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{Timeout: retailPlayerHTTPClient.Timeout, Jar: jar}
+
+	if err := performRetailPlayerLogin(ctx, client, loginURL, cfg.QRTenant, cfg.QRUsername, cfg.QRPassword, cfg.QRPlatform); err != nil {
+		return nil, err
+	}
+
+	pageSize := cfg.QRPageSize
+	if pageSize <= 0 {
+		pageSize = cfg.PageSize
+	}
+	if pageSize <= 0 {
+		pageSize = 500
+	}
+
+	page := cfg.QRPage
+	if page <= 0 {
+		page = cfg.Page
+	}
+	if page <= 0 {
+		page = 1
+	}
+
+	devices, err := fetchRetailPlayerDeviceTable(ctx, client, baseURL, pageSize, page)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]retailPlayerQRSyncResult, 0, len(devices))
+	for _, device := range devices {
+		deviceID := strings.TrimSpace(device.ID)
+		deviceName := strings.TrimSpace(device.Name)
+		if deviceID == "" || deviceName == "" {
+			results = append(results, retailPlayerQRSyncResult{DeviceID: deviceID, DeviceName: deviceName, Error: "device data is incomplete"})
+			continue
+		}
+
+		qrID, created, err := ensureRetailPlayerQRCode(ctx, client, baseURL, deviceID, deviceName)
+		if err != nil {
+			log.Error(ctx, "Unable to sync retail player QR code", "deviceID", deviceID, "err", err)
+			results = append(results, retailPlayerQRSyncResult{DeviceID: deviceID, DeviceName: deviceName, Error: err.Error()})
+			continue
+		}
+
+		mappedDevice, err := n.saveRetailPlayerRemoteControlMapping(ctx, deviceID, qrID, deviceName)
+		if err != nil {
+			log.Error(ctx, "Unable to persist retail player remote control mapping", "deviceID", deviceID, "err", err)
+			results = append(results, retailPlayerQRSyncResult{DeviceID: deviceID, DeviceName: deviceName, RemoteControlID: qrID, Created: created, Error: err.Error()})
+			continue
+		}
+
+		results = append(results, retailPlayerQRSyncResult{DeviceID: mappedDevice.ID, DeviceName: mappedDevice.Name, RemoteControlID: qrID, Created: created})
+	}
+
+	return results, nil
+}
+
+func performRetailPlayerLogin(ctx context.Context, client *http.Client, loginURL, tenant, username, password, platform string) error {
+	if client == nil {
+		return errors.New("retail player HTTP client is not configured")
+	}
+
+	trimmedLoginURL := strings.TrimSpace(loginURL)
+	if trimmedLoginURL == "" {
+		return errors.New("retail player login URL is required")
+	}
+
+	if strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "" {
+		return errors.New("retail player login credentials are required")
+	}
+
+	loginPayload := map[string]string{
+		"tenant":   strings.TrimSpace(tenant),
+		"username": strings.TrimSpace(username),
+		"password": strings.TrimSpace(password),
+		"platform": strings.TrimSpace(platform),
+	}
+
+	if loginPayload["platform"] == "" {
+		loginPayload["platform"] = "WEB"
+	}
+
+	encodedPayload, err := json.Marshal(loginPayload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, trimmedLoginURL, bytes.NewReader(encodedPayload))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("retail player login failed with status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func fetchRetailPlayerDeviceTable(ctx context.Context, client *http.Client, baseURL string, pageSize, page int) ([]retailPlayerQRDevice, error) {
+	if client == nil {
+		return nil, errors.New("retail player HTTP client is not configured")
+	}
+
+	trimmedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmedBaseURL == "" {
+		return nil, errors.New("retail player base URL is required")
+	}
+
+	endpoint := fmt.Sprintf("%s/device-table?pageSize=%d&page=%d", trimmedBaseURL, pageSize, page)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("retail player device table request failed with status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		Data []retailPlayerQRDevice `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	return payload.Data, nil
+}
+
+func ensureRetailPlayerQRCode(ctx context.Context, client *http.Client, baseURL, deviceID, deviceName string) (string, bool, error) {
+	existingID, err := fetchRetailPlayerQRCodeID(ctx, client, baseURL, deviceID)
+	if err != nil {
+		return "", false, err
+	}
+
+	if existingID != "" {
+		return existingID, false, nil
+	}
+
+	generatedID := strings.ToLower(uuid.New().String())
+	if err := createRetailPlayerQRCode(ctx, client, baseURL, deviceID, deviceName, generatedID); err != nil {
+		return "", false, err
+	}
+
+	return generatedID, true, nil
+}
+
+func fetchRetailPlayerQRCodeID(ctx context.Context, client *http.Client, baseURL, deviceID string) (string, error) {
+	if client == nil {
+		return "", errors.New("retail player HTTP client is not configured")
+	}
+
+	trimmedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmedBaseURL == "" {
+		return "", errors.New("retail player base URL is required")
+	}
+
+	trimmedDeviceID := strings.TrimSpace(deviceID)
+	if trimmedDeviceID == "" {
+		return "", errors.New("retail player device id is required")
+	}
+
+	endpoint := fmt.Sprintf("%s/device/%s/qr-codes", trimmedBaseURL, url.PathEscape(trimmedDeviceID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusMultipleChoices && resp.StatusCode != http.StatusNotFound {
+		return "", fmt.Errorf("retail player QR fetch failed with status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var wrapped struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &wrapped); err == nil {
+		for _, item := range wrapped.Data {
+			if id := strings.TrimSpace(item.ID); id != "" {
+				return id, nil
+			}
+		}
+	}
+
+	var items []struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.Unmarshal(body, &items); err == nil {
+		for _, item := range items {
+			if id := strings.TrimSpace(item.ID); id != "" {
+				return id, nil
+			}
+		}
+	}
+
+	return "", nil
+}
+
+func createRetailPlayerQRCode(ctx context.Context, client *http.Client, baseURL, deviceID, deviceName, qrID string) error {
+	if client == nil {
+		return errors.New("retail player HTTP client is not configured")
+	}
+
+	trimmedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmedBaseURL == "" {
+		return errors.New("retail player base URL is required")
+	}
+
+	trimmedDeviceID := strings.TrimSpace(deviceID)
+	trimmedQRID := strings.TrimSpace(qrID)
+	if trimmedDeviceID == "" || trimmedQRID == "" {
+		return errors.New("retail player device id and qr id are required")
+	}
+
+	endpoint := fmt.Sprintf("%s/device/%s/qr-code/%s", trimmedBaseURL, url.PathEscape(trimmedDeviceID), url.PathEscape(trimmedQRID))
+	payload := map[string]any{
+		"id":                   trimmedQRID,
+		"name":                 fmt.Sprintf("QR Code for %s", strings.TrimSpace(deviceName)),
+		"enabled":              true,
+		"channelChangeEnabled": true,
+		"cuePlayEnabled":       true,
+		"volumeChangeEnabled":  true,
+	}
+
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encodedPayload))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("retail player QR creation failed with status %d", resp.StatusCode)
 	}
 
 	return nil
