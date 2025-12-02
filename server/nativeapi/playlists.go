@@ -97,6 +97,28 @@ func createPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFu
 	}
 }
 
+func updatePlaylist(ds model.DataStore, playlists core.Playlists, constructor rest.RepositoryConstructor) http.HandlerFunc {
+	put := rest.Put(constructor)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		catcher := newResponseCatcher(w)
+		put(catcher, r)
+
+		if catcher.status >= http.StatusBadRequest {
+			catcher.Flush()
+			return
+		}
+
+		playlistId := chi.URLParam(r, "id")
+		if err := syncPlaylist(playlists, ds, r.Context(), playlistId); err != nil {
+			http.Error(w, err.Error(), statusFor(err))
+			return
+		}
+
+		catcher.Flush()
+	}
+}
+
 func createPlaylistFromM3U(playlists core.Playlists) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
