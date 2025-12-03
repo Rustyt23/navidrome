@@ -1198,6 +1198,12 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
           }
           const songs = Array.isArray(response?.json) ? response.json : []
           if (songs.length > 0) {
+            const songArtworkUrl = normalizeValue(songs[0]?.artworkUrl)
+            if (songArtworkUrl) {
+              setArtworkUrl(songArtworkUrl)
+              return
+            }
+
             setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
             return
           }
