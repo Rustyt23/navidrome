@@ -488,7 +488,7 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 			if ext == "" {
 				ext = ".m3u"
 			}
-			newPath, err := s.buildPlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext)
+			newPath, err := s.resolvePlaylistPath(ctx, tx, pls.FolderID, pls.Name, ext, oldPath)
 			if err != nil {
 				return err
 			}
@@ -673,6 +673,19 @@ func (s *playlists) buildPlaylistPath(ctx context.Context, ds model.DataStore, f
 		return filepath.Join(root, rel, filename), nil
 	}
 	return filepath.Join(root, filename), nil
+}
+
+func (s *playlists) resolvePlaylistPath(ctx context.Context, ds model.DataStore, folderID *string, name, ext, previousPath string) (string, error) {
+	if path, err := s.buildPlaylistPath(ctx, ds, folderID, name, ext); err == nil {
+		return path, nil
+	}
+
+	if previousPath == "" {
+		return "", fmt.Errorf("playlist path not available")
+	}
+
+	dir := filepath.Dir(previousPath)
+	return filepath.Join(dir, sanitizeName(name)+ext), nil
 }
 
 type nspFile struct {
