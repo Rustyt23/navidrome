@@ -482,6 +482,7 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 			pls.Public = *public
 		}
 
+		var oldSyncPath string
 		if pls.Sync {
 			ext := filepath.Ext(oldPath)
 			if ext == "" {
@@ -491,6 +492,7 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 			if err != nil {
 				return err
 			}
+			oldSyncPath = s.syncPath(oldPath)
 			pls.Path = newPath
 		}
 
@@ -513,8 +515,14 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 					return err
 				}
 			}
-			if err := s.writePlaylistFile(pls.Path, pls, false); err != nil {
+			if err := s.writePlaylistFile(pls.Path, pls, true); err != nil {
 				return err
+			}
+			if oldSyncPath != "" {
+				newSyncPath := s.syncPath(pls.Path)
+				if newSyncPath != "" && oldSyncPath != newSyncPath {
+					_ = os.Remove(oldSyncPath)
+				}
 			}
 		}
 		return nil
@@ -575,6 +583,24 @@ func (s *playlists) writePlaylistFile(path string, pls *model.Playlist, mirrorTo
 		return nil
 	}
 
+	syncPath := s.syncPath(path)
+	if syncPath == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(syncPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(syncPath, data, 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *playlists) syncPath(path string) string {
+	if conf.Server.SyncFolder == "" || path == "" {
+		return ""
+	}
+
 	rel := filepath.Base(path)
 	if conf.Server.PlaylistsPath != "" {
 		paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
@@ -590,14 +616,8 @@ func (s *playlists) writePlaylistFile(path string, pls *model.Playlist, mirrorTo
 			}
 		}
 	}
-	syncPath := filepath.Join(conf.Server.SyncFolder, rel)
-	if err := os.MkdirAll(filepath.Dir(syncPath), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(syncPath, data, 0o644); err != nil {
-		return err
-	}
-	return nil
+
+	return filepath.Join(conf.Server.SyncFolder, rel)
 }
 
 func (s *playlists) Publish(ctx context.Context, playlistID string) error {
