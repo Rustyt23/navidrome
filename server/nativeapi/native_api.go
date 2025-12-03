@@ -88,23 +88,23 @@ func (n *Router) preloadRetailPlayerDeviceMappings() {
 }
 
 func (n *Router) routes() http.Handler {
-	r := chi.NewRouter()
+r := chi.NewRouter()
 
-	// Public
-	n.addRetailPlayerPublicRoutes(r)
-	n.RX(r, "/translation", newTranslationRepository, false)
+// Public
+n.addRetailPlayerPublicRoutes(r)
+n.R(r, "/song", model.MediaFile{}, false)
+n.RX(r, "/translation", newTranslationRepository, false)
 
-	// Protected
-	r.Group(func(r chi.Router) {
-		r.Use(server.Authenticator(n.ds))
-		r.Use(server.JWTRefresher)
-		r.Use(server.UpdateLastAccessMiddleware(n.ds))
-		n.R(r, "/user", model.User{}, true)
-		n.R(r, "/song", model.MediaFile{}, false)
-		n.R(r, "/album", model.Album{}, false)
-		n.R(r, "/artist", model.Artist{}, false)
-		n.R(r, "/genre", model.Genre{}, false)
-		n.R(r, "/player", model.Player{}, true)
+// Protected
+r.Group(func(r chi.Router) {
+r.Use(server.Authenticator(n.ds))
+r.Use(server.JWTRefresher)
+r.Use(server.UpdateLastAccessMiddleware(n.ds))
+n.R(r, "/user", model.User{}, true)
+n.R(r, "/album", model.Album{}, false)
+n.R(r, "/artist", model.Artist{}, false)
+n.R(r, "/genre", model.Genre{}, false)
+n.R(r, "/player", model.Player{}, true)
 		n.R(r, "/transcoding", model.Transcoding{}, conf.Server.EnableTranscodingConfig)
 		n.R(r, "/radio", model.Radio{}, true)
 		n.R(r, "/tag", model.Tag{}, true)

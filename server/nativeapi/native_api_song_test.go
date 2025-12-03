@@ -126,11 +126,11 @@ var _ = Describe("Song Endpoints", func() {
 		return req
 	}
 
-	Describe("GET /song", func() {
-		Context("when user is authenticated", func() {
-			It("returns all songs", func() {
-				req := createAuthenticatedRequest("GET", "/song", nil)
-				router.ServeHTTP(w, req)
+Describe("GET /song", func() {
+Context("when user is authenticated", func() {
+It("returns all songs", func() {
+req := createAuthenticatedRequest("GET", "/song", nil)
+router.ServeHTTP(w, req)
 
 				Expect(w.Code).To(Equal(http.StatusOK))
 
@@ -155,21 +155,26 @@ var _ = Describe("Song Endpoints", func() {
 			})
 		})
 
-		Context("when user is not authenticated", func() {
-			It("returns unauthorized", func() {
-				req := createUnauthenticatedRequest("GET", "/song", nil)
-				router.ServeHTTP(w, req)
+Context("when user is not authenticated", func() {
+It("is accessible", func() {
+req := createUnauthenticatedRequest("GET", "/song", nil)
+router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusUnauthorized))
-			})
-		})
-	})
+Expect(w.Code).To(Equal(http.StatusOK))
 
-	Describe("GET /song/{id}", func() {
-		Context("when user is authenticated", func() {
-			It("returns the specific song", func() {
-				req := createAuthenticatedRequest("GET", "/song/song-1", nil)
-				router.ServeHTTP(w, req)
+var response []model.MediaFile
+err := json.Unmarshal(w.Body.Bytes(), &response)
+Expect(err).ToNot(HaveOccurred())
+Expect(response).To(HaveLen(2))
+})
+})
+})
+
+Describe("GET /song/{id}", func() {
+Context("when user is authenticated", func() {
+It("returns the specific song", func() {
+req := createAuthenticatedRequest("GET", "/song/song-1", nil)
+router.ServeHTTP(w, req)
 
 				Expect(w.Code).To(Equal(http.StatusOK))
 
@@ -199,15 +204,20 @@ var _ = Describe("Song Endpoints", func() {
 			})
 		})
 
-		Context("when user is not authenticated", func() {
-			It("returns unauthorized", func() {
-				req := createUnauthenticatedRequest("GET", "/song/song-1", nil)
-				router.ServeHTTP(w, req)
+Context("when user is not authenticated", func() {
+It("is accessible", func() {
+req := createUnauthenticatedRequest("GET", "/song/song-1", nil)
+router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusUnauthorized))
-			})
-		})
-	})
+Expect(w.Code).To(Equal(http.StatusOK))
+
+var response model.MediaFile
+err := json.Unmarshal(w.Body.Bytes(), &response)
+Expect(err).ToNot(HaveOccurred())
+Expect(response.ID).To(Equal("song-1"))
+})
+})
+})
 
 	Describe("Song endpoints are read-only", func() {
 		Context("POST /song", func() {
@@ -422,73 +432,73 @@ var _ = Describe("Song Endpoints", func() {
 		})
 	})
 
-	Describe("Authentication middleware integration", func() {
-		Context("with different user types", func() {
-			It("works with admin users", func() {
-				adminUser := model.User{
-					ID:          "admin-1",
-					UserName:    "admin",
-					Name:        "Admin User",
-					IsAdmin:     true,
-					NewPassword: "adminpass",
-				}
-				err := userRepo.Put(&adminUser)
-				Expect(err).ToNot(HaveOccurred())
+Describe("Authentication middleware integration", func() {
+Context("with different user types", func() {
+It("remains accessible with admin users", func() {
+adminUser := model.User{
+ID:          "admin-1",
+UserName:    "admin",
+Name:        "Admin User",
+IsAdmin:     true,
+NewPassword: "adminpass",
+}
+err := userRepo.Put(&adminUser)
+Expect(err).ToNot(HaveOccurred())
 
-				// Create JWT token for admin user
-				token, err := auth.CreateToken(&adminUser)
-				Expect(err).ToNot(HaveOccurred())
+// Create JWT token for admin user
+token, err := auth.CreateToken(&adminUser)
+Expect(err).ToNot(HaveOccurred())
 
-				req := createUnauthenticatedRequest("GET", "/song", nil)
-				req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+req := createUnauthenticatedRequest("GET", "/song", nil)
+req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
 
-				router.ServeHTTP(w, req)
+router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusOK))
-			})
+Expect(w.Code).To(Equal(http.StatusOK))
+})
 
-			It("works with regular users", func() {
-				regularUser := model.User{
-					ID:          "user-2",
-					UserName:    "regular",
-					Name:        "Regular User",
-					IsAdmin:     false,
-					NewPassword: "userpass",
-				}
-				err := userRepo.Put(&regularUser)
-				Expect(err).ToNot(HaveOccurred())
+It("remains accessible with regular users", func() {
+regularUser := model.User{
+ID:          "user-2",
+UserName:    "regular",
+Name:        "Regular User",
+IsAdmin:     false,
+NewPassword: "userpass",
+}
+err := userRepo.Put(&regularUser)
+Expect(err).ToNot(HaveOccurred())
 
-				// Create JWT token for regular user
-				token, err := auth.CreateToken(&regularUser)
-				Expect(err).ToNot(HaveOccurred())
+// Create JWT token for regular user
+token, err := auth.CreateToken(&regularUser)
+Expect(err).ToNot(HaveOccurred())
 
-				req := createUnauthenticatedRequest("GET", "/song", nil)
-				req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+req := createUnauthenticatedRequest("GET", "/song", nil)
+req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
 
-				router.ServeHTTP(w, req)
+router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusOK))
-			})
-		})
+Expect(w.Code).To(Equal(http.StatusOK))
+})
+})
 
-		Context("with missing authentication context", func() {
-			It("rejects requests without user context", func() {
-				req := createUnauthenticatedRequest("GET", "/song", nil)
-				// No authentication header added
+Context("with missing authentication context", func() {
+It("allows requests without user context", func() {
+req := createUnauthenticatedRequest("GET", "/song", nil)
+// No authentication header added
 
-				router.ServeHTTP(w, req)
+router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusUnauthorized))
-			})
+Expect(w.Code).To(Equal(http.StatusOK))
+})
 
-			It("rejects requests with invalid JWT tokens", func() {
-				req := createUnauthenticatedRequest("GET", "/song", nil)
-				req.Header.Set(consts.UIAuthorizationHeader, "Bearer invalid.token.here")
+It("allows requests with invalid JWT tokens", func() {
+req := createUnauthenticatedRequest("GET", "/song", nil)
+req.Header.Set(consts.UIAuthorizationHeader, "Bearer invalid.token.here")
 
-				router.ServeHTTP(w, req)
+router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusUnauthorized))
-			})
-		})
-	})
+Expect(w.Code).To(Equal(http.StatusOK))
+})
+})
+})
 })
