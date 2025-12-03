@@ -6,6 +6,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"time"
@@ -14,12 +15,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server"
+	"github.com/navidrome/navidrome/server/public"
+)
+
+const (
+	coverArtDefaultSize = consts.UICoverArtSize
 )
 
 type Router struct {
@@ -88,23 +95,23 @@ func (n *Router) preloadRetailPlayerDeviceMappings() {
 }
 
 func (n *Router) routes() http.Handler {
-r := chi.NewRouter()
+	r := chi.NewRouter()
 
-// Public
-n.addRetailPlayerPublicRoutes(r)
-n.R(r, "/song", model.MediaFile{}, false)
-n.RX(r, "/translation", newTranslationRepository, false)
+	// Public
+	n.addRetailPlayerPublicRoutes(r)
+	n.addSongRoute(r)
+	n.RX(r, "/translation", newTranslationRepository, false)
 
-// Protected
-r.Group(func(r chi.Router) {
-r.Use(server.Authenticator(n.ds))
-r.Use(server.JWTRefresher)
-r.Use(server.UpdateLastAccessMiddleware(n.ds))
-n.R(r, "/user", model.User{}, true)
-n.R(r, "/album", model.Album{}, false)
-n.R(r, "/artist", model.Artist{}, false)
-n.R(r, "/genre", model.Genre{}, false)
-n.R(r, "/player", model.Player{}, true)
+	// Protected
+	r.Group(func(r chi.Router) {
+		r.Use(server.Authenticator(n.ds))
+		r.Use(server.JWTRefresher)
+		r.Use(server.UpdateLastAccessMiddleware(n.ds))
+		n.R(r, "/user", model.User{}, true)
+		n.R(r, "/album", model.Album{}, false)
+		n.R(r, "/artist", model.Artist{}, false)
+		n.R(r, "/genre", model.Genre{}, false)
+		n.R(r, "/player", model.Player{}, true)
 		n.R(r, "/transcoding", model.Transcoding{}, conf.Server.EnableTranscodingConfig)
 		n.R(r, "/radio", model.Radio{}, true)
 		n.R(r, "/tag", model.Tag{}, true)
@@ -158,6 +165,108 @@ func (n *Router) RX(r chi.Router, pathPrefix string, constructor rest.Repository
 				r.Put("/", rest.Put(constructor))
 				r.Delete("/", rest.Delete(constructor))
 			}
+		})
+	})
+}
+
+func (n *Router) withSongArtwork(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rec := httptest.NewRecorder()
+
+		handler(rec, r)
+
+		resp := rec.Result()
+		defer resp.Body.Close()
+
+		for k, v := range resp.Header {
+			for _, vv := range v {
+				w.Header().Add(k, vv)
+			}
+		}
+
+		if resp.StatusCode >= http.StatusMultipleChoices {
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, resp.Body)
+			return
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Error(r.Context(), "Failed to read song response", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		if len(body) == 0 {
+			w.WriteHeader(resp.StatusCode)
+			return
+		}
+
+		augmented, err := n.enrichSongArtwork(r, body)
+		if err != nil {
+			log.Error(r.Context(), "Failed to augment song response", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Length", strconv.Itoa(len(augmented)))
+		w.WriteHeader(resp.StatusCode)
+		w.Write(augmented)
+	}
+}
+
+func (n *Router) enrichSongArtwork(r *http.Request, body []byte) ([]byte, error) {
+	var list model.MediaFiles
+	if err := json.Unmarshal(body, &list); err == nil {
+		for i := range list {
+			n.populateSongArtwork(r, &list[i])
+		}
+		return json.Marshal(list)
+	}
+
+	var single model.MediaFile
+	if err := json.Unmarshal(body, &single); err == nil {
+		n.populateSongArtwork(r, &single)
+		return json.Marshal(single)
+	}
+
+	return body, nil
+}
+
+func (n *Router) populateSongArtwork(r *http.Request, song *model.MediaFile) {
+	if song == nil {
+		return
+	}
+
+	coverArtID := song.CoverArtID().String()
+	song.ArtworkID = coverArtID
+
+	if coverArtID == "" {
+		return
+	}
+
+	coverArtURL := public.ImageURL(r, song.CoverArtID(), coverArtDefaultSize)
+	if coverArtURL != "" {
+		if strings.Contains(coverArtURL, "?") {
+			coverArtURL += "&square=true"
+		} else {
+			coverArtURL += "?square=true"
+		}
+	}
+	song.ArtworkURL = coverArtURL
+}
+
+func (n *Router) addSongRoute(r chi.Router) {
+	constructor := func(ctx context.Context) rest.Repository {
+		return n.ds.Resource(ctx, model.MediaFile{})
+	}
+
+	r.Route("/song", func(r chi.Router) {
+		r.Get("/", n.withSongArtwork(rest.GetAll(constructor)))
+
+		r.Route("/{id}", func(r chi.Router) {
+			r.Use(server.URLParamsMiddleware)
+			r.Get("/", n.withSongArtwork(rest.Get(constructor)))
 		})
 	})
 }
