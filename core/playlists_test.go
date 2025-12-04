@@ -139,6 +139,20 @@ var _ = Describe("Playlists", func() {
 				Expect(pls.Tracks[0].Path).To(Equal("Discovery-Specialty/Specialty/Asian/Jun Hyung Yong, 10cm - Sudden Shower.mp3"))
 			})
 
+			Describe("buildPlaylistPath", func() {
+				It("does not duplicate the extension when it is part of the name", func() {
+					DeferCleanup(configtest.SetupConfig())
+
+					playlistsDir := GinkgoT().TempDir()
+					conf.Server.PlaylistsPath = playlistsDir
+
+					ps := &playlists{}
+					path, err := ps.buildPlaylistPath(ctx, ds, nil, "6.m3u", ".m3u")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(filepath.Base(path)).To(Equal("6.m3u"))
+				})
+			})
+
 			Describe("writePlaylistFile", func() {
 				It("writes file to sync folder when configured", func() {
 					DeferCleanup(configtest.SetupConfig())
