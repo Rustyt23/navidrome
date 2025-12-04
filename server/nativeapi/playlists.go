@@ -97,6 +97,39 @@ func createPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFu
 	}
 }
 
+func updatePlaylist(playlists core.Playlists, ds model.DataStore) http.HandlerFunc {
+	type updatePlaylistRequest struct {
+		Name    *string `json:"name"`
+		Comment *string `json:"comment"`
+		Public  *bool   `json:"public"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+
+		var body updatePlaylistRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err := playlists.Update(r.Context(), id, body.Name, body.Comment, body.Public, nil, nil); err != nil {
+			http.Error(w, err.Error(), statusFor(err))
+			return
+		}
+
+		pls, err := ds.Playlist(r.Context()).Get(id)
+		if err != nil {
+			http.Error(w, err.Error(), statusFor(err))
+			return
+		}
+
+		if err := rest.RespondWithJSON(w, http.StatusOK, pls); err != nil {
+			log.Error(r.Context(), "Error responding with playlist", "playlistId", id, err)
+		}
+	}
+}
+
 func createPlaylistFromM3U(playlists core.Playlists) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
