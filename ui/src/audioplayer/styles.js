@@ -56,9 +56,11 @@ const useStyle = makeStyles(
         {
           // Customize mobile player when cover animation is disabled
           borderRadius: (props) => !props.enableCoverAnimation && '0',
-          width: (props) => !props.enableCoverAnimation && '85%',
-          maxWidth: (props) => !props.enableCoverAnimation && '600px',
-          height: (props) => !props.enableCoverAnimation && 'auto',
+          width: '50vw',
+          maxWidth: '50%',
+          height: '50vw',
+          maxHeight: '50vh',
+          margin: '0 auto',
           // Fix cover display when image is not square
           aspectRatio: '1/1',
           display: 'flex',
