@@ -56,17 +56,39 @@ const useStyle = makeStyles(
         {
           // Customize mobile player when cover animation is disabled
           borderRadius: (props) => !props.enableCoverAnimation && '0',
-          width: (props) => !props.enableCoverAnimation && '85%',
-          maxWidth: (props) => !props.enableCoverAnimation && '600px',
-          height: (props) => !props.enableCoverAnimation && 'auto',
+          width: 'min(80vw, 420px)',
+          maxWidth: 'min(560px, calc(100vw - 24px))',
+          maxHeight: 'min(560px, calc(100vh - 220px))',
+          height: 'auto',
+          margin: '0 auto',
+          boxSizing: 'border-box',
           // Fix cover display when image is not square
           aspectRatio: '1/1',
           display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         },
       '& .react-jinke-music-player-mobile .react-jinke-music-player-mobile-cover img.cover':
         {
           animationDuration: (props) => !props.enableCoverAnimation && '0s',
           objectFit: 'contain', // Fix cover display when image is not square
+          width: '100%',
+          height: '100%',
+        },
+      '& .react-jinke-music-player-mobile .react-jinke-music-player-mobile-header': {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: theme.spacing(1),
+      },
+      '& .react-jinke-music-player-mobile .react-jinke-music-player-mobile-header-right':
+        {
+          order: -1,
+        },
+      '& .react-jinke-music-player-mobile .react-jinke-music-player-mobile-header-title':
+        {
+          flex: 1,
+          textAlign: 'center',
         },
       // Hide old singer display
       '& .react-jinke-music-player-mobile .react-jinke-music-player-mobile-singer':
