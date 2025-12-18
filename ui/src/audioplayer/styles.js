@@ -57,8 +57,10 @@ const useStyle = makeStyles(
           // Customize mobile player when cover animation is disabled
           borderRadius: (props) => !props.enableCoverAnimation && '0',
           width: (props) => !props.enableCoverAnimation && '85%',
-          maxWidth: (props) => !props.enableCoverAnimation && '600px',
+          maxWidth: (props) => !props.enableCoverAnimation && 'min(600px, calc(100vw - 32px))',
+          maxHeight: (props) => !props.enableCoverAnimation && 'min(600px, calc(100vh - 200px))',
           height: (props) => !props.enableCoverAnimation && 'auto',
+          margin: (props) => !props.enableCoverAnimation && '0 auto',
           // Fix cover display when image is not square
           aspectRatio: '1/1',
           display: 'flex',
@@ -67,6 +69,8 @@ const useStyle = makeStyles(
         {
           animationDuration: (props) => !props.enableCoverAnimation && '0s',
           objectFit: 'contain', // Fix cover display when image is not square
+          width: '100%',
+          height: '100%',
         },
       // Hide old singer display
       '& .react-jinke-music-player-mobile .react-jinke-music-player-mobile-singer':
