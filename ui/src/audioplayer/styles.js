@@ -65,6 +65,10 @@ const useStyle = makeStyles(
           aspectRatio: '1/1',
           display: 'flex',
         },
+      '& .react-jinke-music-player-mobile .rc-slider': {
+        // Allow pinch zoom and page zoom while keeping slider interactions
+        touchAction: 'pan-y pinch-zoom',
+      },
       '& .react-jinke-music-player-mobile .react-jinke-music-player-mobile-cover img.cover':
         {
           animationDuration: (props) => !props.enableCoverAnimation && '0s',
