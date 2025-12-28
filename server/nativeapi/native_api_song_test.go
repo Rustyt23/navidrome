@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
@@ -141,6 +142,8 @@ var _ = Describe("Song Endpoints", func() {
 				Expect(response).To(HaveLen(2))
 				Expect(response[0].ID).To(Equal("song-1"))
 				Expect(response[0].Title).To(Equal("Test Song 1"))
+				Expect(response[0].ArtworkID).ToNot(BeEmpty())
+				Expect(response[0].ArtworkURL).To(ContainSubstring(consts.URLPathPublicImages))
 				Expect(response[1].ID).To(Equal("song-2"))
 				Expect(response[1].Title).To(Equal("Test Song 2"))
 			})
@@ -156,11 +159,16 @@ var _ = Describe("Song Endpoints", func() {
 		})
 
 		Context("when user is not authenticated", func() {
-			It("returns unauthorized", func() {
+			It("is accessible", func() {
 				req := createUnauthenticatedRequest("GET", "/song", nil)
 				router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusUnauthorized))
+				Expect(w.Code).To(Equal(http.StatusOK))
+
+				var response []model.MediaFile
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response).To(HaveLen(2))
 			})
 		})
 	})
@@ -180,6 +188,8 @@ var _ = Describe("Song Endpoints", func() {
 				Expect(response.ID).To(Equal("song-1"))
 				Expect(response.Title).To(Equal("Test Song 1"))
 				Expect(response.Artist).To(Equal("Test Artist 1"))
+				Expect(response.ArtworkID).ToNot(BeEmpty())
+				Expect(response.ArtworkURL).To(ContainSubstring(consts.URLPathPublicImages))
 			})
 
 			It("returns 404 for non-existent song", func() {
@@ -200,11 +210,16 @@ var _ = Describe("Song Endpoints", func() {
 		})
 
 		Context("when user is not authenticated", func() {
-			It("returns unauthorized", func() {
+			It("is accessible", func() {
 				req := createUnauthenticatedRequest("GET", "/song/song-1", nil)
 				router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusUnauthorized))
+				Expect(w.Code).To(Equal(http.StatusOK))
+
+				var response model.MediaFile
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response.ID).To(Equal("song-1"))
 			})
 		})
 	})
@@ -424,7 +439,7 @@ var _ = Describe("Song Endpoints", func() {
 
 	Describe("Authentication middleware integration", func() {
 		Context("with different user types", func() {
-			It("works with admin users", func() {
+			It("remains accessible with admin users", func() {
 				adminUser := model.User{
 					ID:          "admin-1",
 					UserName:    "admin",
@@ -447,7 +462,7 @@ var _ = Describe("Song Endpoints", func() {
 				Expect(w.Code).To(Equal(http.StatusOK))
 			})
 
-			It("works with regular users", func() {
+			It("remains accessible with regular users", func() {
 				regularUser := model.User{
 					ID:          "user-2",
 					UserName:    "regular",
@@ -472,22 +487,22 @@ var _ = Describe("Song Endpoints", func() {
 		})
 
 		Context("with missing authentication context", func() {
-			It("rejects requests without user context", func() {
+			It("allows requests without user context", func() {
 				req := createUnauthenticatedRequest("GET", "/song", nil)
 				// No authentication header added
 
 				router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusUnauthorized))
+				Expect(w.Code).To(Equal(http.StatusOK))
 			})
 
-			It("rejects requests with invalid JWT tokens", func() {
+			It("allows requests with invalid JWT tokens", func() {
 				req := createUnauthenticatedRequest("GET", "/song", nil)
 				req.Header.Set(consts.UIAuthorizationHeader, "Bearer invalid.token.here")
 
 				router.ServeHTTP(w, req)
 
-				Expect(w.Code).To(Equal(http.StatusUnauthorized))
+				Expect(w.Code).To(Equal(http.StatusOK))
 			})
 		})
 	})

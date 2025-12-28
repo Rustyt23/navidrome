@@ -1193,11 +1193,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         try {
           const requestPath = `${REST_URL}/song?${params.toString()}`
           const response = await httpClient(requestPath)
-          if (isCancelled) {
-            return
-          }
           const songs = Array.isArray(response?.json) ? response.json : []
           if (songs.length > 0) {
+            const songArtworkUrl = normalizeValue(songs[0]?.artworkUrl)
+            if (songArtworkUrl) {
+              setArtworkUrl(songArtworkUrl)
+              return
+            }
+
             setArtworkUrl(subsonic.getCoverArtUrl(songs[0], 300, true))
             return
           }

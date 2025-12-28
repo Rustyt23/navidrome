@@ -155,7 +155,7 @@ func (a *archiver) playlistFilename(mf model.MediaFile, format string, idx int) 
 	if format != "" && format != "raw" {
 		ext = format
 	}
-	return fmt.Sprintf("%02d - %s - %s.%s", idx+1, sanitizeName(mf.Artist), sanitizeName(mf.Title), ext)
+	return fmt.Sprintf("%s - %s.%s", sanitizeName(mf.Artist), sanitizeName(mf.Title), ext)
 }
 
 func sanitizeName(target string) string {

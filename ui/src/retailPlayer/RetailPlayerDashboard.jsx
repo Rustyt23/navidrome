@@ -2486,9 +2486,6 @@ const RetailPlayerDashboard = () => {
               {sortedCueTriggers.map((trigger) => {
                 const primaryText = trigger?.name || trigger?.id || 'Unnamed trigger'
                 const secondaryParts = []
-                if (trigger?.ordinal || trigger?.ordinal === 0) {
-                  secondaryParts.push(`Button ${trigger.ordinal}`)
-                }
                 if (trigger?.asset?.name) {
                   secondaryParts.push(trigger.asset.name)
                 }
