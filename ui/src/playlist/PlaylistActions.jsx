@@ -52,7 +52,6 @@ const PlaylistActions = ({
   const dataProvider = useDataProvider()
   const notify = useNotify()
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
-  const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
 
   const getAllSongsAndDispatch = React.useCallback(
     (action) => {
@@ -182,7 +181,9 @@ const PlaylistActions = ({
             <FilterNoneIcon />
           </Button>
         </div>
-        <div>{isNotSmall && <ToggleFieldsMenu resource="playlistTrack" />}</div>
+        <div>
+          <ToggleFieldsMenu resource="playlistTrack" />
+        </div>
       </div>
     </TopToolbar>
   )
