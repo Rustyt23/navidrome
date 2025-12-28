@@ -234,7 +234,7 @@ const Menu = ({ dense = false }) => {
     menuPlaylists: true,
     menuDiscovery: true,
     menuSharedPlaylists: true,
-    menuRetailPlayer: true,
+    menuRetailPlayer: false,
   })
 
   const handleToggle = (menu) => {
