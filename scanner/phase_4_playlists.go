@@ -98,6 +98,7 @@ func (p *phasePlaylists) produce(put func(entry *model.Folder)) error {
 			}
 		}
 		p.emitMissingPlaylistFolders(roots, knownPaths, emitFolder)
+		p.pruneMissingPlaylistFolderRecords(roots, knownPaths)
 		if count == 0 {
 			log.Debug(p.ctx, "Scanner: No playlists need refreshing")
 		} else {
@@ -135,6 +136,9 @@ func (p *phasePlaylists) stages() []ppl.Stage[*model.Folder] {
 }
 
 func (p *phasePlaylists) processPlaylistsInFolder(folder *model.Folder) (*model.Folder, error) {
+	if conf.Server.PlaylistsPath != "" {
+		p.ensurePlaylistFolderEntry(folder)
+	}
 	files, err := os.ReadDir(folder.AbsolutePath())
 	if err != nil {
 		if conf.Server.PlaylistsPath != "" && os.IsNotExist(err) {
@@ -293,6 +297,121 @@ func matchPlaylistRoot(roots []playlistRoot, dir string) (playlistRoot, string, 
 	return playlistRoot{}, "", false
 }
 
+func (p *phasePlaylists) ensurePlaylistFolderEntry(folder *model.Folder) {
+	roots := playlistsRoots()
+	_, rel, ok := matchPlaylistRoot(roots, folder.AbsolutePath())
+	if !ok || rel == "." || rel == "" {
+		return
+	}
+	owner, _ := request.UserFrom(p.ctx)
+	folderRepo := p.ds.PlaylistFolder(p.ctx)
+	parts := strings.Split(rel, string(os.PathSeparator))
+	var parentID *string
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		filters := sq.And{
+			sq.Eq{"playlist_folder.name": part},
+			sq.Eq{"playlist_folder.owner_id": owner.ID},
+		}
+		if parentID == nil {
+			filters = append(filters, sq.Eq{"playlist_folder.parent_id": nil})
+		} else {
+			filters = append(filters, sq.Eq{"playlist_folder.parent_id": *parentID})
+		}
+		folders, err := folderRepo.GetAll(model.QueryOptions{Filters: filters, Max: 1})
+		if err != nil {
+			log.Warn(p.ctx, "Scanner: Error resolving playlist folder", "name", part, err)
+			return
+		}
+		if len(folders) > 0 {
+			id := folders[0].ID
+			parentID = &id
+			continue
+		}
+		newFolder := &model.PlaylistFolder{
+			Name:    part,
+			OwnerID: owner.ID,
+			Public:  conf.Server.DefaultPlaylistPublicVisibility,
+		}
+		if parentID != nil {
+			newFolder.ParentID = parentID
+		}
+		if err := folderRepo.Put(newFolder); err != nil {
+			log.Warn(p.ctx, "Scanner: Error creating playlist folder", "name", part, err)
+			return
+		}
+		p.scanState.changesDetected.Store(true)
+		parentID = &newFolder.ID
+	}
+}
+
+func (p *phasePlaylists) pruneMissingPlaylistFolderRecords(roots []playlistRoot, known map[string]struct{}) {
+	if len(known) == 0 {
+		return
+	}
+	folderRepo := p.ds.PlaylistFolder(p.ctx)
+	folders, err := folderRepo.GetAll()
+	if err != nil {
+		log.Warn(p.ctx, "Scanner: Error loading playlist folders for cleanup", err)
+		return
+	}
+	if len(folders) == 0 {
+		return
+	}
+	folderByID := make(map[string]*model.PlaylistFolder, len(folders))
+	for _, f := range folders {
+		folderByID[f.ID] = f
+	}
+	cache := make(map[string]string, len(folders))
+	var buildPath func(id string) (string, bool)
+	buildPath = func(id string) (string, bool) {
+		if path, ok := cache[id]; ok {
+			return path, true
+		}
+		folder, ok := folderByID[id]
+		if !ok {
+			return "", false
+		}
+		parts := []string{folder.Name}
+		for folder.ParentID != nil {
+			parent, ok := folderByID[*folder.ParentID]
+			if !ok {
+				return "", false
+			}
+			parts = append([]string{parent.Name}, parts...)
+			folder = parent
+		}
+		rel := filepath.Join(parts...)
+		cache[id] = rel
+		return rel, true
+	}
+	for _, folder := range folders {
+		rel, ok := buildPath(folder.ID)
+		if !ok {
+			continue
+		}
+		found := false
+		for _, root := range roots {
+			absPath := filepath.Join(root.abs, rel)
+			if _, ok := known[filepath.Clean(absPath)]; ok {
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		if err := folderRepo.Delete(folder.ID); err != nil {
+			log.Warn(p.ctx, "Scanner: Error removing missing playlist folder", "folder", folder.Name, err)
+			continue
+		}
+		p.scanState.changesDetected.Store(true)
+		log.Info(p.ctx, "Scanner: Removed missing playlist folder", "folder", folder.Name)
+	}
+}
+
 func (p *phasePlaylists) removeMissingPlaylistsInFolder(folder *model.Folder) {
 	playlistRepo := p.ds.Playlist(p.ctx)
 	missing, err := playlistRepo.GetSyncedByDirectory(folder.AbsolutePath())
@@ -317,6 +436,9 @@ func (p *phasePlaylists) removeMissingPlaylistsInFolder(folder *model.Folder) {
 
 func (p *phasePlaylists) prunePlaylistFolderPath(folder *model.Folder) {
 	if conf.Server.PlaylistsPath == "" {
+		return
+	}
+	if info, err := os.Stat(folder.AbsolutePath()); err == nil && info.IsDir() {
 		return
 	}
 	rel, err := filepath.Rel(folder.LibraryPath, folder.AbsolutePath())
