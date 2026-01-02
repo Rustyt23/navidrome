@@ -599,13 +599,66 @@ func (r *playlistRepository) Update(id string, entity interface{}, cols ...strin
 			return rest.ErrPermissionDenied
 		}
 	}
+	nameUpdated := columnUpdated(cols, "name")
+	oldPath := ""
+	newPath := ""
+	updateFile := false
+	if nameUpdated && current.Sync && current.Path != "" && pls.Name != "" && pls.Name != current.Name {
+		oldPath = current.Path
+		ext := filepath.Ext(oldPath)
+		if ext == "" {
+			ext = ".m3u"
+		}
+		newPath = filepath.Join(filepath.Dir(oldPath), sanitizePlaylistName(pls.Name)+ext)
+		updateFile = true
+		if newPath != oldPath {
+			pls.Path = newPath
+			cols = append(cols, "path")
+		} else {
+			newPath = oldPath
+		}
+	}
+
 	pls.ID = id
 	pls.UpdatedAt = time.Now()
 	_, err = r.put(id, pls, append(cols, "updatedAt")...)
 	if errors.Is(err, model.ErrNotFound) {
 		return rest.ErrNotFound
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if updateFile {
+		if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+			return err
+		}
+		if oldPath != "" && oldPath != newPath {
+			if err := os.Rename(oldPath, newPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		updatedPls, err := r.GetWithTracks(id, false, false)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(newPath, []byte(updatedPls.ToM3U8()), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func columnUpdated(cols []string, column string) bool {
+	for _, col := range cols {
+		if toSnakeCase(col) == column {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizePlaylistName(target string) string {
+	return strings.ReplaceAll(target, "/", "_")
 }
 
 func (r *playlistRepository) removeOrphans() error {
