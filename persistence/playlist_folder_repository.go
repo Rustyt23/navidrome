@@ -5,10 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/model"
 	"github.com/pocketbase/dbx"
 )
@@ -139,15 +143,32 @@ func (r *playlistFolderRepository) Put(f *model.PlaylistFolder) error {
 	if !usr.IsAdmin && f.OwnerID != usr.ID {
 		return rest.ErrPermissionDenied
 	}
+	var existing *model.PlaylistFolder
+	var oldPath, newPath string
 	if f.ID == "" {
 		f.CreatedAt = time.Now()
 	} else {
+		var err error
+		existing, err = r.Get(f.ID)
+		if err != nil {
+			return err
+		}
 		ok, err := r.Exists(f.ID)
 		if err != nil {
 			return err
 		}
 		if !ok {
 			return model.ErrNotAuthorized
+		}
+		if conf.Server.PlaylistsPath != "" && existing.Name != f.Name {
+			oldPath, err = r.playlistFolderPath(existing.Name, existing.ParentID)
+			if err != nil {
+				return err
+			}
+			newPath, err = r.playlistFolderPath(f.Name, f.ParentID)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if err := r.ensureUniqueName(f); err != nil {
@@ -162,6 +183,21 @@ func (r *playlistFolderRepository) Put(f *model.PlaylistFolder) error {
 	}
 	f.ID = id
 	f.Type = "folder"
+	if conf.Server.PlaylistsPath != "" {
+		if existing == nil {
+			path, err := r.playlistFolderPath(f.Name, f.ParentID)
+			if err != nil {
+				return err
+			}
+			if err := ensurePlaylistFolderDir(path); err != nil {
+				return err
+			}
+		} else if oldPath != "" && newPath != "" && oldPath != newPath {
+			if err := r.movePlaylistFolder(oldPath, newPath); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -174,6 +210,13 @@ func (r *playlistFolderRepository) Delete(id string) error {
 		}
 		if existing.OwnerID != usr.ID {
 			return rest.ErrPermissionDenied
+		}
+	}
+	if conf.Server.PlaylistsPath != "" {
+		if path, err := r.playlistFolderPathByID(id); err == nil && path != "" {
+			if err := os.RemoveAll(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 		}
 	}
 	// Children cascade via FK; playlists detach via trigger
@@ -189,10 +232,11 @@ func (r *playlistFolderRepository) UpdateParent(id string, parentId *string) err
 	usr := loggedUser(r.ctx)
 
 	var src struct {
-		OwnerID string
-		Name    string
+		OwnerID  string
+		Name     string
+		ParentID *string `db:"parent_id"`
 	}
-	if err := r.queryOne(Select("owner_id", "name").From("playlist_folder").Where(Eq{"id": id}), &src); err != nil {
+	if err := r.queryOne(Select("owner_id", "name", "parent_id").From("playlist_folder").Where(Eq{"id": id}), &src); err != nil {
 		return err
 	}
 	if !usr.IsAdmin && src.OwnerID != usr.ID {
@@ -218,11 +262,32 @@ func (r *playlistFolderRepository) UpdateParent(id string, parentId *string) err
 		return err
 	}
 
+	var oldPath, newPath string
+	if conf.Server.PlaylistsPath != "" {
+		var err error
+		oldPath, err = r.playlistFolderPath(src.Name, src.ParentID)
+		if err != nil {
+			return err
+		}
+		newPath, err = r.playlistFolderPath(src.Name, parentId)
+		if err != nil {
+			return err
+		}
+	}
+
 	upd := Update("playlist_folder").
 		Set("parent_id", parentId). // nil => NULL
 		Set("updated_at", time.Now()).
 		Where(Eq{"id": id})
 	_, err := r.executeSQL(upd)
+	if err != nil {
+		return err
+	}
+	if oldPath != "" && newPath != "" && oldPath != newPath {
+		if err := r.movePlaylistFolder(oldPath, newPath); err != nil {
+			return err
+		}
+	}
 	return err
 }
 
@@ -266,6 +331,119 @@ func (r *playlistFolderRepository) hasParentIDFilter(options ...model.QueryOptio
 		}
 	}
 	return false
+}
+
+func (r *playlistFolderRepository) playlistFolderPathByID(id string) (string, error) {
+	var row struct {
+		Name     string
+		ParentID *string `db:"parent_id"`
+	}
+	if err := r.queryOne(Select("name", "parent_id").From("playlist_folder").Where(Eq{"id": id}), &row); err != nil {
+		return "", err
+	}
+	return r.playlistFolderPath(row.Name, row.ParentID)
+}
+
+func (r *playlistFolderRepository) playlistFolderPath(name string, parentID *string) (string, error) {
+	root := playlistsRootPath()
+	if root == "" {
+		return "", nil
+	}
+	parts := []string{}
+	if parentID != nil {
+		parentParts, err := r.playlistFolderParts(*parentID)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, parentParts...)
+	}
+	parts = append(parts, sanitizePlaylistComponent(name))
+	return filepath.Join(append([]string{root}, parts...)...), nil
+}
+
+func (r *playlistFolderRepository) playlistFolderParts(id string) ([]string, error) {
+	parts := []string{}
+	for {
+		var row struct {
+			Name     string
+			ParentID *string `db:"parent_id"`
+		}
+		if err := r.queryOne(Select("name", "parent_id").From("playlist_folder").Where(Eq{"id": id}), &row); err != nil {
+			return nil, err
+		}
+		parts = append([]string{sanitizePlaylistComponent(row.Name)}, parts...)
+		if row.ParentID == nil {
+			break
+		}
+		id = *row.ParentID
+	}
+	return parts, nil
+}
+
+func (r *playlistFolderRepository) movePlaylistFolder(oldPath, newPath string) error {
+	if oldPath == "" || newPath == "" || oldPath == newPath {
+		return nil
+	}
+	if err := ensurePlaylistFolderDir(filepath.Dir(newPath)); err != nil {
+		return err
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if err := ensurePlaylistFolderDir(newPath); err != nil {
+				return err
+			}
+			return r.updatePlaylistPaths(oldPath, newPath)
+		}
+		return err
+	}
+	return r.updatePlaylistPaths(oldPath, newPath)
+}
+
+func (r *playlistFolderRepository) updatePlaylistPaths(oldPath, newPath string) error {
+	oldPrefix := filepath.Clean(oldPath)
+	newPrefix := filepath.Clean(newPath)
+	if oldPrefix == newPrefix {
+		return nil
+	}
+	sep := string(os.PathSeparator)
+	if !strings.HasSuffix(oldPrefix, sep) {
+		oldPrefix += sep
+	}
+	if !strings.HasSuffix(newPrefix, sep) {
+		newPrefix += sep
+	}
+	update := Update("playlist").
+		Set("path", Expr("? || substr(path, ?)", newPrefix, len(oldPrefix)+1)).
+		Where(And{
+			Eq{"sync": true},
+			Like{"path": oldPrefix + "%"},
+		})
+	_, err := r.executeSQL(update)
+	return err
+}
+
+func playlistsRootPath() string {
+	if conf.Server.PlaylistsPath == "" {
+		return ""
+	}
+	paths := strings.Split(conf.Server.PlaylistsPath, string(filepath.ListSeparator))
+	root := strings.TrimSuffix(paths[0], "**")
+	root = strings.TrimSuffix(root, string(os.PathSeparator))
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	return root
+}
+
+func ensurePlaylistFolderDir(path string) error {
+	if path == "" {
+		return nil
+	}
+	return os.MkdirAll(path, 0o755)
+}
+
+func sanitizePlaylistComponent(name string) string {
+	return strings.ReplaceAll(name, "/", "_")
 }
 
 // climb child->...->root and see if we hit ancestorID
@@ -334,7 +512,25 @@ func (r *playlistFolderRepository) Update(id string, entity interface{}, cols ..
 	if !usr.IsAdmin && f.OwnerID != "" && f.OwnerID != usr.ID {
 		return rest.ErrPermissionDenied
 	}
+	if f.OwnerID == "" {
+		f.OwnerID = current.OwnerID
+	}
+	if f.Name == "" {
+		f.Name = current.Name
+	}
+	f.ParentID = current.ParentID
 	f.ID = id
+	var oldPath, newPath string
+	if conf.Server.PlaylistsPath != "" && f.Name != "" && f.Name != current.Name {
+		oldPath, err = r.playlistFolderPath(current.Name, current.ParentID)
+		if err != nil {
+			return err
+		}
+		newPath, err = r.playlistFolderPath(f.Name, f.ParentID)
+		if err != nil {
+			return err
+		}
+	}
 	if err := r.ensureUniqueName(f); err != nil {
 		return err
 	}
@@ -343,6 +539,11 @@ func (r *playlistFolderRepository) Update(id string, entity interface{}, cols ..
 	_, err = r.put(id, dbPlaylistFolder{PlaylistFolder: *f}, append(cols, "updatedAt")...)
 	if errors.Is(err, model.ErrNotFound) {
 		return rest.ErrNotFound
+	}
+	if oldPath != "" && newPath != "" && oldPath != newPath {
+		if err := r.movePlaylistFolder(oldPath, newPath); err != nil {
+			return err
+		}
 	}
 	return err
 }
