@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core"
@@ -15,6 +16,7 @@ import (
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/tests"
+	"github.com/navidrome/navidrome/utils/slice"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -38,8 +40,9 @@ var _ = Describe("phasePlaylists", func() {
 		ctx = request.WithUser(ctx, model.User{ID: "123", IsAdmin: true})
 		folderRepo = &mockFolderRepository{}
 		ds = &tests.MockDataStore{
-			MockedFolder:   folderRepo,
-			MockedPlaylist: &playlistRepoMock{},
+			MockedFolder:         folderRepo,
+			MockedPlaylist:       &playlistRepoMock{},
+			MockedPlaylistFolder: &playlistFolderRepoMock{},
 		}
 		pls = &mockPlaylists{}
 		cw = artwork.NoopCacheWarmer()
@@ -85,6 +88,28 @@ var _ = Describe("phasePlaylists", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(called).To(BeFalse())
 			Expect(err).To(MatchError(ContainSubstring("error loading folders")))
+		})
+
+		It("includes missing playlist folders when playlists path is set", func() {
+			root := GinkgoT().TempDir()
+			conf.Server.PlaylistsPath = root
+			repo := ds.MockedPlaylist.(*playlistRepoMock)
+			repo.playlists = map[string]model.Playlist{
+				filepath.Join(root, "rock", "favorites.m3u"): {
+					ID:   "1",
+					Path: filepath.Join(root, "rock", "favorites.m3u"),
+					Sync: true,
+				},
+			}
+
+			var produced []*model.Folder
+			err := phase.produce(func(folder *model.Folder) {
+				produced = append(produced, folder)
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(produced).ToNot(BeEmpty())
+			paths := slice.Map(produced, func(f *model.Folder) string { return f.AbsolutePath() })
+			Expect(paths).To(ContainElement(filepath.Join(root, "rock")))
 		})
 	})
 
@@ -190,6 +215,29 @@ var _ = Describe("phasePlaylists", func() {
 			Eventually(progress).Should(Receive(&info))
 			Expect(info.Warning).To(ContainSubstring("no such file or directory"))
 		})
+
+		It("removes playlists when the playlist folder is missing", func() {
+			root := GinkgoT().TempDir()
+			conf.Server.PlaylistsPath = root
+			missingDir := filepath.Join(root, "missing")
+			folder := &model.Folder{LibraryPath: root, Path: "", Name: "missing"}
+
+			repo := ds.MockedPlaylist.(*playlistRepoMock)
+			repo.playlists = map[string]model.Playlist{
+				filepath.Join(missingDir, "playlist1.m3u"): {
+					ID:        "1",
+					Path:      filepath.Join(missingDir, "playlist1.m3u"),
+					Name:      "playlist1",
+					Sync:      true,
+					UpdatedAt: time.Now(),
+				},
+			}
+
+			_, err := phase.processPlaylistsInFolder(folder)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repo.deleted).To(ContainElement("1"))
+			Expect(phase.scanState.changesDetected.Load()).To(BeTrue())
+		})
 	})
 })
 
@@ -231,4 +279,81 @@ func (f *mockFolderRepository) GetTouchedWithPlaylists() (model.FolderCursor, er
 
 func (f *mockFolderRepository) SetData(m map[*model.Folder]error) {
 	f.data = m
+}
+
+type playlistFolderRepoMock struct {
+	model.PlaylistFolderRepository
+}
+
+func (p *playlistFolderRepoMock) GetAll(...model.QueryOptions) (model.PlaylistFolders, error) {
+	return model.PlaylistFolders{}, nil
+}
+
+func (p *playlistFolderRepoMock) GetAllByParent(...model.QueryOptions) (model.PlaylistFolders, error) {
+	return model.PlaylistFolders{}, nil
+}
+
+func (p *playlistFolderRepoMock) Delete(string) error {
+	return nil
+}
+
+type playlistRepoMock struct {
+	model.PlaylistRepository
+	playlists map[string]model.Playlist
+	deleted   []string
+}
+
+func (r *playlistRepoMock) GetSyncedByDirectory(dir string) (model.Playlists, error) {
+	cleaned := filepath.Clean(dir)
+	var res model.Playlists
+	for _, pls := range r.playlists {
+		if !pls.Sync || pls.Path == "" {
+			continue
+		}
+		if filepath.Clean(filepath.Dir(pls.Path)) == cleaned {
+			res = append(res, pls)
+		}
+	}
+	return res, nil
+}
+
+func (r *playlistRepoMock) Delete(id string) error {
+	r.deleted = append(r.deleted, id)
+	for path, pls := range r.playlists {
+		if pls.ID == id {
+			delete(r.playlists, path)
+		}
+	}
+	return nil
+}
+
+func (r *playlistRepoMock) GetAll(options ...model.QueryOptions) (model.Playlists, error) {
+	out := make(model.Playlists, 0, len(r.playlists))
+	for _, pls := range r.playlists {
+		out = append(out, pls)
+	}
+	return out, nil
+}
+
+func (r *playlistRepoMock) GetAllByPlaylistFolder(options ...model.QueryOptions) (model.Playlists, error) {
+	if len(options) == 0 || options[0].Filters == nil {
+		return model.Playlists{}, nil
+	}
+	var folderID string
+	switch filters := options[0].Filters.(type) {
+	case sq.Eq:
+		if value, ok := filters["folder_id"]; ok {
+			folderID, _ = value.(string)
+		}
+	}
+	if folderID == "" {
+		return model.Playlists{}, nil
+	}
+	var res model.Playlists
+	for _, pls := range r.playlists {
+		if pls.FolderID != nil && *pls.FolderID == folderID {
+			res = append(res, pls)
+		}
+	}
+	return res, nil
 }
