@@ -912,6 +912,9 @@ const RetailPlayerDashboard = () => {
   const lastTrackSignatureRef = useRef('')
   const dislikeTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
+  const dislikeRetryTimeoutRef = useRef(null)
+  const latestNowPlayingRef = useRef(null)
+  const latestScheduleLabelRef = useRef('')
   const channelRequestControllerRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
   const [previousNowPlaying, setPreviousNowPlaying] = useState(null)
@@ -1358,57 +1361,108 @@ const RetailPlayerDashboard = () => {
 
   const rootClassName = classes.root
 
+  useEffect(() => {
+    latestNowPlayingRef.current = device?.nowPlaying
+  }, [device?.nowPlaying])
+
+  useEffect(() => {
+    latestScheduleLabelRef.current = activeSchedule?.label || ''
+  }, [activeSchedule?.label])
+
+  const resolveDislikePayload = useCallback((nowPlaying, scheduleLabel) => {
+    const nowPlayingData = nowPlaying && typeof nowPlaying === 'object' ? nowPlaying : {}
+    const metadata =
+      nowPlayingData?.metadata && typeof nowPlayingData.metadata === 'object'
+        ? nowPlayingData.metadata
+        : {}
+
+    const titleCandidates = [
+      typeof nowPlayingData?.title === 'string' ? nowPlayingData.title.trim() : '',
+      typeof metadata?.title === 'string' ? metadata.title.trim() : '',
+    ]
+    const trackTitle = titleCandidates.find((value) => value) || ''
+
+    const playlistName = typeof scheduleLabel === 'string' ? scheduleLabel.trim() : ''
+
+    if (!trackTitle && !playlistName) {
+      return null
+    }
+
+    return { trackTitle, playlistName }
+  }, [])
+
+  const sendDislikeRequest = useCallback(
+    (payload) => {
+      if (!payload) {
+        return
+      }
+
+      if (dislikeRequestControllerRef.current) {
+        dislikeRequestControllerRef.current.abort()
+      }
+
+      const abortController = new AbortController()
+      dislikeRequestControllerRef.current = abortController
+
+      const headers = new Headers({ 'Content-Type': 'application/json' })
+
+      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/dislike`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: abortController.signal,
+      })
+        .catch((err) => {
+          if (err?.name !== 'AbortError') {
+            // eslint-disable-next-line no-console
+            console.error('Failed to send dislike notification', err)
+          }
+        })
+        .finally(() => {
+          if (dislikeRequestControllerRef.current === abortController) {
+            dislikeRequestControllerRef.current = null
+          }
+        })
+    },
+    [deviceApiId],
+  )
+
   const sendDislikeNotification = useCallback(() => {
     if (!isApiEnabled || !deviceApiId) {
       return
     }
 
-    const nowPlaying = device?.nowPlaying && typeof device.nowPlaying === 'object' ? device.nowPlaying : {}
-    const metadata =
-      nowPlaying?.metadata && typeof nowPlaying.metadata === 'object'
-        ? nowPlaying.metadata
-        : {}
-
-    const titleCandidates = [
-      typeof nowPlaying?.title === 'string' ? nowPlaying.title.trim() : '',
-      typeof metadata?.title === 'string' ? metadata.title.trim() : '',
-    ]
-    const trackTitle = titleCandidates.find((value) => value) || ''
-
-    const playlistName =
-      typeof activeSchedule?.label === 'string' ? activeSchedule.label.trim() : ''
-
-    if (!trackTitle && !playlistName) {
+    const payload = resolveDislikePayload(device?.nowPlaying, activeSchedule?.label)
+    if (!payload) {
       return
     }
 
-    if (dislikeRequestControllerRef.current) {
-      dislikeRequestControllerRef.current.abort()
+    if (payload.trackTitle.toLowerCase() === 'loading') {
+      if (dislikeRetryTimeoutRef.current) {
+        window.clearTimeout(dislikeRetryTimeoutRef.current)
+      }
+      dislikeRetryTimeoutRef.current = window.setTimeout(() => {
+        const retryPayload = resolveDislikePayload(
+          latestNowPlayingRef.current,
+          latestScheduleLabelRef.current,
+        )
+        if (retryPayload && retryPayload.trackTitle.toLowerCase() !== 'loading') {
+          sendDislikeRequest(retryPayload)
+        }
+        dislikeRetryTimeoutRef.current = null
+      }, 3000)
+      return
     }
 
-    const abortController = new AbortController()
-    dislikeRequestControllerRef.current = abortController
-
-    const headers = new Headers({ 'Content-Type': 'application/json' })
-
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/dislike`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ trackTitle, playlistName }),
-      signal: abortController.signal,
-    })
-      .catch((err) => {
-        if (err?.name !== 'AbortError') {
-          // eslint-disable-next-line no-console
-          console.error('Failed to send dislike notification', err)
-        }
-      })
-      .finally(() => {
-        if (dislikeRequestControllerRef.current === abortController) {
-          dislikeRequestControllerRef.current = null
-        }
-      })
-  }, [activeSchedule?.label, device?.nowPlaying, deviceApiId, isApiEnabled])
+    sendDislikeRequest(payload)
+  }, [
+    activeSchedule?.label,
+    device?.nowPlaying,
+    deviceApiId,
+    isApiEnabled,
+    resolveDislikePayload,
+    sendDislikeRequest,
+  ])
 
   const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
 
@@ -2089,6 +2143,10 @@ const RetailPlayerDashboard = () => {
     clearVolumeTimeout()
     if (dislikeTimeoutRef.current) {
       window.clearTimeout(dislikeTimeoutRef.current)
+    }
+    if (dislikeRetryTimeoutRef.current) {
+      window.clearTimeout(dislikeRetryTimeoutRef.current)
+      dislikeRetryTimeoutRef.current = null
     }
     if (dislikeRequestControllerRef.current) {
       dislikeRequestControllerRef.current.abort()
