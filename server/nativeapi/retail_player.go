@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1734,7 +1735,8 @@ func (n *Router) handleRetailPlayerDeviceDislike() http.HandlerFunc {
 
 		log.Info(ctx, "Received retail player dislike", "deviceID", deviceID, "trackTitle", trackTitle, "playlistName", playlistName)
 
-		if err := updateSyncPlaylistForDislike(ctx, playlistName, trackTitle); err != nil {
+		syncPlaylistPath, err := updateSyncPlaylistForDislike(ctx, playlistName, trackTitle)
+		if err != nil {
 			log.Warn(ctx, "Unable to update sync playlist for dislike", "deviceID", deviceID, "playlistName", playlistName, "trackTitle", trackTitle, "err", err)
 		}
 
@@ -1744,7 +1746,7 @@ func (n *Router) handleRetailPlayerDeviceDislike() http.HandlerFunc {
 		if notifications.Enabled {
 			clientIP := extractClientIP(r)
 
-			if err := sendRetailPlayerDislikeNotification(ctx, clientIP, trackTitle, playlistName); err != nil {
+			if err := sendRetailPlayerDislikeNotification(ctx, clientIP, trackTitle, playlistName, syncPlaylistPath); err != nil {
 				log.Error(ctx, "Unable to send retail player dislike notification", "deviceID", deviceID, "err", err)
 				http.Error(w, "Unable to send dislike notification", http.StatusBadGateway)
 				return
@@ -3067,7 +3069,7 @@ func extractClientIP(r *http.Request) string {
 	return remoteAddr
 }
 
-func sendRetailPlayerDislikeNotification(ctx context.Context, clientIP, trackTitle, playlistName string) error {
+func sendRetailPlayerDislikeNotification(ctx context.Context, clientIP, trackTitle, playlistName, playlistPath string) error {
 	notifications := conf.Server.RetailPlayer.Notifications
 	if !notifications.Enabled {
 		return nil
@@ -3125,6 +3127,10 @@ func sendRetailPlayerDislikeNotification(ctx context.Context, clientIP, trackTit
 	body := strings.Join(bodyLines, "\n")
 	message := fmt.Sprintf("Subject: %s\n\n%s", subject, body)
 
+	if attachment, err := buildPlaylistAttachmentMessage(subject, body, playlistPath); err == nil && attachment != "" {
+		message = attachment
+	}
+
 	args := []string{
 		"--url", fmt.Sprintf("smtp://%s:%d", smtpServer, port),
 		"--ssl-reqd",
@@ -3170,15 +3176,15 @@ func fetchIPInfo(ctx context.Context, clientIP string) (ipInfo, error) {
 	return info, nil
 }
 
-func updateSyncPlaylistForDislike(ctx context.Context, playlistName, trackTitle string) error {
+func updateSyncPlaylistForDislike(ctx context.Context, playlistName, trackTitle string) (string, error) {
 	if strings.TrimSpace(conf.Server.SyncFolder) == "" {
-		return nil
+		return "", nil
 	}
 
 	normalizedPlaylistName := strings.TrimSpace(playlistName)
 	normalizedTrackTitle := strings.TrimSpace(trackTitle)
 	if normalizedPlaylistName == "" || normalizedTrackTitle == "" {
-		return nil
+		return "", nil
 	}
 
 	if filepath.Ext(normalizedPlaylistName) == "" {
@@ -3187,32 +3193,32 @@ func updateSyncPlaylistForDislike(ctx context.Context, playlistName, trackTitle 
 
 	playlistPath, rootPath, err := findPlaylistFile(conf.Server.PlaylistsPath, normalizedPlaylistName)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if playlistPath == "" {
-		return fmt.Errorf("playlist not found: %s", normalizedPlaylistName)
+		return "", fmt.Errorf("playlist not found: %s", normalizedPlaylistName)
 	}
 
 	data, err := os.ReadFile(playlistPath)
 	if err != nil {
-		return fmt.Errorf("unable to read playlist: %w", err)
+		return "", fmt.Errorf("unable to read playlist: %w", err)
 	}
 
 	updated, removed := removeTrackFromM3U(data, normalizedTrackTitle)
 	if !removed {
-		return nil
+		return "", nil
 	}
 
 	syncPath := buildSyncPlaylistPath(conf.Server.SyncFolder, rootPath, playlistPath)
 	if err := os.MkdirAll(filepath.Dir(syncPath), 0o755); err != nil {
-		return fmt.Errorf("unable to create sync playlist dir: %w", err)
+		return "", fmt.Errorf("unable to create sync playlist dir: %w", err)
 	}
 	if err := os.WriteFile(syncPath, updated, 0o644); err != nil {
-		return fmt.Errorf("unable to write sync playlist: %w", err)
+		return "", fmt.Errorf("unable to write sync playlist: %w", err)
 	}
 
 	log.Info(ctx, "Synced playlist updated after dislike", "playlist", normalizedPlaylistName, "syncPath", syncPath, "trackTitle", normalizedTrackTitle)
-	return nil
+	return syncPath, nil
 }
 
 func findPlaylistFile(playlistsPath, playlistFile string) (string, string, error) {
@@ -3314,6 +3320,63 @@ func removeTrackFromM3U(data []byte, trackTitle string) ([]byte, bool) {
 	}
 
 	return []byte(output), removed
+}
+
+func buildPlaylistAttachmentMessage(subject, body, playlistPath string) (string, error) {
+	if strings.TrimSpace(playlistPath) == "" {
+		return "", nil
+	}
+	stat, err := os.Stat(playlistPath)
+	if err != nil || stat.IsDir() {
+		return "", nil
+	}
+
+	data, err := os.ReadFile(playlistPath)
+	if err != nil {
+		return "", err
+	}
+
+	filename := filepath.Base(playlistPath)
+	boundary := fmt.Sprintf("mixed-%d", time.Now().UnixNano())
+	encoded := base64.StdEncoding.EncodeToString(data)
+	encoded = chunkBase64(encoded, 76)
+
+	message := strings.Join([]string{
+		fmt.Sprintf("Subject: %s", subject),
+		"MIME-Version: 1.0",
+		fmt.Sprintf("Content-Type: multipart/mixed; boundary=%q", boundary),
+		"",
+		fmt.Sprintf("--%s", boundary),
+		"Content-Type: text/plain; charset=utf-8",
+		"",
+		body,
+		"",
+		fmt.Sprintf("--%s", boundary),
+		fmt.Sprintf("Content-Type: audio/x-mpegurl; name=%q", filename),
+		fmt.Sprintf("Content-Disposition: attachment; filename=%q", filename),
+		"Content-Transfer-Encoding: base64",
+		"",
+		encoded,
+		"",
+		fmt.Sprintf("--%s--", boundary),
+		"",
+	}, "\n")
+
+	return message, nil
+}
+
+func chunkBase64(encoded string, width int) string {
+	if width <= 0 || len(encoded) <= width {
+		return encoded
+	}
+	var builder strings.Builder
+	for len(encoded) > width {
+		builder.WriteString(encoded[:width])
+		builder.WriteString("\n")
+		encoded = encoded[width:]
+	}
+	builder.WriteString(encoded)
+	return builder.String()
 }
 
 func (n *Router) syncRetailPlayerQR(ctx context.Context) ([]retailPlayerQRSyncResult, error) {
