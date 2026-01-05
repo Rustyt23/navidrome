@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/utils/req"
 )
 
@@ -114,6 +117,149 @@ func createPlaylistFromM3U(playlists core.Playlists) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+	}
+}
+
+type updatePlaylistRequest struct {
+	Name     *string `json:"name"`
+	Comment  *string `json:"comment"`
+	Public   *bool   `json:"public"`
+	OwnerID  *string `json:"ownerId"`
+	Sync     *bool   `json:"sync"`
+	FolderID *string `json:"folderId"`
+}
+
+func updatePlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		id := chi.URLParam(r, "id")
+
+		var payload updatePlaylistRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		repo := ds.Playlist(ctx)
+		pls, err := repo.Get(id)
+		if err != nil {
+			http.Error(w, err.Error(), statusFor(err))
+			return
+		}
+
+		nameChanged := payload.Name != nil && *payload.Name != pls.Name
+		commentChanged := payload.Comment != nil && *payload.Comment != pls.Comment
+		publicChanged := payload.Public != nil && *payload.Public != pls.Public
+
+		if pls.Sync && (nameChanged || commentChanged || publicChanged) {
+			if err := playlists.Update(ctx, id, payload.Name, payload.Comment, payload.Public, nil, nil); err != nil {
+				http.Error(w, err.Error(), statusFor(err))
+				return
+			}
+			pls, err = repo.Get(id)
+			if err != nil {
+				http.Error(w, err.Error(), statusFor(err))
+				return
+			}
+		} else {
+			if payload.Name != nil {
+				pls.Name = *payload.Name
+			}
+			if payload.Comment != nil {
+				pls.Comment = *payload.Comment
+			}
+			if payload.Public != nil {
+				pls.Public = *payload.Public
+			}
+		}
+
+		if payload.OwnerID != nil {
+			pls.OwnerID = *payload.OwnerID
+		}
+		if payload.Sync != nil {
+			pls.Sync = *payload.Sync
+		}
+		if payload.FolderID != nil {
+			if *payload.FolderID == "" {
+				pls.FolderID = nil
+			} else {
+				pls.FolderID = payload.FolderID
+			}
+		}
+
+		if err := repo.Put(pls); err != nil {
+			http.Error(w, err.Error(), statusFor(err))
+			return
+		}
+		rest.RespondWithJSON(w, http.StatusOK, pls)
+	}
+}
+
+func refreshPlaylists(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
+	type refreshRequest struct {
+		ID string `json:"id"`
+	}
+	type refreshResponse struct {
+		Removed   bool `json:"removed"`
+		Refreshed bool `json:"refreshed"`
+		Skipped   bool `json:"skipped"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user, ok := request.UserFrom(ctx)
+		if !ok || !user.IsAdmin {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		var payload refreshRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(payload.ID) == "" {
+			http.Error(w, "playlist id is required", http.StatusBadRequest)
+			return
+		}
+
+		pls, err := ds.Playlist(ctx).Get(payload.ID)
+		if err != nil {
+			if errors.Is(err, model.ErrNotFound) {
+				http.Error(w, "playlist not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if strings.TrimSpace(pls.Path) == "" || !pls.Sync {
+			rest.RespondWithJSON(w, http.StatusOK, refreshResponse{Skipped: true})
+			return
+		}
+
+		if _, err := os.Stat(pls.Path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				if err := ds.Playlist(ctx).Delete(pls.ID); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				rest.RespondWithJSON(w, http.StatusOK, refreshResponse{Removed: true})
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		folderPath := filepath.Dir(pls.Path)
+		folder := model.NewFolder(model.Library{ID: 0, Path: folderPath}, ".")
+		folder.LibraryPath = folderPath
+		if _, err := playlists.ImportFile(ctx, folder, filepath.Base(pls.Path)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		rest.RespondWithJSON(w, http.StatusOK, refreshResponse{Refreshed: true})
 	}
 }
 
