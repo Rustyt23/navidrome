@@ -169,7 +169,6 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
   const dataProvider = useDataProvider()
   const notify = useNotify()
   const history = useHistory()
-  const refresh = useRefresh()
 
   const parentIdForDnD = pls.parent_id ?? ''
 
@@ -343,39 +342,11 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
   }, [dragPreviewRef])
 
   const showDropHighlight = isOver && canDrop
-  const refreshPlaylist = useCallback(async () => {
-    try {
-      const res = await httpClient(`${REST_URL}/playlist/refresh`, {
-        method: 'POST',
-        body: JSON.stringify({ id: pls.id }),
-        headers: new Headers({
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        }),
-      })
-      return res?.json
-    } catch (error) {
-      return null
-    }
-  }, [pls.id])
-
-  const handleClick = useCallback(async () => {
-    const result = await refreshPlaylist()
-    if (result?.removed) {
-      notify('Playlist removed from filesystem.', { type: 'info' })
-      refresh()
-      return
-    }
-    if (result?.refreshed) {
-      refresh()
-    }
-    history.push(`/playlist/${pls.id}/show`)
-  }, [history, notify, pls.id, refresh, refreshPlaylist])
 
   return (
     <ListItem
       button
-      onClick={handleClick}
+      onClick={() => history.push(`/playlist/${pls.id}/show`)}
       className={clsx(classes.listItem, classes.depth, showDropHighlight && classes.dropTarget)}
       ref={dragDropRef}
       style={{ opacity: isDragging ? 0.5 : 1 }}
@@ -555,9 +526,17 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
 
   const handleToggle = (menu) => setState((s) => ({ ...s, [menu]: !s[menu] }))
 
-  const onPlaylistConfig = useCallback(() => {
+  const onPlaylistConfig = useCallback(async () => {
+    try {
+      await httpClient(`${REST_URL}/playlist/refresh`, {
+        method: 'POST',
+      })
+      refresh()
+    } catch (error) {
+      notify('ra.page.error', 'warning')
+    }
     history.push({ pathname: '/folder', state: { parentId: null } })
-  }, [history])
+  }, [history, notify, refresh])
 
   const { get, markDirty, ensure, moveItem } = childrenStore
   const { items: rootItems, dirty: rootDirty, cached: rootCached } = get('')

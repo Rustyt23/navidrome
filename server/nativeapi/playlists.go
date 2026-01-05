@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -17,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
+	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/utils/req"
 )
 
@@ -196,15 +195,6 @@ func updatePlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFu
 }
 
 func refreshPlaylists(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
-	type refreshRequest struct {
-		ID string `json:"id"`
-	}
-	type refreshResponse struct {
-		Removed   bool `json:"removed"`
-		Refreshed bool `json:"refreshed"`
-		Skipped   bool `json:"skipped"`
-	}
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user, ok := request.UserFrom(ctx)
@@ -212,54 +202,15 @@ func refreshPlaylists(ds model.DataStore, playlists core.Playlists) http.Handler
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
-		var payload refreshRequest
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(payload.ID) == "" {
-			http.Error(w, "playlist id is required", http.StatusBadRequest)
-			return
-		}
-
-		pls, err := ds.Playlist(ctx).Get(payload.ID)
-		if err != nil {
-			if errors.Is(err, model.ErrNotFound) {
-				http.Error(w, "playlist not found", http.StatusNotFound)
+		if err := scanner.RefreshPlaylists(ctx, ds, playlists); err != nil {
+			if errors.Is(err, scanner.ErrAlreadyScanning) {
+				http.Error(w, "scan already running", http.StatusConflict)
 				return
 			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		if strings.TrimSpace(pls.Path) == "" || !pls.Sync {
-			rest.RespondWithJSON(w, http.StatusOK, refreshResponse{Skipped: true})
-			return
-		}
-
-		if _, err := os.Stat(pls.Path); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				if err := ds.Playlist(ctx).Delete(pls.ID); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				rest.RespondWithJSON(w, http.StatusOK, refreshResponse{Removed: true})
-				return
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		folderPath := filepath.Dir(pls.Path)
-		folder := model.NewFolder(model.Library{ID: 0, Path: folderPath}, ".")
-		folder.LibraryPath = folderPath
-		if _, err := playlists.ImportFile(ctx, folder, filepath.Base(pls.Path)); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		rest.RespondWithJSON(w, http.StatusOK, refreshResponse{Refreshed: true})
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
