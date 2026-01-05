@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	ppl "github.com/google/go-pipeline/pkg/pipeline"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core"
@@ -94,6 +95,10 @@ func (p *phasePlaylists) produce(put func(entry *model.Folder)) error {
 	}
 
 	count := 0
+	if p.scanState.fullScan {
+		return p.produceFullScan(put)
+	}
+
 	cursor, err := p.ds.Folder(p.ctx).GetTouchedWithPlaylists()
 	if err != nil {
 		return fmt.Errorf("loading touched folders: %w", err)
@@ -112,6 +117,28 @@ func (p *phasePlaylists) produce(put func(entry *model.Folder)) error {
 		log.Debug(p.ctx, "Scanner: Found folders with playlists that may need refreshing", "count", count)
 	}
 
+	return nil
+}
+
+func (p *phasePlaylists) produceFullScan(put func(entry *model.Folder)) error {
+	folders, err := p.ds.Folder(p.ctx).GetAll(model.QueryOptions{
+		Filters: squirrel.And{
+			squirrel.Eq{"missing": false},
+			squirrel.Gt{"num_playlists": 0},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("loading folders with playlists: %w", err)
+	}
+	for _, folder := range folders {
+		f := folder
+		put(&f)
+	}
+	if len(folders) == 0 {
+		log.Debug(p.ctx, "Scanner: No playlists need refreshing")
+	} else {
+		log.Debug(p.ctx, "Scanner: Found folders with playlists that may need refreshing", "count", len(folders))
+	}
 	return nil
 }
 

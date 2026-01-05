@@ -18,7 +18,7 @@ func RefreshPlaylists(ctx context.Context, ds model.DataStore, pls core.Playlist
 	defer release()
 
 	state := scanState{
-		fullScan:        false,
+		fullScan:        true,
 		changesDetected: atomic.Bool{},
 	}
 	phase := createPhasePlaylists(ctx, &state, ds, pls, artwork.NoopCacheWarmer())
