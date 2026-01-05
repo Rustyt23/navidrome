@@ -526,9 +526,17 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
 
   const handleToggle = (menu) => setState((s) => ({ ...s, [menu]: !s[menu] }))
 
-  const onPlaylistConfig = useCallback(() => {
+  const onPlaylistConfig = useCallback(async () => {
+    try {
+      await httpClient(`${REST_URL}/playlist/refresh`, {
+        method: 'POST',
+      })
+      refresh()
+    } catch (error) {
+      notify('ra.page.error', 'warning')
+    }
     history.push({ pathname: '/folder', state: { parentId: null } })
-  }, [history])
+  }, [history, notify, refresh])
 
   const { get, markDirty, ensure, moveItem } = childrenStore
   const { items: rootItems, dirty: rootDirty, cached: rootCached } = get('')
