@@ -38,6 +38,17 @@ type playlists struct {
 	ds model.DataStore
 }
 
+type playlistRefreshPublicKey struct{}
+
+func WithPlaylistRefreshPublic(ctx context.Context) context.Context {
+	return context.WithValue(ctx, playlistRefreshPublicKey{}, true)
+}
+
+func isPlaylistRefreshPublic(ctx context.Context) bool {
+	value, ok := ctx.Value(playlistRefreshPublicKey{}).(bool)
+	return ok && value
+}
+
 func NewPlaylists(ds model.DataStore) Playlists {
 	return &playlists{ds: ds}
 }
@@ -444,7 +455,11 @@ func (s *playlists) updatePlaylist(ctx context.Context, newPls *model.Playlist) 
 	} else {
 		log.Info(ctx, "Adding synced playlist", "playlist", newPls.Name, "path", newPls.Path, "owner", owner.UserName)
 		newPls.OwnerID = owner.ID
-		newPls.Public = conf.Server.DefaultPlaylistPublicVisibility
+		if isPlaylistRefreshPublic(ctx) {
+			newPls.Public = true
+		} else {
+			newPls.Public = conf.Server.DefaultPlaylistPublicVisibility
+		}
 	}
 	return s.ds.Playlist(ctx).Put(newPls)
 }

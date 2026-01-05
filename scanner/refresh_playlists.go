@@ -17,6 +17,7 @@ func RefreshPlaylists(ctx context.Context, ds model.DataStore, pls core.Playlist
 	}
 	defer release()
 
+	ctx = core.WithPlaylistRefreshPublic(ctx)
 	state := scanState{
 		fullScan:        true,
 		changesDetected: atomic.Bool{},
