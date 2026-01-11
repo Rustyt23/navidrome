@@ -648,7 +648,11 @@ func (s *playlists) buildPlaylistPath(ctx context.Context, ds model.DataStore, f
 		}
 		rel = filepath.Join(parts...)
 	}
-	filename := sanitizeName(name) + ext
+	sanitizedName := sanitizeName(name)
+	if strings.HasSuffix(strings.ToLower(sanitizedName), strings.ToLower(ext)) {
+		sanitizedName = strings.TrimSuffix(sanitizedName, ext)
+	}
+	filename := sanitizedName + ext
 	if rel != "" {
 		return filepath.Join(root, rel, filename), nil
 	}
