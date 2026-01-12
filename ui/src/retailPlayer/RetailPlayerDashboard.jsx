@@ -44,6 +44,8 @@ const formatTime = (date, timeZone) => {
     return '--:--'
   }
 
+  const roundedDate = new Date(Math.ceil(date.getTime() / 60000) * 60000)
+
   try {
     return new Intl.DateTimeFormat([], {
       hour: '2-digit',
@@ -51,10 +53,10 @@ const formatTime = (date, timeZone) => {
       hour12: false,
       ...(timeZone ? { timeZone } : {}),
     })
-      .format(date)
+      .format(roundedDate)
       .replace(/^24:/, '00:')
   } catch (err) {
-    return date
+    return roundedDate
       .toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
@@ -69,6 +71,8 @@ const formatDetailedTime = (date, timeZone) => {
     return ''
   }
 
+  const roundedDate = new Date(Math.ceil(date.getTime() / 60000) * 60000)
+
   try {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       year: 'numeric',
@@ -80,7 +84,7 @@ const formatDetailedTime = (date, timeZone) => {
       ...(timeZone ? { timeZone } : {}),
     })
 
-    const parts = formatter.formatToParts(date)
+    const parts = formatter.formatToParts(roundedDate)
     const values = parts.reduce((accumulator, part) => {
       if (part.type) {
         accumulator[part.type] = part.value
@@ -105,7 +109,7 @@ const formatDetailedTime = (date, timeZone) => {
 
     return `${year}-${month}-${day} ${hour}:${minute}${normalizedDayPeriod}`
   } catch (error) {
-    const isoString = date.toISOString()
+    const isoString = roundedDate.toISOString()
     const [isoDate, isoTime = ''] = isoString.split('T')
     const [hours = '', minutes = ''] = isoTime.split(':')
     if (!isoDate || !hours || !minutes) {
