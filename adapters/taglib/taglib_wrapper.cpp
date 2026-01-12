@@ -2,24 +2,33 @@
 #include <string.h>
 
 #define TAGLIB_STATIC
-#include <apeproperties.h>
-#include <apetag.h>
-#include <aifffile.h>
-#include <asffile.h>
+#include <taglib/taglib.h>
+#include <taglib/apeproperties.h>
+#include <taglib/apetag.h>
+#include <taglib/aifffile.h>
+#include <taglib/asffile.h>
+
+#if __has_include(<taglib/dsffile.h>)
+#include <taglib/dsffile.h>
+#define TAGLIB_HAVE_DSF 1
+#elif __has_include(<dsffile.h>)
 #include <dsffile.h>
-#include <fileref.h>
-#include <flacfile.h>
-#include <id3v2tag.h>
-#include <unsynchronizedlyricsframe.h>
-#include <synchronizedlyricsframe.h>
-#include <mp4file.h>
-#include <mpegfile.h>
-#include <opusfile.h>
-#include <tpropertymap.h>
-#include <vorbisfile.h>
-#include <wavfile.h>
-#include <wavfile.h>
-#include <wavpackfile.h>
+#define TAGLIB_HAVE_DSF 1
+#else
+#define TAGLIB_HAVE_DSF 0
+#endif
+#include <taglib/fileref.h>
+#include <taglib/flacfile.h>
+#include <taglib/id3v2tag.h>
+#include <taglib/unsynchronizedlyricsframe.h>
+#include <taglib/synchronizedlyricsframe.h>
+#include <taglib/mp4file.h>
+#include <taglib/mpegfile.h>
+#include <taglib/opusfile.h>
+#include <taglib/tpropertymap.h>
+#include <taglib/vorbisfile.h>
+#include <taglib/wavfile.h>
+#include <taglib/wavpackfile.h>
 
 #include "taglib_wrapper.h"
 
@@ -64,8 +73,10 @@ int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id) {
       goPutInt(id, (char *)"_bitspersample",  aiffProperties->bitsPerSample());
   else if (const auto* wavProperties{ dynamic_cast<const TagLib::RIFF::WAV::Properties*>(props) })
       goPutInt(id, (char *)"_bitspersample",  wavProperties->bitsPerSample());
+#if TAGLIB_HAVE_DSF
   else if (const auto* dsfProperties{ dynamic_cast<const TagLib::DSF::Properties*>(props) })
       goPutInt(id, (char *)"_bitspersample",  dsfProperties->bitsPerSample());
+#endif
 
   // Send all properties to the Go map
   TagLib::PropertyMap tags = f.file()->properties();
@@ -251,10 +262,12 @@ char has_cover(const TagLib::FileRef f) {
     hasCover = tag && tag->attributeListMap().contains("WM/Picture");
   }
   // ----- DSF
-  else if (TagLib::DSF::File * dsffile{ dynamic_cast<TagLib::DSF::File *>(f.file())}) {
-    const TagLib::ID3v2::Tag *tag { dsffile->tag() };
+#if TAGLIB_HAVE_DSF
+  else if (TagLib::DSF::File * dsfFile{ dynamic_cast<TagLib::DSF::File *>(f.file())}) {
+    const TagLib::ID3v2::Tag *tag { dsfFile->tag() };
     hasCover = tag && !tag->frameListMap()["APIC"].isEmpty();
   }
+#endif
   // ----- WAVPAK (APE tag)
   else if (TagLib::WavPack::File * wvFile{dynamic_cast<TagLib::WavPack::File *>(f.file())}) {
     if (wvFile->hasAPETag()) {

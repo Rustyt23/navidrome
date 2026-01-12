@@ -41,6 +41,7 @@ func (n *Router) routes() http.Handler {
 
 	// Public
 	n.RX(r, "/translation", newTranslationRepository, false)
+	n.addRetailPlayerPublicRoutes(r)
 
 	// Protected
 	r.Group(func(r chi.Router) {
@@ -71,7 +72,7 @@ func (n *Router) routes() http.Handler {
 		n.addNotificationsRoute(r)
 		n.addKeepAliveRoute(r)
 		n.addInsightsRoute(r)
-		n.addRetailPlayerRoute(r)
+		n.addRetailPlayerPrivateRoutes(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
 			n.addInspectRoute(r)
