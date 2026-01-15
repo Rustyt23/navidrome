@@ -157,18 +157,21 @@ const useStyles = makeStyles((theme) => {
     },
   },
   folderItem: {
-    paddingTop: theme.spacing(0.5),
-    paddingBottom: theme.spacing(0.5),
+    paddingTop: theme.spacing(0),
+    paddingBottom: theme.spacing(0),
+    minHeight: 0,
     fontSize: theme.typography.pxToRem(14),
     '& .MuiListItemIcon-root': {
       minWidth: theme.spacing(4),
     },
 
   '& .MuiListItemIcon-root svg': {
-    fontSize: theme.typography.pxToRem(16), 
+    fontSize: theme.typography.pxToRem(15), 
    },
 
     '& .MuiTypography-body1': {
+       lineHeight: 1.2,
+      
       fontSize: theme.typography.pxToRem(14),
       color: theme.palette.common.white,
     },
