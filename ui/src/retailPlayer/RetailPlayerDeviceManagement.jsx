@@ -554,6 +554,7 @@ const RetailPlayerFolderRow = memo(
         </div>
         <div className={classes.typeCell}>Folder</div>
         <div className={classes.countCell}>{deviceCount}</div>
+        <div className={classes.remoteControlCell}>—</div>
         <div className={classes.actionsCell}>
           <Tooltip title="Edit folder">
             <IconButton
