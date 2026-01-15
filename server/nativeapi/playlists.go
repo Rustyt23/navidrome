@@ -1,10 +1,12 @@
 package nativeapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -94,6 +96,81 @@ func createPlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFu
 			return
 		}
 		rest.RespondWithJSON(w, http.StatusOK, &map[string]string{"id": id})
+	}
+}
+
+func updatePlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFunc {
+	constructor := func(ctx context.Context) rest.Repository {
+		return ds.Resource(ctx, model.Playlist{})
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo := constructor(r.Context())
+		rp, ok := repo.(rest.Persistable)
+		if !ok {
+			rest.RespondWithError(w, http.StatusMethodNotAllowed, "405 Method Not Allowed")
+			return
+		}
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			rest.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid request payload")
+			return
+		}
+		if err := r.Body.Close(); err != nil {
+			rest.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid request payload")
+			return
+		}
+
+		entity := repo.NewInstance()
+		if err := json.NewDecoder(bytes.NewBuffer(bodyBytes)).Decode(entity); err != nil {
+			rest.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid request payload")
+			return
+		}
+
+		var fieldMap map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &fieldMap); err != nil {
+			rest.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid request payload")
+			return
+		}
+		fields := make([]string, 0, len(fieldMap))
+		for k := range fieldMap {
+			fields = append(fields, k)
+		}
+
+		id := r.URL.Query().Get(":id")
+		err = rp.Update(id, entity, fields...)
+		switch {
+		case err == rest.ErrNotFound:
+			rest.RespondWithError(w, http.StatusNotFound, fmt.Sprintf("%s not found", repo.EntityName()))
+			return
+		case err == rest.ErrPermissionDenied:
+			rest.RespondWithError(w, http.StatusForbidden, fmt.Sprintf("Updating %s: Permission denied", repo.EntityName()))
+			return
+		case err != nil:
+			if e, ok := err.(*rest.ValidationError); ok {
+				rest.RespondWithJSON(w, http.StatusBadRequest, e)
+			} else {
+				rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+
+		if _, ok := fieldMap["name"]; ok {
+			pls, getErr := ds.Playlist(r.Context()).Get(id)
+			if getErr != nil {
+				http.Error(w, getErr.Error(), statusFor(getErr))
+				return
+			}
+			if pls.Sync {
+				if err := syncPlaylist(playlists, ds, r.Context(), id); err != nil {
+					http.Error(w, err.Error(), statusFor(err))
+					return
+				}
+			}
+		}
+
+		rest.Get(constructor)(w, r)
 	}
 }
 

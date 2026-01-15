@@ -289,7 +289,7 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 		r.Route("/{id}", func(r chi.Router) {
 			r.Use(server.URLParamsMiddleware)
 			r.Get("/", rest.Get(constructor))
-			r.Put("/", rest.Put(constructor))
+			r.Put("/", updatePlaylist(n.ds, n.playlists))
 			r.Delete("/", rest.Delete(constructor))
 
 			r.Post("/publish", publishPlaylist(n.ds, n.playlists))
