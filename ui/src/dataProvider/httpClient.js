@@ -9,6 +9,29 @@ const customAuthorizationHeader = 'X-ND-Authorization'
 const clientUniqueIdHeader = 'X-ND-Client-Unique-Id'
 const clientUniqueId = uuidv4()
 
+const shouldRetryInactiveTab = (error) => {
+  const message = error?.message || ''
+  return message.includes('Failed to fetch') || message.includes('NetworkError')
+}
+
+const waitForTabVisible = () => {
+  if (typeof document === 'undefined') {
+    return Promise.resolve()
+  }
+  if (document.visibilityState === 'visible') {
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        document.removeEventListener('visibilitychange', handleVisibility)
+        resolve()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+  })
+}
+
 const httpClient = (url, options = {}) => {
   url = baseUrl(url)
   if (!options.headers) {
@@ -19,7 +42,7 @@ const httpClient = (url, options = {}) => {
   if (token) {
     options.headers.set(customAuthorizationHeader, `Bearer ${token}`)
   }
-  return fetchUtils.fetchJson(url, options).then((response) => {
+  const handleResponse = (response) => {
     const token = response.headers.get(customAuthorizationHeader)
     if (token) {
       const decoded = jwtDecode(token)
@@ -30,6 +53,20 @@ const httpClient = (url, options = {}) => {
       removeHomeCache()
     }
     return response
+  }
+
+  const executeRequest = () => fetchUtils.fetchJson(url, options).then(handleResponse)
+
+  return executeRequest().catch(async (error) => {
+    if (
+      shouldRetryInactiveTab(error) &&
+      typeof document !== 'undefined' &&
+      document.visibilityState === 'hidden'
+    ) {
+      await waitForTabVisible()
+      return executeRequest()
+    }
+    throw error
   })
 }
 
