@@ -71,6 +71,7 @@ export const SongContextMenu = ({
   const { permissions } = usePermissions()
   const redirect = useRedirect()
   const allowQueueActions = resource !== 'playlistTrack'
+  const allowShareAction = config.enableSharing && resource !== 'playlistTrack'
 
   const options = {
     playNow: {
@@ -116,7 +117,7 @@ export const SongContextMenu = ({
       },
     },
     share: {
-      enabled: config.enableSharing,
+      enabled: allowShareAction,
       label: translate('ra.action.share'),
       action: (record) =>
         dispatch(
