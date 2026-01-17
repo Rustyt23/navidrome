@@ -13,14 +13,11 @@ import MoreVertIcon from '@material-ui/icons/MoreVert'
 import { MdQuestionMark } from 'react-icons/md'
 import clsx from 'clsx'
 import {
-  playNext,
-  addTracks,
   setTrack,
   openAddToPlaylist,
   openExtendedInfoDialog,
   openDownloadMenu,
   DOWNLOAD_MENU_SONG,
-  openShareMenu,
 } from '../actions'
 import { LoveButton } from './LoveButton'
 import config from '../config'
@@ -70,24 +67,11 @@ export const SongContextMenu = ({
   const [playlistsLoaded, setPlaylistsLoaded] = useState(false)
   const { permissions } = usePermissions()
   const redirect = useRedirect()
-  const allowQueueActions = resource !== 'playlistTrack'
-  const allowShareAction = config.enableSharing && resource !== 'playlistTrack'
-
   const options = {
     playNow: {
       enabled: true,
       label: translate('resources.song.actions.playNow'),
       action: (record) => dispatch(setTrack(record)),
-    },
-    playNext: {
-      enabled: allowQueueActions,
-      label: translate('resources.song.actions.playNext'),
-      action: (record) => dispatch(playNext({ [record.id]: record })),
-    },
-    addToQueue: {
-      enabled: allowQueueActions,
-      label: translate('resources.song.actions.addToQueue'),
-      action: (record) => dispatch(addTracks({ [record.id]: record })),
     },
     addToPlaylist: {
       enabled: true,
@@ -115,18 +99,6 @@ export const SongContextMenu = ({
       action: (record, e) => {
         setPlaylistAnchorEl(e.currentTarget)
       },
-    },
-    share: {
-      enabled: allowShareAction,
-      label: translate('ra.action.share'),
-      action: (record) =>
-        dispatch(
-          openShareMenu(
-            [record.mediaFileId || record.id],
-            'song',
-            record.title,
-          ),
-        ),
     },
     download: {
       enabled: config.enableDownloads,
