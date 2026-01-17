@@ -10,8 +10,6 @@ import { makeStyles } from '@material-ui/core/styles'
 import { useDataProvider, useNotify, useTranslate } from 'react-admin'
 import clsx from 'clsx'
 import {
-  playNext,
-  addTracks,
   playTracks,
   shuffleTracks,
   openAddToPlaylist,
@@ -19,7 +17,6 @@ import {
   openExtendedInfoDialog,
   DOWNLOAD_MENU_ALBUM,
   DOWNLOAD_MENU_ARTIST,
-  openShareMenu,
 } from '../actions'
 import { LoveButton } from './LoveButton'
 import config from '../config'
@@ -77,18 +74,6 @@ const ContextMenu = ({
       label: translate('resources.album.actions.playAll'),
       action: (data, ids) => dispatch(playTracks(data, ids)),
     },
-    playNext: {
-      enabled: true,
-      needData: true,
-      label: translate('resources.album.actions.playNext'),
-      action: (data, ids) => dispatch(playNext(data, ids)),
-    },
-    addToQueue: {
-      enabled: true,
-      needData: true,
-      label: translate('resources.album.actions.addToQueue'),
-      action: (data, ids) => dispatch(addTracks(data, ids)),
-    },
     shuffle: {
       enabled: true,
       needData: true,
@@ -101,15 +86,6 @@ const ContextMenu = ({
       label: translate('resources.album.actions.addToPlaylist'),
       action: (data, ids) => dispatch(openAddToPlaylist({ selectedIds: ids })),
     },
-    ...(!hideShare && {
-      share: {
-        enabled: config.enableSharing,
-        needData: false,
-        label: translate('ra.action.share'),
-        action: (record) =>
-          dispatch(openShareMenu([record.id], resource, record.name)),
-      },
-    }),
     download: {
       enabled: config.enableDownloads && record.size,
       needData: false,

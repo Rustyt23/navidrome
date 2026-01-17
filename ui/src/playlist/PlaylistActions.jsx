@@ -14,14 +14,12 @@ import ShuffleIcon from '@material-ui/icons/Shuffle'
 import CloudDownloadOutlinedIcon from '@material-ui/icons/CloudDownloadOutlined'
 import FilterNoneIcon from '@material-ui/icons/FilterNone'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
-import ShareIcon from '@material-ui/icons/Share'
 import { httpClient } from '../dataProvider'
 import {
   playTracks,
   shuffleTracks,
   openDownloadMenu,
   DOWNLOAD_MENU_PLAY,
-  openShareMenu,
 } from '../actions'
 import { M3U_MIME_TYPE, REST_URL } from '../consts'
 import PropTypes from 'prop-types'
@@ -84,10 +82,6 @@ const PlaylistActions = ({
     getAllSongsAndDispatch(shuffleTracks)
   }, [getAllSongsAndDispatch])
 
-  const handleShare = React.useCallback(() => {
-    dispatch(openShareMenu([record.id], 'playlist', record.name))
-  }, [dispatch, record])
-
   const handleDownload = React.useCallback(() => {
     dispatch(openDownloadMenu(record, DOWNLOAD_MENU_PLAY))
   }, [dispatch, record])
@@ -125,11 +119,6 @@ const PlaylistActions = ({
           >
             <ShuffleIcon />
           </Button>
-          {config.enableSharing && (
-            <Button onClick={handleShare} label={translate('ra.action.share')}>
-              <ShareIcon />
-            </Button>
-          )}
           {config.enableDownloads && (
             <Button
               onClick={handleDownload}

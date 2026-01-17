@@ -13,11 +13,8 @@ import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import ShuffleIcon from '@material-ui/icons/Shuffle'
 import CloudDownloadOutlinedIcon from '@material-ui/icons/CloudDownloadOutlined'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
-import { RiPlayListAddFill, RiPlayList2Fill } from 'react-icons/ri'
 import { ToggleFieldsMenu } from '../common'
 import {
-  addTracks,
-  playNext,
   playTracks,
   shuffleTracks,
   openDownloadMenu,
@@ -79,14 +76,6 @@ const DiscoveryActions = ({ className, ids, data, record, ...rest }) => {
     getAllTracks(playTracks)
   }, [getAllTracks])
 
-  const handlePlayNext = React.useCallback(() => {
-    getAllTracks(playNext)
-  }, [getAllTracks])
-
-  const handlePlayLater = React.useCallback(() => {
-    getAllTracks(addTracks)
-  }, [getAllTracks])
-
   const handleShuffle = React.useCallback(() => {
     getAllTracks(shuffleTracks)
   }, [getAllTracks])
@@ -135,18 +124,6 @@ const DiscoveryActions = ({ className, ids, data, record, ...rest }) => {
             label={translate('resources.album.actions.shuffle')}
           >
             <ShuffleIcon />
-          </Button>
-          <Button
-            onClick={handlePlayNext}
-            label={translate('resources.album.actions.playNext')}
-          >
-            <RiPlayList2Fill />
-          </Button>
-          <Button
-            onClick={handlePlayLater}
-            label={translate('resources.album.actions.addToQueue')}
-          >
-            <RiPlayListAddFill />
           </Button>
           {config.enableDownloads && (
             <Button
