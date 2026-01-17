@@ -9,11 +9,10 @@ import {
 } from 'react-admin'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import ShuffleIcon from '@material-ui/icons/Shuffle'
-import { RiPlayList2Fill, RiPlayListAddFill } from 'react-icons/ri'
 import { MdOutlinePlaylistRemove } from 'react-icons/md'
 import PropTypes from 'prop-types'
 
-import { addTracks, playNext, playTracks, shuffleTracks } from '../actions'
+import { playTracks, shuffleTracks } from '../actions'
 
 const DiscoverySongBulkActions = ({ discoveryId, onUnselectItems }) => {
   const dispatch = useDispatch()
@@ -48,18 +47,6 @@ const DiscoverySongBulkActions = ({ discoveryId, onUnselectItems }) => {
           label={translate('resources.album.actions.shuffle')}
         >
           <ShuffleIcon />
-        </Button>
-        <Button
-          onClick={handleAction(playNext)}
-          label={translate('resources.album.actions.playNext')}
-        >
-          <RiPlayList2Fill />
-        </Button>
-        <Button
-          onClick={handleAction(addTracks)}
-          label={translate('resources.album.actions.addToQueue')}
-        >
-          <RiPlayListAddFill />
         </Button>
         <BulkDeleteButton
           label={translate('ra.action.remove')}

@@ -13,18 +13,13 @@ import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import ShuffleIcon from '@material-ui/icons/Shuffle'
 import CloudDownloadOutlinedIcon from '@material-ui/icons/CloudDownloadOutlined'
 import FilterNoneIcon from '@material-ui/icons/FilterNone'
-import { RiPlayListAddFill, RiPlayList2Fill } from 'react-icons/ri'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
-import ShareIcon from '@material-ui/icons/Share'
 import { httpClient } from '../dataProvider'
 import {
-  playNext,
-  addTracks,
   playTracks,
   shuffleTracks,
   openDownloadMenu,
   DOWNLOAD_MENU_PLAY,
-  openShareMenu,
 } from '../actions'
 import { M3U_MIME_TYPE, REST_URL } from '../consts'
 import PropTypes from 'prop-types'
@@ -83,21 +78,9 @@ const PlaylistActions = ({
     getAllSongsAndDispatch(playTracks)
   }, [getAllSongsAndDispatch])
 
-  const handlePlayNext = React.useCallback(() => {
-    getAllSongsAndDispatch(playNext)
-  }, [getAllSongsAndDispatch])
-
-  const handlePlayLater = React.useCallback(() => {
-    getAllSongsAndDispatch(addTracks)
-  }, [getAllSongsAndDispatch])
-
   const handleShuffle = React.useCallback(() => {
     getAllSongsAndDispatch(shuffleTracks)
   }, [getAllSongsAndDispatch])
-
-  const handleShare = React.useCallback(() => {
-    dispatch(openShareMenu([record.id], 'playlist', record.name))
-  }, [dispatch, record])
 
   const handleDownload = React.useCallback(() => {
     dispatch(openDownloadMenu(record, DOWNLOAD_MENU_PLAY))
@@ -136,23 +119,6 @@ const PlaylistActions = ({
           >
             <ShuffleIcon />
           </Button>
-          <Button
-            onClick={handlePlayNext}
-            label={translate('resources.album.actions.playNext')}
-          >
-            <RiPlayList2Fill />
-          </Button>
-          <Button
-            onClick={handlePlayLater}
-            label={translate('resources.album.actions.addToQueue')}
-          >
-            <RiPlayListAddFill />
-          </Button>
-          {config.enableSharing && (
-            <Button onClick={handleShare} label={translate('ra.action.share')}>
-              <ShareIcon />
-            </Button>
-          )}
           {config.enableDownloads && (
             <Button
               onClick={handleDownload}
