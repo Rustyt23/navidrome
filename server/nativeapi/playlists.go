@@ -157,17 +157,20 @@ func updatePlaylist(ds model.DataStore, playlists core.Playlists) http.HandlerFu
 		}
 
 		if _, ok := fieldMap["name"]; ok {
-			pls, getErr := ds.Playlist(r.Context()).Get(id)
-			if getErr != nil {
-				http.Error(w, getErr.Error(), statusFor(getErr))
-				return
-			}
-			if pls.Sync {
-				if err := syncPlaylist(playlists, ds, r.Context(), id); err != nil {
-					http.Error(w, err.Error(), statusFor(err))
+			ctx := context.WithoutCancel(r.Context())
+			go func() {
+				pls, getErr := ds.Playlist(ctx).Get(id)
+				if getErr != nil {
+					log.Error(ctx, "Error retrieving playlist after rename", "playlistId", id, getErr)
 					return
 				}
-			}
+				if !pls.Sync {
+					return
+				}
+				if err := syncPlaylist(playlists, ds, ctx, id); err != nil {
+					log.Error(ctx, "Error syncing playlist after rename", "playlistId", id, err)
+				}
+			}()
 		}
 
 		rest.Get(constructor)(w, r)
