@@ -70,6 +70,7 @@ export const SongContextMenu = ({
   const [playlistsLoaded, setPlaylistsLoaded] = useState(false)
   const { permissions } = usePermissions()
   const redirect = useRedirect()
+  const allowQueueActions = resource !== 'playlistTrack'
 
   const options = {
     playNow: {
@@ -78,12 +79,12 @@ export const SongContextMenu = ({
       action: (record) => dispatch(setTrack(record)),
     },
     playNext: {
-      enabled: true,
+      enabled: allowQueueActions,
       label: translate('resources.song.actions.playNext'),
       action: (record) => dispatch(playNext({ [record.id]: record })),
     },
     addToQueue: {
-      enabled: true,
+      enabled: allowQueueActions,
       label: translate('resources.song.actions.addToQueue'),
       action: (record) => dispatch(addTracks({ [record.id]: record })),
     },
