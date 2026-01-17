@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"html"
 	"io"
 	"net/http"
@@ -17,10 +18,12 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
+	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/server/public"
 )
@@ -36,16 +39,18 @@ type Router struct {
 	playlists core.Playlists
 	insights  metrics.Insights
 	libs      core.Library
+	scanner   scanner.Scanner
 	devices   *retailPlayerDeviceResolver
 }
 
-func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
+func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library, scannerService scanner.Scanner) *Router {
 	r := &Router{
 		ds:        ds,
 		share:     share,
 		playlists: playlists,
 		insights:  insights,
 		libs:      libraryService,
+		scanner:   scannerService,
 		devices:   newRetailPlayerDeviceResolver(),
 	}
 	r.preloadRetailPlayerDeviceMappings()
@@ -277,7 +282,10 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 	}
 
 	r.Route("/playlist", func(r chi.Router) {
-		r.Get("/", rest.GetAll(constructor))
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			n.triggerQuickScan(r.Context())
+			rest.GetAll(constructor)(w, r)
+		})
 		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Content-type") == "application/json" {
 				createPlaylist(n.ds, n.playlists)(w, r)
@@ -289,7 +297,7 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 		r.Route("/{id}", func(r chi.Router) {
 			r.Use(server.URLParamsMiddleware)
 			r.Get("/", rest.Get(constructor))
-			r.Put("/", rest.Put(constructor))
+			r.Put("/", updatePlaylist(n.ds, n.playlists))
 			r.Delete("/", rest.Delete(constructor))
 
 			r.Post("/publish", publishPlaylist(n.ds, n.playlists))
@@ -316,6 +324,28 @@ func (n *Router) addPlaylistRoute(r chi.Router) {
 			})
 		})
 	})
+}
+
+func (n *Router) triggerQuickScan(ctx context.Context) {
+	if n.scanner == nil {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	ctx = auth.WithAdminUser(ctx, n.ds)
+	go func() {
+		status, err := n.scanner.Status(ctx)
+		if err != nil {
+			log.Error(ctx, "Error checking scan status", err)
+			return
+		}
+		if status.Scanning {
+			return
+		}
+		_, err = n.scanner.ScanAll(ctx, false)
+		if err != nil && !errors.Is(err, scanner.ErrAlreadyScanning) {
+			log.Error(ctx, "Error triggering quick scan", err)
+		}
+	}()
 }
 
 func (n *Router) addPlaylistFolderRoute(r chi.Router) {
