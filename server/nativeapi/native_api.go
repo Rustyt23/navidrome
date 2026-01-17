@@ -18,6 +18,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -330,6 +331,7 @@ func (n *Router) triggerQuickScan(ctx context.Context) {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
+	ctx = auth.WithAdminUser(ctx, n.ds)
 	go func() {
 		status, err := n.scanner.Status(ctx)
 		if err != nil {
