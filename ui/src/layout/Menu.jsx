@@ -5,6 +5,7 @@ import {
   Divider,
   ListItemIcon,
   ListItemText,
+  Typography,
   makeStyles,
   useTheme,
 } from '@material-ui/core'
@@ -57,7 +58,11 @@ const RetailPlayerMenuDeviceLink = ({
       <MenuItemLink
         to={`/retailplayer/${encodedSlug}`}
         activeClassName={classes.active}
-        primaryText={node.name}
+        primaryText={
+          <Typography variant="body2" noWrap title={node.name}>
+            {node.name}
+          </Typography>
+        }
         leftIcon={
           <SpeakerGroupIcon fontSize="small" className={classes.deviceIcon} />
         }
@@ -112,7 +117,13 @@ const RetailPlayerMenuFolderItem = ({
         <ListItemIcon>
           <FolderIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText primary={node.name} />
+        <ListItemText
+          primary={
+            <Typography variant="body1" noWrap title={node.name}>
+              {node.name}
+            </Typography>
+          }
+        />
       </MenuItem>
       <Collapse in={isOpen} timeout="auto" unmountOnExit>
         <div

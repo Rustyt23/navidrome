@@ -394,7 +394,7 @@ const PlaylistSongs = ({
         ),
       title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop && <AlbumLinkField source="album" />,
-      artist: isDesktop && <ArtistLinkField source="artist" />,
+      artist: <ArtistLinkField source="artist" />,
       albumArtist: isDesktop && <ArtistLinkField source="albumArtist" />,
       duration: (
         <DurationField source="duration" className={classes.draggable} />
@@ -443,20 +443,29 @@ const PlaylistSongs = ({
     readOnly,
   ])
 
+  const defaultOff = useMemo(() => {
+    if (isDesktop) {
+      return [
+        'channels',
+        'bpm',
+        'year',
+        'playCount',
+        'comment',
+        'playDate',
+        'createdAt',
+        'albumArtist',
+        'rating',
+      ]
+    }
+    return Object.keys(toggleableFields).filter(
+      (field) => !['title', 'artist'].includes(field),
+    )
+  }, [isDesktop, toggleableFields])
+
   const columns = useSelectedFields({
     resource: 'playlistTrack',
     columns: toggleableFields,
-    defaultOff: [
-      'channels',
-      'bpm',
-      'year',
-      'playCount',
-      'comment',
-      'playDate',
-      'createdAt',
-      'albumArtist',
-      'rating',
-    ],
+    defaultOff,
   })
 
   const handleRowClick = useCallback(
