@@ -194,6 +194,7 @@ const useStyles = makeStyles((theme) => {
   deviceItem: {
     paddingTop: theme.spacing(0.5),
     paddingBottom: theme.spacing(0.5),
+    minHeight: 0,
     fontSize: theme.typography.pxToRem(12),
     '& .RaMenuItemLink-icon': {
       minWidth: theme.spacing(4),
@@ -201,6 +202,13 @@ const useStyles = makeStyles((theme) => {
     },
     '& .RaMenuItemLink-primaryText': {
       color: theme.palette.primary.main,
+    },
+    '& .MuiTypography-body2': {
+      lineHeight: 1.2,
+    },
+    [theme.breakpoints.down('xs')]: {
+      paddingTop: theme.spacing(0.25),
+      paddingBottom: theme.spacing(0.25),
     },
   },
     deviceIcon: {

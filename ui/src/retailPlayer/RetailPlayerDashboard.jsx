@@ -508,6 +508,7 @@ const useStyles = makeStyles((theme) => {
       maxHeight: 320,
       opacity: 1,
       pointerEvents: 'auto',
+      overflowY: 'auto',
     },
     dropdownOptionButton: {
       textAlign: 'center',
