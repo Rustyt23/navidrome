@@ -644,6 +644,9 @@ const useStyles = makeStyles((theme) => {
         duration: theme.transitions.duration.shortest,
       }),
       color: theme.palette.text.primary,
+      '&.Mui-disabled': {
+        color: theme.palette.text.disabled,
+      },
       '&:hover, &:focus-visible': {
         backgroundColor: theme.palette.action.hover,
       },
