@@ -508,6 +508,7 @@ const useStyles = makeStyles((theme) => {
       maxHeight: 320,
       opacity: 1,
       pointerEvents: 'auto',
+      overflowY: 'auto',
     },
     dropdownOptionButton: {
       textAlign: 'center',
@@ -644,6 +645,9 @@ const useStyles = makeStyles((theme) => {
         duration: theme.transitions.duration.shortest,
       }),
       color: theme.palette.text.primary,
+      '&.Mui-disabled': {
+        color: theme.palette.text.disabled,
+      },
       '&:hover, &:focus-visible': {
         backgroundColor: theme.palette.action.hover,
       },
@@ -911,12 +915,14 @@ const RetailPlayerDashboard = () => {
   const volumeSyncReadyRef = useRef(false)
   const lastTrackSignatureRef = useRef('')
   const dislikeTimeoutRef = useRef(null)
+  const dislikeDisableTimeoutRef = useRef(null)
   const dislikeRequestControllerRef = useRef(null)
   const dislikeRetryTimeoutRef = useRef(null)
   const latestNowPlayingRef = useRef(null)
   const latestScheduleLabelRef = useRef('')
   const channelRequestControllerRef = useRef(null)
   const [showDislikeMessage, setShowDislikeMessage] = useState(false)
+  const [isDislikeDisabled, setIsDislikeDisabled] = useState(false)
   const [previousNowPlaying, setPreviousNowPlaying] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0)
   const [isScheduleMenuOpen, setScheduleMenuOpen] = useState(false)
@@ -944,6 +950,11 @@ const RetailPlayerDashboard = () => {
   useEffect(() => {
     setPreviousNowPlaying(null)
     lastTrackSignatureRef.current = ''
+    setIsDislikeDisabled(false)
+    if (dislikeDisableTimeoutRef.current) {
+      window.clearTimeout(dislikeDisableTimeoutRef.current)
+      dislikeDisableTimeoutRef.current = null
+    }
   }, [deviceTrackKey])
 
   const cueStorageKey = useMemo(() => {
@@ -1983,6 +1994,10 @@ const RetailPlayerDashboard = () => {
   }, [history])
 
   const handleDislike = useCallback(() => {
+    if (isDislikeDisabled) {
+      return
+    }
+
     sendDislikeNotification()
     setShowDislikeMessage(true)
     if (dislikeTimeoutRef.current) {
@@ -1992,7 +2007,16 @@ const RetailPlayerDashboard = () => {
       setShowDislikeMessage(false)
       dislikeTimeoutRef.current = null
     }, 2000)
-  }, [sendDislikeNotification])
+
+    if (dislikeDisableTimeoutRef.current) {
+      window.clearTimeout(dislikeDisableTimeoutRef.current)
+    }
+    setIsDislikeDisabled(true)
+    dislikeDisableTimeoutRef.current = window.setTimeout(() => {
+      setIsDislikeDisabled(false)
+      dislikeDisableTimeoutRef.current = null
+    }, 5000)
+  }, [isDislikeDisabled, sendDislikeNotification])
 
   const handleSkip = useCallback(() => {
     if (!trackPool.length) {
@@ -2143,6 +2167,10 @@ const RetailPlayerDashboard = () => {
     clearVolumeTimeout()
     if (dislikeTimeoutRef.current) {
       window.clearTimeout(dislikeTimeoutRef.current)
+    }
+    if (dislikeDisableTimeoutRef.current) {
+      window.clearTimeout(dislikeDisableTimeoutRef.current)
+      dislikeDisableTimeoutRef.current = null
     }
     if (dislikeRetryTimeoutRef.current) {
       window.clearTimeout(dislikeRetryTimeoutRef.current)
@@ -2305,6 +2333,7 @@ const RetailPlayerDashboard = () => {
                   aria-label="Dislike"
                   onClick={handleDislike}
                   focusRipple
+                  disabled={isDislikeDisabled}
                 >
                   <span className={classes.controlIcon} role="img" aria-hidden="true">
                     <BiDislike fontSize="inherit" />

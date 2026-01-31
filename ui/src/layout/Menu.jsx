@@ -5,6 +5,7 @@ import {
   Divider,
   ListItemIcon,
   ListItemText,
+  Typography,
   makeStyles,
   useTheme,
 } from '@material-ui/core'
@@ -57,7 +58,11 @@ const RetailPlayerMenuDeviceLink = ({
       <MenuItemLink
         to={`/retailplayer/${encodedSlug}`}
         activeClassName={classes.active}
-        primaryText={node.name}
+        primaryText={
+          <Typography variant="body2" noWrap title={node.name}>
+            {node.name}
+          </Typography>
+        }
         leftIcon={
           <SpeakerGroupIcon fontSize="small" className={classes.deviceIcon} />
         }
@@ -112,7 +117,13 @@ const RetailPlayerMenuFolderItem = ({
         <ListItemIcon>
           <FolderIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText primary={node.name} />
+        <ListItemText
+          primary={
+            <Typography variant="body1" noWrap title={node.name}>
+              {node.name}
+            </Typography>
+          }
+        />
       </MenuItem>
       <Collapse in={isOpen} timeout="auto" unmountOnExit>
         <div
@@ -183,6 +194,7 @@ const useStyles = makeStyles((theme) => {
   deviceItem: {
     paddingTop: theme.spacing(0.5),
     paddingBottom: theme.spacing(0.5),
+    minHeight: 0,
     fontSize: theme.typography.pxToRem(12),
     '& .RaMenuItemLink-icon': {
       minWidth: theme.spacing(4),
@@ -190,6 +202,13 @@ const useStyles = makeStyles((theme) => {
     },
     '& .RaMenuItemLink-primaryText': {
       color: theme.palette.primary.main,
+    },
+    '& .MuiTypography-body2': {
+      lineHeight: 1.2,
+    },
+    [theme.breakpoints.down('xs')]: {
+      paddingTop: theme.spacing(0.25),
+      paddingBottom: theme.spacing(0.25),
     },
   },
     deviceIcon: {

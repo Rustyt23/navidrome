@@ -82,6 +82,12 @@ const useStyle = makeStyles(
         {
           display: (props) => (props.isRadio ? 'none' : 'inline-flex'),
         },
+      '& .audio-lists-btn': {
+        display: 'none !important',
+      },
+      '& .music-player-panel .panel-content .player-content .audio-lists-btn': {
+        display: 'none !important',
+      },
       '& .react-jinke-music-player-mobile-progress': {
         display: (props) => (props.isRadio ? 'none' : 'flex'),
       },
