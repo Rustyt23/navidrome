@@ -15,6 +15,7 @@ type RetailPlayerDeviceMapping struct {
 	Organization string    `db:"organization" json:"organization"`
 	TimeZone     string    `db:"time_zone" json:"timeZone"`
 	RemoteCtrlID string    `db:"remote_control_id" json:"remoteControlId"`
+	Locked       bool      `db:"is_locked" json:"locked"`
 	UpdatedAt    time.Time `db:"updated_at" json:"updatedAt"`
 }
 
@@ -23,6 +24,7 @@ type RetailPlayerDeviceMappingRepository interface {
 	PutMany(ctx context.Context, mappings []RetailPlayerDeviceMapping) error
 	FindByIdentifier(ctx context.Context, identifier string) (*RetailPlayerDeviceMapping, error)
 	All(ctx context.Context) ([]RetailPlayerDeviceMapping, error)
+	SetLockState(ctx context.Context, deviceID string, locked bool) error
 }
 
 func RetailPlayerNormalizeValue(value string) string {

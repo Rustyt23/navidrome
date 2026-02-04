@@ -211,6 +211,7 @@ type retailPlayerDevice struct {
 	TimeZone        string   `json:"timeZone,omitempty"`
 	FolderIDs       []string `json:"folderIds,omitempty"`
 	RemoteControlID string   `json:"remoteControlId,omitempty"`
+	Locked          bool     `json:"locked"`
 }
 
 type retailPlayerDeviceConfigResponse struct {
@@ -342,6 +343,7 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
 		r.Get("/devices/{deviceID}/triggers", n.handleRetailPlayerDeviceTriggers())
 		r.Post("/devices/{deviceID}/triggers", n.handleRetailPlayerDeviceTriggerAction())
+		r.Post("/devices/{deviceID}/unlock", n.handleRetailPlayerDeviceUnlock())
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
 		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
@@ -359,6 +361,7 @@ func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Put("/retailplayer/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
 	r.Post("/retailplayer/qr", n.handleRetailPlayerSyncQR())
 	r.Patch("/retailplayer/devices/{deviceID}/remote-control", n.handleUpdateRetailPlayerDeviceRemoteControl())
+	r.Patch("/retailplayer/devices/{deviceID}/lock", n.handleUpdateRetailPlayerDeviceLock())
 }
 
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
@@ -426,16 +429,20 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 
 			if len(mappings) > 0 {
 				remoteControlByID := make(map[string]string, len(mappings))
+				lockByID := make(map[string]bool, len(mappings))
 				for _, mapping := range mappings {
 					id := strings.TrimSpace(mapping.DeviceID)
 					remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
-					if id == "" || remoteControlID == "" {
+					if id == "" {
 						continue
 					}
-					remoteControlByID[id] = remoteControlID
+					if remoteControlID != "" {
+						remoteControlByID[id] = remoteControlID
+					}
+					lockByID[id] = mapping.Locked
 				}
 
-				if len(remoteControlByID) > 0 {
+				if len(remoteControlByID) > 0 || len(lockByID) > 0 {
 					for index := range response.Data {
 						id := strings.TrimSpace(response.Data[index].ID)
 						if id == "" {
@@ -443,6 +450,9 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 						}
 						if remoteControlID, ok := remoteControlByID[id]; ok {
 							response.Data[index].RemoteControlID = remoteControlID
+						}
+						if locked, ok := lockByID[id]; ok {
+							response.Data[index].Locked = locked
 						}
 					}
 				}
@@ -556,16 +566,20 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 
 			if len(mappings) > 0 {
 				remoteControlByID := make(map[string]string, len(mappings))
+				lockByID := make(map[string]bool, len(mappings))
 				for _, mapping := range mappings {
 					id := strings.TrimSpace(mapping.DeviceID)
 					remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
-					if id == "" || remoteControlID == "" {
+					if id == "" {
 						continue
 					}
-					remoteControlByID[id] = remoteControlID
+					if remoteControlID != "" {
+						remoteControlByID[id] = remoteControlID
+					}
+					lockByID[id] = mapping.Locked
 				}
 
-				if len(remoteControlByID) > 0 {
+				if len(remoteControlByID) > 0 || len(lockByID) > 0 {
 					for index := range filtered.Data {
 						id := strings.TrimSpace(filtered.Data[index].ID)
 						if id == "" {
@@ -573,6 +587,9 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 						}
 						if remoteControlID, ok := remoteControlByID[id]; ok {
 							filtered.Data[index].RemoteControlID = remoteControlID
+						}
+						if locked, ok := lockByID[id]; ok {
+							filtered.Data[index].Locked = locked
 						}
 					}
 				}
@@ -1218,6 +1235,7 @@ func (n *Router) saveRetailPlayerRemoteControlMapping(ctx context.Context, devic
 			mapping.ChannelList = existing.ChannelList
 			mapping.Organization = existing.Organization
 			mapping.TimeZone = existing.TimeZone
+			mapping.Locked = existing.Locked
 		}
 
 		if name := strings.TrimSpace(deviceName); name != "" {
@@ -1345,6 +1363,7 @@ func mapRetailPlayerDeviceToMapping(device retailPlayerDevice) (model.RetailPlay
 		Organization: strings.TrimSpace(device.Organization),
 		TimeZone:     strings.TrimSpace(device.TimeZone),
 		RemoteCtrlID: strings.TrimSpace(device.RemoteControlID),
+		Locked:       device.Locked,
 	}, true
 }
 
@@ -1357,6 +1376,120 @@ func mapRetailPlayerMappingToDevice(mapping model.RetailPlayerDeviceMapping) ret
 		Organization:    strings.TrimSpace(mapping.Organization),
 		TimeZone:        strings.TrimSpace(mapping.TimeZone),
 		RemoteControlID: strings.TrimSpace(mapping.RemoteCtrlID),
+		Locked:          mapping.Locked,
+	}
+}
+
+func (n *Router) handleUpdateRetailPlayerDeviceLock() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload struct {
+			Locked bool `json:"locked"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player device payload", http.StatusBadRequest)
+			return
+		}
+
+		repo := n.ds.RetailPlayerDeviceMapping(ctx)
+		if repo == nil {
+			http.Error(w, "Retail player device mapping repository not available", http.StatusInternalServerError)
+			return
+		}
+
+		if err := repo.SetLockState(ctx, deviceID, payload.Locked); err != nil {
+			log.Error(ctx, "Unable to update retail player device lock state", "err", err)
+			http.Error(w, "Unable to update retail player device lock state", http.StatusInternalServerError)
+			return
+		}
+
+		device, err := n.findRetailPlayerDeviceMapping(ctx, deviceID)
+		if err != nil {
+			log.Error(ctx, "Unable to load retail player device mapping", "err", err)
+			http.Error(w, "Unable to load retail player device mapping", http.StatusInternalServerError)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": device})
+	}
+}
+
+func (n *Router) handleRetailPlayerDeviceUnlock() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player device payload", http.StatusBadRequest)
+			return
+		}
+
+		repo := n.ds.RetailPlayerDeviceMapping(ctx)
+		if repo == nil {
+			http.Error(w, "Retail player device mapping repository not available", http.StatusInternalServerError)
+			return
+		}
+
+		mapping, err := repo.FindByIdentifier(ctx, deviceID)
+		if err != nil {
+			if errors.Is(err, model.ErrNotFound) {
+				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				return
+			}
+			log.Error(ctx, "Unable to load retail player device mapping", "err", err)
+			http.Error(w, "Unable to load retail player device mapping", http.StatusInternalServerError)
+			return
+		}
+
+		if !mapping.Locked {
+			writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
+				"unlocked": true,
+				"locked":   false,
+			})
+			return
+		}
+
+		password := strings.TrimSpace(payload.Password)
+		configured := strings.TrimSpace(conf.Server.RetailPlayer.DeviceLockPassword)
+		if configured == "" {
+			http.Error(w, "Retail player device lock password is not configured", http.StatusForbidden)
+			return
+		}
+
+		if password != configured {
+			http.Error(w, "Invalid retail player device password", http.StatusUnauthorized)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
+			"unlocked": true,
+			"locked":   false,
+		})
 	}
 }
 

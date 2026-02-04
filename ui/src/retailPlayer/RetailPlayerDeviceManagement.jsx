@@ -23,9 +23,11 @@ import {
 } from '@material-ui/core'
 import { makeStyles, useTheme } from '@material-ui/core/styles'
 import { fade } from '@material-ui/core/styles/colorManipulator'
-import { Title } from 'react-admin'
+import { Title, usePermissions } from 'react-admin'
 import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
+import LockIcon from '@material-ui/icons/Lock'
+import LockOpenIcon from '@material-ui/icons/LockOpen'
 import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
@@ -602,7 +604,9 @@ const RetailPlayerDeviceRow = memo(
     onToggleSelection,
     onKeyDown,
     onEdit,
+    onToggleLock,
     isOnline,
+    canToggleLock,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
       deviceId: node.id,
@@ -656,6 +660,25 @@ const RetailPlayerDeviceRow = memo(
           {node.remoteControlId ? node.remoteControlId : '—'}
         </div>
         <div className={classes.actionsCell}>
+          <Tooltip title={node.locked ? 'Unlock device' : 'Lock device'}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onToggleLock(node)
+                }}
+                aria-label={`${node.locked ? 'Unlock' : 'Lock'} device ${node.name}`}
+                disabled={!canToggleLock}
+              >
+                {node.locked ? (
+                  <LockIcon style={{ fontSize: 15 }} />
+                ) : (
+                  <LockOpenIcon style={{ fontSize: 15 }} />
+                )}
+              </IconButton>
+            </span>
+          </Tooltip>
           <Tooltip title="Edit device">
             <IconButton
               size="small"
@@ -678,6 +701,7 @@ RetailPlayerDeviceRow.propTypes = {
   node: PropTypes.shape({
     id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
+    locked: PropTypes.bool,
   }).isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
@@ -686,12 +710,15 @@ RetailPlayerDeviceRow.propTypes = {
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
+  onToggleLock: PropTypes.func.isRequired,
   isOnline: PropTypes.bool,
+  canToggleLock: PropTypes.bool,
 }
 
 RetailPlayerDeviceRow.defaultProps = {
   channelCount: null,
   isOnline: null,
+  canToggleLock: false,
 }
 
 RetailPlayerDeviceRow.displayName = 'RetailPlayerDeviceRow'
@@ -700,9 +727,17 @@ const RetailPlayerDeviceManagement = () => {
   const classes = useStyles()
   const theme = useTheme()
   const history = useHistory()
+  const { permissions } = usePermissions()
   const {
     state: { tree, folders, devices, loading, error, isApiEnabled },
-    actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
+    actions: {
+      createFolder,
+      updateFolder,
+      createDevice,
+      updateDevice,
+      updateDeviceLock,
+      deleteNodes,
+    },
   } = useRetailPlayerDeviceStore()
   const [folderDialog, setFolderDialog] = useState({
     open: false,
@@ -720,6 +755,18 @@ const RetailPlayerDeviceManagement = () => {
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
   const { countsByDeviceId: channelCountsByDeviceId } =
     useRetailPlayerChannelCounts(devices, isApiEnabled)
+
+  const canToggleLock = permissions === 'admin'
+
+  const handleToggleLock = useCallback(
+    async (device) => {
+      if (!canToggleLock || !device?.id) {
+        return
+      }
+      await updateDeviceLock(device.id, !device.locked)
+    },
+    [canToggleLock, updateDeviceLock],
+  )
 
   const folderMap = useMemo(() => {
     const map = new Map()
@@ -1383,7 +1430,9 @@ const RetailPlayerDeviceManagement = () => {
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
           onEdit={handleEditDevice}
+          onToggleLock={handleToggleLock}
           isOnline={isOnline}
+          canToggleLock={canToggleLock}
         />
       )
     })

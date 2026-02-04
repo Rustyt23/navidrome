@@ -23,6 +23,7 @@ func NewRetailPlayerDeviceMappingRepository(ctx context.Context, db dbx.Builder)
 	r.tableName = "retail_player_device_mapping"
 	r.registerModel(&model.RetailPlayerDeviceMapping{}, nil)
 	r.ensureRemoteControlColumn()
+	r.ensureLockColumn()
 	return r
 }
 
@@ -41,6 +42,23 @@ ADD COLUMN remote_control_id TEXT DEFAULT '';
 	}
 
 	log.Error(r.ctx, "Unable to ensure remote control column for retail player device mappings", "err", err)
+}
+
+func (r retailPlayerDeviceMappingRepository) ensureLockColumn() {
+	_, err := r.db.NewQuery(`
+ALTER TABLE retail_player_device_mapping
+ADD COLUMN is_locked INTEGER DEFAULT 0;
+`).Execute()
+	if err == nil {
+		return
+	}
+
+	lowerErr := strings.ToLower(err.Error())
+	if strings.Contains(lowerErr, "duplicate column name") || strings.Contains(lowerErr, "already exists") {
+		return
+	}
+
+	log.Error(r.ctx, "Unable to ensure lock column for retail player device mappings", "err", err)
 }
 
 func (r retailPlayerDeviceMappingRepository) Put(ctx context.Context, mapping model.RetailPlayerDeviceMapping) error {
@@ -67,6 +85,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			"organization",
 			"time_zone",
 			"remote_control_id",
+			"is_locked",
 			"updated_at",
 		)
 	valuesAdded := 0
@@ -95,6 +114,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			strings.TrimSpace(mapping.Organization),
 			strings.TrimSpace(mapping.TimeZone),
 			strings.TrimSpace(mapping.RemoteCtrlID),
+			mapping.Locked,
 			now,
 		)
 		valuesAdded++
@@ -135,7 +155,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 	orClause := Or{}
 	orClause = append(orClause, conditions...)
 
-	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "is_locked", "updated_at").
 		From(r.tableName).
 		Where(orClause).
 		OrderBy("updated_at DESC").
@@ -149,7 +169,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 }
 
 func (r retailPlayerDeviceMappingRepository) All(ctx context.Context) ([]model.RetailPlayerDeviceMapping, error) {
-	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "is_locked", "updated_at").
 		From(r.tableName).
 		OrderBy("updated_at DESC")
 
@@ -162,4 +182,55 @@ func (r retailPlayerDeviceMappingRepository) All(ctx context.Context) ([]model.R
 		return nil, err
 	}
 	return mappings, nil
+}
+
+func (r retailPlayerDeviceMappingRepository) SetLockState(ctx context.Context, deviceID string, locked bool) error {
+	trimmed := strings.TrimSpace(deviceID)
+	if trimmed == "" {
+		return errors.New("retail player device id is required")
+	}
+
+	now := time.Now().UTC()
+	update := Update(r.tableName).
+		Set("is_locked", locked).
+		Set("updated_at", now).
+		Where(Eq{"device_id": trimmed})
+
+	rowsAffected, err := r.executeSQL(update)
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected > 0 {
+		return nil
+	}
+
+	insert := Insert(r.tableName).
+		Columns(
+			"device_id",
+			"device_name",
+			"device_slug",
+			"channel",
+			"channel_list",
+			"organization",
+			"time_zone",
+			"remote_control_id",
+			"is_locked",
+			"updated_at",
+		).
+		Values(
+			trimmed,
+			trimmed,
+			model.RetailPlayerDeviceSlug(trimmed),
+			"",
+			"",
+			"",
+			"",
+			"",
+			locked,
+			now,
+		)
+
+	_, err = r.executeSQL(insert)
+	return err
 }

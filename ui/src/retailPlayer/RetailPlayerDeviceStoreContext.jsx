@@ -98,6 +98,11 @@ const baseDeviceShape = (device, existing) => {
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
   const normalizedRemoteControlId = normalizeValue(device?.remoteControlId)
+  const incomingLocked = typeof device?.locked === 'boolean'
+    ? device.locked
+    : existing?.locked
+  const normalizedLocked =
+    typeof incomingLocked === 'boolean' ? incomingLocked : false
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -123,6 +128,7 @@ const baseDeviceShape = (device, existing) => {
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',
     remoteControlId: normalizedRemoteControlId || '',
+    locked: normalizedLocked,
     folderIds,
     folderId: primaryFolderId,
     source: existing?.source === 'local' ? 'local' : 'remote',
@@ -229,6 +235,7 @@ const reducer = (state, action) => {
         folderId,
         attributes,
         remoteControlId,
+        locked,
       } = action.payload || {}
       const normalizedName = normalizeValue(name) || 'New Device'
       const slug = deviceSlugKey(normalizedName) || uuidv4()
@@ -257,6 +264,7 @@ const reducer = (state, action) => {
         folderId: primaryFolderId,
         source: 'local',
         remoteControlId: normalizeValue(remoteControlId) || '',
+        locked: false,
         attributes: attributes && typeof attributes === 'object' ? { ...attributes } : {},
       }
       return {
@@ -304,6 +312,8 @@ const reducer = (state, action) => {
             remoteControlId !== undefined
               ? normalizeValue(remoteControlId)
               : device.remoteControlId,
+          locked:
+            locked !== undefined ? Boolean(locked) : device.locked,
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
@@ -702,6 +712,47 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
     [apiEnabled, dispatch],
   )
 
+  const updateDeviceLock = useCallback(
+    async (deviceId, locked) => {
+      const normalizedId = typeof deviceId === 'string' ? deviceId : ''
+      if (!normalizedId) {
+        return null
+      }
+
+      const normalizedLocked = Boolean(locked)
+      dispatch({
+        type: 'UPDATE_DEVICE',
+        payload: { id: normalizedId, locked: normalizedLocked },
+      })
+
+      if (!apiEnabled) {
+        return normalizedLocked
+      }
+
+      const { json } = await httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(normalizedId)}/lock`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ locked: normalizedLocked }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        },
+      )
+
+      const responseLocked =
+        typeof json?.data?.locked === 'boolean'
+          ? json.data.locked
+          : normalizedLocked
+
+      dispatch({
+        type: 'UPDATE_DEVICE',
+        payload: { id: normalizedId, locked: responseLocked },
+      })
+
+      return responseLocked
+    },
+    [apiEnabled, dispatch],
+  )
+
   const assignDeviceToFolder = useCallback(
     async (payload) => {
       const basePayload = payload && typeof payload === 'object' ? payload : {}
@@ -780,6 +831,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         updateFolder,
         createDevice,
         updateDevice,
+        updateDeviceLock,
         assignDeviceToFolder,
         deleteNodes,
       },
@@ -791,6 +843,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
       updateFolder,
       createDevice,
       updateDevice,
+      updateDeviceLock,
       assignDeviceToFolder,
       deleteNodes,
     ],
