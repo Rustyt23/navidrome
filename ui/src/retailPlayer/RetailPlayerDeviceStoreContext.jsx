@@ -283,6 +283,7 @@ const reducer = (state, action) => {
         folderIds,
         folderId,
         remoteControlId,
+        locked,
       } = action.payload || {}
       if (!id) {
         return state

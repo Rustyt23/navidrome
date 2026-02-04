@@ -7,7 +7,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
   List,
   ListItem,
   ListItemText,
@@ -2357,11 +2356,8 @@ const RetailPlayerDashboard = () => {
           open
           disableBackdropClick
           disableEscapeKeyDown
-          aria-labelledby="retail-player-unlock-title"
+          aria-label="Unlock device"
         >
-          <DialogTitle id="retail-player-unlock-title">
-            Unlock {device?.name || 'Retail Player'}
-          </DialogTitle>
           <DialogContent>
             <TextField
               autoFocus
@@ -2374,6 +2370,12 @@ const RetailPlayerDashboard = () => {
                 setUnlockPassword(event.target.value)
                 if (unlockError) {
                   setUnlockError('')
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && unlockPassword && !isUnlocking) {
+                  event.preventDefault()
+                  handleUnlock()
                 }
               }}
               error={Boolean(unlockError)}
