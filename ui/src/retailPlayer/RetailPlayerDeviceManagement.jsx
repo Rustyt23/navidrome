@@ -252,6 +252,9 @@ const useStyles = makeStyles((theme) => {
     color: theme.palette.primary.main,
     fontSize: theme.typography.pxToRem(16.5),
   },
+  lockedIcon: {
+    color: theme.palette.primary.main,
+  },
   onlineIcon: {
     color: theme.palette.success.main,
   },
@@ -672,7 +675,10 @@ const RetailPlayerDeviceRow = memo(
                 disabled={!canToggleLock}
               >
                 {node.locked ? (
-                  <LockIcon style={{ fontSize: 15 }} />
+                  <LockIcon
+                    style={{ fontSize: 15 }}
+                    className={classes.lockedIcon}
+                  />
                 ) : (
                   <LockOpenIcon style={{ fontSize: 15 }} />
                 )}

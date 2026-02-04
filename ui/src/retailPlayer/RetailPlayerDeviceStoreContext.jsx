@@ -729,26 +729,34 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         return normalizedLocked
       }
 
-      const { json } = await httpClient(
-        `/api/retailplayer/devices/${encodeURIComponent(normalizedId)}/lock`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ locked: normalizedLocked }),
-          headers: new Headers({ 'Content-Type': 'application/json' }),
-        },
-      )
+      try {
+        const { json } = await httpClient(
+          `/api/retailplayer/devices/${encodeURIComponent(normalizedId)}/lock`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ locked: normalizedLocked }),
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+          },
+        )
 
-      const responseLocked =
-        typeof json?.data?.locked === 'boolean'
-          ? json.data.locked
-          : normalizedLocked
+        const responseLocked =
+          typeof json?.data?.locked === 'boolean'
+            ? json.data.locked
+            : normalizedLocked
 
-      dispatch({
-        type: 'UPDATE_DEVICE',
-        payload: { id: normalizedId, locked: responseLocked },
-      })
+        dispatch({
+          type: 'UPDATE_DEVICE',
+          payload: { id: normalizedId, locked: responseLocked },
+        })
 
-      return responseLocked
+        return responseLocked
+      } catch (err) {
+        dispatch({
+          type: 'UPDATE_DEVICE',
+          payload: { id: normalizedId, locked: !normalizedLocked },
+        })
+        return null
+      }
     },
     [apiEnabled, dispatch],
   )
