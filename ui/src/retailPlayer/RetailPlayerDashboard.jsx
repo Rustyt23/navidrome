@@ -1,12 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha, makeStyles } from '@material-ui/core/styles'
 import {
+  Button,
   ButtonBase,
   Drawer,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   List,
   ListItem,
   ListItemText,
   Slider,
+  TextField,
   Typography,
 } from '@material-ui/core'
 import Tooltip from '@material-ui/core/Tooltip'
@@ -751,6 +757,27 @@ const useStyles = makeStyles((theme) => {
       color: theme.palette.text.secondary,
       fontSize: theme.typography.pxToRem(18),
     },
+    lockedWrapper: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(2),
+      padding: theme.spacing(5),
+      maxWidth: 640,
+      width: '100%',
+      margin: '0 auto',
+      textAlign: 'center',
+      [theme.breakpoints.down('sm')]: {
+        padding: theme.spacing(3),
+      },
+    },
+    lockedTitle: {
+      fontWeight: theme.typography.fontWeightBold,
+      fontSize: theme.typography.pxToRem(32),
+    },
+    lockedMessage: {
+      color: theme.palette.text.secondary,
+      fontSize: theme.typography.pxToRem(16),
+    },
     refreshButton: {
       borderRadius: theme.shape.borderRadius * 2,
       padding: theme.spacing(0.75),
@@ -933,6 +960,11 @@ const RetailPlayerDashboard = () => {
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
+  const lockSessionKey = 'retailPlayerUnlockedDevices'
+  const [unlockPassword, setUnlockPassword] = useState('')
+  const [unlockError, setUnlockError] = useState('')
+  const [isUnlocking, setIsUnlocking] = useState(false)
+  const [isUnlocked, setIsUnlocked] = useState(false)
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -946,6 +978,62 @@ const RetailPlayerDashboard = () => {
       normalizeValue(device.macAddress)
     )
   }, [device])
+
+  const deviceLockId = useMemo(() => {
+    if (!device) {
+      return ''
+    }
+    return (
+      normalizeValue(device.apiId) ||
+      normalizeValue(device.id) ||
+      normalizeValue(device.slug) ||
+      normalizeValue(device.macAddress)
+    )
+  }, [device])
+
+  const readUnlockedDevices = useCallback(() => {
+    if (typeof sessionStorage === 'undefined') {
+      return new Set()
+    }
+
+    try {
+      const raw = sessionStorage.getItem(lockSessionKey)
+      if (!raw) {
+        return new Set()
+      }
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        return new Set(parsed.filter((value) => typeof value === 'string'))
+      }
+    } catch (err) {
+      return new Set()
+    }
+
+    return new Set()
+  }, [lockSessionKey])
+
+  const storeUnlockedDevices = useCallback(
+    (unlockedDevices) => {
+      if (typeof sessionStorage === 'undefined') {
+        return
+      }
+      sessionStorage.setItem(
+        lockSessionKey,
+        JSON.stringify(Array.from(unlockedDevices)),
+      )
+    },
+    [lockSessionKey],
+  )
+
+  useEffect(() => {
+    if (!deviceLockId) {
+      setIsUnlocked(false)
+      return
+    }
+
+    const unlockedDevices = readUnlockedDevices()
+    setIsUnlocked(unlockedDevices.has(deviceLockId))
+  }, [deviceLockId, readUnlockedDevices])
 
   useEffect(() => {
     setPreviousNowPlaying(null)
@@ -1993,6 +2081,45 @@ const RetailPlayerDashboard = () => {
     history.push('/retailplayer/devices')
   }, [history])
 
+  const handleUnlock = useCallback(async () => {
+    if (!deviceLockId) {
+      return
+    }
+    setIsUnlocking(true)
+    setUnlockError('')
+    try {
+      await httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(deviceLockId)}/unlock`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ password: unlockPassword }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        },
+      )
+      const unlockedDevices = readUnlockedDevices()
+      unlockedDevices.add(deviceLockId)
+      storeUnlockedDevices(unlockedDevices)
+      setIsUnlocked(true)
+      setUnlockPassword('')
+    } catch (err) {
+      const status = typeof err?.status === 'number' ? err.status : null
+      if (status === 401) {
+        setUnlockError('Incorrect password. Please try again.')
+      } else if (status === 403) {
+        setUnlockError('Unlocking is unavailable. Contact an administrator.')
+      } else {
+        setUnlockError('Unable to unlock this device right now.')
+      }
+    } finally {
+      setIsUnlocking(false)
+    }
+  }, [
+    deviceLockId,
+    readUnlockedDevices,
+    storeUnlockedDevices,
+    unlockPassword,
+  ])
+
   const handleDislike = useCallback(() => {
     if (isDislikeDisabled) {
       return
@@ -2210,6 +2337,64 @@ const RetailPlayerDashboard = () => {
             {combinedError.message || String(combinedError)}
           </Typography>
         ) : null}
+      </div>
+    )
+  }
+
+  const isDeviceLocked = Boolean(device.locked)
+
+  if (isDeviceLocked && !isUnlocked) {
+    return (
+      <div className={classes.lockedWrapper}>
+        <Title title="Retail Player" />
+        <Typography component="h1" className={classes.lockedTitle}>
+          Device Locked
+        </Typography>
+        <Typography className={classes.lockedMessage}>
+          Enter the device password to continue.
+        </Typography>
+        <Dialog
+          open
+          disableBackdropClick
+          disableEscapeKeyDown
+          aria-labelledby="retail-player-unlock-title"
+        >
+          <DialogTitle id="retail-player-unlock-title">
+            Unlock {device?.name || 'Retail Player'}
+          </DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              fullWidth
+              label="Password"
+              type="password"
+              variant="outlined"
+              value={unlockPassword}
+              onChange={(event) => {
+                setUnlockPassword(event.target.value)
+                if (unlockError) {
+                  setUnlockError('')
+                }
+              }}
+              error={Boolean(unlockError)}
+              helperText={unlockError || ' '}
+              inputProps={{ 'aria-label': 'Device password' }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleBack} color="default">
+              Back
+            </Button>
+            <Button
+              onClick={handleUnlock}
+              color="primary"
+              variant="contained"
+              disabled={!unlockPassword || isUnlocking}
+            >
+              {isUnlocking ? 'Unlocking…' : 'Unlock'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </div>
     )
   }

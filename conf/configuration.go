@@ -207,6 +207,7 @@ type retailPlayerOptions struct {
 	RemoteControlBaseURL      string
 	RemoteControlAPIKey       string
 	RemoteControlAPIKeyHeader string
+	DeviceLockPassword        string
 	QRLoginURL                string
 	QRBaseURL                 string
 	QRTenant                  string
@@ -632,6 +633,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.orgid", "")
 	viper.SetDefault("retailplayer.apikey", "")
 	viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
+	viper.SetDefault("retailplayer.devicelockpassword", "")
 	viper.SetDefault("retailplayer.qrloginurl", "")
 	viper.SetDefault("retailplayer.qrbaseurl", "")
 	viper.SetDefault("retailplayer.qrtenant", "")
