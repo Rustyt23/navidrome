@@ -46,6 +46,58 @@ const deviceSlugKey = (value) => {
   return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
+
+const normalizeLockedValue = (value, fallback = false) => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value === 1) {
+      return true
+    }
+    if (value === 0) {
+      return false
+    }
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (!normalized) {
+      return fallback
+    }
+    if (['true', '1', 'yes', 'y', 'on', 'locked'].includes(normalized)) {
+      return true
+    }
+    if (['false', '0', 'no', 'n', 'off', 'unlocked'].includes(normalized)) {
+      return false
+    }
+  }
+
+  return fallback
+}
+
+const resolveLockedField = (device) => {
+  if (!device || typeof device !== 'object') {
+    return undefined
+  }
+
+  if (Object.prototype.hasOwnProperty.call(device, 'locked')) {
+    return device.locked
+  }
+  if (Object.prototype.hasOwnProperty.call(device, 'isLocked')) {
+    return device.isLocked
+  }
+  if (Object.prototype.hasOwnProperty.call(device, 'is_locked')) {
+    return device.is_locked
+  }
+  if (Object.prototype.hasOwnProperty.call(device, 'lock')) {
+    return device.lock
+  }
+
+  return undefined
+}
+
 const mapRetailPlayerDevice = (device) => {
   if (!device || typeof device !== 'object') {
     return null
@@ -69,10 +121,7 @@ const mapRetailPlayerDevice = (device) => {
         .filter(Boolean)
     : []
   const remoteControlId = normalizeValue(device.remoteControlId)
-  const locked =
-    typeof device.locked === 'boolean'
-      ? device.locked
-      : Boolean(device.locked)
+  const locked = normalizeLockedValue(resolveLockedField(device))
 
   return {
     id: fallbackId,
@@ -93,4 +142,11 @@ const mapRetailPlayerDevice = (device) => {
   }
 }
 
-export { buildDeviceSlug, deviceSlugKey, mapRetailPlayerDevice, normalizeValue }
+export {
+  buildDeviceSlug,
+  deviceSlugKey,
+  mapRetailPlayerDevice,
+  normalizeLockedValue,
+  normalizeValue,
+  resolveLockedField,
+}
