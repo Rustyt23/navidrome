@@ -1,2 +1,7 @@
 DataFolder = "/var/lib/navidrome"
 MusicFolder = "/opt/navidrome/music"
+
+[RetailPlayer]
+# Shared password used by Retail Player per-device lock/unlock in the UI.
+# Change this value to rotate the unlock password for all devices.
+DeviceLockPassword = "change-me"

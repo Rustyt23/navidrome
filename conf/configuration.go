@@ -200,6 +200,7 @@ type retailPlayerNotificationOptions struct {
 
 type retailPlayerOptions struct {
 	Enabled                   bool
+	DeviceLockPassword        string
 	BaseURL                   string
 	OrgID                     string
 	APIKey                    string

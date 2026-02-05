@@ -336,8 +336,13 @@ type retailPlayerQRDevice struct {
 	Name string `json:"name"`
 }
 
+type retailPlayerDeviceLockVerifyRequest struct {
+	Password string `json:"password"`
+}
+
 func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
+		r.Post("/device-lock/verify", n.handleRetailPlayerDeviceLockVerify())
 		r.Get("/devices/{deviceID}/config", n.handleRetailPlayerDeviceConfig())
 		r.Get("/devices/{deviceID}/status", n.handleRetailPlayerDeviceStatus())
 		r.Get("/devices/{deviceID}/triggers", n.handleRetailPlayerDeviceTriggers())
@@ -359,6 +364,34 @@ func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Put("/retailplayer/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
 	r.Post("/retailplayer/qr", n.handleRetailPlayerSyncQR())
 	r.Patch("/retailplayer/devices/{deviceID}/remote-control", n.handleUpdateRetailPlayerDeviceRemoteControl())
+}
+
+func (n *Router) handleRetailPlayerDeviceLockVerify() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		expectedPassword := strings.TrimSpace(conf.Server.RetailPlayer.DeviceLockPassword)
+		if expectedPassword == "" {
+			http.Error(w, "Retail player lock password not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		var payload retailPlayerDeviceLockVerifyRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid lock verification payload", http.StatusBadRequest)
+			return
+		}
+
+		if strings.TrimSpace(payload.Password) != expectedPassword {
+			http.Error(w, "Invalid device lock password", http.StatusUnauthorized)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
