@@ -47,7 +47,7 @@ import {
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
 import useRetailPlayerChannelCounts from './useRetailPlayerChannelCounts'
-import { isDeviceLocked, setDeviceLocked } from './deviceLockState'
+import { isDeviceLocked } from './deviceLockState'
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
@@ -1237,15 +1237,19 @@ const RetailPlayerDeviceManagement = () => {
     }
   }
 
-  const handleToggleDeviceLock = useCallback((device) => {
+  const handleToggleDeviceLock = useCallback(async (device) => {
     if (!device) {
       return
     }
 
-    const nextLockedValue = !isDeviceLocked(device)
-    setDeviceLocked(device, nextLockedValue)
-    setSelectedIds((previous) => new Set(previous))
-  }, [])
+    try {
+      const nextLockedValue = !isDeviceLocked(device)
+      await updateDevice({ id: device.id, isLocked: nextLockedValue })
+      setSelectedIds((previous) => new Set(previous))
+    } catch (err) {
+      console.error('Failed to update retail player device lock state', err)
+    }
+  }, [updateDevice])
 
   const handleNavigateToDevice = useCallback(
     (device) => {

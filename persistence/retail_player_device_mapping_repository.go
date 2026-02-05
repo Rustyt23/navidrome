@@ -23,6 +23,7 @@ func NewRetailPlayerDeviceMappingRepository(ctx context.Context, db dbx.Builder)
 	r.tableName = "retail_player_device_mapping"
 	r.registerModel(&model.RetailPlayerDeviceMapping{}, nil)
 	r.ensureRemoteControlColumn()
+	r.ensureIsLockedColumn()
 	return r
 }
 
@@ -41,6 +42,23 @@ ADD COLUMN remote_control_id TEXT DEFAULT '';
 	}
 
 	log.Error(r.ctx, "Unable to ensure remote control column for retail player device mappings", "err", err)
+}
+
+func (r retailPlayerDeviceMappingRepository) ensureIsLockedColumn() {
+	_, err := r.db.NewQuery(`
+ALTER TABLE retail_player_device_mapping
+ADD COLUMN is_locked BOOLEAN NOT NULL DEFAULT 0;
+`).Execute()
+	if err == nil {
+		return
+	}
+
+	lowerErr := strings.ToLower(err.Error())
+	if strings.Contains(lowerErr, "duplicate column name") || strings.Contains(lowerErr, "already exists") {
+		return
+	}
+
+	log.Error(r.ctx, "Unable to ensure lock status column for retail player device mappings", "err", err)
 }
 
 func (r retailPlayerDeviceMappingRepository) Put(ctx context.Context, mapping model.RetailPlayerDeviceMapping) error {
@@ -62,6 +80,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			"device_id",
 			"device_name",
 			"device_slug",
+			"is_locked",
 			"channel",
 			"channel_list",
 			"organization",
@@ -90,6 +109,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			id,
 			name,
 			slug,
+			mapping.IsLocked,
 			strings.TrimSpace(mapping.Channel),
 			strings.TrimSpace(mapping.ChannelList),
 			strings.TrimSpace(mapping.Organization),
@@ -107,12 +127,43 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 	insert = insert.Suffix(`ON CONFLICT(device_id) DO UPDATE SET
                 device_name = excluded.device_name,
                 device_slug = excluded.device_slug,
+                is_locked = retail_player_device_mapping.is_locked,
                 channel = excluded.channel,
                 channel_list = excluded.channel_list,
                 organization = excluded.organization,
                 time_zone = excluded.time_zone,
                 remote_control_id = COALESCE(NULLIF(excluded.remote_control_id, ''), retail_player_device_mapping.remote_control_id),
                 updated_at = excluded.updated_at`)
+
+	_, err := r.executeSQL(insert)
+	return err
+}
+
+func (r retailPlayerDeviceMappingRepository) SetLocked(ctx context.Context, deviceID string, isLocked bool) error {
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return errors.New("retail player device id is required")
+	}
+
+	now := time.Now().UTC()
+	defaultSlug := model.RetailPlayerDeviceSlug(trimmedID)
+	insert := Insert(r.tableName).
+		Columns(
+			"device_id",
+			"device_name",
+			"device_slug",
+			"is_locked",
+			"channel",
+			"channel_list",
+			"organization",
+			"time_zone",
+			"remote_control_id",
+			"updated_at",
+		).
+		Values(trimmedID, trimmedID, defaultSlug, isLocked, "", "", "", "", "", now).
+		Suffix(`ON CONFLICT(device_id) DO UPDATE SET
+			is_locked = excluded.is_locked,
+			updated_at = excluded.updated_at`)
 
 	_, err := r.executeSQL(insert)
 	return err
@@ -135,7 +186,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 	orClause := Or{}
 	orClause = append(orClause, conditions...)
 
-	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "is_locked", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
 		From(r.tableName).
 		Where(orClause).
 		OrderBy("updated_at DESC").
@@ -149,7 +200,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 }
 
 func (r retailPlayerDeviceMappingRepository) All(ctx context.Context) ([]model.RetailPlayerDeviceMapping, error) {
-	sel := Select("device_id", "device_name", "device_slug", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "is_locked", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
 		From(r.tableName).
 		OrderBy("updated_at DESC")
 
