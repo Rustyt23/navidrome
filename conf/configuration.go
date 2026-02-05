@@ -221,8 +221,9 @@ type retailPlayerOptions struct {
 	OrderBy                   string
 	OrderDirection            string
 	Search                    string
-	Fields                    []string                        `json:",omitempty"`
-	AdditionalHeaders         map[string]string               `json:",omitempty"`
+	Fields                    []string          `json:",omitempty"`
+	AdditionalHeaders         map[string]string `json:",omitempty"`
+	LockPassword              string
 	Notifications             retailPlayerNotificationOptions `json:",omitempty"`
 }
 
@@ -648,6 +649,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.search", "")
 	viper.SetDefault("retailplayer.fields", []string{})
 	viper.SetDefault("retailplayer.additionalheaders", map[string]string{})
+	viper.SetDefault("retailplayer.lockpassword", "")
 	viper.SetDefault("httpsecurityheaders.customframeoptionsvalue", "DENY")
 	viper.SetDefault("backup.path", "")
 	viper.SetDefault("backup.schedule", "")

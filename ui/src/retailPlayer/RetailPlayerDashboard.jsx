@@ -2,11 +2,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha, makeStyles } from '@material-ui/core/styles'
 import {
   ButtonBase,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Drawer,
   List,
   ListItem,
   ListItemText,
   Slider,
+  TextField,
   Typography,
 } from '@material-ui/core'
 import Tooltip from '@material-ui/core/Tooltip'
@@ -930,6 +935,9 @@ const RetailPlayerDashboard = () => {
   const [cueError, setCueError] = useState(null)
   const [activeCueTriggerId, setActiveCueTriggerId] = useState('')
   const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
+  const [lockPassword, setLockPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [isSubmittingPassword, setSubmittingPassword] = useState(false)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -956,6 +964,69 @@ const RetailPlayerDashboard = () => {
       dislikeDisableTimeoutRef.current = null
     }
   }, [deviceTrackKey])
+
+
+  const deviceLockSessionKey = useMemo(() => {
+    if (!deviceTrackKey) {
+      return null
+    }
+    return `retailPlayerUnlocked:${deviceTrackKey}`
+  }, [deviceTrackKey])
+
+  const isDeviceUnlockedForSession = useMemo(() => {
+    if (!device?.isLocked || !deviceLockSessionKey) {
+      return true
+    }
+
+    try {
+      return window.sessionStorage.getItem(deviceLockSessionKey) === 'true'
+    } catch (error) {
+      return false
+    }
+  }, [device?.isLocked, deviceLockSessionKey])
+
+  const handleUnlockSubmit = useCallback(async () => {
+    if (!device) {
+      return
+    }
+
+    setSubmittingPassword(true)
+    setPasswordError('')
+
+    try {
+      const deviceId = device.apiId || device.id
+      const { json } = await httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/unlock`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ password: lockPassword }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        },
+      )
+
+      const isValid = json?.valid === true
+      if (!isValid) {
+        setPasswordError('Incorrect password')
+        return
+      }
+
+      if (deviceLockSessionKey) {
+        window.sessionStorage.setItem(deviceLockSessionKey, 'true')
+      }
+      setPasswordError('')
+      setLockPassword('')
+    } catch (err) {
+      setPasswordError('Incorrect password')
+    } finally {
+      setSubmittingPassword(false)
+    }
+  }, [device, lockPassword, deviceLockSessionKey])
+
+  const handleClosePasswordModal = useCallback(() => {
+    setPasswordError('')
+    setLockPassword('')
+    history.push('/retailplayer/devices')
+  }, [history])
 
   const cueStorageKey = useMemo(() => {
     if (!deviceTrackKey) {
@@ -2210,6 +2281,49 @@ const RetailPlayerDashboard = () => {
             {combinedError.message || String(combinedError)}
           </Typography>
         ) : null}
+      </div>
+    )
+  }
+
+  if (device?.isLocked && !isDeviceUnlockedForSession) {
+    return (
+      <div className={classes.notFoundWrapper}>
+        <Title title="Retail Player" />
+        <Dialog open disableEscapeKeyDown aria-labelledby="retail-player-password-dialog-title">
+          <DialogTitle id="retail-player-password-dialog-title">Device Locked</DialogTitle>
+          <DialogContent>
+            <Typography gutterBottom>
+              Enter the retail player password to access {device?.name || 'this device'}.
+            </Typography>
+            <TextField
+              autoFocus
+              fullWidth
+              type="password"
+              value={lockPassword}
+              onChange={(event) => setLockPassword(event.target.value)}
+              error={Boolean(passwordError)}
+              helperText={passwordError || ' '}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleUnlockSubmit()
+                }
+              }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <ButtonBase onClick={handleClosePasswordModal} aria-label="Close password prompt">
+              <Typography>Close</Typography>
+            </ButtonBase>
+            <ButtonBase
+              onClick={handleUnlockSubmit}
+              aria-label="Unlock device"
+              disabled={isSubmittingPassword}
+            >
+              <Typography>{isSubmittingPassword ? 'Unlocking…' : 'Unlock'}</Typography>
+            </ButtonBase>
+          </DialogActions>
+        </Dialog>
       </div>
     )
   }
