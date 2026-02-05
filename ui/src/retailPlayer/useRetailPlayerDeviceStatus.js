@@ -1036,36 +1036,50 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       setHasRealtimeStatus(true)
 
       if (payloadChannels) {
-        setChannelState({
-          data: mapChannelListResponse({ channels: payloadChannels }, channelState.data),
+        setChannelState((previous) => ({
+          ...previous,
+          data: mapChannelListResponse({ channels: payloadChannels }, previous.data),
           error: null,
           isLoading: false,
           fetchedAt: new Date(),
-        })
-      } else if (channelState.isLoading) {
-        setChannelState((previous) => ({
-          ...previous,
-          isLoading: false,
-          error: null,
         }))
+      } else {
+        setChannelState((previous) => {
+          if (!previous.isLoading) {
+            return previous
+          }
+
+          return {
+            ...previous,
+            isLoading: false,
+            error: null,
+          }
+        })
       }
 
       if (payloadTriggers) {
-        setTriggerState({
+        setTriggerState((previous) => ({
+          ...previous,
           data: ensureArray(payloadTriggers),
           error: null,
           isLoading: false,
           fetchedAt: new Date(),
-        })
-      } else if (triggerState.isLoading) {
-        setTriggerState((previous) => ({
-          ...previous,
-          isLoading: false,
-          error: null,
         }))
+      } else {
+        setTriggerState((previous) => {
+          if (!previous.isLoading) {
+            return previous
+          }
+
+          return {
+            ...previous,
+            isLoading: false,
+            error: null,
+          }
+        })
       }
     },
-    [channelState.data, channelState.isLoading, remoteControlDeviceId, triggerState.isLoading],
+    [remoteControlDeviceId],
   )
 
   useEffect(() => {

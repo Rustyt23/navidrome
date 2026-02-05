@@ -959,7 +959,6 @@ const RetailPlayerDashboard = () => {
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
-  const lockSessionKey = 'retailPlayerUnlockedDevices'
   const [unlockPassword, setUnlockPassword] = useState('')
   const [unlockError, setUnlockError] = useState('')
   const [isUnlocking, setIsUnlocking] = useState(false)
@@ -990,49 +989,11 @@ const RetailPlayerDashboard = () => {
     )
   }, [device])
 
-  const readUnlockedDevices = useCallback(() => {
-    if (typeof sessionStorage === 'undefined') {
-      return new Set()
-    }
-
-    try {
-      const raw = sessionStorage.getItem(lockSessionKey)
-      if (!raw) {
-        return new Set()
-      }
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) {
-        return new Set(parsed.filter((value) => typeof value === 'string'))
-      }
-    } catch (err) {
-      return new Set()
-    }
-
-    return new Set()
-  }, [lockSessionKey])
-
-  const storeUnlockedDevices = useCallback(
-    (unlockedDevices) => {
-      if (typeof sessionStorage === 'undefined') {
-        return
-      }
-      sessionStorage.setItem(
-        lockSessionKey,
-        JSON.stringify(Array.from(unlockedDevices)),
-      )
-    },
-    [lockSessionKey],
-  )
-
   useEffect(() => {
-    if (!deviceLockId) {
-      setIsUnlocked(false)
-      return
-    }
-
-    const unlockedDevices = readUnlockedDevices()
-    setIsUnlocked(unlockedDevices.has(deviceLockId))
-  }, [deviceLockId, readUnlockedDevices])
+    setIsUnlocked(false)
+    setUnlockPassword('')
+    setUnlockError('')
+  }, [deviceLockId])
 
   useEffect(() => {
     setPreviousNowPlaying(null)
@@ -2095,9 +2056,6 @@ const RetailPlayerDashboard = () => {
           headers: new Headers({ 'Content-Type': 'application/json' }),
         },
       )
-      const unlockedDevices = readUnlockedDevices()
-      unlockedDevices.add(deviceLockId)
-      storeUnlockedDevices(unlockedDevices)
       setIsUnlocked(true)
       setUnlockPassword('')
     } catch (err) {
@@ -2112,12 +2070,7 @@ const RetailPlayerDashboard = () => {
     } finally {
       setIsUnlocking(false)
     }
-  }, [
-    deviceLockId,
-    readUnlockedDevices,
-    storeUnlockedDevices,
-    unlockPassword,
-  ])
+  }, [deviceLockId, unlockPassword])
 
   const handleDislike = useCallback(() => {
     if (isDislikeDisabled) {
