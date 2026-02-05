@@ -1253,24 +1253,9 @@ func (n *Router) persistRetailPlayerDeviceMappings(ctx context.Context, devices 
 		return
 	}
 
-	existingLocks := map[string]bool{}
-	existingMappings, err := repo.All(ctx)
-	if err == nil {
-		for _, existing := range existingMappings {
-			id := strings.TrimSpace(existing.DeviceID)
-			if id == "" {
-				continue
-			}
-			existingLocks[id] = existing.IsLocked
-		}
-	}
-
 	mappings := make([]model.RetailPlayerDeviceMapping, 0, len(devices))
 	for _, device := range devices {
 		if mapping, ok := mapRetailPlayerDeviceToMapping(device); ok {
-			if locked, found := existingLocks[mapping.DeviceID]; found {
-				mapping.IsLocked = locked
-			}
 			mappings = append(mappings, mapping)
 		}
 	}
@@ -1423,12 +1408,29 @@ func (n *Router) handleToggleRetailPlayerDeviceLock() http.HandlerFunc {
 		mapping, err := repo.SetLockState(ctx, deviceID, *payload.Locked)
 		if err != nil {
 			if errors.Is(err, model.ErrNotFound) {
-				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				device, resolveErr := n.resolveRetailPlayerDevice(ctx, deviceID)
+				if resolveErr != nil {
+					http.Error(w, "Retail player device not found", http.StatusNotFound)
+					return
+				}
+
+				fallbackMapping, ok := mapRetailPlayerDeviceToMapping(device)
+				if !ok {
+					http.Error(w, "Retail player device not found", http.StatusNotFound)
+					return
+				}
+				fallbackMapping.IsLocked = *payload.Locked
+				if putErr := repo.Put(ctx, fallbackMapping); putErr != nil {
+					log.Error(ctx, "Unable to create retail player device lock mapping", "identifier", deviceID, "err", putErr)
+					http.Error(w, "Unable to update retail player device lock state", http.StatusInternalServerError)
+					return
+				}
+				mapping = &fallbackMapping
+			} else {
+				log.Error(ctx, "Unable to update retail player device lock state", "identifier", deviceID, "err", err)
+				http.Error(w, "Unable to update retail player device lock state", http.StatusInternalServerError)
 				return
 			}
-			log.Error(ctx, "Unable to update retail player device lock state", "identifier", deviceID, "err", err)
-			http.Error(w, "Unable to update retail player device lock state", http.StatusInternalServerError)
-			return
 		}
 
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{

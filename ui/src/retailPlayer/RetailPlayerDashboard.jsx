@@ -935,7 +935,6 @@ const RetailPlayerDashboard = () => {
   const [cueError, setCueError] = useState(null)
   const [activeCueTriggerId, setActiveCueTriggerId] = useState('')
   const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
-  const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [lockPassword, setLockPassword] = useState('')
   const [passwordError, setPasswordError] = useState('')
   const [isSubmittingPassword, setSubmittingPassword] = useState(false)
@@ -986,19 +985,6 @@ const RetailPlayerDashboard = () => {
     }
   }, [device?.isLocked, deviceLockSessionKey])
 
-  useEffect(() => {
-    if (device?.isLocked && !isDeviceUnlockedForSession) {
-      setPasswordModalOpen(true)
-      setPasswordError('')
-      setLockPassword('')
-      return
-    }
-
-    setPasswordModalOpen(false)
-    setPasswordError('')
-    setLockPassword('')
-  }, [device?.isLocked, isDeviceUnlockedForSession, deviceTrackKey])
-
   const handleUnlockSubmit = useCallback(async () => {
     if (!device) {
       return
@@ -1027,7 +1013,8 @@ const RetailPlayerDashboard = () => {
       if (deviceLockSessionKey) {
         window.sessionStorage.setItem(deviceLockSessionKey, 'true')
       }
-      setPasswordModalOpen(false)
+      setPasswordError('')
+      setLockPassword('')
     } catch (err) {
       setPasswordError('Incorrect password')
     } finally {
@@ -1036,7 +1023,8 @@ const RetailPlayerDashboard = () => {
   }, [device, lockPassword, deviceLockSessionKey])
 
   const handleClosePasswordModal = useCallback(() => {
-    setPasswordModalOpen(false)
+    setPasswordError('')
+    setLockPassword('')
     history.push('/retailplayer/devices')
   }, [history])
 
@@ -2301,7 +2289,7 @@ const RetailPlayerDashboard = () => {
     return (
       <div className={classes.notFoundWrapper}>
         <Title title="Retail Player" />
-        <Dialog open={passwordModalOpen} disableEscapeKeyDown aria-labelledby="retail-player-password-dialog-title">
+        <Dialog open disableEscapeKeyDown aria-labelledby="retail-player-password-dialog-title">
           <DialogTitle id="retail-player-password-dialog-title">Device Locked</DialogTitle>
           <DialogContent>
             <Typography gutterBottom>

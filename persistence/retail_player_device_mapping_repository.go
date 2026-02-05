@@ -127,7 +127,10 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 	insert = insert.Suffix(`ON CONFLICT(device_id) DO UPDATE SET
                 device_name = excluded.device_name,
                 device_slug = excluded.device_slug,
-                is_locked = excluded.is_locked,
+                is_locked = CASE
+                        WHEN excluded.is_locked THEN TRUE
+                        ELSE retail_player_device_mapping.is_locked
+                END,
                 channel = excluded.channel,
                 channel_list = excluded.channel_list,
                 organization = excluded.organization,
@@ -175,11 +178,16 @@ func (r retailPlayerDeviceMappingRepository) SetLockState(ctx context.Context, i
 		return nil, err
 	}
 
-	mapping.IsLocked = isLocked
-	if err := r.Put(ctx, *mapping); err != nil {
+	update := Update(r.tableName).
+		Set("is_locked", isLocked).
+		Set("updated_at", time.Now().UTC()).
+		Where(Eq{"device_id": mapping.DeviceID})
+
+	if _, err := r.executeSQL(update); err != nil {
 		return nil, err
 	}
 
+	mapping.IsLocked = isLocked
 	return mapping, nil
 }
 
