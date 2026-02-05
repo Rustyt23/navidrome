@@ -2,6 +2,7 @@ import { jwtDecode } from 'jwt-decode'
 import { baseUrl } from './utils'
 import config from './config'
 import { removeHomeCache } from './utils/removeHomeCache'
+import { clearRetailPlayerLockSessionState } from './retailPlayer/deviceLockState'
 
 // config sent from server may contain authentication info, for example when the user is authenticated
 // by a reverse proxy request header
@@ -140,6 +141,7 @@ const removeItems = () => {
   localStorage.removeItem('subsonic-salt')
   localStorage.removeItem('subsonic-token')
   localStorage.removeItem('is-authenticated')
+  clearRetailPlayerLockSessionState()
 }
 
 export default authProvider

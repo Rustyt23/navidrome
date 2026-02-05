@@ -1,12 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alpha, makeStyles } from '@material-ui/core/styles'
 import {
+  Button,
   ButtonBase,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Drawer,
   List,
   ListItem,
   ListItemText,
   Slider,
+  TextField,
   Typography,
 } from '@material-ui/core'
 import Tooltip from '@material-ui/core/Tooltip'
@@ -27,6 +33,12 @@ import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
+import config from '../config'
+import {
+  isDeviceLocked,
+  isDeviceUnlockedForSession,
+  markDeviceUnlockedForSession,
+} from './deviceLockState'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -882,6 +894,14 @@ const useStyles = makeStyles((theme) => {
     controlIconCueActive: {
       color: cueAccentColor,
     },
+    lockDialogPaper: {
+      minWidth: 360,
+      maxWidth: '90vw',
+    },
+    lockDialogError: {
+      color: theme.palette.error.main,
+      marginTop: theme.spacing(1),
+    },
   }
 })
 
@@ -930,6 +950,8 @@ const RetailPlayerDashboard = () => {
   const [cueError, setCueError] = useState(null)
   const [activeCueTriggerId, setActiveCueTriggerId] = useState('')
   const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
+  const [lockPasswordInput, setLockPasswordInput] = useState('')
+  const [lockError, setLockError] = useState('')
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -1796,6 +1818,34 @@ const RetailPlayerDashboard = () => {
     ]
   }, [currentTimeLabel, device, isMuted])
 
+  const isDevicePasswordConfigured = useMemo(
+    () => typeof config.retailPlayerDeviceLockPassword === 'string' && config.retailPlayerDeviceLockPassword.length > 0,
+    [],
+  )
+
+  const isAccessBlockedByLock = useMemo(() => {
+    if (!device || !isDevicePasswordConfigured) {
+      return false
+    }
+
+    return isDeviceLocked(device) && !isDeviceUnlockedForSession(device)
+  }, [device, isDevicePasswordConfigured])
+
+  const handleLockDialogSubmit = useCallback(() => {
+    if (!device) {
+      return
+    }
+
+    if (lockPasswordInput === config.retailPlayerDeviceLockPassword) {
+      markDeviceUnlockedForSession(device)
+      setLockPasswordInput('')
+      setLockError('')
+      return
+    }
+
+    setLockError('Incorrect password. Please try again.')
+  }, [device, lockPasswordInput])
+
   const handleToggleScheduleMenu = useCallback(() => {
     if (!availableSchedulesCount) {
       return
@@ -2113,7 +2163,7 @@ const RetailPlayerDashboard = () => {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (!device) {
+      if (!device || isAccessBlockedByLock) {
         return
       }
 
@@ -2161,7 +2211,7 @@ const RetailPlayerDashboard = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [device, handleAdjustVolume, handleShortcutChannel, handleToggleMute])
+  }, [device, handleAdjustVolume, handleShortcutChannel, handleToggleMute, isAccessBlockedByLock])
 
   useEffect(() => () => {
     clearVolumeTimeout()
@@ -2215,8 +2265,53 @@ const RetailPlayerDashboard = () => {
   }
 
   return (
-    <div className={rootClassName}>
+    <div
+      className={rootClassName}
+      aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
+      style={isAccessBlockedByLock ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
+    >
       <Title title="Retail Player" />
+
+      <Dialog
+        open={Boolean(device && isAccessBlockedByLock)}
+        disableEscapeKeyDown
+        classes={{ paper: classes.lockDialogPaper }}
+        aria-labelledby="retail-player-lock-dialog-title"
+      >
+        <DialogTitle id="retail-player-lock-dialog-title">Unlock device</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            This device is locked. Enter the password to continue.
+          </Typography>
+          <TextField
+            fullWidth
+            margin="dense"
+            variant="outlined"
+            type="password"
+            label="Password"
+            autoFocus
+            value={lockPasswordInput}
+            onChange={(event) => {
+              setLockPasswordInput(event.target.value)
+              if (lockError) {
+                setLockError('')
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                handleLockDialogSubmit()
+              }
+            }}
+          />
+          {lockError ? <Typography className={classes.lockDialogError}>{lockError}</Typography> : null}
+        </DialogContent>
+        <DialogActions>
+          <Button color="primary" variant="contained" onClick={handleLockDialogSubmit}>
+            Unlock
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <header className={classes.headerBar}>
         <ButtonBase
