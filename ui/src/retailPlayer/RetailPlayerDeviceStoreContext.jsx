@@ -98,6 +98,12 @@ const baseDeviceShape = (device, existing) => {
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
   const normalizedRemoteControlId = normalizeValue(device?.remoteControlId)
+  const normalizedIsLocked =
+    typeof device?.isLocked === 'boolean'
+      ? device.isLocked
+      : typeof existing?.isLocked === 'boolean'
+        ? existing.isLocked
+        : false
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -123,6 +129,7 @@ const baseDeviceShape = (device, existing) => {
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',
     remoteControlId: normalizedRemoteControlId || '',
+    isLocked: normalizedIsLocked,
     folderIds,
     folderId: primaryFolderId,
     source: existing?.source === 'local' ? 'local' : 'remote',
@@ -275,6 +282,7 @@ const reducer = (state, action) => {
         folderIds,
         folderId,
         remoteControlId,
+        isLocked,
       } = action.payload || {}
       if (!id) {
         return state
@@ -304,6 +312,8 @@ const reducer = (state, action) => {
             remoteControlId !== undefined
               ? normalizeValue(remoteControlId)
               : device.remoteControlId,
+          isLocked:
+            typeof isLocked === 'boolean' ? isLocked : device.isLocked,
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
@@ -643,6 +653,10 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         basePayload,
         'remoteControlId',
       )
+      const hasIsLocked = Object.prototype.hasOwnProperty.call(
+        basePayload,
+        'isLocked',
+      )
 
       if (hasRemoteControlId) {
         const remoteControlId = normalizeValue(basePayload.remoteControlId)
@@ -664,6 +678,29 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
             payload: { id: deviceId, remoteControlId: normalizedRemoteControlId },
           })
         }
+      }
+
+      if (hasIsLocked) {
+        const isLocked = Boolean(basePayload.isLocked)
+        const { json } = await httpClient(
+          `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/lock`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ locked: isLocked }),
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+          },
+        )
+
+        dispatch({
+          type: 'UPDATE_DEVICE',
+          payload: {
+            id: deviceId,
+            isLocked:
+              typeof json?.data?.isLocked === 'boolean'
+                ? json.data.isLocked
+                : isLocked,
+          },
+        })
       }
 
       const hasFolderIds = Object.prototype.hasOwnProperty.call(

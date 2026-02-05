@@ -200,6 +200,7 @@ type retailPlayerNotificationOptions struct {
 
 type retailPlayerOptions struct {
 	Enabled                   bool
+	DeviceLockPassword        string
 	BaseURL                   string
 	OrgID                     string
 	APIKey                    string
@@ -628,6 +629,7 @@ func setViperDefaults() {
 	viper.SetDefault("listenbrainz.enabled", true)
 	viper.SetDefault("listenbrainz.baseurl", "https://api.listenbrainz.org/1/")
 	viper.SetDefault("retailplayer.enabled", false)
+	viper.SetDefault("retailplayer.devicelockpassword", "")
 	viper.SetDefault("retailplayer.baseurl", "")
 	viper.SetDefault("retailplayer.orgid", "")
 	viper.SetDefault("retailplayer.apikey", "")

@@ -26,6 +26,8 @@ import { fade } from '@material-ui/core/styles/colorManipulator'
 import { Title } from 'react-admin'
 import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
+import LockIcon from '@material-ui/icons/Lock'
+import LockOpenIcon from '@material-ui/icons/LockOpen'
 import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
@@ -45,6 +47,7 @@ import {
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
 import useRetailPlayerChannelCounts from './useRetailPlayerChannelCounts'
+import { isDeviceLocked } from './deviceLockState'
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
@@ -288,6 +291,9 @@ const useStyles = makeStyles((theme) => {
     display: 'flex',
     gap: theme.spacing(1),
     justifyContent: 'flex-end',
+  },
+  lockIconActive: {
+    color: theme.palette.secondary.main,
   },
   breadcrumbBar: {
     display: 'flex',
@@ -602,6 +608,8 @@ const RetailPlayerDeviceRow = memo(
     onToggleSelection,
     onKeyDown,
     onEdit,
+    onToggleLock,
+    isLocked,
     isOnline,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
@@ -656,6 +664,22 @@ const RetailPlayerDeviceRow = memo(
           {node.remoteControlId ? node.remoteControlId : '—'}
         </div>
         <div className={classes.actionsCell}>
+          <Tooltip title={isLocked ? 'Unlock device' : 'Lock device'}>
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleLock(node)
+              }}
+              aria-label={`${isLocked ? 'Unlock' : 'Lock'} device ${node.name}`}
+            >
+              {isLocked ? (
+                <LockIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+              ) : (
+                <LockOpenIcon style={{ fontSize: 15 }} />
+              )}
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Edit device">
             <IconButton
               size="small"
@@ -686,11 +710,14 @@ RetailPlayerDeviceRow.propTypes = {
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
+  onToggleLock: PropTypes.func.isRequired,
+  isLocked: PropTypes.bool,
   isOnline: PropTypes.bool,
 }
 
 RetailPlayerDeviceRow.defaultProps = {
   channelCount: null,
+  isLocked: false,
   isOnline: null,
 }
 
@@ -1210,6 +1237,20 @@ const RetailPlayerDeviceManagement = () => {
     }
   }
 
+  const handleToggleDeviceLock = useCallback(async (device) => {
+    if (!device) {
+      return
+    }
+
+    try {
+      const nextLockedValue = !isDeviceLocked(device)
+      await updateDevice({ id: device.id, isLocked: nextLockedValue })
+      setSelectedIds((previous) => new Set(previous))
+    } catch (err) {
+      console.error('Failed to update retail player device lock state', err)
+    }
+  }, [updateDevice])
+
   const handleNavigateToDevice = useCallback(
     (device) => {
       if (!device) {
@@ -1383,6 +1424,8 @@ const RetailPlayerDeviceManagement = () => {
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
           onEdit={handleEditDevice}
+          onToggleLock={handleToggleDeviceLock}
+          isLocked={isDeviceLocked(node)}
           isOnline={isOnline}
         />
       )

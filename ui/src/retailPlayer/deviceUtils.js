@@ -69,6 +69,12 @@ const mapRetailPlayerDevice = (device) => {
         .filter(Boolean)
     : []
   const remoteControlId = normalizeValue(device.remoteControlId)
+  const isLocked =
+    typeof device.isLocked === 'boolean'
+      ? device.isLocked
+      : typeof device.is_locked === 'boolean'
+        ? device.is_locked
+        : undefined
 
   return {
     id: fallbackId,
@@ -85,6 +91,7 @@ const mapRetailPlayerDevice = (device) => {
     timeZone: normalizeValue(device.timeZone || device.time_zone),
     folderIds,
     remoteControlId,
+    ...(typeof isLocked === 'boolean' ? { isLocked } : {}),
   }
 }
 
