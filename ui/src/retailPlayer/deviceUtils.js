@@ -46,7 +46,34 @@ const deviceSlugKey = (value) => {
   return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
-const mapRetailPlayerDevice = (device) => {
+const normalizeBoolean = (value, fallback = false) => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true' || normalized === '1') {
+      return true
+    }
+    if (normalized === 'false' || normalized === '0') {
+      return false
+    }
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value === 1) {
+      return true
+    }
+    if (value === 0) {
+      return false
+    }
+  }
+
+  return fallback
+}
+
+const mapRetailPlayerDevice = (device, options = {}) => {
   if (!device || typeof device !== 'object') {
     return null
   }
@@ -69,10 +96,9 @@ const mapRetailPlayerDevice = (device) => {
         .filter(Boolean)
     : []
   const remoteControlId = normalizeValue(device.remoteControlId)
-  const locked =
-    typeof device.locked === 'boolean'
-      ? device.locked
-      : Boolean(device.locked)
+  const lockedFallback =
+    typeof options.lockedFallback === 'boolean' ? options.lockedFallback : false
+  const locked = normalizeBoolean(device.locked, lockedFallback)
 
   return {
     id: fallbackId,

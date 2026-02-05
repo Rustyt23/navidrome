@@ -747,7 +747,11 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
     const payloadDevice = statusState.data?.device
     if (payloadDevice) {
-      return ensureMatchingDevice(mapRetailPlayerDevice(payloadDevice))
+      return ensureMatchingDevice(
+        mapRetailPlayerDevice(payloadDevice, {
+          lockedFallback: deviceState.data?.locked ?? false,
+        }),
+      )
     }
 
     if (Array.isArray(devices)) {
@@ -1009,7 +1013,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
       realtimeDeviceRef.current = mergedDevice
 
-      const mappedDevice = mapRetailPlayerDevice(mergedDevice)
+      const mappedDevice = mapRetailPlayerDevice(mergedDevice, {
+        lockedFallback:
+          previousDevice?.locked ?? baseDevice?.locked ?? deviceState.data?.locked ?? false,
+      })
       if (mappedDevice) {
         setDeviceState({
           data: mappedDevice,
@@ -1065,7 +1072,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         }))
       }
     },
-    [channelState.data, channelState.isLoading, remoteControlDeviceId, triggerState.isLoading],
+    [
+      baseDevice?.locked,
+      channelState.data,
+      channelState.isLoading,
+      deviceState.data?.locked,
+      remoteControlDeviceId,
+      triggerState.isLoading,
+    ],
   )
 
   useEffect(() => {
