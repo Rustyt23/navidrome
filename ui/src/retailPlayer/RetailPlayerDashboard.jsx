@@ -1819,20 +1819,27 @@ const RetailPlayerDashboard = () => {
   }, [currentTimeLabel, device, isMuted])
 
   const isDevicePasswordConfigured = useMemo(
-    () => typeof config.retailPlayerDeviceLockPassword === 'string' && config.retailPlayerDeviceLockPassword.length > 0,
+    () =>
+      typeof config.retailPlayerDeviceLockPassword === 'string' &&
+      config.retailPlayerDeviceLockPassword.length > 0,
     [],
   )
 
   const isAccessBlockedByLock = useMemo(() => {
-    if (!device || !isDevicePasswordConfigured) {
+    if (!device) {
       return false
     }
 
     return isDeviceLocked(device) && !isDeviceUnlockedForSession(device)
-  }, [device, isDevicePasswordConfigured])
+  }, [device])
 
   const handleLockDialogSubmit = useCallback(() => {
     if (!device) {
+      return
+    }
+
+    if (!isDevicePasswordConfigured) {
+      setLockError('Device lock password is not configured. Please contact an administrator.')
       return
     }
 
@@ -1844,7 +1851,14 @@ const RetailPlayerDashboard = () => {
     }
 
     setLockError('Incorrect password. Please try again.')
-  }, [device, lockPasswordInput])
+  }, [device, isDevicePasswordConfigured, lockPasswordInput])
+
+  useEffect(() => {
+    if (!isAccessBlockedByLock) {
+      setLockPasswordInput('')
+      setLockError('')
+    }
+  }, [isAccessBlockedByLock])
 
   const handleToggleScheduleMenu = useCallback(() => {
     if (!availableSchedulesCount) {
