@@ -98,6 +98,7 @@ const baseDeviceShape = (device, existing) => {
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
   const normalizedRemoteControlId = normalizeValue(device?.remoteControlId)
+  const normalizedIsLocked = device?.isLocked === true
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -123,6 +124,7 @@ const baseDeviceShape = (device, existing) => {
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',
     remoteControlId: normalizedRemoteControlId || '',
+    isLocked: normalizedIsLocked || existing?.isLocked === true,
     folderIds,
     folderId: primaryFolderId,
     source: existing?.source === 'local' ? 'local' : 'remote',
@@ -229,6 +231,7 @@ const reducer = (state, action) => {
         folderId,
         attributes,
         remoteControlId,
+        isLocked,
       } = action.payload || {}
       const normalizedName = normalizeValue(name) || 'New Device'
       const slug = deviceSlugKey(normalizedName) || uuidv4()
@@ -275,6 +278,7 @@ const reducer = (state, action) => {
         folderIds,
         folderId,
         remoteControlId,
+        isLocked,
       } = action.payload || {}
       if (!id) {
         return state
@@ -304,6 +308,7 @@ const reducer = (state, action) => {
             remoteControlId !== undefined
               ? normalizeValue(remoteControlId)
               : device.remoteControlId,
+          isLocked: isLocked === true ? true : isLocked === false ? false : device.isLocked === true,
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }

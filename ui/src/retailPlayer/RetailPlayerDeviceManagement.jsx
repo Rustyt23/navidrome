@@ -23,9 +23,11 @@ import {
 } from '@material-ui/core'
 import { makeStyles, useTheme } from '@material-ui/core/styles'
 import { fade } from '@material-ui/core/styles/colorManipulator'
-import { Title } from 'react-admin'
+import { Title, usePermissions } from 'react-admin'
 import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
+import LockOpenIcon from '@material-ui/icons/LockOpen'
+import LockIcon from '@material-ui/icons/Lock'
 import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
@@ -602,6 +604,8 @@ const RetailPlayerDeviceRow = memo(
     onToggleSelection,
     onKeyDown,
     onEdit,
+    onToggleLock,
+    canToggleLock,
     isOnline,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
@@ -656,6 +660,27 @@ const RetailPlayerDeviceRow = memo(
           {node.remoteControlId ? node.remoteControlId : '—'}
         </div>
         <div className={classes.actionsCell}>
+          <Tooltip title={node.isLocked ? 'Unlock device access' : 'Lock device access'}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (canToggleLock) {
+                    onToggleLock(node)
+                  }
+                }}
+                aria-label={`${node.isLocked ? 'Unlock' : 'Lock'} device ${node.name}`}
+                disabled={!canToggleLock}
+              >
+                {node.isLocked ? (
+                  <LockIcon style={{ fontSize: 15 }} />
+                ) : (
+                  <LockOpenIcon style={{ fontSize: 15 }} />
+                )}
+              </IconButton>
+            </span>
+          </Tooltip>
           <Tooltip title="Edit device">
             <IconButton
               size="small"
@@ -686,6 +711,8 @@ RetailPlayerDeviceRow.propTypes = {
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
+  onToggleLock: PropTypes.func.isRequired,
+  canToggleLock: PropTypes.bool.isRequired,
   isOnline: PropTypes.bool,
 }
 
@@ -700,6 +727,8 @@ const RetailPlayerDeviceManagement = () => {
   const classes = useStyles()
   const theme = useTheme()
   const history = useHistory()
+  const { permissions } = usePermissions()
+  const isAdmin = permissions === 'admin'
   const {
     state: { tree, folders, devices, loading, error, isApiEnabled },
     actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
@@ -1210,6 +1239,34 @@ const RetailPlayerDeviceManagement = () => {
     }
   }
 
+
+  const handleToggleDeviceLock = async (device) => {
+    if (!device || !isAdmin) {
+      return
+    }
+
+    const targetLockedState = device.isLocked !== true
+    const deviceId = device.apiId || device.id
+
+    try {
+      const { json } = await httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/lock`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ locked: targetLockedState }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        },
+      )
+
+      await updateDevice({
+        id: device.id,
+        isLocked: json?.isLocked === true,
+      })
+    } catch (err) {
+      // Keep UI responsive if the lock update fails; state remains unchanged.
+    }
+  }
+
   const handleNavigateToDevice = useCallback(
     (device) => {
       if (!device) {
@@ -1383,6 +1440,8 @@ const RetailPlayerDeviceManagement = () => {
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
           onEdit={handleEditDevice}
+          onToggleLock={handleToggleDeviceLock}
+          canToggleLock={isAdmin}
           isOnline={isOnline}
         />
       )
@@ -1516,7 +1575,7 @@ const RetailPlayerDeviceManagement = () => {
           <span>Type</span>
           <span>Devices / Channels</span>
           <span>QR ID</span>
-          <span className={classes.headerActions}>Edit</span>
+          <span className={classes.headerActions}>Actions</span>
         </div>
         {isLoading ? (
           <div className={classes.loaderState}>

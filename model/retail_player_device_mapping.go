@@ -10,6 +10,7 @@ type RetailPlayerDeviceMapping struct {
 	DeviceID     string    `db:"device_id" json:"deviceId"`
 	DeviceName   string    `db:"device_name" json:"deviceName"`
 	DeviceSlug   string    `db:"device_slug" json:"deviceSlug"`
+	IsLocked     bool      `db:"is_locked" json:"isLocked"`
 	Channel      string    `db:"channel" json:"channel"`
 	ChannelList  string    `db:"channel_list" json:"channelList"`
 	Organization string    `db:"organization" json:"organization"`
@@ -22,6 +23,7 @@ type RetailPlayerDeviceMappingRepository interface {
 	Put(ctx context.Context, mapping RetailPlayerDeviceMapping) error
 	PutMany(ctx context.Context, mappings []RetailPlayerDeviceMapping) error
 	FindByIdentifier(ctx context.Context, identifier string) (*RetailPlayerDeviceMapping, error)
+	SetLockState(ctx context.Context, identifier string, isLocked bool) (*RetailPlayerDeviceMapping, error)
 	All(ctx context.Context) ([]RetailPlayerDeviceMapping, error)
 }
 
