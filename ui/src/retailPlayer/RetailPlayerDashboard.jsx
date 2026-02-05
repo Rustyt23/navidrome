@@ -1825,13 +1825,17 @@ const RetailPlayerDashboard = () => {
     [],
   )
 
-  const isAccessBlockedByLock = useMemo(() => {
-    if (!device) {
-      return false
+  const isAccessBlockedByLock =
+    Boolean(device) && isDeviceLocked(device) && !isDeviceUnlockedForSession(device)
+
+  const handleLockDialogBack = useCallback(() => {
+    if (history.length > 1) {
+      history.goBack()
+      return
     }
 
-    return isDeviceLocked(device) && !isDeviceUnlockedForSession(device)
-  }, [device])
+    history.push('/retailplayer/devices')
+  }, [history])
 
   const handleLockDialogSubmit = useCallback(() => {
     if (!device) {
@@ -2321,6 +2325,7 @@ const RetailPlayerDashboard = () => {
           {lockError ? <Typography className={classes.lockDialogError}>{lockError}</Typography> : null}
         </DialogContent>
         <DialogActions>
+          <Button onClick={handleLockDialogBack}>Back</Button>
           <Button color="primary" variant="contained" onClick={handleLockDialogSubmit}>
             Unlock
           </Button>
