@@ -1,10 +1,25 @@
 import React, { useMemo, useState } from 'react'
 import { makeStyles } from '@material-ui/core/styles'
-import { Typography, ButtonBase, TextField } from '@material-ui/core'
+import {
+  Typography,
+  ButtonBase,
+  TextField,
+  IconButton,
+  Tooltip,
+} from '@material-ui/core'
 import { Title, useTranslate } from 'react-admin'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
+import LockIcon from '@material-ui/icons/Lock'
+import LockOpenIcon from '@material-ui/icons/LockOpen'
 import { useHistory } from 'react-router-dom'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
+import RetailPlayerUnlockDialog from './RetailPlayerUnlockDialog'
+import {
+  isDeviceLocked,
+  isDeviceUnlockedForSession,
+  setDeviceLocked,
+  setDeviceUnlockedForSession,
+} from './deviceLock'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -144,6 +159,12 @@ const useStyles = makeStyles((theme) => ({
       theme.palette.text.primary,
     fontWeight: theme.typography.fontWeightMedium,
   },
+  lockButton: {
+    padding: theme.spacing(0.5),
+  },
+  lockIconActive: {
+    color: theme.palette.error.main,
+  },
   chevron: {
     fontSize: theme.typography.pxToRem(20),
   },
@@ -159,19 +180,43 @@ const RetailPlayerDevicesList = () => {
   const history = useHistory()
   const translate = useTranslate()
   const [searchTerm, setSearchTerm] = useState('')
+  const [activeLockedDevice, setActiveLockedDevice] = useState(null)
+  const [lockVersion, setLockVersion] = useState(0)
   const {
     devices,
     error: devicesError,
     isLoading: devicesLoading,
   } = useRetailPlayerDevices()
 
-  const handleNavigate = (device) => {
+  const navigateToDevice = (device) => {
     if (!device) {
       return
     }
     const slug = device.slug || device.name || device.id
     const encodedSlug = encodeURIComponent(slug)
     history.push(`/retailplayer/${encodedSlug}`)
+  }
+
+  const handleNavigate = (device) => {
+    if (!device) {
+      return
+    }
+
+    const deviceIsLocked = isDeviceLocked(device)
+    const deviceIsUnlocked = isDeviceUnlockedForSession(device)
+    if (deviceIsLocked && !deviceIsUnlocked) {
+      setActiveLockedDevice(device)
+      return
+    }
+
+    navigateToDevice(device)
+  }
+
+  const handleToggleLock = (event, device) => {
+    event.stopPropagation()
+    const currentlyLocked = isDeviceLocked(device)
+    setDeviceLocked(device, !currentlyLocked)
+    setLockVersion((previous) => previous + 1)
   }
 
   const filteredDevices = useMemo(() => {
@@ -184,6 +229,16 @@ const RetailPlayerDevicesList = () => {
       device.name.toLowerCase().includes(normalizedTerm),
     )
   }, [devices, searchTerm])
+
+  const handleUnlockSuccess = () => {
+    if (!activeLockedDevice) {
+      return
+    }
+
+    setDeviceUnlockedForSession(activeLockedDevice, true)
+    navigateToDevice(activeLockedDevice)
+    setActiveLockedDevice(null)
+  }
 
   return (
     <div className={classes.root}>
@@ -226,41 +281,86 @@ const RetailPlayerDevicesList = () => {
           </div>
         ) : devicesError ? (
           <div className={classes.noResults}>
-            {translate('menu.retailPlayer.error', { _: 'Unable to load devices' })}
+            {translate('menu.retailPlayer.error', {
+              _: 'Unable to load devices',
+            })}
           </div>
         ) : filteredDevices.length > 0 ? (
-          filteredDevices.map((device) => (
-          <ButtonBase
-            key={device.apiId || device.id}
-              className={classes.buttonBase}
-              onClick={() => handleNavigate(device)}
-              focusRipple
-              aria-label={`Open ${device.name}`}
-            >
-              <span className={classes.rowButton}>
-                <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
-                  View
-                  <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+          filteredDevices.map((device) => {
+            const deviceIsLocked = isDeviceLocked(device)
+
+            return (
+              <ButtonBase
+                key={device.apiId || device.id}
+                className={classes.buttonBase}
+                onClick={() => handleNavigate(device)}
+                focusRipple
+                aria-label={`Open ${device.name}`}
+              >
+                <span className={classes.rowButton}>
+                  <span
+                    className={`${classes.cell} ${classes.actionCell}`}
+                    data-area="actions"
+                  >
+                    <Tooltip
+                      title={
+                        deviceIsLocked
+                          ? 'Unlock protection enabled'
+                          : 'Lock device'
+                      }
+                    >
+                      <IconButton
+                        size="small"
+                        className={classes.lockButton}
+                        onClick={(event) => handleToggleLock(event, device)}
+                        aria-label={
+                          deviceIsLocked
+                            ? `Unlock ${device.name}`
+                            : `Lock ${device.name}`
+                        }
+                      >
+                        {deviceIsLocked ? (
+                          <LockIcon
+                            className={classes.lockIconActive}
+                            fontSize="small"
+                          />
+                        ) : (
+                          <LockOpenIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </Tooltip>
+                    View
+                    <ChevronRightIcon
+                      className={classes.chevron}
+                      aria-hidden="true"
+                    />
+                  </span>
+                  <span className={classes.cell} data-area="name">
+                    {device.name}
+                  </span>
+                  <span className={classes.cell} data-area="channel">
+                    {device.channel}
+                  </span>
+                  <span className={classes.cell} data-area="channelList">
+                    {device.channelList}
+                  </span>
+                  <span className={classes.cell} data-area="organization">
+                    {device.organization}
+                  </span>
                 </span>
-                <span className={classes.cell} data-area="name">
-                  {device.name}
-                </span>
-                <span className={classes.cell} data-area="channel">
-                  {device.channel}
-                </span>
-                <span className={classes.cell} data-area="channelList">
-                  {device.channelList}
-                </span>
-                <span className={classes.cell} data-area="organization">
-                  {device.organization}
-                </span>
-              </span>
-            </ButtonBase>
-          ))
+              </ButtonBase>
+            )
+          })
         ) : (
           <div className={classes.noResults}>No devices match this search.</div>
         )}
       </div>
+      <RetailPlayerUnlockDialog
+        open={Boolean(activeLockedDevice)}
+        deviceName={activeLockedDevice?.name || ''}
+        onUnlocked={handleUnlockSuccess}
+        key={`${activeLockedDevice?.id || activeLockedDevice?.slug || ''}-${lockVersion}`}
+      />
     </div>
   )
 }

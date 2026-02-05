@@ -2,6 +2,7 @@ import { jwtDecode } from 'jwt-decode'
 import { baseUrl } from './utils'
 import config from './config'
 import { removeHomeCache } from './utils/removeHomeCache'
+import { clearDeviceLockSession } from './retailPlayer/deviceLock'
 
 // config sent from server may contain authentication info, for example when the user is authenticated
 // by a reverse proxy request header
@@ -98,7 +99,8 @@ const authProvider = {
   },
 
   checkAuth: () =>
-    localStorage.getItem('is-authenticated') || ensurePublicRetailPlayerSession()
+    localStorage.getItem('is-authenticated') ||
+    ensurePublicRetailPlayerSession()
       ? Promise.resolve()
       : Promise.reject(),
 
@@ -140,6 +142,7 @@ const removeItems = () => {
   localStorage.removeItem('subsonic-salt')
   localStorage.removeItem('subsonic-token')
   localStorage.removeItem('is-authenticated')
+  clearDeviceLockSession()
 }
 
 export default authProvider

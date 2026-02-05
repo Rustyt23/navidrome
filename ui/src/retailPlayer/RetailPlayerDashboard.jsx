@@ -27,13 +27,26 @@ import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
+import RetailPlayerUnlockDialog from './RetailPlayerUnlockDialog'
+import {
+  isDeviceLocked,
+  isDeviceUnlockedForSession,
+  setDeviceUnlockedForSession,
+} from './deviceLock'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const CueIcon = (props) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" width="1em" height="1em" {...props}>
+  <svg
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+    width="1em"
+    height="1em"
+    {...props}
+  >
     <path d="M12 2.75a.75.75 0 0 1 .75.75v9.19l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 1.06-1.06l2.72 2.72V3.5a.75.75 0 0 1 .75-.75Z" />
     <path d="M4 15.5a8 8 0 0 0 16 0h-1.5a6.5 6.5 0 0 1-13 0Z" />
   </svg>
@@ -131,7 +144,8 @@ const useStyles = makeStyles((theme) => {
     (theme.palette.secondary && theme.palette.secondary.main) ||
     theme.palette.primary.main
   const sliderMain =
-    (theme.palette.secondary && theme.palette.secondary.main) || theme.palette.primary.main
+    (theme.palette.secondary && theme.palette.secondary.main) ||
+    theme.palette.primary.main
   const accentColor =
     (theme.palette.secondary && theme.palette.secondary.main) || '#ff6f9f'
   const cueAccentColor = '#9c27b0'
@@ -174,8 +188,10 @@ const useStyles = makeStyles((theme) => {
       alignItems: 'center',
       padding: `0 ${theme.spacing(4)}px`,
       backgroundColor:
-        alpha(theme.palette.background.paper || theme.palette.background.default, 0.92) ||
-        theme.palette.background.default,
+        alpha(
+          theme.palette.background.paper || theme.palette.background.default,
+          0.92,
+        ) || theme.palette.background.default,
       boxShadow: '0 6px 16px rgba(0, 0, 0, 0.35)',
       zIndex: (theme.zIndex && theme.zIndex.appBar) || 1100,
       backdropFilter: 'blur(6px)',
@@ -193,10 +209,13 @@ const useStyles = makeStyles((theme) => {
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
-      transition: theme.transitions.create(['color', 'border-color', 'background-color'], {
-        duration: theme.transitions.duration.shorter,
-        easing: theme.transitions.easing.easeInOut,
-      }),
+      transition: theme.transitions.create(
+        ['color', 'border-color', 'background-color'],
+        {
+          duration: theme.transitions.duration.shorter,
+          easing: theme.transitions.easing.easeInOut,
+        },
+      ),
       padding: 0,
       cursor: 'pointer',
       '&:hover, &:focus-visible': {
@@ -278,10 +297,13 @@ const useStyles = makeStyles((theme) => {
       fontWeight: theme.typography.fontWeightMedium,
       fontSize: theme.typography.pxToRem(18),
       letterSpacing: theme.spacing(0.25),
-      transition: theme.transitions.create(['color', 'border-color', 'background-color'], {
-        duration: theme.transitions.duration.shorter,
-        easing: theme.transitions.easing.easeInOut,
-      }),
+      transition: theme.transitions.create(
+        ['color', 'border-color', 'background-color'],
+        {
+          duration: theme.transitions.duration.shorter,
+          easing: theme.transitions.easing.easeInOut,
+        },
+      ),
       backgroundColor: alpha(theme.palette.common.white, 0.04),
       '&:hover, &:focus-visible': {
         color: accentColor,
@@ -807,10 +829,13 @@ const useStyles = makeStyles((theme) => {
       alignItems: 'center',
       gap: theme.spacing(1),
       color: theme.palette.text.primary,
-      transition: theme.transitions.create(['color', 'background-color', 'border-color'], {
-        duration: theme.transitions.duration.shorter,
-        easing: theme.transitions.easing.easeInOut,
-      }),
+      transition: theme.transitions.create(
+        ['color', 'background-color', 'border-color'],
+        {
+          duration: theme.transitions.duration.shorter,
+          easing: theme.transitions.easing.easeInOut,
+        },
+      ),
       '&:hover, &:focus-visible': {
         backgroundColor: theme.palette.action.hover,
       },
@@ -933,6 +958,47 @@ const RetailPlayerDashboard = () => {
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
+  const [isUnlockDialogOpen, setUnlockDialogOpen] = useState(false)
+
+  const lockCandidates = useMemo(() => {
+    const decodedSlug = (() => {
+      if (typeof deviceSlug !== 'string') {
+        return ''
+      }
+
+      try {
+        return decodeURIComponent(deviceSlug)
+      } catch (error) {
+        return deviceSlug
+      }
+    })()
+
+    return [decodedSlug, deviceSlug, resolvedDevice, baseDevice, device].filter(
+      Boolean,
+    )
+  }, [baseDevice, device, deviceSlug, resolvedDevice])
+
+  const requiresUnlock = useMemo(() => {
+    const locked = lockCandidates.some((candidate) => isDeviceLocked(candidate))
+    if (!locked) {
+      return false
+    }
+
+    return !lockCandidates.some((candidate) =>
+      isDeviceUnlockedForSession(candidate),
+    )
+  }, [lockCandidates])
+
+  useEffect(() => {
+    setUnlockDialogOpen(requiresUnlock)
+  }, [requiresUnlock])
+
+  const handleUnlockSuccess = useCallback(() => {
+    lockCandidates.forEach((candidate) => {
+      setDeviceUnlockedForSession(candidate, true)
+    })
+    setUnlockDialogOpen(false)
+  }, [lockCandidates])
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -983,7 +1049,9 @@ const RetailPlayerDashboard = () => {
       const parsed = JSON.parse(storedValue)
       const storedTriggerId = normalizeValue(parsed?.triggerId) || ''
       const parsedOrdinal = Number(parsed?.triggerOrdinal)
-      const storedTriggerOrdinal = Number.isFinite(parsedOrdinal) ? parsedOrdinal : null
+      const storedTriggerOrdinal = Number.isFinite(parsedOrdinal)
+        ? parsedOrdinal
+        : null
 
       setActiveCueTriggerId(storedTriggerId)
       setActiveCueTriggerOrdinal(storedTriggerOrdinal)
@@ -1141,7 +1209,10 @@ const RetailPlayerDashboard = () => {
   const [pendingActiveChannelKey, setPendingActiveChannelKey] = useState(null)
 
   useEffect(() => {
-    if (pendingActiveChannelKey && activeChannelKey === pendingActiveChannelKey) {
+    if (
+      pendingActiveChannelKey &&
+      activeChannelKey === pendingActiveChannelKey
+    ) {
       setPendingActiveChannelKey(null)
     }
   }, [activeChannelKey, pendingActiveChannelKey])
@@ -1149,7 +1220,10 @@ const RetailPlayerDashboard = () => {
   const effectiveActiveChannelKey = pendingActiveChannelKey || activeChannelKey
 
   const availableSchedules = useMemo(
-    () => schedules.filter((schedule) => schedule.key !== effectiveActiveChannelKey),
+    () =>
+      schedules.filter(
+        (schedule) => schedule.key !== effectiveActiveChannelKey,
+      ),
     [effectiveActiveChannelKey, schedules],
   )
   const availableSchedulesCount = availableSchedules.length
@@ -1180,7 +1254,10 @@ const RetailPlayerDashboard = () => {
     }
 
     const rawOrdinal =
-      trigger.ordinal ?? trigger.Ordinal ?? trigger.button ?? trigger.buttonNumber
+      trigger.ordinal ??
+      trigger.Ordinal ??
+      trigger.button ??
+      trigger.buttonNumber
     const parsedOrdinal = Number(rawOrdinal)
     return Number.isFinite(parsedOrdinal) ? parsedOrdinal : null
   }, [])
@@ -1223,14 +1300,14 @@ const RetailPlayerDashboard = () => {
         ]
       : []
 
-    const metadataTriggerId = triggerIdCandidates.map(normalizeValue).find(Boolean) || ''
+    const metadataTriggerId =
+      triggerIdCandidates.map(normalizeValue).find(Boolean) || ''
     const metadataOrdinalCandidate = nowPlayingCueMetadata
-      ?
-          nowPlayingCueMetadata.triggerOrdinal ??
-          nowPlayingCueMetadata.trigger_ordinal ??
-          nowPlayingCueMetadata.ordinal ??
-          nowPlayingCueMetadata.button ??
-          nowPlayingCueMetadata.buttonNumber
+      ? (nowPlayingCueMetadata.triggerOrdinal ??
+        nowPlayingCueMetadata.trigger_ordinal ??
+        nowPlayingCueMetadata.ordinal ??
+        nowPlayingCueMetadata.button ??
+        nowPlayingCueMetadata.buttonNumber)
       : null
     const parsedMetadataOrdinal = Number(metadataOrdinalCandidate)
     const resolvedMetadataOrdinal = Number.isFinite(parsedMetadataOrdinal)
@@ -1243,7 +1320,9 @@ const RetailPlayerDashboard = () => {
     if (!matchedTriggerId && resolvedMetadataOrdinal !== null) {
       const matchedTrigger = sortedCueTriggers.find((trigger) => {
         const triggerOrdinal = getTriggerOrdinal(trigger)
-        return triggerOrdinal !== null && triggerOrdinal === resolvedMetadataOrdinal
+        return (
+          triggerOrdinal !== null && triggerOrdinal === resolvedMetadataOrdinal
+        )
       })
 
       if (matchedTrigger) {
@@ -1253,14 +1332,25 @@ const RetailPlayerDashboard = () => {
     }
 
     if (matchedTriggerId) {
-      return { triggerId: matchedTriggerId, triggerOrdinal: matchedTriggerOrdinal }
+      return {
+        triggerId: matchedTriggerId,
+        triggerOrdinal: matchedTriggerOrdinal,
+      }
     }
 
     return { triggerId: '', triggerOrdinal: matchedTriggerOrdinal }
-  }, [getTriggerIdentifier, getTriggerOrdinal, nowPlayingCueMetadata, sortedCueTriggers])
+  }, [
+    getTriggerIdentifier,
+    getTriggerOrdinal,
+    nowPlayingCueMetadata,
+    sortedCueTriggers,
+  ])
 
   useEffect(() => {
-    if (detectedCuePlayback.triggerId || Number.isFinite(detectedCuePlayback.triggerOrdinal)) {
+    if (
+      detectedCuePlayback.triggerId ||
+      Number.isFinite(detectedCuePlayback.triggerOrdinal)
+    ) {
       persistActiveCueState(
         detectedCuePlayback.triggerId || '',
         Number.isFinite(detectedCuePlayback.triggerOrdinal)
@@ -1314,7 +1404,9 @@ const RetailPlayerDashboard = () => {
       const triggerId = getTriggerIdentifier(trigger)
       const triggerOrdinal = getTriggerOrdinal(trigger)
 
-      const resolvedOrdinal = Number.isFinite(triggerOrdinal) ? triggerOrdinal : null
+      const resolvedOrdinal = Number.isFinite(triggerOrdinal)
+        ? triggerOrdinal
+        : null
       if (triggerId || Number.isFinite(resolvedOrdinal)) {
         persistActiveCueState(triggerId || '', resolvedOrdinal)
       }
@@ -1325,17 +1417,25 @@ const RetailPlayerDashboard = () => {
 
       const headers = new Headers({ 'Content-Type': 'application/json' })
 
-      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/triggers`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ action: 'PLAY', value: triggerId }),
-      }).catch((err) => {
+      httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/triggers`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ action: 'PLAY', value: triggerId }),
+        },
+      ).catch((err) => {
         if (err?.name !== 'AbortError') {
           setCueError(err)
         }
       })
     },
-    [deviceApiId, getTriggerIdentifier, getTriggerOrdinal, persistActiveCueState],
+    [
+      deviceApiId,
+      getTriggerIdentifier,
+      getTriggerOrdinal,
+      persistActiveCueState,
+    ],
   )
 
   const stopCuePlayback = useCallback(() => {
@@ -1349,11 +1449,14 @@ const RetailPlayerDashboard = () => {
     const headers = new Headers({ 'Content-Type': 'application/json' })
     const stopValue = triggerId || 'ALL'
 
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/triggers`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ action: 'STOP', value: stopValue }),
-    }).catch((err) => {
+    httpClient(
+      `/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/triggers`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'STOP', value: stopValue }),
+      },
+    ).catch((err) => {
       if (err?.name !== 'AbortError') {
         setCueError(err)
       }
@@ -1366,7 +1469,9 @@ const RetailPlayerDashboard = () => {
     if (!schedules.length) {
       return null
     }
-    const matched = schedules.find((schedule) => schedule.key === effectiveActiveChannelKey)
+    const matched = schedules.find(
+      (schedule) => schedule.key === effectiveActiveChannelKey,
+    )
     return matched || schedules[0]
   }, [effectiveActiveChannelKey, schedules])
 
@@ -1381,19 +1486,23 @@ const RetailPlayerDashboard = () => {
   }, [activeSchedule?.label])
 
   const resolveDislikePayload = useCallback((nowPlaying, scheduleLabel) => {
-    const nowPlayingData = nowPlaying && typeof nowPlaying === 'object' ? nowPlaying : {}
+    const nowPlayingData =
+      nowPlaying && typeof nowPlaying === 'object' ? nowPlaying : {}
     const metadata =
       nowPlayingData?.metadata && typeof nowPlayingData.metadata === 'object'
         ? nowPlayingData.metadata
         : {}
 
     const titleCandidates = [
-      typeof nowPlayingData?.title === 'string' ? nowPlayingData.title.trim() : '',
+      typeof nowPlayingData?.title === 'string'
+        ? nowPlayingData.title.trim()
+        : '',
       typeof metadata?.title === 'string' ? metadata.title.trim() : '',
     ]
     const trackTitle = titleCandidates.find((value) => value) || ''
 
-    const playlistName = typeof scheduleLabel === 'string' ? scheduleLabel.trim() : ''
+    const playlistName =
+      typeof scheduleLabel === 'string' ? scheduleLabel.trim() : ''
 
     if (!trackTitle && !playlistName) {
       return null
@@ -1417,12 +1526,15 @@ const RetailPlayerDashboard = () => {
 
       const headers = new Headers({ 'Content-Type': 'application/json' })
 
-      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/dislike`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: abortController.signal,
-      })
+      httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/dislike`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: abortController.signal,
+        },
+      )
         .catch((err) => {
           if (err?.name !== 'AbortError') {
             // eslint-disable-next-line no-console
@@ -1443,7 +1555,10 @@ const RetailPlayerDashboard = () => {
       return
     }
 
-    const payload = resolveDislikePayload(device?.nowPlaying, activeSchedule?.label)
+    const payload = resolveDislikePayload(
+      device?.nowPlaying,
+      activeSchedule?.label,
+    )
     if (!payload) {
       return
     }
@@ -1457,7 +1572,10 @@ const RetailPlayerDashboard = () => {
           latestNowPlayingRef.current,
           latestScheduleLabelRef.current,
         )
-        if (retryPayload && retryPayload.trackTitle.toLowerCase() !== 'loading') {
+        if (
+          retryPayload &&
+          retryPayload.trackTitle.toLowerCase() !== 'loading'
+        ) {
           sendDislikeRequest(retryPayload)
         }
         dislikeRetryTimeoutRef.current = null
@@ -1475,7 +1593,9 @@ const RetailPlayerDashboard = () => {
     sendDislikeRequest,
   ])
 
-  const dropdownLabel = activeSchedule ? activeSchedule.label : 'No playlists available'
+  const dropdownLabel = activeSchedule
+    ? activeSchedule.label
+    : 'No playlists available'
 
   const deviceVolume = useMemo(() => {
     if (typeof device?.volume === 'number' && !Number.isNaN(device.volume)) {
@@ -1533,12 +1653,15 @@ const RetailPlayerDashboard = () => {
     const abortController = new AbortController()
     const headers = new Headers({ 'Content-Type': 'application/json' })
 
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/volume`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ volume }),
-      signal: abortController.signal,
-    }).catch((err) => {
+    httpClient(
+      `/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/volume`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ volume }),
+        signal: abortController.signal,
+      },
+    ).catch((err) => {
       if (err?.name !== 'AbortError') {
         // eslint-disable-next-line no-console
         console.error('Failed to update retail player volume', err)
@@ -1565,9 +1688,12 @@ const RetailPlayerDashboard = () => {
       return {
         title:
           normalizedTitle ||
-          (isLoading ? 'Loading' : device.channel || nowPlaying.streamName || 'Now Playing'),
+          (isLoading
+            ? 'Loading'
+            : device.channel || nowPlaying.streamName || 'Now Playing'),
         artist:
-          normalizedArtist || (isLoading ? '' : device.channel || 'Retail Player'),
+          normalizedArtist ||
+          (isLoading ? '' : device.channel || 'Retail Player'),
         artworkUrl: normalizedArtwork || null,
         isLoading,
       }
@@ -1577,7 +1703,9 @@ const RetailPlayerDashboard = () => {
       const [titlePart, artistPart] = device.nowPlaying.split('|')
       return {
         title: titlePart ? titlePart.trim() : device.nowPlaying,
-        artist: artistPart ? artistPart.trim() : device.channel || 'Retail Player',
+        artist: artistPart
+          ? artistPart.trim()
+          : device.channel || 'Retail Player',
         artworkUrl: null,
         isLoading: false,
       }
@@ -1605,7 +1733,8 @@ const RetailPlayerDashboard = () => {
 
     const nextTrack = {
       title: normalizedDeviceTrack.title || 'Now Playing',
-      artist: normalizedDeviceTrack.artist || device?.channel || 'Retail Player',
+      artist:
+        normalizedDeviceTrack.artist || device?.channel || 'Retail Player',
       artworkUrl: normalizedDeviceTrack.artworkUrl || null,
     }
 
@@ -1668,7 +1797,9 @@ const RetailPlayerDashboard = () => {
     if (!trackPool.length) {
       return { title: 'Now Playing', artist: 'Retail Player', artworkUrl: null }
     }
-    const index = ((currentTrackIndex % trackPool.length) + trackPool.length) % trackPool.length
+    const index =
+      ((currentTrackIndex % trackPool.length) + trackPool.length) %
+      trackPool.length
     return trackPool[index]
   }, [currentTrackIndex, trackPool])
 
@@ -1679,7 +1810,8 @@ const RetailPlayerDashboard = () => {
   const resolvedArtworkUrl = artworkUrl || currentTrack?.artworkUrl || null
 
   const isCuePlaybackActive = useMemo(
-    () => Boolean(activeCueTriggerId || Number.isFinite(activeCueTriggerOrdinal)),
+    () =>
+      Boolean(activeCueTriggerId || Number.isFinite(activeCueTriggerOrdinal)),
     [activeCueTriggerId, activeCueTriggerOrdinal],
   )
 
@@ -1692,7 +1824,9 @@ const RetailPlayerDashboard = () => {
     }
 
     const statusZone =
-      device?.status && typeof device.status === 'object' && typeof device.status.timeZone === 'string'
+      device?.status &&
+      typeof device.status === 'object' &&
+      typeof device.status.timeZone === 'string'
         ? device.status.timeZone.trim()
         : ''
 
@@ -1707,7 +1841,10 @@ const RetailPlayerDashboard = () => {
   const headerTimeLabel = currentTimeLabel
 
   const headerClockTooltip = useMemo(() => {
-    const formatted = formatDetailedTime(deviceTime, deviceTimeZone || undefined)
+    const formatted = formatDetailedTime(
+      deviceTime,
+      deviceTimeZone || undefined,
+    )
     if (!formatted) {
       return ''
     }
@@ -1818,13 +1955,20 @@ const RetailPlayerDashboard = () => {
       }
 
       const metadata =
-        schedule && typeof schedule === 'object' && schedule.metadata && typeof schedule.metadata === 'object'
+        schedule &&
+        typeof schedule === 'object' &&
+        schedule.metadata &&
+        typeof schedule.metadata === 'object'
           ? schedule.metadata
           : {}
 
-      const rawSchedule = schedule && typeof schedule === 'object' && schedule.raw && typeof schedule.raw === 'object'
-        ? schedule.raw
-        : {}
+      const rawSchedule =
+        schedule &&
+        typeof schedule === 'object' &&
+        schedule.raw &&
+        typeof schedule.raw === 'object'
+          ? schedule.raw
+          : {}
 
       const channelIdCandidates = [
         metadata.channelId,
@@ -1865,12 +2009,15 @@ const RetailPlayerDashboard = () => {
 
       setPendingActiveChannelKey(selectedKey)
 
-      httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ channel: selectedChannelId }),
-        signal: abortController.signal,
-      })
+      httpClient(
+        `/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ channel: selectedChannelId }),
+          signal: abortController.signal,
+        },
+      )
         .then(() => {
           refreshStatus()
         })
@@ -1908,9 +2055,8 @@ const RetailPlayerDashboard = () => {
   const updateVolume = useCallback(
     (nextValue) => {
       setDisplayVolume((previous) => {
-        const safePrevious = typeof previous === 'number' && !Number.isNaN(previous)
-          ? previous
-          : 0
+        const safePrevious =
+          typeof previous === 'number' && !Number.isNaN(previous) ? previous : 0
         const rawNext =
           typeof nextValue === 'function' ? nextValue(safePrevious) : nextValue
         const clamped = clamp(Math.round(rawNext), 0, 100)
@@ -1936,8 +2082,8 @@ const RetailPlayerDashboard = () => {
         payload: { muted: false },
       })
       const restoredVolumeCandidate =
-        typeof previousVolumeRef.current === 'number'
-        && !Number.isNaN(previousVolumeRef.current)
+        typeof previousVolumeRef.current === 'number' &&
+        !Number.isNaN(previousVolumeRef.current)
           ? previousVolumeRef.current
           : null
       const restoredVolume =
@@ -1964,13 +2110,16 @@ const RetailPlayerDashboard = () => {
     })
   }, [isMuted, sendRemoteControlCommand, updateVolume])
 
-  const handleVolumeChange = useCallback((_, newValue) => {
-    const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
-    if (typeof resolvedValue !== 'number' || Number.isNaN(resolvedValue)) {
-      return
-    }
-    updateVolume(resolvedValue)
-  }, [updateVolume])
+  const handleVolumeChange = useCallback(
+    (_, newValue) => {
+      const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
+      if (typeof resolvedValue !== 'number' || Number.isNaN(resolvedValue)) {
+        return
+      }
+      updateVolume(resolvedValue)
+    },
+    [updateVolume],
+  )
 
   const handleRefresh = useCallback(() => {
     refreshStatus()
@@ -2030,7 +2179,9 @@ const RetailPlayerDashboard = () => {
     }
 
     const activeMetadata =
-      activeSchedule && typeof activeSchedule === 'object' && activeSchedule.metadata
+      activeSchedule &&
+      typeof activeSchedule === 'object' &&
+      activeSchedule.metadata
         ? activeSchedule.metadata
         : {}
 
@@ -2045,8 +2196,10 @@ const RetailPlayerDashboard = () => {
       normalizeValue(device?.channelList),
     ]
 
-    const resolvedChannelId = channelIdCandidates.find((candidate) => candidate) || ''
-    const resolvedChannelListId = channelListCandidates.find((candidate) => candidate) || ''
+    const resolvedChannelId =
+      channelIdCandidates.find((candidate) => candidate) || ''
+    const resolvedChannelListId =
+      channelListCandidates.find((candidate) => candidate) || ''
 
     if (!resolvedChannelId && !resolvedChannelListId) {
       return
@@ -2069,12 +2222,15 @@ const RetailPlayerDashboard = () => {
       body.channelList = resolvedChannelListId
     }
 
-    httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel/toggle`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: abortController.signal,
-    })
+    httpClient(
+      `/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/channel/toggle`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: abortController.signal,
+      },
+    )
       .then(() => {
         refreshStatus()
       })
@@ -2163,28 +2319,31 @@ const RetailPlayerDashboard = () => {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [device, handleAdjustVolume, handleShortcutChannel, handleToggleMute])
 
-  useEffect(() => () => {
-    clearVolumeTimeout()
-    if (dislikeTimeoutRef.current) {
-      window.clearTimeout(dislikeTimeoutRef.current)
-    }
-    if (dislikeDisableTimeoutRef.current) {
-      window.clearTimeout(dislikeDisableTimeoutRef.current)
-      dislikeDisableTimeoutRef.current = null
-    }
-    if (dislikeRetryTimeoutRef.current) {
-      window.clearTimeout(dislikeRetryTimeoutRef.current)
-      dislikeRetryTimeoutRef.current = null
-    }
-    if (dislikeRequestControllerRef.current) {
-      dislikeRequestControllerRef.current.abort()
-      dislikeRequestControllerRef.current = null
-    }
-    if (channelRequestControllerRef.current) {
-      channelRequestControllerRef.current.abort()
-      channelRequestControllerRef.current = null
-    }
-  }, [clearVolumeTimeout])
+  useEffect(
+    () => () => {
+      clearVolumeTimeout()
+      if (dislikeTimeoutRef.current) {
+        window.clearTimeout(dislikeTimeoutRef.current)
+      }
+      if (dislikeDisableTimeoutRef.current) {
+        window.clearTimeout(dislikeDisableTimeoutRef.current)
+        dislikeDisableTimeoutRef.current = null
+      }
+      if (dislikeRetryTimeoutRef.current) {
+        window.clearTimeout(dislikeRetryTimeoutRef.current)
+        dislikeRetryTimeoutRef.current = null
+      }
+      if (dislikeRequestControllerRef.current) {
+        dislikeRequestControllerRef.current.abort()
+        dislikeRequestControllerRef.current = null
+      }
+      if (channelRequestControllerRef.current) {
+        channelRequestControllerRef.current.abort()
+        channelRequestControllerRef.current = null
+      }
+    },
+    [clearVolumeTimeout],
+  )
 
   if (!device) {
     const heading = notFound
@@ -2210,6 +2369,24 @@ const RetailPlayerDashboard = () => {
             {combinedError.message || String(combinedError)}
           </Typography>
         ) : null}
+        <RetailPlayerUnlockDialog
+          open={isUnlockDialogOpen}
+          deviceName={resolvedDevice?.name || baseDevice?.name || ''}
+          onUnlocked={handleUnlockSuccess}
+        />
+      </div>
+    )
+  }
+
+  if (isUnlockDialogOpen) {
+    return (
+      <div className={classes.notFoundWrapper}>
+        <Title title="Retail Player" />
+        <RetailPlayerUnlockDialog
+          open={isUnlockDialogOpen}
+          deviceName={device?.name || ''}
+          onUnlocked={handleUnlockSuccess}
+        />
       </div>
     )
   }
@@ -2250,11 +2427,7 @@ const RetailPlayerDashboard = () => {
               role="status"
               aria-label={statusAriaLabel}
             >
-              {isDeviceOnline ? (
-                <LinkIcon />
-              ) : (
-                <LinkOffIcon />
-              )}
+              {isDeviceOnline ? <LinkIcon /> : <LinkOffIcon />}
             </span>
           </Tooltip>
           <Tooltip
@@ -2292,8 +2465,18 @@ const RetailPlayerDashboard = () => {
                     role="img"
                     aria-hidden="true"
                   >
-                    <circle cx="100" cy="100" r="98" className={classes.discOuter} />
-                    <circle cx="100" cy="100" r="48" className={classes.discInner} />
+                    <circle
+                      cx="100"
+                      cy="100"
+                      r="98"
+                      className={classes.discOuter}
+                    />
+                    <circle
+                      cx="100"
+                      cy="100"
+                      r="48"
+                      className={classes.discInner}
+                    />
                     <path
                       d="M150 50c-18-14-40-22-62-20"
                       className={classes.discHighlight}
@@ -2327,7 +2510,10 @@ const RetailPlayerDashboard = () => {
             </div>
 
             <div className={classes.nowPlayingFooter}>
-              <section className={classes.controlsRow} aria-label="Now playing controls">
+              <section
+                className={classes.controlsRow}
+                aria-label="Now playing controls"
+              >
                 <ButtonBase
                   className={classes.controlButton}
                   aria-label="Dislike"
@@ -2335,7 +2521,11 @@ const RetailPlayerDashboard = () => {
                   focusRipple
                   disabled={isDislikeDisabled}
                 >
-                  <span className={classes.controlIcon} role="img" aria-hidden="true">
+                  <span
+                    className={classes.controlIcon}
+                    role="img"
+                    aria-hidden="true"
+                  >
                     <BiDislike fontSize="inherit" />
                   </span>
                 </ButtonBase>
@@ -2348,8 +2538,16 @@ const RetailPlayerDashboard = () => {
                   onClick={handleToggleMute}
                   focusRipple
                 >
-                  <span className={classes.controlIcon} role="img" aria-hidden="true">
-                    {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
+                  <span
+                    className={classes.controlIcon}
+                    role="img"
+                    aria-hidden="true"
+                  >
+                    {isMuted ? (
+                      <VolumeOffIcon fontSize="inherit" />
+                    ) : (
+                      <VolumeUpIcon fontSize="inherit" />
+                    )}
                   </span>
                 </ButtonBase>
                 <ButtonBase
@@ -2358,7 +2556,11 @@ const RetailPlayerDashboard = () => {
                   onClick={handleSkip}
                   focusRipple
                 >
-                  <span className={classes.controlIcon} role="img" aria-hidden="true">
+                  <span
+                    className={classes.controlIcon}
+                    role="img"
+                    aria-hidden="true"
+                  >
                     <MdSkipNext fontSize="inherit" />
                   </span>
                 </ButtonBase>
@@ -2367,7 +2569,9 @@ const RetailPlayerDashboard = () => {
                     className={combineClasses(
                       classes.controlButton,
                       classes.controlButtonCue,
-                      isCuePlaybackActive ? classes.controlButtonCueActive : null,
+                      isCuePlaybackActive
+                        ? classes.controlButtonCueActive
+                        : null,
                     )}
                     aria-label="Open cue controls"
                     onClick={handleOpenCueDrawer}
@@ -2378,7 +2582,9 @@ const RetailPlayerDashboard = () => {
                       className={combineClasses(
                         classes.controlIcon,
                         classes.controlIconCue,
-                        isCuePlaybackActive ? classes.controlIconCueActive : null,
+                        isCuePlaybackActive
+                          ? classes.controlIconCueActive
+                          : null,
                       )}
                       role="img"
                       aria-hidden="true"
@@ -2392,8 +2598,12 @@ const RetailPlayerDashboard = () => {
               <section className={classes.volumeSection} aria-label="Volume">
                 <div className={classes.volumeLabelRow}>
                   <Typography component="span">volume</Typography>
-                  <Typography className={classes.volumeValue} aria-live="polite">
-                    {typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
+                  <Typography
+                    className={classes.volumeValue}
+                    aria-live="polite"
+                  >
+                    {typeof displayVolume === 'number' &&
+                    !Number.isNaN(displayVolume)
                       ? displayVolume
                       : 0}
                   </Typography>
@@ -2405,9 +2615,12 @@ const RetailPlayerDashboard = () => {
                     thumb: classes.sliderThumb,
                     rail: classes.sliderRail,
                   }}
-                  value={typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
-                    ? displayVolume
-                    : 0}
+                  value={
+                    typeof displayVolume === 'number' &&
+                    !Number.isNaN(displayVolume)
+                      ? displayVolume
+                      : 0
+                  }
                   min={0}
                   max={100}
                   aria-label="Volume"
@@ -2438,7 +2651,9 @@ const RetailPlayerDashboard = () => {
               onClick={handleToggleScheduleMenu}
               focusRipple
               aria-haspopup="listbox"
-              aria-expanded={isScheduleMenuOpen && Boolean(availableSchedulesCount)}
+              aria-expanded={
+                isScheduleMenuOpen && Boolean(availableSchedulesCount)
+              }
               aria-controls="schedule-menu"
               disabled={!availableSchedulesCount}
             >
@@ -2561,7 +2776,11 @@ const RetailPlayerDashboard = () => {
             <span className={classes.cueStopLabel}>Stop</span>
           </ButtonBase>
         </div>
-        <div className={classes.cueList} role="region" aria-label="Cue buttons list">
+        <div
+          className={classes.cueList}
+          role="region"
+          aria-label="Cue buttons list"
+        >
           {isCueLoading ? (
             <Typography>Loading cue buttons…</Typography>
           ) : cueError ? (
@@ -2571,7 +2790,8 @@ const RetailPlayerDashboard = () => {
           ) : sortedCueTriggers.length ? (
             <List disablePadding>
               {sortedCueTriggers.map((trigger) => {
-                const primaryText = trigger?.name || trigger?.id || 'Unnamed trigger'
+                const primaryText =
+                  trigger?.name || trigger?.id || 'Unnamed trigger'
                 const secondaryParts = []
                 if (trigger?.asset?.name) {
                   secondaryParts.push(trigger.asset.name)
@@ -2607,7 +2827,9 @@ const RetailPlayerDashboard = () => {
                       secondaryTypographyProps={{
                         className: combineClasses(
                           classes.cueListSecondary,
-                          isTriggerActive ? classes.cueListSecondaryActive : null,
+                          isTriggerActive
+                            ? classes.cueListSecondaryActive
+                            : null,
                         ),
                       }}
                     />
@@ -2616,7 +2838,9 @@ const RetailPlayerDashboard = () => {
               })}
             </List>
           ) : (
-            <Typography className={classes.cueEmpty}>No cue buttons available</Typography>
+            <Typography className={classes.cueEmpty}>
+              No cue buttons available
+            </Typography>
           )}
         </div>
       </Drawer>
