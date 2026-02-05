@@ -73,7 +73,7 @@ const normalizeBoolean = (value, fallback = false) => {
   return fallback
 }
 
-const mapRetailPlayerDevice = (device) => {
+const mapRetailPlayerDevice = (device, options = {}) => {
   if (!device || typeof device !== 'object') {
     return null
   }
@@ -96,7 +96,9 @@ const mapRetailPlayerDevice = (device) => {
         .filter(Boolean)
     : []
   const remoteControlId = normalizeValue(device.remoteControlId)
-  const locked = normalizeBoolean(device.locked, false)
+  const lockedFallback =
+    typeof options.lockedFallback === 'boolean' ? options.lockedFallback : false
+  const locked = normalizeBoolean(device.locked, lockedFallback)
 
   return {
     id: fallbackId,
