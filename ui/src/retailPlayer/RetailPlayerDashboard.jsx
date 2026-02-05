@@ -30,7 +30,7 @@ import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
-import { normalizeValue } from './deviceUtils'
+import { normalizeLockedValue, normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
@@ -2340,7 +2340,7 @@ const RetailPlayerDashboard = () => {
     )
   }
 
-  const isDeviceLocked = Boolean(device.locked)
+  const isDeviceLocked = normalizeLockedValue(device.locked)
 
   if (isDeviceLocked && !isUnlocked) {
     return (

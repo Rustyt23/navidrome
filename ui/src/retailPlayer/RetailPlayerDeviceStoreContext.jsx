@@ -10,7 +10,13 @@ import PropTypes from 'prop-types'
 import { v4 as uuidv4 } from 'uuid'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
 import httpClient from '../dataProvider/httpClient'
-import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
+import {
+  buildDeviceSlug,
+  deviceSlugKey,
+  normalizeLockedValue,
+  normalizeValue,
+  resolveLockedField,
+} from './deviceUtils'
 
 const RetailPlayerDeviceStoreContext = createContext(null)
 
@@ -98,11 +104,10 @@ const baseDeviceShape = (device, existing) => {
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
   const normalizedRemoteControlId = normalizeValue(device?.remoteControlId)
-  const incomingLocked = typeof device?.locked === 'boolean'
-    ? device.locked
-    : existing?.locked
-  const normalizedLocked =
-    typeof incomingLocked === 'boolean' ? incomingLocked : false
+  const normalizedLocked = normalizeLockedValue(
+    resolveLockedField(device),
+    existing?.locked || false,
+  )
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -314,7 +319,9 @@ const reducer = (state, action) => {
               ? normalizeValue(remoteControlId)
               : device.remoteControlId,
           locked:
-            locked !== undefined ? Boolean(locked) : device.locked,
+            locked !== undefined
+              ? normalizeLockedValue(locked, device.locked)
+              : device.locked,
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
@@ -720,7 +727,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         return null
       }
 
-      const normalizedLocked = Boolean(locked)
+      const normalizedLocked = normalizeLockedValue(locked)
       dispatch({
         type: 'UPDATE_DEVICE',
         payload: { id: normalizedId, locked: normalizedLocked },
