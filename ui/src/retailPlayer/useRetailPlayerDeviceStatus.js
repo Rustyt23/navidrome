@@ -1016,8 +1016,20 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
       const mappedDevice = mapRetailPlayerDevice(mergedDevice)
       if (mappedDevice) {
+        const resolvedLockState =
+          typeof mappedDevice.isLocked === 'boolean'
+            ? mappedDevice.isLocked
+            : typeof baseDevice?.isLocked === 'boolean'
+              ? baseDevice.isLocked
+              : typeof deviceState.data?.isLocked === 'boolean'
+                ? deviceState.data.isLocked
+                : undefined
+        const normalizedMappedDevice =
+          typeof resolvedLockState === 'boolean'
+            ? { ...mappedDevice, isLocked: resolvedLockState }
+            : mappedDevice
         setDeviceState({
-          data: mappedDevice,
+          data: normalizedMappedDevice,
           error: null,
           isLoading: false,
           fetchedAt: new Date(),
@@ -1070,7 +1082,14 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         }))
       }
     },
-    [channelState.data, channelState.isLoading, remoteControlDeviceId, triggerState.isLoading],
+    [
+      baseDevice?.isLocked,
+      channelState.data,
+      channelState.isLoading,
+      deviceState.data?.isLocked,
+      remoteControlDeviceId,
+      triggerState.isLoading,
+    ],
   )
 
   useEffect(() => {
