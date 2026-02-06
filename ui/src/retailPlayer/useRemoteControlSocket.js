@@ -40,30 +40,49 @@ const useRemoteControlSocket = (deviceUUID) => {
       cleanupSocket()
       setIsConnected(false)
       setLastMessage(null)
+      setConnectionError(null)
       return undefined
     }
 
+    let isActive = true
     const socket = new WebSocket(socketUrl)
     socketRef.current = socket
 
     socket.onopen = () => {
+      if (!isActive) {
+        return
+      }
       setIsConnected(true)
       setConnectionError(null)
     }
 
     socket.onmessage = (event) => {
+      if (!isActive) {
+        return
+      }
       setLastMessage(event.data)
     }
 
     socket.onerror = () => {
+      if (!isActive) {
+        return
+      }
       setConnectionError(new Error('Remote control socket error'))
     }
 
     socket.onclose = () => {
+      if (!isActive) {
+        return
+      }
       setIsConnected(false)
     }
 
     return () => {
+      isActive = false
+      socket.onopen = null
+      socket.onmessage = null
+      socket.onerror = null
+      socket.onclose = null
       cleanupSocket()
     }
   }, [cleanupSocket, socketUrl])

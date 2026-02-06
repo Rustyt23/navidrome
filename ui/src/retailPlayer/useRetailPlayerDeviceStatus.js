@@ -1060,37 +1060,49 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       })
       setHasRealtimeStatus(true)
 
-      if (payloadChannels) {
-        setChannelState({
-          data: mapChannelListResponse({ channels: payloadChannels }, channelState.data),
-          error: null,
-          isLoading: false,
-          fetchedAt: new Date(),
-        })
-      } else if (channelState.isLoading) {
-        setChannelState((previous) => ({
-          ...previous,
-          isLoading: false,
-          error: null,
-        }))
-      }
+      setChannelState((previous) => {
+        if (payloadChannels) {
+          return {
+            data: mapChannelListResponse({ channels: payloadChannels }, previous.data),
+            error: null,
+            isLoading: false,
+            fetchedAt: new Date(),
+          }
+        }
 
-      if (payloadTriggers) {
-        setTriggerState({
-          data: ensureArray(payloadTriggers),
-          error: null,
-          isLoading: false,
-          fetchedAt: new Date(),
-        })
-      } else if (triggerState.isLoading) {
-        setTriggerState((previous) => ({
-          ...previous,
-          isLoading: false,
-          error: null,
-        }))
-      }
+        if (previous.isLoading) {
+          return {
+            ...previous,
+            isLoading: false,
+            error: null,
+          }
+        }
+
+        return previous
+      })
+
+      setTriggerState((previous) => {
+        if (payloadTriggers) {
+          return {
+            data: ensureArray(payloadTriggers),
+            error: null,
+            isLoading: false,
+            fetchedAt: new Date(),
+          }
+        }
+
+        if (previous.isLoading) {
+          return {
+            ...previous,
+            isLoading: false,
+            error: null,
+          }
+        }
+
+        return previous
+      })
     },
-    [channelState.data, channelState.isLoading, remoteControlDeviceId, triggerState.isLoading],
+    [remoteControlDeviceId],
   )
 
   useEffect(() => {

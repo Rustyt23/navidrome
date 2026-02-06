@@ -1351,7 +1351,8 @@ const RetailPlayerDeviceManagement = () => {
       const isSelected = selectedIds.has(node.id)
       const rowKey = node.treeKey || node.id
       const channelCount = channelCountsByDeviceId?.[node.id]
-      const isOnline = deviceStatusMap.get(node.id) ?? null
+      const isOnline =
+        typeof node.online === 'boolean' ? node.online : deviceStatusMap.get(node.id) ?? null
       return (
         <RetailPlayerDeviceRow
           key={`device-row-${rowKey}`}
