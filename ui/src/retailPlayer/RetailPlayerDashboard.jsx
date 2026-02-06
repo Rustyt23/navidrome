@@ -2363,11 +2363,7 @@ const RetailPlayerDashboard = () => {
         </DialogActions>
       </Dialog>
 
-      <div
-        className={rootClassName}
-        aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
-        style={isAccessBlockedByLock ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
-      >
+      <div className={rootClassName}>
         <Title title="Retail Player" />
 
         <header className={classes.headerBar}>
