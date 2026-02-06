@@ -973,6 +973,7 @@ const RetailPlayerDashboard = () => {
   const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
   const [lockPasswordInput, setLockPasswordInput] = useState('')
   const [lockError, setLockError] = useState('')
+  const lockPasswordInputRef = useRef(null)
   const scheduleDropdownRef = useRef(null)
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
@@ -1892,6 +1893,20 @@ const RetailPlayerDashboard = () => {
     }
   }, [isAccessBlockedByLock])
 
+  useEffect(() => {
+    if (!isAccessBlockedByLock) {
+      return undefined
+    }
+
+    const focusTimeout = window.setTimeout(() => {
+      if (lockPasswordInputRef.current) {
+        lockPasswordInputRef.current.focus()
+      }
+    }, 0)
+
+    return () => window.clearTimeout(focusTimeout)
+  }, [isAccessBlockedByLock])
+
   const handleToggleScheduleMenu = useCallback(() => {
     if (!availableSchedulesCount) {
       return
@@ -2320,13 +2335,8 @@ const RetailPlayerDashboard = () => {
   }
 
   return (
-    <div
-      className={rootClassName}
-      aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
-      style={isAccessBlockedByLock ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
-    >
+    <div>
       <Title title="Retail Player" />
-
       <Dialog
         open={Boolean(device && isAccessBlockedByLock)}
         disableEscapeKeyDown
@@ -2345,6 +2355,7 @@ const RetailPlayerDashboard = () => {
             type="password"
             label="Password"
             autoFocus
+            inputRef={lockPasswordInputRef}
             value={lockPasswordInput}
             onChange={(event) => {
               setLockPasswordInput(event.target.value)
@@ -2369,6 +2380,11 @@ const RetailPlayerDashboard = () => {
         </DialogActions>
       </Dialog>
 
+      <div
+        className={rootClassName}
+        aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
+        style={isAccessBlockedByLock ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
+      >
       <header className={classes.headerBar}>
         <ButtonBase
           className={classes.headerBackButton}
@@ -2791,6 +2807,7 @@ const RetailPlayerDashboard = () => {
           )}
         </div>
       </Drawer>
+    </div>
     </div>
   )
 }
