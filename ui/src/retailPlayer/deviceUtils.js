@@ -74,6 +74,8 @@ const mapRetailPlayerDevice = (device) => {
       ? device.isLocked
       : typeof device.is_locked === 'boolean'
         ? device.is_locked
+        : typeof device.locked === 'boolean'
+          ? device.locked
         : undefined
 
   return {
