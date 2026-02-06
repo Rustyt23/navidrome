@@ -2323,7 +2323,6 @@ const RetailPlayerDashboard = () => {
     <div
       className={rootClassName}
       aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
-      style={isAccessBlockedByLock ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
     >
       <Title title="Retail Player" />
 
