@@ -75,6 +75,12 @@ const mapRetailPlayerDevice = (device) => {
       : typeof device.is_locked === 'boolean'
         ? device.is_locked
         : undefined
+  const isOnline =
+    typeof device.online === 'boolean'
+      ? device.online
+      : typeof device.isOnline === 'boolean'
+        ? device.isOnline
+        : undefined
 
   return {
     id: fallbackId,
@@ -92,6 +98,7 @@ const mapRetailPlayerDevice = (device) => {
     folderIds,
     remoteControlId,
     ...(typeof isLocked === 'boolean' ? { isLocked } : {}),
+    ...(typeof isOnline === 'boolean' ? { online: isOnline } : {}),
   }
 }
 

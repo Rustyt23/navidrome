@@ -583,11 +583,16 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const metadataArtworkUrl = normalizeValue(combinedMetadata.artworkUrl)
   const metadataAlbum = normalizeValue(combinedMetadata.album)
 
+  const isOffline = payloadDevice?.online === false
   const isLoadingNowPlaying =
-    (!hasNowPlayingDetails && !streamMetadata.length) ||
-    (normalizedActiveResource === 'none' && !streamName && !metadataTitle && !metadataArtist)
+    !isOffline &&
+    ((!hasNowPlayingDetails && !streamMetadata.length) ||
+      (normalizedActiveResource === 'none' && !streamName && !metadataTitle && !metadataArtist))
 
-  if (isLoadingNowPlaying) {
+  if (isOffline) {
+    nowPlayingTitle = 'Offline'
+    nowPlayingArtist = ''
+  } else if (isLoadingNowPlaying) {
     nowPlayingTitle = 'Loading'
     nowPlayingArtist = ''
   }
