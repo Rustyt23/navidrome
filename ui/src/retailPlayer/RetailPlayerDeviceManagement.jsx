@@ -795,68 +795,7 @@ const RetailPlayerDeviceManagement = () => {
       return undefined
     }
 
-    const abortController = new AbortController()
-    let isCancelled = false
-
-    const fetchStatuses = async () => {
-      const results = await Promise.all(
-        devices.map(async (device) => {
-          const deviceId = device.apiId || device.id
-          if (!deviceId) {
-            return [device.id, null]
-          }
-
-          try {
-            const statusUrl = `/api/retailplayer/devices/${encodeURIComponent(
-              deviceId,
-            )}/status`
-            const { json } = await httpClient(statusUrl, {
-              signal: abortController.signal,
-            })
-            const uptime = json?.status?.upTime ?? json?.status?.uptime
-            const hasStatus =
-              uptime !== undefined &&
-              uptime !== null &&
-              String(uptime).trim() !== ''
-            return [device.id, hasStatus]
-          } catch (error) {
-            if (error?.name === 'AbortError') {
-              return null
-            }
-            return [device.id, false]
-          }
-        }),
-      )
-
-      if (isCancelled) {
-        return
-      }
-
-      const nextStatusMap = new Map(results.filter(Boolean))
-      setDeviceStatusMap(nextStatusMap)
-
-      try {
-        const cachePayload = {}
-        nextStatusMap.forEach((value, key) => {
-          if (typeof value === 'boolean') {
-            cachePayload[key] = value
-          }
-        })
-        sessionStorage.setItem(
-          'retailPlayerDeviceStatusMap',
-          JSON.stringify(cachePayload),
-        )
-      } catch (err) {
-        console.warn('Unable to cache retail player device statuses', err)
-      }
-    }
-
-    fetchStatuses()
-
-    return () => {
-      isCancelled = true
-      abortController.abort()
-    }
+    return undefined
   }, [devices, isApiEnabled])
 
   const folderChildrenMap = useMemo(() => {

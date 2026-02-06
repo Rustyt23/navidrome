@@ -646,6 +646,11 @@ const useStyles = makeStyles((theme) => {
       gap: theme.spacing(3),
       flexWrap: 'wrap',
     },
+    controlsRowDisabled: {
+      '& $controlButton': {
+        color: theme.palette.text.disabled,
+      },
+    },
     controlButton: {
       display: 'inline-flex',
       alignItems: 'center',
@@ -703,6 +708,13 @@ const useStyles = makeStyles((theme) => {
         transform: 'translateY(0)',
       },
     },
+    volumeSectionDisabled: {
+      '& $volumeLabelRow': {
+        opacity: 1,
+        transform: 'translateY(0)',
+        color: theme.palette.text.disabled,
+      },
+    },
     volumeLabelRow: {
       display: 'flex',
       alignItems: 'center',
@@ -729,6 +741,15 @@ const useStyles = makeStyles((theme) => {
     },
     sliderRail: {
       backgroundColor: theme.palette.action.disabled,
+    },
+    sliderDisabled: {
+      color: theme.palette.action.disabled,
+      '& $sliderTrack': {
+        backgroundColor: theme.palette.action.disabled,
+      },
+      '& $sliderThumb': {
+        backgroundColor: theme.palette.action.disabled,
+      },
     },
     volumeValue: {
       minWidth: 32,
@@ -1688,11 +1709,15 @@ const RetailPlayerDashboard = () => {
 
   const currentTrack = useMemo(() => {
     if (!trackPool.length) {
-      return { title: 'Now Playing', artist: 'Retail Player', artworkUrl: null }
+      return {
+        title: 'Now Playing',
+        artist: device?.online === false ? '' : 'Retail Player',
+        artworkUrl: null,
+      }
     }
     const index = ((currentTrackIndex % trackPool.length) + trackPool.length) % trackPool.length
     return trackPool[index]
-  }, [currentTrackIndex, trackPool])
+  }, [currentTrackIndex, device?.online, trackPool])
 
   const artworkUrl =
     (effectiveNowPlaying && effectiveNowPlaying.artworkUrl) ||
@@ -1766,7 +1791,10 @@ const RetailPlayerDashboard = () => {
     }
     return null
   }, [statusUpTime])
-  const isDeviceOnline = hasStatusValue
+  const hasRealtimeOnlineState = typeof device?.online === 'boolean'
+  const isDeviceOnline = hasRealtimeOnlineState ? device.online : hasStatusValue
+  const isOfflineUi = !isDeviceOnline
+  const areNowPlayingControlsDisabled = !canControlDevice || isOfflineUi
   const formattedUpTime = useMemo(() => {
     if (statusUpTimeSeconds !== null) {
       const totalSeconds = statusUpTimeSeconds
@@ -1998,6 +2026,10 @@ const RetailPlayerDashboard = () => {
   )
 
   const handleToggleMute = useCallback(() => {
+    if (areNowPlayingControlsDisabled) {
+      return
+    }
+
     if (isMuted) {
       sendRemoteControlCommand({
         type: 'set_mute',
@@ -2030,15 +2062,19 @@ const RetailPlayerDashboard = () => {
       }
       return 0
     })
-  }, [isMuted, sendRemoteControlCommand, updateVolume])
+  }, [areNowPlayingControlsDisabled, isMuted, sendRemoteControlCommand, updateVolume])
 
   const handleVolumeChange = useCallback((_, newValue) => {
+    if (areNowPlayingControlsDisabled) {
+      return
+    }
+
     const resolvedValue = Array.isArray(newValue) ? newValue[0] : newValue
     if (typeof resolvedValue !== 'number' || Number.isNaN(resolvedValue)) {
       return
     }
     updateVolume(resolvedValue)
-  }, [updateVolume])
+  }, [areNowPlayingControlsDisabled, updateVolume])
 
   const handleRefresh = useCallback(() => {
     refreshStatus()
@@ -2062,7 +2098,7 @@ const RetailPlayerDashboard = () => {
   }, [history])
 
   const handleDislike = useCallback(() => {
-    if (isDislikeDisabled) {
+    if (areNowPlayingControlsDisabled || isDislikeDisabled) {
       return
     }
 
@@ -2084,10 +2120,10 @@ const RetailPlayerDashboard = () => {
       setIsDislikeDisabled(false)
       dislikeDisableTimeoutRef.current = null
     }, 5000)
-  }, [isDislikeDisabled, sendDislikeNotification])
+  }, [areNowPlayingControlsDisabled, isDislikeDisabled, sendDislikeNotification])
 
   const handleSkip = useCallback(() => {
-    if (!trackPool.length) {
+    if (areNowPlayingControlsDisabled || !trackPool.length) {
       return
     }
 
@@ -2159,6 +2195,7 @@ const RetailPlayerDashboard = () => {
       })
   }, [
     activeSchedule,
+    areNowPlayingControlsDisabled,
     baseDevice?.channelList,
     canControlDevice,
     device?.channel,
@@ -2431,23 +2468,31 @@ const RetailPlayerDashboard = () => {
               >
                 {currentTrack.title}
               </Typography>
-              <Typography
-                className={classes.nowPlayingArtist}
-                noWrap
-                title={currentTrack.artist}
-              >
-                {currentTrack.artist}
-              </Typography>
+              {!isOfflineUi && currentTrack.artist ? (
+                <Typography
+                  className={classes.nowPlayingArtist}
+                  noWrap
+                  title={currentTrack.artist}
+                >
+                  {currentTrack.artist}
+                </Typography>
+              ) : null}
             </div>
 
             <div className={classes.nowPlayingFooter}>
-              <section className={classes.controlsRow} aria-label="Now playing controls">
+              <section
+                className={combineClasses(
+                  classes.controlsRow,
+                  areNowPlayingControlsDisabled ? classes.controlsRowDisabled : null,
+                )}
+                aria-label="Now playing controls"
+              >
                 <ButtonBase
                   className={classes.controlButton}
                   aria-label="Dislike"
                   onClick={handleDislike}
                   focusRipple
-                  disabled={isDislikeDisabled}
+                  disabled={isDislikeDisabled || areNowPlayingControlsDisabled}
                 >
                   <span className={classes.controlIcon} role="img" aria-hidden="true">
                     <BiDislike fontSize="inherit" />
@@ -2461,6 +2506,7 @@ const RetailPlayerDashboard = () => {
                   aria-label="Mute/Unmute"
                   onClick={handleToggleMute}
                   focusRipple
+                  disabled={areNowPlayingControlsDisabled}
                 >
                   <span className={classes.controlIcon} role="img" aria-hidden="true">
                     {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
@@ -2471,6 +2517,7 @@ const RetailPlayerDashboard = () => {
                   aria-label="Skip"
                   onClick={handleSkip}
                   focusRipple
+                  disabled={areNowPlayingControlsDisabled}
                 >
                   <span className={classes.controlIcon} role="img" aria-hidden="true">
                     <MdSkipNext fontSize="inherit" />
@@ -2486,7 +2533,7 @@ const RetailPlayerDashboard = () => {
                     aria-label="Open cue controls"
                     onClick={handleOpenCueDrawer}
                     focusRipple
-                    disabled={!deviceApiId}
+                    disabled={!deviceApiId || areNowPlayingControlsDisabled}
                   >
                     <span
                       className={combineClasses(
@@ -2503,7 +2550,13 @@ const RetailPlayerDashboard = () => {
                 ) : null}
               </section>
 
-              <section className={classes.volumeSection} aria-label="Volume">
+              <section
+                className={combineClasses(
+                  classes.volumeSection,
+                  areNowPlayingControlsDisabled ? classes.volumeSectionDisabled : null,
+                )}
+                aria-label="Volume"
+              >
                 <div className={classes.volumeLabelRow}>
                   <Typography component="span">volume</Typography>
                   <Typography className={classes.volumeValue} aria-live="polite">
@@ -2514,7 +2567,10 @@ const RetailPlayerDashboard = () => {
                 </div>
                 <Slider
                   classes={{
-                    root: classes.slider,
+                    root: combineClasses(
+                      classes.slider,
+                      areNowPlayingControlsDisabled ? classes.sliderDisabled : null,
+                    ),
                     track: classes.sliderTrack,
                     thumb: classes.sliderThumb,
                     rail: classes.sliderRail,
@@ -2526,6 +2582,7 @@ const RetailPlayerDashboard = () => {
                   max={100}
                   aria-label="Volume"
                   onChange={handleVolumeChange}
+                  disabled={areNowPlayingControlsDisabled}
                 />
               </section>
             </div>
