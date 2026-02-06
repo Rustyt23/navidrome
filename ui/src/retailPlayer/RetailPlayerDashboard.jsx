@@ -1893,19 +1893,31 @@ const RetailPlayerDashboard = () => {
     }
   }, [isAccessBlockedByLock])
 
-  useEffect(() => {
-    if (!isAccessBlockedByLock) {
-      return undefined
+  const handleLockDialogEntered = useCallback(() => {
+    if (lockPasswordInputRef.current) {
+      lockPasswordInputRef.current.focus()
     }
+  }, [])
 
-    const focusTimeout = window.setTimeout(() => {
-      if (lockPasswordInputRef.current) {
-        lockPasswordInputRef.current.focus()
+  const handleLockPasswordChange = useCallback(
+    (event) => {
+      setLockPasswordInput(event.target.value)
+      if (lockError) {
+        setLockError('')
       }
-    }, 0)
+    },
+    [lockError],
+  )
 
-    return () => window.clearTimeout(focusTimeout)
-  }, [isAccessBlockedByLock])
+  const handleLockDialogKeyDown = useCallback(
+    (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        handleLockDialogSubmit()
+      }
+    },
+    [handleLockDialogSubmit],
+  )
 
   const handleToggleScheduleMenu = useCallback(() => {
     if (!availableSchedulesCount) {
@@ -2338,10 +2350,12 @@ const RetailPlayerDashboard = () => {
     <div>
       <Title title="Retail Player" />
       <Dialog
+        key={device?.id || device?.slug || 'lock-dialog'}
         open={Boolean(device && isAccessBlockedByLock)}
         disableEscapeKeyDown
         classes={{ paper: classes.lockDialogPaper }}
         aria-labelledby="retail-player-lock-dialog-title"
+        TransitionProps={{ onEntered: handleLockDialogEntered }}
       >
         <DialogTitle id="retail-player-lock-dialog-title">Unlock device</DialogTitle>
         <DialogContent>
@@ -2357,18 +2371,8 @@ const RetailPlayerDashboard = () => {
             autoFocus
             inputRef={lockPasswordInputRef}
             value={lockPasswordInput}
-            onChange={(event) => {
-              setLockPasswordInput(event.target.value)
-              if (lockError) {
-                setLockError('')
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                handleLockDialogSubmit()
-              }
-            }}
+            onChange={handleLockPasswordChange}
+            onKeyDown={handleLockDialogKeyDown}
           />
           {lockError ? <Typography className={classes.lockDialogError}>{lockError}</Typography> : null}
         </DialogContent>
@@ -2385,61 +2389,61 @@ const RetailPlayerDashboard = () => {
         aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
         style={isAccessBlockedByLock ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
       >
-      <header className={classes.headerBar}>
-        <ButtonBase
-          className={classes.headerBackButton}
-          onClick={handleBack}
-          aria-label="Go back"
-          focusRipple
-        >
-          <ArrowBackIcon className={classes.headerBackIcon} />
-        </ButtonBase>
-        <div className={classes.headerCenter}>
-          <Typography
-            component="h1"
-            className={classes.headerTitle}
-            noWrap
-            title={device?.name || 'Retail Player'}
+        <header className={classes.headerBar}>
+          <ButtonBase
+            className={classes.headerBackButton}
+            onClick={handleBack}
+            aria-label="Go back"
+            focusRipple
           >
-            {device?.name || 'Retail Player'}
-          </Typography>
-        </div>
-        <div className={classes.headerStatusGroup}>
-          <Tooltip title={statusTooltipTitle} placement="bottom">
-            <span
-              tabIndex={0}
-              className={combineClasses(
-                classes.headerStatusIcon,
-                isDeviceOnline
-                  ? classes.headerStatusIconOnline
-                  : classes.headerStatusIconOffline,
-              )}
-              role="status"
-              aria-label={statusAriaLabel}
+            <ArrowBackIcon className={classes.headerBackIcon} />
+          </ButtonBase>
+          <div className={classes.headerCenter}>
+            <Typography
+              component="h1"
+              className={classes.headerTitle}
+              noWrap
+              title={device?.name || 'Retail Player'}
             >
-              {isDeviceOnline ? (
-                <LinkIcon />
-              ) : (
-                <LinkOffIcon />
-              )}
-            </span>
-          </Tooltip>
-          <Tooltip
-            title={headerClockTooltip || 'Device time unavailable'}
-            placement="bottom"
-          >
-            <div
-              className={classes.headerClock}
-              aria-live="polite"
-              aria-label={`Local time ${
-                headerClockTooltip || headerTimeLabel || 'unavailable'
-              }`}
+              {device?.name || 'Retail Player'}
+            </Typography>
+          </div>
+          <div className={classes.headerStatusGroup}>
+            <Tooltip title={statusTooltipTitle} placement="bottom">
+              <span
+                tabIndex={0}
+                className={combineClasses(
+                  classes.headerStatusIcon,
+                  isDeviceOnline
+                    ? classes.headerStatusIconOnline
+                    : classes.headerStatusIconOffline,
+                )}
+                role="status"
+                aria-label={statusAriaLabel}
+              >
+                {isDeviceOnline ? (
+                  <LinkIcon />
+                ) : (
+                  <LinkOffIcon />
+                )}
+              </span>
+            </Tooltip>
+            <Tooltip
+              title={headerClockTooltip || 'Device time unavailable'}
+              placement="bottom"
             >
-              {headerTimeLabel}
-            </div>
-          </Tooltip>
-        </div>
-      </header>
+              <div
+                className={classes.headerClock}
+                aria-live="polite"
+                aria-label={`Local time ${
+                  headerClockTooltip || headerTimeLabel || 'unavailable'
+                }`}
+              >
+                {headerTimeLabel}
+              </div>
+            </Tooltip>
+          </div>
+        </header>
 
       <div className={classes.mainContent}>
         <section className={classes.nowPlayingCard} aria-label="Now playing">
