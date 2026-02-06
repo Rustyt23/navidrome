@@ -717,6 +717,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const [triggerState, setTriggerState] = useState(initialTriggerState)
   const [hasRealtimeStatus, setHasRealtimeStatus] = useState(false)
   const realtimeDeviceRef = useRef(null)
+  const lockedStateRef = useRef(null)
 
   const {
     devices,
@@ -766,6 +767,12 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
     return null
   }, [deviceState.data, devices, normalizedSlugKey, statusState.data])
+
+  useEffect(() => {
+    if (typeof baseDevice?.isLocked === 'boolean') {
+      lockedStateRef.current = baseDevice.isLocked
+    }
+  }, [baseDevice?.isLocked])
 
   useEffect(() => {
     if (!slugParam || !Array.isArray(devices) || !devices.length) {
@@ -1001,6 +1008,19 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         ...payloadDevice,
         status: mergedStatus,
         extra: mergedExtra,
+      }
+      const resolvedIsLocked =
+        typeof payloadDevice.isLocked === 'boolean'
+          ? payloadDevice.isLocked
+          : typeof payloadDevice.is_locked === 'boolean'
+            ? payloadDevice.is_locked
+            : typeof previousDevice.isLocked === 'boolean'
+              ? previousDevice.isLocked
+              : typeof lockedStateRef.current === 'boolean'
+                ? lockedStateRef.current
+                : undefined
+      if (typeof resolvedIsLocked === 'boolean') {
+        mergedDevice.isLocked = resolvedIsLocked
       }
 
       const mergedRemoteControlId =
