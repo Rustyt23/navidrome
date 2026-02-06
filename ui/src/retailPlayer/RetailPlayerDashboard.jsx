@@ -926,27 +926,18 @@ const useStyles = makeStyles((theme) => {
   }
 })
 
-const RetailPlayerDashboard = () => {
-  const classes = useStyles()
-  const history = useHistory()
-  const { deviceSlug } = useParams()
-  const {
-    device: resolvedDevice,
-    baseDevice,
-    error: integrationError,
-    statusError,
-    devicesError,
-    isLoading: retailLoading,
-    isStatusLoading: statusLoading,
-    refresh: refreshStatus,
-    notFound,
-    isApiEnabled,
-    buttonTriggers,
-    hasButtonTriggers,
-    isTriggerListLoading,
-    sendRemoteControlCommand,
-  } = useRetailPlayerDeviceStatus(deviceSlug)
-  const device = resolvedDevice || null
+const RetailPlayerDashboardUnlocked = ({
+  classes,
+  history,
+  device,
+  baseDevice,
+  isApiEnabled,
+  refreshStatus,
+  buttonTriggers,
+  hasButtonTriggers,
+  isTriggerListLoading,
+  sendRemoteControlCommand,
+}) => {
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(null)
@@ -971,11 +962,7 @@ const RetailPlayerDashboard = () => {
   const [cueError, setCueError] = useState(null)
   const [activeCueTriggerId, setActiveCueTriggerId] = useState('')
   const [activeCueTriggerOrdinal, setActiveCueTriggerOrdinal] = useState(null)
-  const [lockPasswordInput, setLockPasswordInput] = useState('')
-  const [lockError, setLockError] = useState('')
   const scheduleDropdownRef = useRef(null)
-  const isBusy = retailLoading || statusLoading
-  const combinedError = integrationError || statusError || devicesError
 
   const deviceTrackKey = useMemo(() => {
     if (!device) {
@@ -1076,11 +1063,11 @@ const RetailPlayerDashboard = () => {
   }, [isApiEnabled, refreshStatus])
 
   const deviceApiId = useMemo(() => {
-    if (resolvedDevice?.apiId) {
-      return resolvedDevice.apiId
+    if (device?.apiId) {
+      return device.apiId
     }
-    if (resolvedDevice?.id) {
-      return resolvedDevice.id
+    if (device?.id) {
+      return device.id
     }
     if (baseDevice?.apiId) {
       return baseDevice.apiId
@@ -1088,20 +1075,12 @@ const RetailPlayerDashboard = () => {
     if (baseDevice?.id) {
       return baseDevice.id
     }
-    if (device?.apiId) {
-      return device.apiId
-    }
-    if (device?.id) {
-      return device.id
-    }
     return ''
   }, [
-    baseDevice?.apiId,
-    baseDevice?.id,
     device?.apiId,
     device?.id,
-    resolvedDevice?.apiId,
-    resolvedDevice?.id,
+    baseDevice?.apiId,
+    baseDevice?.id,
   ])
 
   const canControlDevice = useMemo(
@@ -1158,8 +1137,8 @@ const RetailPlayerDashboard = () => {
   }, [])
 
   useEffect(() => {
-    setDeviceTime(resolveDeviceTime(resolvedDevice))
-  }, [resolvedDevice, resolveDeviceTime])
+    setDeviceTime(resolveDeviceTime(device))
+  }, [device, resolveDeviceTime])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -1846,52 +1825,6 @@ const RetailPlayerDashboard = () => {
     ]
   }, [currentTimeLabel, device, isMuted])
 
-  const isDevicePasswordConfigured = useMemo(
-    () =>
-      typeof config.retailPlayerDeviceLockPassword === 'string' &&
-      config.retailPlayerDeviceLockPassword.length > 0,
-    [],
-  )
-
-  const isAccessBlockedByLock =
-    Boolean(device) && isDeviceLocked(device) && !isDeviceUnlockedForSession(device)
-
-  const handleLockDialogBack = useCallback(() => {
-    if (history.length > 1) {
-      history.goBack()
-      return
-    }
-
-    history.push('/retailplayer/devices')
-  }, [history])
-
-  const handleLockDialogSubmit = useCallback(() => {
-    if (!device) {
-      return
-    }
-
-    if (!isDevicePasswordConfigured) {
-      setLockError('Device lock password is not configured. Please contact an administrator.')
-      return
-    }
-
-    if (lockPasswordInput === config.retailPlayerDeviceLockPassword) {
-      markDeviceUnlockedForSession(device)
-      setLockPasswordInput('')
-      setLockError('')
-      return
-    }
-
-    setLockError('Incorrect password. Please try again.')
-  }, [device, isDevicePasswordConfigured, lockPasswordInput])
-
-  useEffect(() => {
-    if (!isAccessBlockedByLock) {
-      setLockPasswordInput('')
-      setLockError('')
-    }
-  }, [isAccessBlockedByLock])
-
   const handleToggleScheduleMenu = useCallback(() => {
     if (!availableSchedulesCount) {
       return
@@ -2218,7 +2151,7 @@ const RetailPlayerDashboard = () => {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (!device || isAccessBlockedByLock) {
+      if (!device) {
         return
       }
 
@@ -2266,7 +2199,7 @@ const RetailPlayerDashboard = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [device, handleAdjustVolume, handleShortcutChannel, handleToggleMute, isAccessBlockedByLock])
+  }, [device, handleAdjustVolume, handleShortcutChannel, handleToggleMute])
 
   useEffect(() => () => {
     clearVolumeTimeout()
@@ -2290,83 +2223,6 @@ const RetailPlayerDashboard = () => {
       channelRequestControllerRef.current = null
     }
   }, [clearVolumeTimeout])
-
-  if (!device) {
-    const heading = notFound
-      ? 'Device not found'
-      : isBusy
-        ? 'Loading device…'
-        : 'Unable to load device'
-    const message = notFound
-      ? 'The device you are looking for is unavailable. Choose a device from the list to continue.'
-      : isBusy
-        ? 'Fetching the latest device details. This will only take a moment.'
-        : 'We could not load this device right now. Please refresh and try again.'
-
-    return (
-      <div className={classes.notFoundWrapper}>
-        <Title title="Retail Player" />
-        <Typography component="h1" className={classes.notFoundTitle}>
-          {heading}
-        </Typography>
-        <Typography className={classes.notFoundMessage}>{message}</Typography>
-        {combinedError && !isBusy ? (
-          <Typography className={classes.notFoundMessage} component="p">
-            {combinedError.message || String(combinedError)}
-          </Typography>
-        ) : null}
-      </div>
-    )
-  }
-
-  if (isAccessBlockedByLock) {
-    return (
-      <div className={rootClassName}>
-        <Title title="Retail Player" />
-        <Dialog
-          open={Boolean(device)}
-          disableEscapeKeyDown
-          classes={{ paper: classes.lockDialogPaper }}
-          aria-labelledby="retail-player-lock-dialog-title"
-        >
-          <DialogTitle id="retail-player-lock-dialog-title">Unlock device</DialogTitle>
-          <DialogContent>
-            <Typography variant="body2">
-              This device is locked. Enter the password to continue.
-            </Typography>
-            <TextField
-              fullWidth
-              margin="dense"
-              variant="outlined"
-              type="password"
-              label="Password"
-              autoFocus
-              value={lockPasswordInput}
-              onChange={(event) => {
-                setLockPasswordInput(event.target.value)
-                if (lockError) {
-                  setLockError('')
-                }
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  handleLockDialogSubmit()
-                }
-              }}
-            />
-            {lockError ? <Typography className={classes.lockDialogError}>{lockError}</Typography> : null}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleLockDialogBack}>Back</Button>
-            <Button color="primary" variant="contained" onClick={handleLockDialogSubmit}>
-              Unlock
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </div>
-    )
-  }
 
   return (
     <div
@@ -2797,6 +2653,184 @@ const RetailPlayerDashboard = () => {
         </div>
       </Drawer>
     </div>
+  )
+}
+
+const RetailPlayerDashboard = () => {
+  const classes = useStyles()
+  const history = useHistory()
+  const { deviceSlug } = useParams()
+  const {
+    device: resolvedDevice,
+    baseDevice,
+    error: integrationError,
+    statusError,
+    devicesError,
+    isLoading: retailLoading,
+    isStatusLoading: statusLoading,
+    refresh: refreshStatus,
+    notFound,
+    isApiEnabled,
+    buttonTriggers,
+    hasButtonTriggers,
+    isTriggerListLoading,
+    sendRemoteControlCommand,
+  } = useRetailPlayerDeviceStatus(deviceSlug)
+  const device = resolvedDevice || null
+  const [lockPasswordInput, setLockPasswordInput] = useState('')
+  const [lockError, setLockError] = useState('')
+  const lockInputRef = useRef(null)
+  const isBusy = retailLoading || statusLoading
+  const combinedError = integrationError || statusError || devicesError
+
+  const isDevicePasswordConfigured = useMemo(
+    () =>
+      typeof config.retailPlayerDeviceLockPassword === 'string' &&
+      config.retailPlayerDeviceLockPassword.length > 0,
+    [],
+  )
+
+  const isAccessBlockedByLock =
+    Boolean(device) && isDeviceLocked(device) && !isDeviceUnlockedForSession(device)
+
+  const handleLockDialogBack = useCallback(() => {
+    if (history.length > 1) {
+      history.goBack()
+      return
+    }
+
+    history.push('/retailplayer/devices')
+  }, [history])
+
+  const handleLockDialogSubmit = useCallback(() => {
+    if (!device) {
+      return
+    }
+
+    if (!isDevicePasswordConfigured) {
+      setLockError('Device lock password is not configured. Please contact an administrator.')
+      return
+    }
+
+    if (lockPasswordInput === config.retailPlayerDeviceLockPassword) {
+      markDeviceUnlockedForSession(device)
+      setLockPasswordInput('')
+      setLockError('')
+      return
+    }
+
+    setLockError('Incorrect password. Please try again.')
+  }, [device, isDevicePasswordConfigured, lockPasswordInput])
+
+  useEffect(() => {
+    if (!isAccessBlockedByLock) {
+      setLockPasswordInput('')
+      setLockError('')
+      return
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      if (lockInputRef.current) {
+        lockInputRef.current.focus()
+      }
+    })
+
+    return () => {
+      window.cancelAnimationFrame(rafId)
+    }
+  }, [isAccessBlockedByLock])
+
+  if (!device) {
+    const heading = notFound
+      ? 'Device not found'
+      : isBusy
+        ? 'Loading device…'
+        : 'Unable to load device'
+    const message = notFound
+      ? 'The device you are looking for is unavailable. Choose a device from the list to continue.'
+      : isBusy
+        ? 'Fetching the latest device details. This will only take a moment.'
+        : 'We could not load this device right now. Please refresh and try again.'
+
+    return (
+      <div className={classes.notFoundWrapper}>
+        <Title title="Retail Player" />
+        <Typography component="h1" className={classes.notFoundTitle}>
+          {heading}
+        </Typography>
+        <Typography className={classes.notFoundMessage}>{message}</Typography>
+        {combinedError && !isBusy ? (
+          <Typography className={classes.notFoundMessage} component="p">
+            {combinedError.message || String(combinedError)}
+          </Typography>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (isAccessBlockedByLock) {
+    return (
+      <div className={classes.root}>
+        <Title title="Retail Player" />
+        <Dialog
+          open={Boolean(device)}
+          disableEscapeKeyDown
+          classes={{ paper: classes.lockDialogPaper }}
+          aria-labelledby="retail-player-lock-dialog-title"
+        >
+          <DialogTitle id="retail-player-lock-dialog-title">Unlock device</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2">
+              This device is locked. Enter the password to continue.
+            </Typography>
+            <TextField
+              fullWidth
+              margin="dense"
+              variant="outlined"
+              type="password"
+              label="Password"
+              autoFocus
+              inputRef={lockInputRef}
+              value={lockPasswordInput}
+              onChange={(event) => {
+                setLockPasswordInput(event.target.value)
+                if (lockError) {
+                  setLockError('')
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleLockDialogSubmit()
+                }
+              }}
+            />
+            {lockError ? <Typography className={classes.lockDialogError}>{lockError}</Typography> : null}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleLockDialogBack}>Back</Button>
+            <Button color="primary" variant="contained" onClick={handleLockDialogSubmit}>
+              Unlock
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </div>
+    )
+  }
+
+  return (
+    <RetailPlayerDashboardUnlocked
+      baseDevice={baseDevice}
+      buttonTriggers={buttonTriggers}
+      classes={classes}
+      device={device}
+      hasButtonTriggers={hasButtonTriggers}
+      history={history}
+      isApiEnabled={isApiEnabled}
+      isTriggerListLoading={isTriggerListLoading}
+      refreshStatus={refreshStatus}
+      sendRemoteControlCommand={sendRemoteControlCommand}
+    />
   )
 }
 
