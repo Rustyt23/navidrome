@@ -2319,54 +2319,60 @@ const RetailPlayerDashboard = () => {
     )
   }
 
+  if (isAccessBlockedByLock) {
+    return (
+      <div className={rootClassName}>
+        <Title title="Retail Player" />
+        <Dialog
+          open={Boolean(device)}
+          disableEscapeKeyDown
+          classes={{ paper: classes.lockDialogPaper }}
+          aria-labelledby="retail-player-lock-dialog-title"
+        >
+          <DialogTitle id="retail-player-lock-dialog-title">Unlock device</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2">
+              This device is locked. Enter the password to continue.
+            </Typography>
+            <TextField
+              fullWidth
+              margin="dense"
+              variant="outlined"
+              type="password"
+              label="Password"
+              autoFocus
+              value={lockPasswordInput}
+              onChange={(event) => {
+                setLockPasswordInput(event.target.value)
+                if (lockError) {
+                  setLockError('')
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleLockDialogSubmit()
+                }
+              }}
+            />
+            {lockError ? <Typography className={classes.lockDialogError}>{lockError}</Typography> : null}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleLockDialogBack}>Back</Button>
+            <Button color="primary" variant="contained" onClick={handleLockDialogSubmit}>
+              Unlock
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </div>
+    )
+  }
+
   return (
     <div
       className={rootClassName}
-      aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
     >
       <Title title="Retail Player" />
-
-      <Dialog
-        open={Boolean(device && isAccessBlockedByLock)}
-        disableEscapeKeyDown
-        classes={{ paper: classes.lockDialogPaper }}
-        aria-labelledby="retail-player-lock-dialog-title"
-      >
-        <DialogTitle id="retail-player-lock-dialog-title">Unlock device</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2">
-            This device is locked. Enter the password to continue.
-          </Typography>
-          <TextField
-            fullWidth
-            margin="dense"
-            variant="outlined"
-            type="password"
-            label="Password"
-            autoFocus
-            value={lockPasswordInput}
-            onChange={(event) => {
-              setLockPasswordInput(event.target.value)
-              if (lockError) {
-                setLockError('')
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                handleLockDialogSubmit()
-              }
-            }}
-          />
-          {lockError ? <Typography className={classes.lockDialogError}>{lockError}</Typography> : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleLockDialogBack}>Back</Button>
-          <Button color="primary" variant="contained" onClick={handleLockDialogSubmit}>
-            Unlock
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       <header className={classes.headerBar}>
         <ButtonBase
