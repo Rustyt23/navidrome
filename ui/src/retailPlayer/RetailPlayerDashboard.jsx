@@ -2320,11 +2320,7 @@ const RetailPlayerDashboard = () => {
   }
 
   return (
-    <div
-      className={rootClassName}
-      aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
-      style={isAccessBlockedByLock ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
-    >
+    <div className={rootClassName}>
       <Title title="Retail Player" />
 
       <Dialog
@@ -2369,94 +2365,98 @@ const RetailPlayerDashboard = () => {
         </DialogActions>
       </Dialog>
 
-      <header className={classes.headerBar}>
-        <ButtonBase
-          className={classes.headerBackButton}
-          onClick={handleBack}
-          aria-label="Go back"
-          focusRipple
-        >
-          <ArrowBackIcon className={classes.headerBackIcon} />
-        </ButtonBase>
-        <div className={classes.headerCenter}>
-          <Typography
-            component="h1"
-            className={classes.headerTitle}
-            noWrap
-            title={device?.name || 'Retail Player'}
+      <div
+        aria-hidden={isAccessBlockedByLock ? 'true' : undefined}
+        style={isAccessBlockedByLock ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
+      >
+        <header className={classes.headerBar}>
+          <ButtonBase
+            className={classes.headerBackButton}
+            onClick={handleBack}
+            aria-label="Go back"
+            focusRipple
           >
-            {device?.name || 'Retail Player'}
-          </Typography>
-        </div>
-        <div className={classes.headerStatusGroup}>
-          <Tooltip title={statusTooltipTitle} placement="bottom">
-            <span
-              tabIndex={0}
-              className={combineClasses(
-                classes.headerStatusIcon,
-                isDeviceOnline
-                  ? classes.headerStatusIconOnline
-                  : classes.headerStatusIconOffline,
-              )}
-              role="status"
-              aria-label={statusAriaLabel}
+            <ArrowBackIcon className={classes.headerBackIcon} />
+          </ButtonBase>
+          <div className={classes.headerCenter}>
+            <Typography
+              component="h1"
+              className={classes.headerTitle}
+              noWrap
+              title={device?.name || 'Retail Player'}
             >
-              {isDeviceOnline ? (
-                <LinkIcon />
-              ) : (
-                <LinkOffIcon />
-              )}
-            </span>
-          </Tooltip>
-          <Tooltip
-            title={headerClockTooltip || 'Device time unavailable'}
-            placement="bottom"
-          >
-            <div
-              className={classes.headerClock}
-              aria-live="polite"
-              aria-label={`Local time ${
-                headerClockTooltip || headerTimeLabel || 'unavailable'
-              }`}
-            >
-              {headerTimeLabel}
-            </div>
-          </Tooltip>
-        </div>
-      </header>
-
-      <div className={classes.mainContent}>
-        <section className={classes.nowPlayingCard} aria-label="Now playing">
-          <div className={classes.artworkWrapper} aria-label="Artwork">
-            <div className={classes.artworkCircle}>
-              <div className={classes.artworkContent}>
-                {resolvedArtworkUrl ? (
-                  <img
-                    src={resolvedArtworkUrl}
-                    alt={`Artwork for ${currentTrack.title}`}
-                    className={classes.artworkImage}
-                  />
-                ) : (
-                  <svg
-                    viewBox="0 0 200 200"
-                    className={classes.discSvg}
-                    role="img"
-                    aria-hidden="true"
-                  >
-                    <circle cx="100" cy="100" r="98" className={classes.discOuter} />
-                    <circle cx="100" cy="100" r="48" className={classes.discInner} />
-                    <path
-                      d="M150 50c-18-14-40-22-62-20"
-                      className={classes.discHighlight}
-                    />
-                  </svg>
+              {device?.name || 'Retail Player'}
+            </Typography>
+          </div>
+          <div className={classes.headerStatusGroup}>
+            <Tooltip title={statusTooltipTitle} placement="bottom">
+              <span
+                tabIndex={0}
+                className={combineClasses(
+                  classes.headerStatusIcon,
+                  isDeviceOnline
+                    ? classes.headerStatusIconOnline
+                    : classes.headerStatusIconOffline,
                 )}
+                role="status"
+                aria-label={statusAriaLabel}
+              >
+                {isDeviceOnline ? (
+                  <LinkIcon />
+                ) : (
+                  <LinkOffIcon />
+                )}
+              </span>
+            </Tooltip>
+            <Tooltip
+              title={headerClockTooltip || 'Device time unavailable'}
+              placement="bottom"
+            >
+              <div
+                className={classes.headerClock}
+                aria-live="polite"
+                aria-label={`Local time ${
+                  headerClockTooltip || headerTimeLabel || 'unavailable'
+                }`}
+              >
+                {headerTimeLabel}
+              </div>
+            </Tooltip>
+          </div>
+        </header>
+
+        <div className={classes.mainContent}>
+          <section className={classes.nowPlayingCard} aria-label="Now playing">
+            <div className={classes.artworkWrapper} aria-label="Artwork">
+              <div className={classes.artworkCircle}>
+                <div className={classes.artworkContent}>
+                  {resolvedArtworkUrl ? (
+                    <img
+                      src={resolvedArtworkUrl}
+                      alt={`Artwork for ${currentTrack.title}`}
+                      className={classes.artworkImage}
+                    />
+                  ) : (
+                    <svg
+                      viewBox="0 0 200 200"
+                      className={classes.discSvg}
+                      role="img"
+                      aria-hidden="true"
+                    >
+                      <circle cx="100" cy="100" r="98" className={classes.discOuter} />
+                      <circle cx="100" cy="100" r="48" className={classes.discInner} />
+                      <path
+                        d="M150 50c-18-14-40-22-62-20"
+                        className={classes.discHighlight}
+                      />
+                    </svg>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className={classes.nowPlayingBody}>
-            <div className={classes.nowPlayingHeader}>
+            <div className={classes.nowPlayingBody}>
+              <div className={classes.nowPlayingHeader}>
               <Typography
                 component="h2"
                 className={combineClasses(
