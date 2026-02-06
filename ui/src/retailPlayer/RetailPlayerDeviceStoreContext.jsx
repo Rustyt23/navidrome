@@ -104,6 +104,12 @@ const baseDeviceShape = (device, existing) => {
       : typeof existing?.isLocked === 'boolean'
         ? existing.isLocked
         : false
+  const normalizedIsOnline =
+    typeof device?.online === 'boolean'
+      ? device.online
+      : typeof existing?.online === 'boolean'
+        ? existing.online
+        : undefined
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -130,6 +136,7 @@ const baseDeviceShape = (device, existing) => {
     timeZone: normalizedTimeZone || '',
     remoteControlId: normalizedRemoteControlId || '',
     isLocked: normalizedIsLocked,
+    ...(typeof normalizedIsOnline === 'boolean' ? { online: normalizedIsOnline } : {}),
     folderIds,
     folderId: primaryFolderId,
     source: existing?.source === 'local' ? 'local' : 'remote',

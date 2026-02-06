@@ -188,6 +188,7 @@ type retailPlayerAPIDevice struct {
 	ChannelList  string `json:"channelList"`
 	MacAddress   string `json:"macAddress"`
 	TimeZone     string `json:"timeZone"`
+	Online       *bool  `json:"online"`
 }
 
 type retailPlayerAPIResponse struct {
@@ -210,6 +211,7 @@ type retailPlayerDevice struct {
 	ChannelList     string   `json:"channelList"`
 	Organization    string   `json:"organization"`
 	TimeZone        string   `json:"timeZone,omitempty"`
+	Online          *bool    `json:"online,omitempty"`
 	FolderIDs       []string `json:"folderIds,omitempty"`
 	RemoteControlID string   `json:"remoteControlId,omitempty"`
 }
@@ -3047,6 +3049,9 @@ func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
 	if strings.TrimSpace(device.TimeZone) != "" {
 		return false
 	}
+	if device.Online != nil {
+		return false
+	}
 
 	return true
 }
@@ -3081,6 +3086,7 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		ChannelList:  strings.TrimSpace(device.ChannelList),
 		Organization: organization,
 		TimeZone:     strings.TrimSpace(device.TimeZone),
+		Online:       device.Online,
 	}, true
 }
 
