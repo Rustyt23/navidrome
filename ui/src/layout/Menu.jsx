@@ -18,7 +18,7 @@ import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import FolderIcon from '@material-ui/icons/Folder'
-import { useHistory } from 'react-router-dom'
+import { useHistory, useLocation } from 'react-router-dom'
 import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
@@ -313,6 +313,7 @@ const Menu = ({ dense = false }) => {
 
   const [openFolders, setOpenFolders] = useState({})
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
+  const location = useLocation()
 
   const handleDeviceDrop = useCallback(
     async (deviceId, folderId) => {
@@ -339,8 +340,10 @@ const Menu = ({ dense = false }) => {
   }, [])
 
   const goToRetailPlayerSettings = useCallback(() => {
-    history.push('/retail-player/devices')
-  }, [history])
+    if (location.pathname !== '/retail-player/devices') {
+      history.push('/retail-player/devices')
+    }
+  }, [history, location.pathname])
 
   const renderRetailPlayerNodes = useCallback(
     (nodes, depth = 0) =>
