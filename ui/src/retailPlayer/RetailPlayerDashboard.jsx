@@ -2703,94 +2703,95 @@ const RetailPlayerDashboard = () => {
           </div>
         </section>
       </div>
-      <Drawer
-        anchor="right"
-        open={isCueDrawerOpen}
-        onClose={handleCloseCueDrawer}
-        variant="temporary"
-        ModalProps={{ keepMounted: true }}
-        classes={{ paper: classes.cueDrawerPaper }}
-        className={classes.cueDrawer}
-      >
-        <div className={classes.cueDrawerHeader}>
-          <Typography component="h2" className={classes.cueDrawerTitle}>
-            Cue Buttons
-          </Typography>
-        </div>
-        <div className={classes.cueControls}>
-          <ButtonBase
-            onClick={stopCuePlayback}
-            aria-label="Stop cue playback"
-            focusRipple
-            disabled={!deviceApiId}
-            className={combineClasses(
-              classes.cueStopButton,
-              isCuePlaybackActive ? classes.cueStopButtonActive : null,
-            )}
-          >
-            <StopIcon className={classes.cueStopIcon} />
-            <span className={classes.cueStopLabel}>Stop</span>
-          </ButtonBase>
-        </div>
-        <div className={classes.cueList} role="region" aria-label="Cue buttons list">
-          {isCueLoading ? (
-            <Typography>Loading cue buttons…</Typography>
-          ) : cueError ? (
-            <Typography className={classes.cueError}>
-              {cueError.message || 'Unable to load cue buttons'}
-            </Typography>
-          ) : sortedCueTriggers.length ? (
-            <List disablePadding>
-              {sortedCueTriggers.map((trigger) => {
-                const primaryText = trigger?.name || trigger?.id || 'Unnamed trigger'
-                const secondaryParts = []
-                if (trigger?.asset?.name) {
-                  secondaryParts.push(trigger.asset.name)
-                }
-
-                const triggerId = getTriggerIdentifier(trigger)
-                const triggerOrdinal = getTriggerOrdinal(trigger)
-                const isTriggerActive =
-                  (triggerId && triggerId === activeCueTriggerId) ||
-                  (Number.isFinite(triggerOrdinal) &&
-                    Number.isFinite(activeCueTriggerOrdinal) &&
-                    triggerOrdinal === activeCueTriggerOrdinal)
-
-                return (
-                  <ListItem
-                    key={trigger?.id || primaryText}
-                    className={combineClasses(
-                      classes.cueListItem,
-                      isTriggerActive ? classes.cueListItemActive : null,
-                    )}
-                    button
-                    onClick={() => sendCueTriggerAction(trigger)}
-                  >
-                    <ListItemText
-                      primary={primaryText}
-                      secondary={secondaryParts.join(' • ')}
-                      primaryTypographyProps={{
-                        className: combineClasses(
-                          classes.cueListPrimary,
-                          isTriggerActive ? classes.cueListPrimaryActive : null,
-                        ),
-                      }}
-                      secondaryTypographyProps={{
-                        className: combineClasses(
-                          classes.cueListSecondary,
-                          isTriggerActive ? classes.cueListSecondaryActive : null,
-                        ),
-                      }}
-                    />
-                  </ListItem>
-                )
-              })}
-            </List>
-          ) : (
-            <Typography className={classes.cueEmpty}>No cue buttons available</Typography>
+    </div>
+    <Drawer
+      anchor="right"
+      open={isCueDrawerOpen}
+      onClose={handleCloseCueDrawer}
+      variant="temporary"
+      ModalProps={{ keepMounted: true }}
+      classes={{ paper: classes.cueDrawerPaper }}
+      className={classes.cueDrawer}
+    >
+      <div className={classes.cueDrawerHeader}>
+        <Typography component="h2" className={classes.cueDrawerTitle}>
+          Cue Buttons
+        </Typography>
+      </div>
+      <div className={classes.cueControls}>
+        <ButtonBase
+          onClick={stopCuePlayback}
+          aria-label="Stop cue playback"
+          focusRipple
+          disabled={!deviceApiId}
+          className={combineClasses(
+            classes.cueStopButton,
+            isCuePlaybackActive ? classes.cueStopButtonActive : null,
           )}
-        </div>
-      </Drawer>
+        >
+          <StopIcon className={classes.cueStopIcon} />
+          <span className={classes.cueStopLabel}>Stop</span>
+        </ButtonBase>
+      </div>
+      <div className={classes.cueList} role="region" aria-label="Cue buttons list">
+        {isCueLoading ? (
+          <Typography>Loading cue buttons…</Typography>
+        ) : cueError ? (
+          <Typography className={classes.cueError}>
+            {cueError.message || 'Unable to load cue buttons'}
+          </Typography>
+        ) : sortedCueTriggers.length ? (
+          <List disablePadding>
+            {sortedCueTriggers.map((trigger) => {
+              const primaryText = trigger?.name || trigger?.id || 'Unnamed trigger'
+              const secondaryParts = []
+              if (trigger?.asset?.name) {
+                secondaryParts.push(trigger.asset.name)
+              }
+
+              const triggerId = getTriggerIdentifier(trigger)
+              const triggerOrdinal = getTriggerOrdinal(trigger)
+              const isTriggerActive =
+                (triggerId && triggerId === activeCueTriggerId) ||
+                (Number.isFinite(triggerOrdinal) &&
+                  Number.isFinite(activeCueTriggerOrdinal) &&
+                  triggerOrdinal === activeCueTriggerOrdinal)
+
+              return (
+                <ListItem
+                  key={trigger?.id || primaryText}
+                  className={combineClasses(
+                    classes.cueListItem,
+                    isTriggerActive ? classes.cueListItemActive : null,
+                  )}
+                  button
+                  onClick={() => sendCueTriggerAction(trigger)}
+                >
+                  <ListItemText
+                    primary={primaryText}
+                    secondary={secondaryParts.join(' • ')}
+                    primaryTypographyProps={{
+                      className: combineClasses(
+                        classes.cueListPrimary,
+                        isTriggerActive ? classes.cueListPrimaryActive : null,
+                      ),
+                    }}
+                    secondaryTypographyProps={{
+                      className: combineClasses(
+                        classes.cueListSecondary,
+                        isTriggerActive ? classes.cueListSecondaryActive : null,
+                      ),
+                    }}
+                  />
+                </ListItem>
+              )
+            })}
+          </List>
+        ) : (
+          <Typography className={classes.cueEmpty}>No cue buttons available</Typography>
+        )}
+      </div>
+    </Drawer>
     </div>
   )
 }
