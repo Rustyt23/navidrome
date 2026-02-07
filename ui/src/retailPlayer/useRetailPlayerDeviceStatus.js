@@ -184,7 +184,13 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const macAddress = normalizeValue(
     payloadDevice?.macAddress ||
       payloadDevice?.mac_address ||
-      payloadDevice?.macaddress,
+      payloadDevice?.macaddress ||
+      payload?.macAddress ||
+      payload?.mac_address ||
+      payload?.macaddress ||
+      payload?.status?.macAddress ||
+      payload?.status?.mac_address ||
+      payload?.status?.macaddress,
   )
 
   const payloadArtwork =
