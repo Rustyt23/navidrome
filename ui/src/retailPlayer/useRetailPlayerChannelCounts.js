@@ -26,7 +26,8 @@ const useRetailPlayerChannelCounts = (devices, isApiEnabled) => {
       if (!deviceId) {
         return
       }
-      mapping[deviceId] = null
+      const rawCount = device.channelCatalogCount
+      mapping[deviceId] = Number.isFinite(rawCount) ? rawCount : null
     })
     return mapping
   }, [safeDevices])
