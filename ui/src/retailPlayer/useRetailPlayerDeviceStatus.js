@@ -9,6 +9,7 @@ import {
   deviceSlugKey,
   mapRetailPlayerDevice,
   normalizeValue,
+  resolveChannelName,
 } from './deviceUtils'
 import useRemoteControlSocket from './useRemoteControlSocket'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
@@ -182,7 +183,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     (item) => item && typeof item === 'object',
   )
   const macAddress = normalizeValue(payloadDevice?.macAddress)
-  const channelName = normalizeValue(payloadDevice?.channelName)
+  const channelName = resolveChannelName(payloadDevice)
 
   const payloadArtwork =
     payload && typeof payload === 'object' ? payload.artwork || {} : {}
