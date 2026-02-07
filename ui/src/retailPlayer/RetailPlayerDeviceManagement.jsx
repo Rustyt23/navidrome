@@ -275,6 +275,11 @@ const useStyles = makeStyles((theme) => {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
   },
+  macAddressCell: {
+    fontSize: theme.typography.pxToRem(12),
+    color: theme.palette.text.secondary,
+    fontVariantNumeric: 'tabular-nums',
+  },
   countCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
@@ -620,6 +625,9 @@ const RetailPlayerDeviceRow = memo(
     isLocked,
     isOnline,
   }) => {
+    const formattedMacAddress = node.macAddress
+      ? node.macAddress.replace(/-/g, ':').toLowerCase()
+      : '—'
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
       deviceId: node.id,
       deviceName: node.name,
@@ -664,7 +672,7 @@ const RetailPlayerDeviceRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>{node.macAddress || '—'}</div>
+        <div className={classes.macAddressCell}>{formattedMacAddress}</div>
         <div className={classes.countCell}>
           {typeof channelCount === 'number' ? channelCount : '—'}
         </div>
