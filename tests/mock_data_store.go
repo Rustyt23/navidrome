@@ -29,6 +29,7 @@ type MockDataStore struct {
 	MockedScrobbleBuffer            model.ScrobbleBufferRepository
 	MockedRadio                     model.RadioRepository
 	MockedRetailPlayerDeviceMapping model.RetailPlayerDeviceMappingRepository
+	MockedRetailPlayerChannelCache  model.RetailPlayerDeviceChannelCacheRepository
 	MockedRetailPlayerFolder        model.RetailPlayerFolderRepository
 	scrobbleBufferMu                sync.Mutex
 	repoMu                          sync.Mutex
@@ -212,6 +213,19 @@ func (db *MockDataStore) RetailPlayerDeviceMapping(ctx context.Context) model.Re
 		}
 	}
 	return db.MockedRetailPlayerDeviceMapping
+}
+
+func (db *MockDataStore) RetailPlayerDeviceChannelCache(ctx context.Context) model.RetailPlayerDeviceChannelCacheRepository {
+	if db.MockedRetailPlayerChannelCache == nil {
+		if db.RealDS != nil {
+			db.MockedRetailPlayerChannelCache = db.RealDS.RetailPlayerDeviceChannelCache(ctx)
+		} else {
+			db.MockedRetailPlayerChannelCache = struct {
+				model.RetailPlayerDeviceChannelCacheRepository
+			}{}
+		}
+	}
+	return db.MockedRetailPlayerChannelCache
 }
 
 func (db *MockDataStore) RetailPlayerFolder(ctx context.Context) model.RetailPlayerFolderRepository {

@@ -36,6 +36,7 @@ type DataStore interface {
 	Player(ctx context.Context) PlayerRepository
 	Radio(ctx context.Context) RadioRepository
 	RetailPlayerDeviceMapping(ctx context.Context) RetailPlayerDeviceMappingRepository
+	RetailPlayerDeviceChannelCache(ctx context.Context) RetailPlayerDeviceChannelCacheRepository
 	RetailPlayerFolder(ctx context.Context) RetailPlayerFolderRepository
 	Share(ctx context.Context) ShareRepository
 	Property(ctx context.Context) PropertyRepository
