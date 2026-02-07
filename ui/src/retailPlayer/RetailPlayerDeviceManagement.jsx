@@ -37,7 +37,6 @@ import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
 import PropTypes from 'prop-types'
 import { useHistory } from 'react-router-dom'
-import httpClient from '../dataProvider/httpClient'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 import AddToFolderDialog from './AddToFolderDialog'
 import useAssignRetailPlayerDeviceToFolder from './useAssignRetailPlayerDeviceToFolder'
@@ -512,6 +511,8 @@ const RetailPlayerFolderRow = memo(
     onToggleSelection,
     onKeyDown,
     onEdit,
+    onToggleLock,
+    isLocked,
     onDeviceDrop,
   }) => {
     const { dropRef, isOver, canDrop } = useRetailPlayerFolderDrop({
@@ -562,6 +563,22 @@ const RetailPlayerFolderRow = memo(
         <div className={classes.countCell}>{deviceCount}</div>
         <div className={classes.remoteControlCell}>—</div>
         <div className={classes.actionsCell}>
+          <Tooltip title={isLocked ? 'Unlock folder' : 'Lock folder'}>
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleLock(node)
+              }}
+              aria-label={`${isLocked ? 'Unlock' : 'Lock'} folder ${node.name}`}
+            >
+              {isLocked ? (
+                <LockIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+              ) : (
+                <LockOpenIcon style={{ fontSize: 15 }} />
+              )}
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Edit folder">
             <IconButton
               size="small"
@@ -593,7 +610,13 @@ RetailPlayerFolderRow.propTypes = {
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
+  onToggleLock: PropTypes.func.isRequired,
+  isLocked: PropTypes.bool,
   onDeviceDrop: PropTypes.func.isRequired,
+}
+
+RetailPlayerFolderRow.defaultProps = {
+  isLocked: false,
 }
 
 RetailPlayerFolderRow.displayName = 'RetailPlayerFolderRow'
@@ -1176,6 +1199,88 @@ const RetailPlayerDeviceManagement = () => {
     }
   }
 
+  const collectDevicesInNode = useCallback((node) => {
+    if (!node) {
+      return []
+    }
+    if (node.type === 'device') {
+      return [node]
+    }
+    if (!Array.isArray(node.children)) {
+      return []
+    }
+    return node.children.flatMap((child) => collectDevicesInNode(child))
+  }, [])
+
+  const lockFolderDevices = useCallback(
+    async (folderNode) => {
+      const devicesToLock = collectDevicesInNode(folderNode).filter(
+        (device) => !isDeviceLocked(device),
+      )
+      if (!devicesToLock.length) {
+        return
+      }
+      for (const device of devicesToLock) {
+        try {
+          await updateDevice({ id: device.id, isLocked: true })
+        } catch (err) {
+          console.error('Failed to lock retail player device from folder', err)
+        }
+      }
+    },
+    [collectDevicesInNode, updateDevice],
+  )
+
+  const unlockFolderDevices = useCallback(
+    async (folderNode) => {
+      const devicesToUnlock = collectDevicesInNode(folderNode).filter((device) =>
+        isDeviceLocked(device),
+      )
+      if (!devicesToUnlock.length) {
+        return
+      }
+      for (const device of devicesToUnlock) {
+        try {
+          await updateDevice({ id: device.id, isLocked: false })
+        } catch (err) {
+          console.error('Failed to unlock retail player device from folder', err)
+        }
+      }
+    },
+    [collectDevicesInNode, updateDevice],
+  )
+
+  const handleToggleFolderLock = useCallback(
+    async (folderNode) => {
+      if (!folderNode) {
+        return
+      }
+      const locked = Boolean(folderNode.isLocked)
+      if (locked) {
+        await updateFolder({
+          id: folderNode.id,
+          name: folderNode.name,
+          parentId: folderNode.parentId ?? null,
+          isLocked: false,
+        })
+        await unlockFolderDevices(folderNode)
+        return
+      }
+      await updateFolder({
+        id: folderNode.id,
+        name: folderNode.name,
+        parentId: folderNode.parentId ?? null,
+        isLocked: true,
+      })
+      await lockFolderDevices(folderNode)
+    },
+    [
+      lockFolderDevices,
+      unlockFolderDevices,
+      updateFolder,
+    ],
+  )
+
   const handleToggleDeviceLock = useCallback(async (device) => {
     if (!device) {
       return
@@ -1333,6 +1438,7 @@ const RetailPlayerDeviceManagement = () => {
       if (node.type === 'folder') {
         const deviceCount = countDevices(node)
         const isSelected = selectedIds.has(node.id)
+        const isLocked = Boolean(node.isLocked)
         return (
           <RetailPlayerFolderRow
             key={`folder-row-${node.id}`}
@@ -1344,6 +1450,8 @@ const RetailPlayerDeviceManagement = () => {
             onToggleSelection={toggleNodeSelection}
             onKeyDown={handleRowKeyDown}
             onEdit={handleEditFolder}
+            onToggleLock={handleToggleFolderLock}
+            isLocked={isLocked}
             onDeviceDrop={handleDeviceDropOnFolder}
           />
         )
@@ -1587,6 +1695,7 @@ const RetailPlayerDeviceManagement = () => {
         onSubmit={handleDeviceSubmit}
         initialValues={deviceDialog.target}
       />
+
     </div>
   )
 }

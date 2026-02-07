@@ -25,7 +25,7 @@ func NewRetailPlayerFolderRepository(ctx context.Context, db dbx.Builder) model.
 }
 
 func (r retailPlayerFolderRepository) List(ctx context.Context) ([]model.RetailPlayerFolder, error) {
-	sel := Select("id", "name", "parent_id", "created_at", "updated_at").
+	sel := Select("id", "name", "parent_id", "is_locked", "created_at", "updated_at").
 		From(r.tableName).
 		OrderBy("lower(name) asc", "created_at asc")
 
@@ -35,6 +35,25 @@ func (r retailPlayerFolderRepository) List(ctx context.Context) ([]model.RetailP
 		return nil, nil
 	}
 	return folders, err
+}
+
+func (r retailPlayerFolderRepository) Find(ctx context.Context, id string) (model.RetailPlayerFolder, error) {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return model.RetailPlayerFolder{}, errors.New("retail player folder id is required")
+	}
+
+	sel := Select("id", "name", "parent_id", "is_locked", "created_at", "updated_at").
+		From(r.tableName).
+		Where(Eq{"id": trimmed}).
+		Limit(1)
+
+	var folder model.RetailPlayerFolder
+	if err := r.queryOne(sel, &folder); err != nil {
+		return model.RetailPlayerFolder{}, err
+	}
+
+	return folder, nil
 }
 
 func (r retailPlayerFolderRepository) Upsert(ctx context.Context, folder model.RetailPlayerFolder) (model.RetailPlayerFolder, error) {
@@ -59,18 +78,19 @@ func (r retailPlayerFolderRepository) Upsert(ctx context.Context, folder model.R
 	now := time.Now().UTC()
 
 	insert := Insert(r.tableName).
-		Columns("id", "name", "parent_id", "created_at", "updated_at").
-		Values(id, name, parentID, now, now).
+		Columns("id", "name", "parent_id", "is_locked", "created_at", "updated_at").
+		Values(id, name, parentID, folder.IsLocked, now, now).
 		Suffix(`ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             parent_id = excluded.parent_id,
+            is_locked = excluded.is_locked,
             updated_at = excluded.updated_at`)
 
 	if _, err := r.executeSQL(insert); err != nil {
 		return model.RetailPlayerFolder{}, err
 	}
 
-	sel := Select("id", "name", "parent_id", "created_at", "updated_at").
+	sel := Select("id", "name", "parent_id", "is_locked", "created_at", "updated_at").
 		From(r.tableName).
 		Where(Eq{"id": id}).
 		Limit(1)
