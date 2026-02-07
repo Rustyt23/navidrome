@@ -3,6 +3,7 @@ import config from '../config'
 import httpClient from '../dataProvider/httpClient'
 import RetailPlayerMockService from './RetailPlayerMockService'
 import { mapRetailPlayerDevice } from './deviceUtils'
+import { mapRetailPlayerFolder } from './folderUtils'
 
 const buildDevicesUrl = (deviceName) =>
   deviceName ? '/api/retailplayer/rc' : '/api/retailplayer/devices'
@@ -44,7 +45,9 @@ const fetchRetailPlayerDevices = async (signal, deviceName) => {
   const devices = Array.isArray(payload?.data)
     ? payload.data.map(mapRetailPlayerDevice).filter(Boolean)
     : []
-  const folders = Array.isArray(payload?.folders) ? payload.folders : []
+  const folders = Array.isArray(payload?.folders)
+    ? payload.folders.map(mapRetailPlayerFolder).filter(Boolean)
+    : []
   const deviceFolders = Array.isArray(payload?.deviceFolders)
     ? payload.deviceFolders
     : []

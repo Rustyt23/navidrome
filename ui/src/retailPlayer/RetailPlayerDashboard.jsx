@@ -39,6 +39,11 @@ import {
   isDeviceUnlockedForSession,
   markDeviceUnlockedForSession,
 } from './deviceLockState'
+import {
+  isFolderLocked,
+  isFolderUnlockedForSession,
+  markFolderUnlockedForSession,
+} from './folderLockState'
 
 const combineClasses = (...classNames) => classNames.filter(Boolean).join(' ')
 
@@ -941,6 +946,7 @@ const RetailPlayerDashboard = () => {
     refresh: refreshStatus,
     notFound,
     isApiEnabled,
+    folders,
     buttonTriggers,
     hasButtonTriggers,
     isTriggerListLoading,
@@ -1853,8 +1859,27 @@ const RetailPlayerDashboard = () => {
     [],
   )
 
+  const lockedFoldersForDevice = useMemo(() => {
+    if (!device || !Array.isArray(folders) || !folders.length) {
+      return []
+    }
+
+    const folderIds = new Set(device.folderIds || [])
+    if (!folderIds.size) {
+      return []
+    }
+
+    return folders.filter(
+      (folder) => folderIds.has(folder.id) && isFolderLocked(folder),
+    )
+  }, [device, folders])
+
   const isAccessBlockedByLock =
-    Boolean(device) && isDeviceLocked(device) && !isDeviceUnlockedForSession(device)
+    Boolean(device) &&
+    ((isDeviceLocked(device) && !isDeviceUnlockedForSession(device)) ||
+      lockedFoldersForDevice.some(
+        (folder) => !isFolderUnlockedForSession(folder),
+      ))
 
   const handleLockDialogBack = useCallback(() => {
     if (history.length > 1) {
@@ -1877,13 +1902,16 @@ const RetailPlayerDashboard = () => {
 
     if (lockPasswordInput === config.retailPlayerDeviceLockPassword) {
       markDeviceUnlockedForSession(device)
+      lockedFoldersForDevice.forEach((folder) => {
+        markFolderUnlockedForSession(folder)
+      })
       setLockPasswordInput('')
       setLockError('')
       return
     }
 
     setLockError('Incorrect password. Please try again.')
-  }, [device, isDevicePasswordConfigured, lockPasswordInput])
+  }, [device, isDevicePasswordConfigured, lockPasswordInput, lockedFoldersForDevice])
 
   useEffect(() => {
     if (!isAccessBlockedByLock) {

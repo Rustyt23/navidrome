@@ -48,6 +48,7 @@ import {
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
 import useRetailPlayerChannelCounts from './useRetailPlayerChannelCounts'
 import { isDeviceLocked } from './deviceLockState'
+import { isFolderLocked } from './folderLockState'
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
@@ -513,6 +514,8 @@ const RetailPlayerFolderRow = memo(
     onKeyDown,
     onEdit,
     onDeviceDrop,
+    onToggleLock,
+    isLocked,
   }) => {
     const { dropRef, isOver, canDrop } = useRetailPlayerFolderDrop({
       folderId: node.id,
@@ -562,6 +565,22 @@ const RetailPlayerFolderRow = memo(
         <div className={classes.countCell}>{deviceCount}</div>
         <div className={classes.remoteControlCell}>—</div>
         <div className={classes.actionsCell}>
+          <Tooltip title={isLocked ? 'Unlock folder' : 'Lock folder'}>
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleLock(node)
+              }}
+              aria-label={`${isLocked ? 'Unlock' : 'Lock'} folder ${node.name}`}
+            >
+              {isLocked ? (
+                <LockIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+              ) : (
+                <LockOpenIcon style={{ fontSize: 15 }} />
+              )}
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Edit folder">
             <IconButton
               size="small"
@@ -594,6 +613,12 @@ RetailPlayerFolderRow.propTypes = {
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
   onDeviceDrop: PropTypes.func.isRequired,
+  onToggleLock: PropTypes.func.isRequired,
+  isLocked: PropTypes.bool,
+}
+
+RetailPlayerFolderRow.defaultProps = {
+  isLocked: false,
 }
 
 RetailPlayerFolderRow.displayName = 'RetailPlayerFolderRow'
@@ -1190,6 +1215,20 @@ const RetailPlayerDeviceManagement = () => {
     }
   }, [updateDevice])
 
+  const handleToggleFolderLock = useCallback(async (folder) => {
+    if (!folder) {
+      return
+    }
+
+    try {
+      const nextLockedValue = !isFolderLocked(folder)
+      await updateFolder({ id: folder.id, isLocked: nextLockedValue })
+      setSelectedIds((previous) => new Set(previous))
+    } catch (err) {
+      console.error('Failed to update retail player folder lock state', err)
+    }
+  }, [updateFolder])
+
   const handleNavigateToDevice = useCallback(
     (device) => {
       if (!device) {
@@ -1345,6 +1384,8 @@ const RetailPlayerDeviceManagement = () => {
             onKeyDown={handleRowKeyDown}
             onEdit={handleEditFolder}
             onDeviceDrop={handleDeviceDropOnFolder}
+            onToggleLock={handleToggleFolderLock}
+            isLocked={isFolderLocked(node)}
           />
         )
       }

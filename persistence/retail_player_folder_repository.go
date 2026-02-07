@@ -25,7 +25,7 @@ func NewRetailPlayerFolderRepository(ctx context.Context, db dbx.Builder) model.
 }
 
 func (r retailPlayerFolderRepository) List(ctx context.Context) ([]model.RetailPlayerFolder, error) {
-	sel := Select("id", "name", "parent_id", "created_at", "updated_at").
+	sel := Select("id", "name", "parent_id", "is_locked", "created_at", "updated_at").
 		From(r.tableName).
 		OrderBy("lower(name) asc", "created_at asc")
 
@@ -70,9 +70,28 @@ func (r retailPlayerFolderRepository) Upsert(ctx context.Context, folder model.R
 		return model.RetailPlayerFolder{}, err
 	}
 
-	sel := Select("id", "name", "parent_id", "created_at", "updated_at").
+	sel := Select("id", "name", "parent_id", "is_locked", "created_at", "updated_at").
 		From(r.tableName).
 		Where(Eq{"id": id}).
+		Limit(1)
+
+	var stored model.RetailPlayerFolder
+	if err := r.queryOne(sel, &stored); err != nil {
+		return model.RetailPlayerFolder{}, err
+	}
+
+	return stored, nil
+}
+
+func (r retailPlayerFolderRepository) FindByID(ctx context.Context, id string) (model.RetailPlayerFolder, error) {
+	trimmedID := strings.TrimSpace(id)
+	if trimmedID == "" {
+		return model.RetailPlayerFolder{}, errors.New("retail player folder id is required")
+	}
+
+	sel := Select("id", "name", "parent_id", "is_locked", "created_at", "updated_at").
+		From(r.tableName).
+		Where(Eq{"id": trimmedID}).
 		Limit(1)
 
 	var stored model.RetailPlayerFolder
@@ -149,5 +168,21 @@ func (r retailPlayerFolderRepository) ReplaceDeviceAssignments(ctx context.Conte
         updated_at = excluded.updated_at`)
 
 	_, err := r.executeSQL(insert)
+	return err
+}
+
+func (r retailPlayerFolderRepository) SetLocked(ctx context.Context, folderID string, isLocked bool) error {
+	trimmedID := strings.TrimSpace(folderID)
+	if trimmedID == "" {
+		return errors.New("retail player folder id is required")
+	}
+
+	now := time.Now().UTC()
+	update := Update(r.tableName).
+		Set("is_locked", isLocked).
+		Set("updated_at", now).
+		Where(Eq{"id": trimmedID})
+
+	_, err := r.executeSQL(update)
 	return err
 }
