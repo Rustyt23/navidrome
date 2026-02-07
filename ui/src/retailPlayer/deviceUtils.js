@@ -46,6 +46,57 @@ const deviceSlugKey = (value) => {
   return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
+const resolveChannelName = (device) => {
+  if (!device || typeof device !== 'object') {
+    return ''
+  }
+
+  const direct = normalizeValue(device.channelName)
+  if (direct) {
+    return direct
+  }
+
+  const snakeCase = normalizeValue(device.channel_name)
+  if (snakeCase) {
+    return snakeCase
+  }
+
+  const channelObject =
+    device.channel && typeof device.channel === 'object'
+      ? device.channel
+      : null
+  if (channelObject) {
+    return normalizeValue(
+      channelObject.name || channelObject.label || channelObject.title,
+    )
+  }
+
+  return ''
+}
+
+const resolveChannelId = (device) => {
+  if (!device || typeof device !== 'object') {
+    return ''
+  }
+
+  if (
+    typeof device.channel === 'string' ||
+    typeof device.channel === 'number'
+  ) {
+    return normalizeValue(device.channel)
+  }
+
+  const channelObject =
+    device.channel && typeof device.channel === 'object'
+      ? device.channel
+      : null
+  if (channelObject) {
+    return normalizeValue(channelObject.id || channelObject.channelId)
+  }
+
+  return ''
+}
+
 const mapRetailPlayerDevice = (device) => {
   if (!device || typeof device !== 'object') {
     return null
@@ -63,7 +114,7 @@ const mapRetailPlayerDevice = (device) => {
 
   const slug = buildDeviceSlug(device) || fallbackId
   const macAddress = normalizeValue(device.macAddress)
-  const channelName = normalizeValue(device.channelName)
+  const channelName = resolveChannelName(device)
   const name = normalizeValue(device.name) || fallbackId
   const folderIds = Array.isArray(device.folderIds)
     ? device.folderIds
@@ -90,8 +141,8 @@ const mapRetailPlayerDevice = (device) => {
     name,
     slug,
     slugKey: deviceSlugKey(slug),
-    channel: normalizeValue(device.channel),
-    channelName: channelName || normalizeValue(device.channel),
+    channel: resolveChannelId(device),
+    channelName: channelName || resolveChannelId(device),
     channelList: normalizeValue(device.channelList),
     macAddress,
     organization:
@@ -106,4 +157,10 @@ const mapRetailPlayerDevice = (device) => {
   }
 }
 
-export { buildDeviceSlug, deviceSlugKey, mapRetailPlayerDevice, normalizeValue }
+export {
+  buildDeviceSlug,
+  deviceSlugKey,
+  mapRetailPlayerDevice,
+  normalizeValue,
+  resolveChannelName,
+}
