@@ -77,6 +77,10 @@ func (s *SQLStore) RetailPlayerDeviceMapping(ctx context.Context) model.RetailPl
 	return NewRetailPlayerDeviceMappingRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) RetailPlayerDeviceChannelCache(ctx context.Context) model.RetailPlayerDeviceChannelCacheRepository {
+	return NewRetailPlayerDeviceChannelCacheRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) RetailPlayerFolder(ctx context.Context) model.RetailPlayerFolderRepository {
 	return NewRetailPlayerFolderRepository(ctx, s.getDBXBuilder())
 }

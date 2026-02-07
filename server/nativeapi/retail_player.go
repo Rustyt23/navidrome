@@ -360,6 +360,14 @@ type retailPlayerQRDevice struct {
 	Name string `json:"name"`
 }
 
+type retailPlayerDeviceTableEntry struct {
+	DeviceID        string `json:"deviceId"`
+	ID              string `json:"id"`
+	ChannelName     string `json:"channelName"`
+	ChannelListName string `json:"channelListName"`
+	OrgUnitName     string `json:"orgUnitName"`
+}
+
 func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 	r.Route("/retailplayer", func(r chi.Router) {
 		r.Get("/devices/{deviceID}/config", n.handleRetailPlayerDeviceConfig())
@@ -454,6 +462,9 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 		}
 
 		log.Info(ctx, "Retail player devices fetched", "count", len(response.Data))
+
+		n.refreshRetailPlayerDeviceChannelCache(ctx)
+		n.applyRetailPlayerChannelNameFallback(ctx, response.Data)
 
 		n.devices.RememberDevices(response.Data)
 		n.persistRetailPlayerDeviceMappings(ctx, response.Data)
@@ -592,6 +603,9 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 			http.Error(w, "Retail player device not found", http.StatusNotFound)
 			return
 		}
+
+		n.refreshRetailPlayerDeviceChannelCache(ctx)
+		n.applyRetailPlayerChannelNameFallback(ctx, filtered.Data)
 
 		n.devices.RememberDevices(filtered.Data)
 		n.persistRetailPlayerDeviceMappings(ctx, filtered.Data)
@@ -1351,6 +1365,95 @@ func (n *Router) persistRetailPlayerDeviceMappings(ctx context.Context, devices 
 
 	if err := repo.PutMany(ctx, mappings); err != nil {
 		log.Error(ctx, "Unable to persist retail player device mappings", "err", err)
+	}
+}
+
+func (n *Router) refreshRetailPlayerDeviceChannelCache(ctx context.Context) {
+	repo := n.ds.RetailPlayerDeviceChannelCache(ctx)
+	if repo == nil {
+		return
+	}
+
+	entries, err := fetchRetailPlayerDeviceTableCache(ctx)
+	if err != nil {
+		log.Warn(ctx, "Unable to fetch retail player device table for channel names", "err", err)
+		return
+	}
+
+	if len(entries) == 0 {
+		return
+	}
+
+	if err := repo.PutMany(ctx, entries); err != nil {
+		log.Warn(ctx, "Unable to persist retail player device channel cache", "err", err)
+	}
+}
+
+func (n *Router) applyRetailPlayerChannelNameFallback(ctx context.Context, devices []retailPlayerDevice) {
+	if len(devices) == 0 {
+		return
+	}
+
+	repo := n.ds.RetailPlayerDeviceChannelCache(ctx)
+	if repo == nil {
+		return
+	}
+
+	lookupIDs := make([]string, 0, len(devices))
+	for _, device := range devices {
+		if strings.TrimSpace(device.ChannelName) != "" {
+			continue
+		}
+		id := strings.TrimSpace(device.ID)
+		if id != "" {
+			lookupIDs = append(lookupIDs, id)
+		}
+	}
+
+	if len(lookupIDs) == 0 {
+		return
+	}
+
+	entries, err := repo.FindByDeviceIDs(ctx, lookupIDs)
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		log.Warn(ctx, "Unable to load retail player channel cache", "err", err)
+		return
+	}
+
+	channelNames := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		id := strings.TrimSpace(entry.DeviceID)
+		if id == "" {
+			continue
+		}
+		name := strings.TrimSpace(entry.ChannelName)
+		if name == "" {
+			continue
+		}
+		channelNames[id] = name
+	}
+
+	applyRetailPlayerChannelNameFallbackFromMap(devices, channelNames)
+}
+
+func applyRetailPlayerChannelNameFallbackFromMap(devices []retailPlayerDevice, channelNames map[string]string) {
+	if len(devices) == 0 || len(channelNames) == 0 {
+		return
+	}
+
+	for index, device := range devices {
+		if strings.TrimSpace(device.ChannelName) != "" {
+			continue
+		}
+		id := strings.TrimSpace(device.ID)
+		if id == "" {
+			continue
+		}
+		if name, ok := channelNames[id]; ok {
+			devices[index].ChannelName = name
+		} else {
+			devices[index].ChannelName = ""
+		}
 	}
 }
 
@@ -3194,10 +3297,7 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		strings.TrimSpace(device.OrgUnit),
 		strings.TrimSpace(device.Location),
 	)
-	channelName := strings.TrimSpace(device.ChannelName)
-	if channelName == "" {
-		channelName = strings.TrimSpace(device.Channel)
-	}
+	channelName := resolveRetailPlayerChannelName(device.Channel, device.ChannelInfo.ChannelsCatalog)
 	var channelCatalogCount *int
 	if len(device.ChannelInfo.ChannelsCatalog) > 0 {
 		count := len(device.ChannelInfo.ChannelsCatalog)
@@ -3216,6 +3316,37 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		TimeZone:            strings.TrimSpace(device.TimeZone),
 		Online:              device.Online,
 	}, true
+}
+
+func resolveRetailPlayerChannelName(channelID string, catalog map[string]retailPlayerChannelCatalogEntry) string {
+	if len(catalog) == 0 {
+		return ""
+	}
+
+	trimmedID := strings.TrimSpace(channelID)
+	if trimmedID != "" {
+		if entry, ok := catalog[trimmedID]; ok {
+			if name := strings.TrimSpace(entry.Name); name != "" {
+				return name
+			}
+		}
+		for _, entry := range catalog {
+			if strings.EqualFold(strings.TrimSpace(entry.ID), trimmedID) {
+				if name := strings.TrimSpace(entry.Name); name != "" {
+					return name
+				}
+			}
+		}
+		return ""
+	}
+
+	if len(catalog) == 1 {
+		for _, entry := range catalog {
+			return strings.TrimSpace(entry.Name)
+		}
+	}
+
+	return ""
 }
 
 func simplifyRetailPlayerChannel(channel retailPlayerAPIChannel) (retailPlayerChannel, bool) {
@@ -3741,6 +3872,125 @@ func fetchRetailPlayerDeviceTable(ctx context.Context, client *http.Client, base
 	}
 
 	return payload.Data, nil
+}
+
+func fetchRetailPlayerDeviceTableCache(ctx context.Context) ([]model.RetailPlayerDeviceChannelCache, error) {
+	cfg := conf.Server.RetailPlayer
+	baseURL := retailPlayerWebBaseURL(cfg.BaseURL)
+	if baseURL == "" || cfg.OrgID == "" {
+		return nil, errors.New("retail player device table API not configured")
+	}
+
+	pageSize := cfg.PageSize
+	if pageSize <= 0 {
+		pageSize = 500
+	}
+
+	results := make([]model.RetailPlayerDeviceChannelCache, 0, pageSize)
+	for page := 1; ; page++ {
+		entries, err := fetchRetailPlayerDeviceTablePage(ctx, cfg.OrgID, cfg.APIKey, cfg.APIKeyHeader, cfg.AdditionalHeaders, baseURL, pageSize, page)
+		if err != nil {
+			return nil, err
+		}
+		if len(entries) == 0 {
+			break
+		}
+		results = append(results, entries...)
+		if len(entries) < pageSize {
+			break
+		}
+	}
+
+	return results, nil
+}
+
+func fetchRetailPlayerDeviceTablePage(
+	ctx context.Context,
+	orgID string,
+	apiKey string,
+	apiKeyHeader string,
+	additionalHeaders map[string]string,
+	baseURL string,
+	pageSize int,
+	page int,
+) ([]model.RetailPlayerDeviceChannelCache, error) {
+	trimmedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmedBaseURL == "" {
+		return nil, errors.New("retail player device table base URL is required")
+	}
+
+	endpoint := fmt.Sprintf("%s/org/%s/device-table", trimmedBaseURL, url.PathEscape(orgID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	query := req.URL.Query()
+	if pageSize > 0 {
+		query.Set("pageSize", strconv.Itoa(pageSize))
+	}
+	if page > 0 {
+		query.Set("page", strconv.Itoa(page))
+	}
+	req.URL.RawQuery = query.Encode()
+
+	applyRetailPlayerHeaders(req, retailPlayerConfig{
+		APIKey:            apiKey,
+		APIKeyHeader:      apiKeyHeader,
+		AdditionalHeaders: additionalHeaders,
+	})
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("retail player device table request failed with status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		Data []retailPlayerDeviceTableEntry `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	results := make([]model.RetailPlayerDeviceChannelCache, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		id := strings.TrimSpace(firstNonEmpty(item.DeviceID, item.ID))
+		if id == "" {
+			continue
+		}
+
+		results = append(results, model.RetailPlayerDeviceChannelCache{
+			DeviceID:        id,
+			ChannelName:     strings.TrimSpace(item.ChannelName),
+			ChannelListName: strings.TrimSpace(item.ChannelListName),
+			OrgUnit:         strings.TrimSpace(item.OrgUnitName),
+		})
+	}
+
+	return results, nil
+}
+
+func retailPlayerWebBaseURL(baseURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmed == "" {
+		return ""
+	}
+
+	if strings.Contains(trimmed, "/web/api/v2") {
+		return trimmed
+	}
+
+	if strings.Contains(trimmed, "/broad/api/v1") {
+		return strings.Replace(trimmed, "/broad/api/v1", "/web/api/v2", 1)
+	}
+
+	return trimmed + "/web/api/v2"
 }
 
 func ensureRetailPlayerQRCode(ctx context.Context, client *http.Client, baseURL, deviceID, deviceName string) (string, bool, error) {
