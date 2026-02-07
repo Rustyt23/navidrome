@@ -54,7 +54,7 @@ const mapRetailPlayerDevice = (device) => {
   const rawId = normalizeValue(device.id)
   const fallbackId =
     rawId ||
-    normalizeValue(device.macAddress || device.mac_address) ||
+    normalizeValue(device.macAddress) ||
     normalizeValue(device.ordinal)
 
   if (!fallbackId) {
@@ -62,6 +62,8 @@ const mapRetailPlayerDevice = (device) => {
   }
 
   const slug = buildDeviceSlug(device) || fallbackId
+  const macAddress = normalizeValue(device.macAddress)
+  const channelName = normalizeValue(device.channelName)
   const name = normalizeValue(device.name) || fallbackId
   const folderIds = Array.isArray(device.folderIds)
     ? device.folderIds
@@ -89,7 +91,9 @@ const mapRetailPlayerDevice = (device) => {
     slug,
     slugKey: deviceSlugKey(slug),
     channel: normalizeValue(device.channel),
+    channelName: channelName || normalizeValue(device.channel),
     channelList: normalizeValue(device.channelList),
+    macAddress,
     organization:
       normalizeValue(device.organization) ||
       normalizeValue(device.orgUnit || device.org_unit) ||
