@@ -1520,7 +1520,7 @@ const RetailPlayerDeviceManagement = () => {
           <span>Name</span>
           <span>Mac Address</span>
           <span>Devices / Channels</span>
-          <span>Channel Name</span>
+          <span>Channel</span>
           <span>QR ID</span>
           <span className={classes.headerActions}>Edit</span>
         </div>

@@ -12,6 +12,7 @@ type RetailPlayerDeviceMapping struct {
 	DeviceSlug   string    `db:"device_slug" json:"deviceSlug"`
 	IsLocked     bool      `db:"is_locked" json:"isLocked"`
 	Channel      string    `db:"channel" json:"channel"`
+	ChannelName  string    `db:"channel_name" json:"channelName"`
 	ChannelList  string    `db:"channel_list" json:"channelList"`
 	Organization string    `db:"organization" json:"organization"`
 	TimeZone     string    `db:"time_zone" json:"timeZone"`

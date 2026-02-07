@@ -22,9 +22,27 @@ func NewRetailPlayerDeviceMappingRepository(ctx context.Context, db dbx.Builder)
 	r.db = db
 	r.tableName = "retail_player_device_mapping"
 	r.registerModel(&model.RetailPlayerDeviceMapping{}, nil)
+	r.ensureChannelNameColumn()
 	r.ensureRemoteControlColumn()
 	r.ensureIsLockedColumn()
 	return r
+}
+
+func (r retailPlayerDeviceMappingRepository) ensureChannelNameColumn() {
+	_, err := r.db.NewQuery(`
+ALTER TABLE retail_player_device_mapping
+ADD COLUMN channel_name TEXT DEFAULT '';
+`).Execute()
+	if err == nil {
+		return
+	}
+
+	lowerErr := strings.ToLower(err.Error())
+	if strings.Contains(lowerErr, "duplicate column name") || strings.Contains(lowerErr, "already exists") {
+		return
+	}
+
+	log.Error(r.ctx, "Unable to ensure channel name column for retail player device mappings", "err", err)
 }
 
 func (r retailPlayerDeviceMappingRepository) ensureRemoteControlColumn() {
@@ -82,6 +100,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			"device_slug",
 			"is_locked",
 			"channel",
+			"channel_name",
 			"channel_list",
 			"organization",
 			"time_zone",
@@ -111,6 +130,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			slug,
 			mapping.IsLocked,
 			strings.TrimSpace(mapping.Channel),
+			strings.TrimSpace(mapping.ChannelName),
 			strings.TrimSpace(mapping.ChannelList),
 			strings.TrimSpace(mapping.Organization),
 			strings.TrimSpace(mapping.TimeZone),
@@ -129,6 +149,7 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
                 device_slug = excluded.device_slug,
                 is_locked = retail_player_device_mapping.is_locked,
                 channel = excluded.channel,
+                channel_name = excluded.channel_name,
                 channel_list = excluded.channel_list,
                 organization = excluded.organization,
                 time_zone = excluded.time_zone,
@@ -186,7 +207,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 	orClause := Or{}
 	orClause = append(orClause, conditions...)
 
-	sel := Select("device_id", "device_name", "device_slug", "is_locked", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "is_locked", "channel", "channel_name", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
 		From(r.tableName).
 		Where(orClause).
 		OrderBy("updated_at DESC").
@@ -200,7 +221,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 }
 
 func (r retailPlayerDeviceMappingRepository) All(ctx context.Context) ([]model.RetailPlayerDeviceMapping, error) {
-	sel := Select("device_id", "device_name", "device_slug", "is_locked", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "is_locked", "channel", "channel_name", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
 		From(r.tableName).
 		OrderBy("updated_at DESC")
 
