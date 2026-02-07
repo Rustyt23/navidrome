@@ -784,7 +784,6 @@ const RetailPlayerDeviceManagement = () => {
   const [folderLockDialog, setFolderLockDialog] = useState({
     open: false,
     folder: null,
-    action: null,
   })
   const [folderLockPassword, setFolderLockPassword] = useState('')
   const [folderLockError, setFolderLockError] = useState('')
@@ -1262,14 +1261,33 @@ const RetailPlayerDeviceManagement = () => {
     [collectDevicesInNode, updateDevice],
   )
 
-  const openFolderLockDialog = useCallback((folder, action) => {
-    setFolderLockDialog({ open: true, folder, action })
+  const unlockFolderDevices = useCallback(
+    async (folderNode) => {
+      const devicesToUnlock = collectDevicesInNode(folderNode).filter((device) =>
+        isDeviceLocked(device),
+      )
+      if (!devicesToUnlock.length) {
+        return
+      }
+      for (const device of devicesToUnlock) {
+        try {
+          await updateDevice({ id: device.id, isLocked: false })
+        } catch (err) {
+          console.error('Failed to unlock retail player device from folder', err)
+        }
+      }
+    },
+    [collectDevicesInNode, updateDevice],
+  )
+
+  const openFolderLockDialog = useCallback((folder) => {
+    setFolderLockDialog({ open: true, folder })
     setFolderLockPassword('')
     setFolderLockError('')
   }, [])
 
   const handleFolderLockDialogClose = useCallback(() => {
-    setFolderLockDialog({ open: false, folder: null, action: null })
+    setFolderLockDialog({ open: false, folder: null })
     setFolderLockPassword('')
     setFolderLockError('')
   }, [])
@@ -1293,17 +1311,9 @@ const RetailPlayerDeviceManagement = () => {
       return
     }
 
-    if (folderLockDialog.action === 'enter') {
-      markFolderUnlockedForSession(targetFolder)
-      setSearchTerm('')
-      setActiveFolderId(targetFolder.id)
-    }
-
-    if (folderLockDialog.action === 'unlock') {
-      setFolderLockState(targetFolder, false)
-      clearFolderUnlockSession(targetFolder)
-      refreshLockedFolderMap()
-    }
+    markFolderUnlockedForSession(targetFolder)
+    setSearchTerm('')
+    setActiveFolderId(targetFolder.id)
 
     handleFolderLockDialogClose()
   }, [
@@ -1311,7 +1321,6 @@ const RetailPlayerDeviceManagement = () => {
     folderLockPassword,
     handleFolderLockDialogClose,
     isLockPasswordConfigured,
-    refreshLockedFolderMap,
   ])
 
   const handleToggleFolderLock = useCallback(
@@ -1321,7 +1330,10 @@ const RetailPlayerDeviceManagement = () => {
       }
       const locked = isFolderLocked(folderNode, lockedFolderMap)
       if (locked) {
-        openFolderLockDialog(folderNode, 'unlock')
+        setFolderLockState(folderNode, false)
+        clearFolderUnlockSession(folderNode)
+        refreshLockedFolderMap()
+        await unlockFolderDevices(folderNode)
         return
       }
       setFolderLockState(folderNode, true)
@@ -1331,8 +1343,8 @@ const RetailPlayerDeviceManagement = () => {
     [
       lockFolderDevices,
       lockedFolderMap,
-      openFolderLockDialog,
       refreshLockedFolderMap,
+      unlockFolderDevices,
     ],
   )
 
@@ -1370,7 +1382,7 @@ const RetailPlayerDeviceManagement = () => {
       const folderNode = folderId ? folderMap.get(folderId) : null
       if (folderNode && isFolderLocked(folderNode, lockedFolderMap)) {
         if (!isFolderUnlockedForSession(folderNode)) {
-          openFolderLockDialog(folderNode, 'enter')
+          openFolderLockDialog(folderNode)
           return
         }
       }
@@ -1772,13 +1784,11 @@ const RetailPlayerDeviceManagement = () => {
         aria-labelledby="retail-player-folder-lock-dialog-title"
       >
         <DialogTitle id="retail-player-folder-lock-dialog-title">
-          {folderLockDialog.action === 'unlock' ? 'Unlock folder' : 'Enter locked folder'}
+          Enter locked folder
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            {folderLockDialog.action === 'unlock'
-              ? 'Enter the password to remove the lock from this folder.'
-              : 'This folder is locked. Enter the password to continue.'}
+            This folder is locked. Enter the password to continue.
           </DialogContentText>
           <TextField
             autoFocus
@@ -1810,7 +1820,7 @@ const RetailPlayerDeviceManagement = () => {
         <DialogActions>
           <Button onClick={handleFolderLockDialogClose}>Cancel</Button>
           <Button color="primary" variant="contained" onClick={handleFolderLockSubmit}>
-            {folderLockDialog.action === 'unlock' ? 'Unlock' : 'Enter'}
+            Enter
           </Button>
         </DialogActions>
       </Dialog>
