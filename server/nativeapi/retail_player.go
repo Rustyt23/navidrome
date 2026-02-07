@@ -3194,9 +3194,12 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		strings.TrimSpace(device.OrgUnit),
 		strings.TrimSpace(device.Location),
 	)
-	channelName := strings.TrimSpace(device.ChannelName)
-	if channelName == "" {
-		channelName = strings.TrimSpace(device.Channel)
+	channelID := strings.TrimSpace(device.Channel)
+	channelName := ""
+	if channelID != "" {
+		if entry, ok := device.ChannelInfo.ChannelsCatalog[channelID]; ok {
+			channelName = strings.TrimSpace(entry.Name)
+		}
 	}
 	var channelCatalogCount *int
 	if len(device.ChannelInfo.ChannelsCatalog) > 0 {
@@ -3207,7 +3210,7 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 	return retailPlayerDevice{
 		ID:                  id,
 		Name:                name,
-		Channel:             strings.TrimSpace(device.Channel),
+		Channel:             channelID,
 		ChannelName:         channelName,
 		ChannelList:         strings.TrimSpace(device.ChannelList),
 		ChannelCatalogCount: channelCatalogCount,

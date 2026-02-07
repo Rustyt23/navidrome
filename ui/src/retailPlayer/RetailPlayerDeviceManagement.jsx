@@ -677,7 +677,7 @@ const RetailPlayerDeviceRow = memo(
           {typeof channelCount === 'number' ? channelCount : '—'}
         </div>
         <div className={classes.channelNameCell}>
-          {node.channelName || node.channel || '—'}
+          {node.channelName || '—'}
         </div>
         <div className={classes.remoteControlCell}>
           {node.remoteControlId ? node.remoteControlId : '—'}
