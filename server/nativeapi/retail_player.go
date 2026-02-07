@@ -185,19 +185,18 @@ func normalizeRetailPlayerIdentifier(value string) string {
 }
 
 type retailPlayerAPIDevice struct {
-	Ordinal         *int   `json:"ordinal"`
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Location        string `json:"location"`
-	OrgUnit         string `json:"orgUnit"`
-	Organization    string `json:"organization"`
-	Channel         string `json:"channel"`
-	ChannelName     string `json:"channelName"`
-	ChannelList     string `json:"channelList"`
-	ChannelListName string `json:"channelListName"`
-	MacAddress      string `json:"macAddress"`
-	TimeZone        string `json:"timeZone"`
-	Online          *bool  `json:"online"`
+	Ordinal      *int   `json:"ordinal"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Location     string `json:"location"`
+	OrgUnit      string `json:"orgUnit"`
+	Organization string `json:"organization"`
+	Channel      string `json:"channel"`
+	ChannelName  string `json:"channelName"`
+	ChannelList  string `json:"channelList"`
+	MacAddress   string `json:"macAddress"`
+	TimeZone     string `json:"timeZone"`
+	Online       *bool  `json:"online"`
 }
 
 type retailPlayerAPIResponse struct {
@@ -3058,9 +3057,6 @@ func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
 		return false
 	}
 	if strings.TrimSpace(device.ChannelList) != "" {
-		return false
-	}
-	if strings.TrimSpace(device.ChannelListName) != "" {
 		return false
 	}
 	if strings.TrimSpace(device.TimeZone) != "" {

@@ -23,18 +23,7 @@ const buildDeviceSlug = (device) => {
     return id
   }
 
-  const macAddress = normalizeValue(
-    device.macAddress ||
-      device.mac_address ||
-      device.macaddress ||
-      device.macAdress ||
-      device.mac_adress ||
-      device.status?.macAddress ||
-      device.status?.mac_address ||
-      device.status?.macaddress ||
-      device.status?.macAdress ||
-      device.status?.mac_adress,
-  )
+  const macAddress = normalizeValue(device.macAddress)
   if (macAddress) {
     return macAddress
   }
@@ -65,18 +54,7 @@ const mapRetailPlayerDevice = (device) => {
   const rawId = normalizeValue(device.id)
   const fallbackId =
     rawId ||
-    normalizeValue(
-      device.macAddress ||
-        device.mac_address ||
-        device.macaddress ||
-        device.macAdress ||
-        device.mac_adress ||
-        device.status?.macAddress ||
-        device.status?.mac_address ||
-        device.status?.macaddress ||
-        device.status?.macAdress ||
-        device.status?.mac_adress,
-    ) ||
+    normalizeValue(device.macAddress) ||
     normalizeValue(device.ordinal)
 
   if (!fallbackId) {
@@ -84,19 +62,8 @@ const mapRetailPlayerDevice = (device) => {
   }
 
   const slug = buildDeviceSlug(device) || fallbackId
-  const macAddress = normalizeValue(
-    device.macAddress ||
-      device.mac_address ||
-      device.macaddress ||
-      device.macAdress ||
-      device.mac_adress ||
-      device.status?.macAddress ||
-      device.status?.mac_address ||
-      device.status?.macaddress ||
-      device.status?.macAdress ||
-      device.status?.mac_adress,
-  )
-  const channelName = normalizeValue(device.channelName || device.channel_name)
+  const macAddress = normalizeValue(device.macAddress)
+  const channelName = normalizeValue(device.channelName)
   const name = normalizeValue(device.name) || fallbackId
   const folderIds = Array.isArray(device.folderIds)
     ? device.folderIds

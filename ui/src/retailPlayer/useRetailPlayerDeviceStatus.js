@@ -181,29 +181,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const streamMetadata = ensureArray(payload?.streamMetadata).filter(
     (item) => item && typeof item === 'object',
   )
-  const macAddress = normalizeValue(
-    payloadDevice?.macAddress ||
-      payloadDevice?.mac_address ||
-      payloadDevice?.macaddress ||
-      payloadDevice?.macAdress ||
-      payloadDevice?.mac_adress ||
-      payload?.macAddress ||
-      payload?.mac_address ||
-      payload?.macaddress ||
-      payload?.macAdress ||
-      payload?.mac_adress ||
-      payload?.status?.macAddress ||
-      payload?.status?.mac_address ||
-      payload?.status?.macaddress ||
-      payload?.status?.macAdress ||
-      payload?.status?.mac_adress,
-  )
-  const channelName = normalizeValue(
-    payloadDevice?.channelName ||
-      payloadDevice?.channel_name ||
-      payload?.channelName ||
-      payload?.channel_name,
-  )
+  const macAddress = normalizeValue(payloadDevice?.macAddress)
+  const channelName = normalizeValue(payloadDevice?.channelName)
 
   const payloadArtwork =
     payload && typeof payload === 'object' ? payload.artwork || {} : {}
