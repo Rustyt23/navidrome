@@ -142,6 +142,7 @@ class RetailPlayerMockService {
       channel: device.channel,
       channelList: device.channelList,
       organization: device.organization,
+      macAddress: device.macAddress || '',
     }))
   }
 

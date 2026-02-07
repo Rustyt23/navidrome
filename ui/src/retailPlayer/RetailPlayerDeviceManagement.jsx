@@ -558,7 +558,7 @@ const RetailPlayerFolderRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>Folder</div>
+        <div className={classes.typeCell}>—</div>
         <div className={classes.countCell}>{deviceCount}</div>
         <div className={classes.remoteControlCell}>—</div>
         <div className={classes.actionsCell}>
@@ -656,7 +656,7 @@ const RetailPlayerDeviceRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>Device</div>
+        <div className={classes.typeCell}>{node.macAddress || '—'}</div>
         <div className={classes.countCell}>
           {typeof channelCount === 'number' ? channelCount : '—'}
         </div>
@@ -702,6 +702,7 @@ RetailPlayerDeviceRow.propTypes = {
   node: PropTypes.shape({
     id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
+    macAddress: PropTypes.string,
   }).isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
@@ -1496,7 +1497,7 @@ const RetailPlayerDeviceManagement = () => {
             />
           </div>
           <span>Name</span>
-          <span>Type</span>
+          <span>MAC Address</span>
           <span>Devices / Channels</span>
           <span>QR ID</span>
           <span className={classes.headerActions}>Edit</span>
