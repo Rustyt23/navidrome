@@ -181,6 +181,11 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const streamMetadata = ensureArray(payload?.streamMetadata).filter(
     (item) => item && typeof item === 'object',
   )
+  const macAddress = normalizeValue(
+    payloadDevice?.macAddress ||
+      payloadDevice?.mac_address ||
+      payloadDevice?.macaddress,
+  )
 
   const payloadArtwork =
     payload && typeof payload === 'object' ? payload.artwork || {} : {}
@@ -633,6 +638,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
   return {
     ...baseDevice,
+    macAddress: macAddress || baseDevice.macAddress || '',
     isConnected,
     hasSignal,
     isMuted,
