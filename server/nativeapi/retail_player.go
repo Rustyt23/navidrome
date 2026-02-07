@@ -185,18 +185,19 @@ func normalizeRetailPlayerIdentifier(value string) string {
 }
 
 type retailPlayerAPIDevice struct {
-	Ordinal      *int   `json:"ordinal"`
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Location     string `json:"location"`
-	OrgUnit      string `json:"orgUnit"`
-	Organization string `json:"organization"`
-	Channel      string `json:"channel"`
-	ChannelName  string `json:"channelName"`
-	ChannelList  string `json:"channelList"`
-	MacAddress   string `json:"macAddress"`
-	TimeZone     string `json:"timeZone"`
-	Online       *bool  `json:"online"`
+	Ordinal      *int                        `json:"ordinal"`
+	ID           string                      `json:"id"`
+	Name         string                      `json:"name"`
+	Location     string                      `json:"location"`
+	OrgUnit      string                      `json:"orgUnit"`
+	Organization string                      `json:"organization"`
+	Channel      string                      `json:"channel"`
+	ChannelName  string                      `json:"channelName"`
+	ChannelList  string                      `json:"channelList"`
+	ChannelInfo  retailPlayerChannelSchedule `json:"channelsSchedule"`
+	MacAddress   string                      `json:"macAddress"`
+	TimeZone     string                      `json:"timeZone"`
+	Online       *bool                       `json:"online"`
 }
 
 type retailPlayerAPIResponse struct {
@@ -210,20 +211,30 @@ type retailPlayerChannelListAPIResponse struct {
 }
 
 type retailPlayerDevice struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	IsLocked        bool     `json:"isLocked"`
-	OrganizationID  string   `json:"organizationId,omitempty"`
-	OrganisationID  string   `json:"organisationid,omitempty"`
-	Channel         string   `json:"channel"`
-	ChannelName     string   `json:"channelName,omitempty"`
-	ChannelList     string   `json:"channelList"`
-	Organization    string   `json:"organization"`
-	MacAddress      string   `json:"macAddress,omitempty"`
-	TimeZone        string   `json:"timeZone,omitempty"`
-	Online          *bool    `json:"online,omitempty"`
-	FolderIDs       []string `json:"folderIds,omitempty"`
-	RemoteControlID string   `json:"remoteControlId,omitempty"`
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	IsLocked            bool     `json:"isLocked"`
+	OrganizationID      string   `json:"organizationId,omitempty"`
+	OrganisationID      string   `json:"organisationid,omitempty"`
+	Channel             string   `json:"channel"`
+	ChannelName         string   `json:"channelName,omitempty"`
+	ChannelList         string   `json:"channelList"`
+	ChannelCatalogCount *int     `json:"channelCatalogCount,omitempty"`
+	Organization        string   `json:"organization"`
+	MacAddress          string   `json:"macAddress,omitempty"`
+	TimeZone            string   `json:"timeZone,omitempty"`
+	Online              *bool    `json:"online,omitempty"`
+	FolderIDs           []string `json:"folderIds,omitempty"`
+	RemoteControlID     string   `json:"remoteControlId,omitempty"`
+}
+
+type retailPlayerChannelSchedule struct {
+	ChannelsCatalog map[string]retailPlayerChannelCatalogEntry `json:"channelsCatalog"`
+}
+
+type retailPlayerChannelCatalogEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type retailPlayerDeviceConfigResponse struct {
@@ -3059,6 +3070,9 @@ func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
 	if strings.TrimSpace(device.ChannelList) != "" {
 		return false
 	}
+	if len(device.ChannelInfo.ChannelsCatalog) > 0 {
+		return false
+	}
 	if strings.TrimSpace(device.TimeZone) != "" {
 		return false
 	}
@@ -3095,17 +3109,23 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 	if channelName == "" {
 		channelName = strings.TrimSpace(device.Channel)
 	}
+	var channelCatalogCount *int
+	if len(device.ChannelInfo.ChannelsCatalog) > 0 {
+		count := len(device.ChannelInfo.ChannelsCatalog)
+		channelCatalogCount = &count
+	}
 
 	return retailPlayerDevice{
-		ID:           id,
-		Name:         name,
-		Channel:      strings.TrimSpace(device.Channel),
-		ChannelName:  channelName,
-		ChannelList:  strings.TrimSpace(device.ChannelList),
-		MacAddress:   strings.TrimSpace(device.MacAddress),
-		Organization: organization,
-		TimeZone:     strings.TrimSpace(device.TimeZone),
-		Online:       device.Online,
+		ID:                  id,
+		Name:                name,
+		Channel:             strings.TrimSpace(device.Channel),
+		ChannelName:         channelName,
+		ChannelList:         strings.TrimSpace(device.ChannelList),
+		ChannelCatalogCount: channelCatalogCount,
+		MacAddress:          strings.TrimSpace(device.MacAddress),
+		Organization:        organization,
+		TimeZone:            strings.TrimSpace(device.TimeZone),
+		Online:              device.Online,
 	}, true
 }
 
