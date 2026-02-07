@@ -1900,12 +1900,101 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 			devices = append(devices, device)
 		}
 	}
+	populateRetailPlayerChannelCounts(ctx, devices)
 
 	return retailPlayerDevicesResponse{
 		Data:  devices,
 		Page:  apiPayload.Page,
 		Total: apiPayload.Total,
 	}, nil
+}
+
+func populateRetailPlayerChannelCounts(ctx context.Context, devices []retailPlayerDevice) {
+	if len(devices) == 0 {
+		return
+	}
+
+	channelListIDs := make([]string, 0, len(devices))
+	seen := make(map[string]struct{}, len(devices))
+	for _, device := range devices {
+		if device.ChannelCatalogCount != nil {
+			continue
+		}
+		trimmed := strings.TrimSpace(device.ChannelList)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		channelListIDs = append(channelListIDs, trimmed)
+	}
+
+	if len(channelListIDs) == 0 {
+		return
+	}
+
+	counts := fetchRetailPlayerChannelCounts(ctx, channelListIDs)
+	if len(counts) == 0 {
+		return
+	}
+
+	for index, device := range devices {
+		if device.ChannelCatalogCount != nil {
+			continue
+		}
+		trimmed := strings.TrimSpace(device.ChannelList)
+		if trimmed == "" {
+			continue
+		}
+		if count, ok := counts[trimmed]; ok {
+			value := count
+			devices[index].ChannelCatalogCount = &value
+		}
+	}
+}
+
+func fetchRetailPlayerChannelCounts(ctx context.Context, channelListIDs []string) map[string]int {
+	counts := make(map[string]int, len(channelListIDs))
+	if len(channelListIDs) == 0 {
+		return counts
+	}
+
+	const maxConcurrent = 4
+	semaphore := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for _, channelListID := range channelListIDs {
+		channelListID := channelListID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			response, err := fetchRetailPlayerChannelListChannels(ctx, channelListID)
+			if err != nil {
+				log.Error(
+					ctx,
+					"Unable to fetch retail player channel list for counts",
+					"channelListID",
+					channelListID,
+					"err",
+					err,
+				)
+				return
+			}
+
+			mu.Lock()
+			counts[channelListID] = len(response.Channels)
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+	return counts
 }
 
 func lookupRetailPlayerDevice(ctx context.Context, identifier string) (retailPlayerDevice, []retailPlayerDevice, error) {
