@@ -84,7 +84,14 @@ func (r *retailPlayerDeviceResolver) RememberDevices(devices []retailPlayerDevic
 		addKey(makeRetailPlayerNormalizedKey(trimmedID))
 		addKey(makeRetailPlayerSlugKey(trimmedID))
 
-		candidates := []string{device.Name, device.Channel, device.ChannelList, device.Organization}
+		candidates := []string{
+			device.Name,
+			device.Channel,
+			device.ChannelName,
+			device.ChannelList,
+			device.Organization,
+			device.MacAddress,
+		}
 		for _, candidate := range candidates {
 			trimmed := strings.TrimSpace(candidate)
 			if trimmed == "" {
@@ -178,17 +185,19 @@ func normalizeRetailPlayerIdentifier(value string) string {
 }
 
 type retailPlayerAPIDevice struct {
-	Ordinal      *int   `json:"ordinal"`
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Location     string `json:"location"`
-	OrgUnit      string `json:"orgUnit"`
-	Organization string `json:"organization"`
-	Channel      string `json:"channel"`
-	ChannelList  string `json:"channelList"`
-	MacAddress   string `json:"macAddress"`
-	TimeZone     string `json:"timeZone"`
-	Online       *bool  `json:"online"`
+	Ordinal         *int   `json:"ordinal"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Location        string `json:"location"`
+	OrgUnit         string `json:"orgUnit"`
+	Organization    string `json:"organization"`
+	Channel         string `json:"channel"`
+	ChannelName     string `json:"channelName"`
+	ChannelList     string `json:"channelList"`
+	ChannelListName string `json:"channelListName"`
+	MacAddress      string `json:"macAddress"`
+	TimeZone        string `json:"timeZone"`
+	Online          *bool  `json:"online"`
 }
 
 type retailPlayerAPIResponse struct {
@@ -208,8 +217,10 @@ type retailPlayerDevice struct {
 	OrganizationID  string   `json:"organizationId,omitempty"`
 	OrganisationID  string   `json:"organisationid,omitempty"`
 	Channel         string   `json:"channel"`
+	ChannelName     string   `json:"channelName,omitempty"`
 	ChannelList     string   `json:"channelList"`
 	Organization    string   `json:"organization"`
+	MacAddress      string   `json:"macAddress,omitempty"`
 	TimeZone        string   `json:"timeZone,omitempty"`
 	Online          *bool    `json:"online,omitempty"`
 	FolderIDs       []string `json:"folderIds,omitempty"`
@@ -3043,7 +3054,13 @@ func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
 	if strings.TrimSpace(device.Channel) != "" {
 		return false
 	}
+	if strings.TrimSpace(device.ChannelName) != "" {
+		return false
+	}
 	if strings.TrimSpace(device.ChannelList) != "" {
+		return false
+	}
+	if strings.TrimSpace(device.ChannelListName) != "" {
 		return false
 	}
 	if strings.TrimSpace(device.TimeZone) != "" {
@@ -3078,12 +3095,18 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		strings.TrimSpace(device.OrgUnit),
 		strings.TrimSpace(device.Location),
 	)
+	channelName := strings.TrimSpace(device.ChannelName)
+	if channelName == "" {
+		channelName = strings.TrimSpace(device.Channel)
+	}
 
 	return retailPlayerDevice{
 		ID:           id,
 		Name:         name,
 		Channel:      strings.TrimSpace(device.Channel),
+		ChannelName:  channelName,
 		ChannelList:  strings.TrimSpace(device.ChannelList),
+		MacAddress:   strings.TrimSpace(device.MacAddress),
 		Organization: organization,
 		TimeZone:     strings.TrimSpace(device.TimeZone),
 		Online:       device.Online,
