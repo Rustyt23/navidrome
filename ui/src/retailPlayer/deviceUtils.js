@@ -65,6 +65,20 @@ const mapRetailPlayerDevice = (device) => {
   const macAddress = normalizeValue(device.macAddress)
   const channelName = normalizeValue(device.channelName)
   const name = normalizeValue(device.name) || fallbackId
+  const providedCatalogCount = Number.isFinite(device.channelCatalogCount)
+    ? device.channelCatalogCount
+    : null
+  const channelsCatalog =
+    device.channelsSchedule && typeof device.channelsSchedule === 'object'
+      ? device.channelsSchedule.channelsCatalog
+      : null
+  const channelCatalogCount =
+    providedCatalogCount ??
+    (channelsCatalog &&
+    typeof channelsCatalog === 'object' &&
+    !Array.isArray(channelsCatalog)
+      ? Object.keys(channelsCatalog).length
+      : null)
   const folderIds = Array.isArray(device.folderIds)
     ? device.folderIds
         .map((value) => (typeof value === 'string' ? value.trim() : ''))
@@ -93,6 +107,7 @@ const mapRetailPlayerDevice = (device) => {
     channel: normalizeValue(device.channel),
     channelName: channelName || normalizeValue(device.channel),
     channelList: normalizeValue(device.channelList),
+    channelCatalogCount,
     macAddress,
     organization:
       normalizeValue(device.organization) ||

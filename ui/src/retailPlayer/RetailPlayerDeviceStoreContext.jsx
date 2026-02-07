@@ -96,6 +96,11 @@ const baseDeviceShape = (device, existing) => {
   const normalizedChannel = normalizeValue(device?.channel)
   const normalizedChannelList = normalizeValue(device?.channelList)
   const normalizedChannelName = normalizeValue(device?.channelName)
+  const normalizedChannelCatalogCount = Number.isFinite(device?.channelCatalogCount)
+    ? device.channelCatalogCount
+    : Number.isFinite(existing?.channelCatalogCount)
+      ? existing.channelCatalogCount
+      : null
   const normalizedMacAddress = normalizeValue(device?.macAddress)
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
@@ -135,6 +140,7 @@ const baseDeviceShape = (device, existing) => {
     channel: normalizedChannel || '',
     channelList: normalizedChannelList || '',
     channelName: normalizedChannelName || normalizedChannel || '',
+    channelCatalogCount: normalizedChannelCatalogCount,
     macAddress: normalizedMacAddress || existing?.macAddress || '',
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',

@@ -185,18 +185,19 @@ func normalizeRetailPlayerIdentifier(value string) string {
 }
 
 type retailPlayerAPIDevice struct {
-	Ordinal      *int   `json:"ordinal"`
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Location     string `json:"location"`
-	OrgUnit      string `json:"orgUnit"`
-	Organization string `json:"organization"`
-	Channel      string `json:"channel"`
-	ChannelName  string `json:"channelName"`
-	ChannelList  string `json:"channelList"`
-	MacAddress   string `json:"macAddress"`
-	TimeZone     string `json:"timeZone"`
-	Online       *bool  `json:"online"`
+	Ordinal      *int                        `json:"ordinal"`
+	ID           string                      `json:"id"`
+	Name         string                      `json:"name"`
+	Location     string                      `json:"location"`
+	OrgUnit      string                      `json:"orgUnit"`
+	Organization string                      `json:"organization"`
+	Channel      string                      `json:"channel"`
+	ChannelName  string                      `json:"channelName"`
+	ChannelList  string                      `json:"channelList"`
+	ChannelInfo  retailPlayerChannelSchedule `json:"channelsSchedule"`
+	MacAddress   string                      `json:"macAddress"`
+	TimeZone     string                      `json:"timeZone"`
+	Online       *bool                       `json:"online"`
 }
 
 type retailPlayerAPIResponse struct {
@@ -210,20 +211,30 @@ type retailPlayerChannelListAPIResponse struct {
 }
 
 type retailPlayerDevice struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	IsLocked        bool     `json:"isLocked"`
-	OrganizationID  string   `json:"organizationId,omitempty"`
-	OrganisationID  string   `json:"organisationid,omitempty"`
-	Channel         string   `json:"channel"`
-	ChannelName     string   `json:"channelName,omitempty"`
-	ChannelList     string   `json:"channelList"`
-	Organization    string   `json:"organization"`
-	MacAddress      string   `json:"macAddress,omitempty"`
-	TimeZone        string   `json:"timeZone,omitempty"`
-	Online          *bool    `json:"online,omitempty"`
-	FolderIDs       []string `json:"folderIds,omitempty"`
-	RemoteControlID string   `json:"remoteControlId,omitempty"`
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	IsLocked            bool     `json:"isLocked"`
+	OrganizationID      string   `json:"organizationId,omitempty"`
+	OrganisationID      string   `json:"organisationid,omitempty"`
+	Channel             string   `json:"channel"`
+	ChannelName         string   `json:"channelName,omitempty"`
+	ChannelList         string   `json:"channelList"`
+	ChannelCatalogCount *int     `json:"channelCatalogCount,omitempty"`
+	Organization        string   `json:"organization"`
+	MacAddress          string   `json:"macAddress,omitempty"`
+	TimeZone            string   `json:"timeZone,omitempty"`
+	Online              *bool    `json:"online,omitempty"`
+	FolderIDs           []string `json:"folderIds,omitempty"`
+	RemoteControlID     string   `json:"remoteControlId,omitempty"`
+}
+
+type retailPlayerChannelSchedule struct {
+	ChannelsCatalog map[string]retailPlayerChannelCatalogEntry `json:"channelsCatalog"`
+}
+
+type retailPlayerChannelCatalogEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type retailPlayerDeviceConfigResponse struct {
@@ -1889,12 +1900,101 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 			devices = append(devices, device)
 		}
 	}
+	populateRetailPlayerChannelCounts(ctx, devices)
 
 	return retailPlayerDevicesResponse{
 		Data:  devices,
 		Page:  apiPayload.Page,
 		Total: apiPayload.Total,
 	}, nil
+}
+
+func populateRetailPlayerChannelCounts(ctx context.Context, devices []retailPlayerDevice) {
+	if len(devices) == 0 {
+		return
+	}
+
+	channelListIDs := make([]string, 0, len(devices))
+	seen := make(map[string]struct{}, len(devices))
+	for _, device := range devices {
+		if device.ChannelCatalogCount != nil {
+			continue
+		}
+		trimmed := strings.TrimSpace(device.ChannelList)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		channelListIDs = append(channelListIDs, trimmed)
+	}
+
+	if len(channelListIDs) == 0 {
+		return
+	}
+
+	counts := fetchRetailPlayerChannelCounts(ctx, channelListIDs)
+	if len(counts) == 0 {
+		return
+	}
+
+	for index, device := range devices {
+		if device.ChannelCatalogCount != nil {
+			continue
+		}
+		trimmed := strings.TrimSpace(device.ChannelList)
+		if trimmed == "" {
+			continue
+		}
+		if count, ok := counts[trimmed]; ok {
+			value := count
+			devices[index].ChannelCatalogCount = &value
+		}
+	}
+}
+
+func fetchRetailPlayerChannelCounts(ctx context.Context, channelListIDs []string) map[string]int {
+	counts := make(map[string]int, len(channelListIDs))
+	if len(channelListIDs) == 0 {
+		return counts
+	}
+
+	const maxConcurrent = 4
+	semaphore := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for _, channelListID := range channelListIDs {
+		channelListID := channelListID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			response, err := fetchRetailPlayerChannelListChannels(ctx, channelListID)
+			if err != nil {
+				log.Error(
+					ctx,
+					"Unable to fetch retail player channel list for counts",
+					"channelListID",
+					channelListID,
+					"err",
+					err,
+				)
+				return
+			}
+
+			mu.Lock()
+			counts[channelListID] = len(response.Channels)
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+	return counts
 }
 
 func lookupRetailPlayerDevice(ctx context.Context, identifier string) (retailPlayerDevice, []retailPlayerDevice, error) {
@@ -3059,6 +3159,9 @@ func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
 	if strings.TrimSpace(device.ChannelList) != "" {
 		return false
 	}
+	if len(device.ChannelInfo.ChannelsCatalog) > 0 {
+		return false
+	}
 	if strings.TrimSpace(device.TimeZone) != "" {
 		return false
 	}
@@ -3095,17 +3198,23 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 	if channelName == "" {
 		channelName = strings.TrimSpace(device.Channel)
 	}
+	var channelCatalogCount *int
+	if len(device.ChannelInfo.ChannelsCatalog) > 0 {
+		count := len(device.ChannelInfo.ChannelsCatalog)
+		channelCatalogCount = &count
+	}
 
 	return retailPlayerDevice{
-		ID:           id,
-		Name:         name,
-		Channel:      strings.TrimSpace(device.Channel),
-		ChannelName:  channelName,
-		ChannelList:  strings.TrimSpace(device.ChannelList),
-		MacAddress:   strings.TrimSpace(device.MacAddress),
-		Organization: organization,
-		TimeZone:     strings.TrimSpace(device.TimeZone),
-		Online:       device.Online,
+		ID:                  id,
+		Name:                name,
+		Channel:             strings.TrimSpace(device.Channel),
+		ChannelName:         channelName,
+		ChannelList:         strings.TrimSpace(device.ChannelList),
+		ChannelCatalogCount: channelCatalogCount,
+		MacAddress:          strings.TrimSpace(device.MacAddress),
+		Organization:        organization,
+		TimeZone:            strings.TrimSpace(device.TimeZone),
+		Online:              device.Online,
 	}, true
 }
 
