@@ -239,6 +239,7 @@ type retailPlayerFolder struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	ParentID  *string   `json:"parentId,omitempty"`
+	IsLocked  bool      `json:"isLocked"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -359,6 +360,7 @@ func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Patch("/retailplayer/devices/{deviceID}/lock", n.handleUpdateRetailPlayerDeviceLock())
 	r.Post("/retailplayer/folders", n.handleCreateRetailPlayerFolder())
 	r.Patch("/retailplayer/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
+	r.Patch("/retailplayer/folders/{folderID}/lock", n.handleUpdateRetailPlayerFolderLock())
 	r.Post("/retailplayer/folders/delete", n.handleDeleteRetailPlayerFolders())
 	r.Put("/retailplayer/devices/{deviceID}/folders", n.handleAssignRetailPlayerDeviceFolders())
 	r.Post("/retailplayer/qr", n.handleRetailPlayerSyncQR())
@@ -410,6 +412,54 @@ func (n *Router) handleUpdateRetailPlayerDeviceLock() http.HandlerFunc {
 		}
 
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": mapRetailPlayerMappingToDevice(*mapping)})
+	}
+}
+
+func (n *Router) handleUpdateRetailPlayerFolderLock() http.HandlerFunc {
+	type lockUpdatePayload struct {
+		Locked bool `json:"locked"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		folderID := strings.TrimSpace(chi.URLParam(r, "folderID"))
+		if folderID == "" {
+			http.Error(w, "Retail player folder id is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload lockUpdatePayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player lock payload", http.StatusBadRequest)
+			return
+		}
+
+		repo := n.ds.RetailPlayerFolder(ctx)
+		if repo == nil {
+			http.Error(w, "Retail player folder repository not available", http.StatusInternalServerError)
+			return
+		}
+
+		if err := repo.SetLocked(ctx, folderID, payload.Locked); err != nil {
+			log.Error(ctx, "Unable to update retail player folder lock", "folderID", folderID, "err", err)
+			http.Error(w, "Unable to update retail player folder lock", http.StatusInternalServerError)
+			return
+		}
+
+		folder, err := repo.FindByID(ctx, folderID)
+		if err != nil {
+			log.Error(ctx, "Unable to load retail player folder after lock update", "folderID", folderID, "err", err)
+			http.Error(w, "Unable to load retail player folder", http.StatusInternalServerError)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": mapModelRetailPlayerFolder(folder)})
 	}
 }
 
@@ -1369,6 +1419,7 @@ func mapModelRetailPlayerFolder(folder model.RetailPlayerFolder) retailPlayerFol
 		ID:        strings.TrimSpace(folder.ID),
 		Name:      strings.TrimSpace(folder.Name),
 		ParentID:  parentID,
+		IsLocked:  folder.IsLocked,
 		CreatedAt: folder.CreatedAt,
 		UpdatedAt: folder.UpdatedAt,
 	}

@@ -721,6 +721,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
   const {
     devices,
+    folders,
+    deviceFolders,
     error: deviceListError,
     isApiEnabled,
     isLoading: deviceListLoading,
@@ -1320,6 +1322,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     devicesError,
     channelListError: channelState.error,
     isApiEnabled,
+    folders,
+    deviceFolders,
     notFound,
     lastUpdated: statusState.fetchedAt,
     sendRemoteControlCommand,

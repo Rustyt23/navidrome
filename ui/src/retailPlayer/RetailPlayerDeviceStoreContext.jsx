@@ -80,6 +80,12 @@ const normalizeFolderRecord = (folder, existing) => {
     folder.updatedAt,
     folder.createdAt ? folder.createdAt : existingFolder?.updatedAt || createdAt,
   )
+  const isLocked =
+    typeof folder.isLocked === 'boolean'
+      ? folder.isLocked
+      : typeof existingFolder?.isLocked === 'boolean'
+        ? existingFolder.isLocked
+        : false
 
   return {
     id,
@@ -87,6 +93,7 @@ const normalizeFolderRecord = (folder, existing) => {
     parentId,
     createdAt,
     updatedAt,
+    isLocked,
   }
 }
 
@@ -619,21 +626,45 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         const normalizedParent = ensureFolderId(basePayload.parentId)
         requestBody.parentId = normalizedParent || null
       }
-
-      const { json } = await httpClient(
-        `/api/retailplayer/folders/${encodeURIComponent(folderId)}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify(requestBody),
-          headers: new Headers({ 'Content-Type': 'application/json' }),
-        },
+      const hasIsLocked = Object.prototype.hasOwnProperty.call(
+        basePayload,
+        'isLocked',
       )
 
-      const folder = normalizeFolderRecord(json?.data)
-      if (folder) {
-        dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+      if (Object.keys(requestBody).length > 0) {
+        const { json } = await httpClient(
+          `/api/retailplayer/folders/${encodeURIComponent(folderId)}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify(requestBody),
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+          },
+        )
+
+        const folder = normalizeFolderRecord(json?.data)
+        if (folder) {
+          dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+        }
       }
-      return folder
+
+      if (hasIsLocked) {
+        const isLocked = Boolean(basePayload.isLocked)
+        const { json } = await httpClient(
+          `/api/retailplayer/folders/${encodeURIComponent(folderId)}/lock`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ locked: isLocked }),
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+          },
+        )
+
+        const folder = normalizeFolderRecord(json?.data)
+        if (folder) {
+          dispatch({ type: 'UPSERT_FOLDER', payload: folder })
+        }
+      }
+
+      return normalizeFolderRecord(basePayload) || null
     },
     [apiEnabled, dispatch],
   )
