@@ -199,6 +199,43 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 	return &mapping, nil
 }
 
+func (r retailPlayerDeviceMappingRepository) FindChannelName(ctx context.Context, deviceID, macAddress string) (string, error) {
+	trimmedID := strings.TrimSpace(deviceID)
+	trimmedMac := strings.TrimSpace(macAddress)
+	if trimmedID == "" && trimmedMac == "" {
+		return "", model.ErrNotFound
+	}
+
+	var conditions Or
+	if trimmedID != "" {
+		conditions = append(conditions, Eq{"device_id": trimmedID})
+	}
+	if trimmedMac != "" {
+		conditions = append(conditions, Eq{"mac_address": trimmedMac})
+	}
+
+	sel := Select("channel_name").
+		From("devices").
+		Where(conditions).
+		Limit(1)
+
+	var result struct {
+		ChannelName string `db:"channel_name"`
+	}
+	if err := r.queryOne(sel, &result); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return "", model.ErrNotFound
+		}
+		return "", err
+	}
+
+	channelName := strings.TrimSpace(result.ChannelName)
+	if channelName == "" {
+		return "", model.ErrNotFound
+	}
+	return channelName, nil
+}
+
 func (r retailPlayerDeviceMappingRepository) All(ctx context.Context) ([]model.RetailPlayerDeviceMapping, error) {
 	sel := Select("device_id", "device_name", "device_slug", "is_locked", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
 		From(r.tableName).

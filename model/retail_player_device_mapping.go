@@ -24,6 +24,7 @@ type RetailPlayerDeviceMappingRepository interface {
 	PutMany(ctx context.Context, mappings []RetailPlayerDeviceMapping) error
 	SetLocked(ctx context.Context, deviceID string, isLocked bool) error
 	FindByIdentifier(ctx context.Context, identifier string) (*RetailPlayerDeviceMapping, error)
+	FindChannelName(ctx context.Context, deviceID, macAddress string) (string, error)
 	All(ctx context.Context) ([]RetailPlayerDeviceMapping, error)
 }
 

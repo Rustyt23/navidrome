@@ -519,6 +519,8 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			}
 		}
 
+		n.populateRetailPlayerChannelNames(ctx, response.Data)
+
 		response.Folders = make([]retailPlayerFolder, 0, len(folders))
 		for _, folder := range folders {
 			response.Folders = append(response.Folders, mapModelRetailPlayerFolder(folder))
@@ -657,6 +659,8 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 			}
 		}
 
+		n.populateRetailPlayerChannelNames(ctx, filtered.Data)
+
 		filtered.Folders = make([]retailPlayerFolder, 0, len(folders))
 		for _, folder := range folders {
 			filtered.Folders = append(filtered.Folders, mapModelRetailPlayerFolder(folder))
@@ -675,6 +679,37 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(filtered); err != nil {
 			log.Error(ctx, "Unable to encode retail player device response", "err", err)
+		}
+	}
+}
+
+func (n *Router) populateRetailPlayerChannelNames(ctx context.Context, devices []retailPlayerDevice) {
+	if len(devices) == 0 || n.ds == nil {
+		return
+	}
+
+	repo := n.ds.RetailPlayerDeviceMapping(ctx)
+	if repo == nil {
+		return
+	}
+
+	for index := range devices {
+		deviceID := strings.TrimSpace(devices[index].ID)
+		macAddress := strings.TrimSpace(devices[index].MacAddress)
+		if deviceID == "" && macAddress == "" {
+			continue
+		}
+
+		channelName, err := repo.FindChannelName(ctx, deviceID, macAddress)
+		if err != nil {
+			if !errors.Is(err, model.ErrNotFound) {
+				log.Warn(ctx, "Unable to load retail player channel name", "deviceID", deviceID, "macAddress", macAddress, "err", err)
+			}
+			continue
+		}
+
+		if strings.TrimSpace(channelName) != "" {
+			devices[index].ChannelName = channelName
 		}
 	}
 }
