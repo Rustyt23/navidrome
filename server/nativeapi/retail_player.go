@@ -201,6 +201,10 @@ type retailPlayerChannelListAPIResponse struct {
 	Channels []retailPlayerAPIChannel `json:"channels"`
 }
 
+type retailPlayerChannelsAPIResponse struct {
+	Data []retailPlayerAPIChannel `json:"data"`
+}
+
 type retailPlayerDevice struct {
 	ID              string   `json:"id"`
 	Name            string   `json:"name"`
@@ -266,17 +270,13 @@ type retailPlayerAssignDeviceFoldersRequest struct {
 }
 
 type retailPlayerAPIChannel struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	DeviceID   string `json:"deviceId"`
-	DeviceName string `json:"deviceName"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type retailPlayerChannel struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	DeviceID   string `json:"deviceId,omitempty"`
-	DeviceName string `json:"deviceName,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type retailPlayerChannelsResponse struct {
@@ -701,8 +701,7 @@ func (n *Router) applyRetailPlayerChannelNames(ctx context.Context, devices []re
 	}
 
 	channelNameByID := make(map[string]string, len(response.Channels))
-	channelNameByDeviceID := make(map[string]string, len(response.Channels))
-	channelNameByDeviceName := make(map[string]string, len(response.Channels))
+	channelNameByName := make(map[string]string, len(response.Channels))
 
 	normalizeKey := func(value string) string {
 		trimmed := strings.TrimSpace(value)
@@ -720,11 +719,8 @@ func (n *Router) applyRetailPlayerChannelNames(ctx context.Context, devices []re
 		if key := normalizeKey(channel.ID); key != "" {
 			channelNameByID[key] = name
 		}
-		if key := normalizeKey(channel.DeviceID); key != "" {
-			channelNameByDeviceID[key] = name
-		}
-		if key := normalizeKey(channel.DeviceName); key != "" {
-			channelNameByDeviceName[key] = name
+		if key := normalizeKey(name); key != "" {
+			channelNameByName[key] = name
 		}
 	}
 
@@ -734,13 +730,8 @@ func (n *Router) applyRetailPlayerChannelNames(ctx context.Context, devices []re
 			channelName = channelNameByID[key]
 		}
 		if channelName == "" {
-			if key := normalizeKey(devices[index].ID); key != "" {
-				channelName = channelNameByDeviceID[key]
-			}
-		}
-		if channelName == "" {
-			if key := normalizeKey(devices[index].Name); key != "" {
-				channelName = channelNameByDeviceName[key]
+			if key := normalizeKey(devices[index].Channel); key != "" {
+				channelName = channelNameByName[key]
 			}
 		}
 
@@ -2503,23 +2494,31 @@ func fetchRetailPlayerChannels(ctx context.Context) (retailPlayerChannelsRespons
 		return retailPlayerChannelsResponse{}, err
 	}
 
-	var payload retailPlayerChannelListAPIResponse
-	if err := json.Unmarshal(body, &payload); err != nil {
-		var rawChannels []retailPlayerAPIChannel
-		if unmarshalErr := json.Unmarshal(body, &rawChannels); unmarshalErr != nil {
-			return retailPlayerChannelsResponse{}, err
+	var channels []retailPlayerAPIChannel
+	var payload retailPlayerChannelsAPIResponse
+	if err := json.Unmarshal(body, &payload); err == nil && len(payload.Data) > 0 {
+		channels = payload.Data
+	} else {
+		var listPayload retailPlayerChannelListAPIResponse
+		if err := json.Unmarshal(body, &listPayload); err == nil && len(listPayload.Channels) > 0 {
+			channels = listPayload.Channels
+		} else {
+			var rawChannels []retailPlayerAPIChannel
+			if unmarshalErr := json.Unmarshal(body, &rawChannels); unmarshalErr != nil {
+				return retailPlayerChannelsResponse{}, err
+			}
+			channels = rawChannels
 		}
-		payload.Channels = rawChannels
 	}
 
-	channels := make([]retailPlayerChannel, 0, len(payload.Channels))
-	for _, item := range payload.Channels {
+	normalizedChannels := make([]retailPlayerChannel, 0, len(channels))
+	for _, item := range channels {
 		if channel, ok := simplifyRetailPlayerChannel(item); ok {
-			channels = append(channels, channel)
+			normalizedChannels = append(normalizedChannels, channel)
 		}
 	}
 
-	return retailPlayerChannelsResponse{Channels: channels}, nil
+	return retailPlayerChannelsResponse{Channels: normalizedChannels}, nil
 }
 
 func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID string) (retailPlayerChannelsResponse, error) {
@@ -3254,8 +3253,6 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 func simplifyRetailPlayerChannel(channel retailPlayerAPIChannel) (retailPlayerChannel, bool) {
 	id := strings.TrimSpace(channel.ID)
 	name := strings.TrimSpace(channel.Name)
-	deviceID := strings.TrimSpace(channel.DeviceID)
-	deviceName := strings.TrimSpace(channel.DeviceName)
 
 	if id == "" && name == "" {
 		return retailPlayerChannel{}, false
@@ -3265,12 +3262,7 @@ func simplifyRetailPlayerChannel(channel retailPlayerAPIChannel) (retailPlayerCh
 		name = id
 	}
 
-	return retailPlayerChannel{
-		ID:         id,
-		Name:       name,
-		DeviceID:   deviceID,
-		DeviceName: deviceName,
-	}, true
+	return retailPlayerChannel{ID: id, Name: name}, true
 }
 
 func firstNonEmpty(values ...string) string {
