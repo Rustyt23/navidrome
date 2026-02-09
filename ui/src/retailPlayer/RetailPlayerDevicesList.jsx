@@ -50,13 +50,14 @@ const useStyles = makeStyles((theme) => ({
   },
   headerRow: {
     display: 'grid',
-    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr',
+    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr 1fr',
     padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
     backgroundColor: theme.palette.action.hover,
     gap: theme.spacing(2),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: '120px 1.2fr 1fr',
-      gridTemplateAreas: "'actions name name' 'channel channelList org'",
+      gridTemplateAreas:
+        "'actions name name' 'channel channelList org' 'mac mac mac'",
       rowGap: theme.spacing(1),
     },
   },
@@ -79,6 +80,9 @@ const useStyles = makeStyles((theme) => ({
       '&[data-area="channelList"]': {
         gridArea: 'channelList',
       },
+      '&[data-area="mac"]': {
+        gridArea: 'mac',
+      },
       '&[data-area="organization"]': {
         gridArea: 'org',
       },
@@ -99,7 +103,7 @@ const useStyles = makeStyles((theme) => ({
   },
   rowButton: {
     display: 'grid',
-    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr',
+    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr 1fr',
     padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
     textAlign: 'left',
     gap: theme.spacing(2),
@@ -110,7 +114,8 @@ const useStyles = makeStyles((theme) => ({
     }),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: '120px 1.2fr 1fr',
-      gridTemplateAreas: "'actions name name' 'channel channelList org'",
+      gridTemplateAreas:
+        "'actions name name' 'channel channelList org' 'mac mac mac'",
       rowGap: theme.spacing(1.5),
     },
   },
@@ -129,6 +134,9 @@ const useStyles = makeStyles((theme) => ({
       },
       '&[data-area="channelList"]': {
         gridArea: 'channelList',
+      },
+      '&[data-area="mac"]': {
+        gridArea: 'mac',
       },
       '&[data-area="organization"]': {
         gridArea: 'org',
@@ -213,6 +221,9 @@ const RetailPlayerDevicesList = () => {
           <span className={classes.headerCell} data-area="channel">
             Channel
           </span>
+          <span className={classes.headerCell} data-area="mac">
+            MAC Address
+          </span>
           <span className={classes.headerCell} data-area="channelList">
             Channel List
           </span>
@@ -247,6 +258,9 @@ const RetailPlayerDevicesList = () => {
                 </span>
                 <span className={classes.cell} data-area="channel">
                   {device.channel}
+                </span>
+                <span className={classes.cell} data-area="mac">
+                  {device.macAddress}
                 </span>
                 <span className={classes.cell} data-area="channelList">
                   {device.channelList}
