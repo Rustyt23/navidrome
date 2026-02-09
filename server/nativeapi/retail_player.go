@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -208,6 +209,7 @@ type retailPlayerDevice struct {
 	OrganizationID  string   `json:"organizationId,omitempty"`
 	OrganisationID  string   `json:"organisationid,omitempty"`
 	Channel         string   `json:"channel"`
+	ChannelName     string   `json:"channelName,omitempty"`
 	ChannelList     string   `json:"channelList"`
 	Organization    string   `json:"organization"`
 	TimeZone        string   `json:"timeZone,omitempty"`
@@ -509,6 +511,8 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			}
 		}
 
+		populateRetailPlayerChannelNames(ctx, response.Data)
+
 		response.Folders = make([]retailPlayerFolder, 0, len(folders))
 		for _, folder := range folders {
 			response.Folders = append(response.Folders, mapModelRetailPlayerFolder(folder))
@@ -646,6 +650,8 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 				}
 			}
 		}
+
+		populateRetailPlayerChannelNames(ctx, filtered.Data)
 
 		filtered.Folders = make([]retailPlayerFolder, 0, len(folders))
 		for _, folder := range folders {
@@ -1427,6 +1433,63 @@ func mapRetailPlayerMappingToDevice(mapping model.RetailPlayerDeviceMapping) ret
 		Organization:    strings.TrimSpace(mapping.Organization),
 		TimeZone:        strings.TrimSpace(mapping.TimeZone),
 		RemoteControlID: strings.TrimSpace(mapping.RemoteCtrlID),
+	}
+}
+
+func populateRetailPlayerChannelNames(ctx context.Context, devices []retailPlayerDevice) {
+	if len(devices) == 0 || conf.Server.DataFolder == "" {
+		return
+	}
+
+	dbFile := filepath.Join(conf.Server.DataFolder, "rpp_devices.db")
+	if _, err := os.Stat(dbFile); err != nil {
+		return
+	}
+
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		log.Warn(ctx, "Unable to open retail player devices database", "path", dbFile, "err", err)
+		return
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		log.Debug(ctx, "Unable to enable WAL for retail player devices database", "path", dbFile, "err", err)
+	}
+
+	stmt, err := db.PrepareContext(ctx, `SELECT channel_name FROM devices WHERE device_id = ? OR device_name = ? LIMIT 1`)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return
+		}
+		log.Warn(ctx, "Unable to prepare retail player channel name lookup", "path", dbFile, "err", err)
+		return
+	}
+	defer stmt.Close()
+
+	for index := range devices {
+		deviceID := strings.TrimSpace(devices[index].ID)
+		deviceName := strings.TrimSpace(devices[index].Name)
+		if deviceID == "" && deviceName == "" {
+			continue
+		}
+
+		var channelName sql.NullString
+		err = stmt.QueryRowContext(ctx, deviceID, deviceName).Scan(&channelName)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if strings.Contains(err.Error(), "no such table") {
+				return
+			}
+			log.Warn(ctx, "Unable to lookup retail player channel name", "deviceID", deviceID, "deviceName", deviceName, "err", err)
+			continue
+		}
+		if channelName.Valid {
+			devices[index].ChannelName = strings.TrimSpace(channelName.String)
+		}
 	}
 }
 
