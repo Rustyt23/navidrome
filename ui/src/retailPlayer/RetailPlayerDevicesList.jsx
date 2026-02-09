@@ -211,7 +211,7 @@ const RetailPlayerDevicesList = () => {
             Name
           </span>
           <span className={classes.headerCell} data-area="channel">
-            Channel
+            Channel Name
           </span>
           <span className={classes.headerCell} data-area="channelList">
             Channel List
@@ -246,7 +246,7 @@ const RetailPlayerDevicesList = () => {
                   {device.name}
                 </span>
                 <span className={classes.cell} data-area="channel">
-                  {device.channel}
+                  {device.channelName}
                 </span>
                 <span className={classes.cell} data-area="channelList">
                   {device.channelList}

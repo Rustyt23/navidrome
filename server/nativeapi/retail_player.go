@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server/public"
@@ -1901,6 +1903,7 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 		}
 	}
 	populateRetailPlayerChannelCounts(ctx, devices)
+	populateRetailPlayerChannelNames(ctx, devices)
 
 	return retailPlayerDevicesResponse{
 		Data:  devices,
@@ -1953,6 +1956,215 @@ func populateRetailPlayerChannelCounts(ctx context.Context, devices []retailPlay
 			devices[index].ChannelCatalogCount = &value
 		}
 	}
+}
+
+func populateRetailPlayerChannelNames(ctx context.Context, devices []retailPlayerDevice) {
+	if len(devices) == 0 {
+		return
+	}
+
+	for index := range devices {
+		devices[index].ChannelName = ""
+	}
+
+	conn := db.Db()
+	columns, err := fetchRetailPlayerDeviceTableColumns(ctx, conn)
+	if err != nil {
+		log.Warn(ctx, "Unable to inspect local device table columns", "err", err)
+		return
+	}
+
+	channelColumn, ok := columns["channel_name"]
+	if !ok {
+		return
+	}
+
+	deviceIDColumn, hasDeviceID := columns["device_id"]
+	if !hasDeviceID {
+		deviceIDColumn, hasDeviceID = columns["deviceid"]
+	}
+	macColumn, hasMac := columns["mac_address"]
+
+	normalizedIDs := make([]string, 0, len(devices))
+	normalizedMacs := make([]string, 0, len(devices))
+	idSet := make(map[string]struct{}, len(devices))
+	macSet := make(map[string]struct{}, len(devices))
+
+	for _, device := range devices {
+		if id := normalizeRetailPlayerLookupValue(device.ID); id != "" && hasDeviceID {
+			if _, exists := idSet[id]; !exists {
+				idSet[id] = struct{}{}
+				normalizedIDs = append(normalizedIDs, id)
+			}
+		}
+		if mac := normalizeRetailPlayerLookupValue(device.MacAddress); mac != "" && hasMac {
+			if _, exists := macSet[mac]; !exists {
+				macSet[mac] = struct{}{}
+				normalizedMacs = append(normalizedMacs, mac)
+			}
+		}
+	}
+
+	if len(normalizedIDs) == 0 && len(normalizedMacs) == 0 {
+		return
+	}
+
+	channelByDeviceID, channelByMac, err := loadRetailPlayerChannelNames(ctx, conn, channelColumn, deviceIDColumn, macColumn, normalizedIDs, normalizedMacs, hasDeviceID, hasMac)
+	if err != nil {
+		log.Warn(ctx, "Unable to load local channel names", "err", err)
+		return
+	}
+
+	for index, device := range devices {
+		idKey := normalizeRetailPlayerLookupValue(device.ID)
+		if idKey != "" {
+			if channelName, ok := channelByDeviceID[idKey]; ok {
+				devices[index].ChannelName = channelName
+				continue
+			}
+		}
+
+		macKey := normalizeRetailPlayerLookupValue(device.MacAddress)
+		if macKey != "" {
+			if channelName, ok := channelByMac[macKey]; ok {
+				devices[index].ChannelName = channelName
+			}
+		}
+	}
+}
+
+func fetchRetailPlayerDeviceTableColumns(ctx context.Context, conn *sql.DB) (map[string]string, error) {
+	rows, err := conn.QueryContext(ctx, "PRAGMA table_info(devices)")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns := make(map[string]string)
+	for rows.Next() {
+		var cid int
+		var name string
+		var dataType sql.NullString
+		var notNull sql.NullInt64
+		var defaultValue sql.NullString
+		var pk sql.NullInt64
+		if scanErr := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); scanErr != nil {
+			return nil, scanErr
+		}
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		columns[strings.ToLower(trimmed)] = trimmed
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return columns, nil
+}
+
+func loadRetailPlayerChannelNames(
+	ctx context.Context,
+	conn *sql.DB,
+	channelColumn string,
+	deviceIDColumn string,
+	macColumn string,
+	deviceIDs []string,
+	macAddresses []string,
+	hasDeviceID bool,
+	hasMac bool,
+) (map[string]string, map[string]string, error) {
+	conditions := make([]string, 0, 2)
+	args := make([]any, 0, len(deviceIDs)+len(macAddresses))
+
+	if hasDeviceID && len(deviceIDs) > 0 {
+		conditions = append(conditions, fmt.Sprintf("lower(%s) IN (%s)", deviceIDColumn, sqlPlaceholders(len(deviceIDs))))
+		for _, id := range deviceIDs {
+			args = append(args, id)
+		}
+	}
+
+	if hasMac && len(macAddresses) > 0 {
+		conditions = append(conditions, fmt.Sprintf("lower(%s) IN (%s)", macColumn, sqlPlaceholders(len(macAddresses))))
+		for _, mac := range macAddresses {
+			args = append(args, mac)
+		}
+	}
+
+	if len(conditions) == 0 {
+		return nil, nil, nil
+	}
+
+	deviceSelect := "NULL"
+	if hasDeviceID {
+		deviceSelect = deviceIDColumn
+	}
+	macSelect := "NULL"
+	if hasMac {
+		macSelect = macColumn
+	}
+
+	query := fmt.Sprintf(
+		"SELECT %s, %s, %s FROM devices WHERE %s",
+		channelColumn,
+		deviceSelect,
+		macSelect,
+		strings.Join(conditions, " OR "),
+	)
+
+	rows, err := conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	channelByDeviceID := make(map[string]string)
+	channelByMac := make(map[string]string)
+
+	for rows.Next() {
+		var channelName sql.NullString
+		var deviceID sql.NullString
+		var macAddress sql.NullString
+		if scanErr := rows.Scan(&channelName, &deviceID, &macAddress); scanErr != nil {
+			return nil, nil, scanErr
+		}
+
+		trimmedChannel := strings.TrimSpace(channelName.String)
+		if trimmedChannel == "" {
+			continue
+		}
+		if hasDeviceID {
+			normalizedID := normalizeRetailPlayerLookupValue(deviceID.String)
+			if normalizedID != "" {
+				channelByDeviceID[normalizedID] = trimmedChannel
+			}
+		}
+		if hasMac {
+			normalizedMac := normalizeRetailPlayerLookupValue(macAddress.String)
+			if normalizedMac != "" {
+				channelByMac[normalizedMac] = trimmedChannel
+			}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	return channelByDeviceID, channelByMac, nil
+}
+
+func normalizeRetailPlayerLookupValue(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func sqlPlaceholders(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	return strings.TrimRight(strings.Repeat("?,", count), ",")
 }
 
 func fetchRetailPlayerChannelCounts(ctx context.Context, channelListIDs []string) map[string]int {
@@ -3195,9 +3407,6 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		strings.TrimSpace(device.Location),
 	)
 	channelName := strings.TrimSpace(device.ChannelName)
-	if channelName == "" {
-		channelName = strings.TrimSpace(device.Channel)
-	}
 	var channelCatalogCount *int
 	if len(device.ChannelInfo.ChannelsCatalog) > 0 {
 		count := len(device.ChannelInfo.ChannelsCatalog)
