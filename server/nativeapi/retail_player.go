@@ -1437,12 +1437,12 @@ func mapRetailPlayerMappingToDevice(mapping model.RetailPlayerDeviceMapping) ret
 }
 
 func populateRetailPlayerChannelNames(ctx context.Context, devices []retailPlayerDevice) {
-	if len(devices) == 0 || conf.Server.DataFolder == "" {
+	if len(devices) == 0 {
 		return
 	}
 
-	dbFile := filepath.Join(conf.Server.DataFolder, "rpp_devices.db")
-	if _, err := os.Stat(dbFile); err != nil {
+	dbFile := locateRetailPlayerDevicesDB()
+	if dbFile == "" {
 		return
 	}
 
@@ -1458,7 +1458,7 @@ func populateRetailPlayerChannelNames(ctx context.Context, devices []retailPlaye
 		log.Debug(ctx, "Unable to enable WAL for retail player devices database", "path", dbFile, "err", err)
 	}
 
-	stmt, err := db.PrepareContext(ctx, `SELECT channel_name FROM devices WHERE device_id = ? OR device_name = ? LIMIT 1`)
+	stmt, err := db.PrepareContext(ctx, `SELECT channel_name FROM devices WHERE device_id = ? COLLATE NOCASE OR device_name = ? COLLATE NOCASE LIMIT 1`)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return
@@ -1491,6 +1491,36 @@ func populateRetailPlayerChannelNames(ctx context.Context, devices []retailPlaye
 			devices[index].ChannelName = strings.TrimSpace(channelName.String)
 		}
 	}
+}
+
+func locateRetailPlayerDevicesDB() string {
+	candidates := make([]string, 0, 3)
+
+	if conf.Server.DataFolder != "" {
+		candidates = append(candidates, filepath.Join(conf.Server.DataFolder, "rpp_devices.db"))
+	}
+
+	if conf.Server.DbPath != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(conf.Server.DbPath), "rpp_devices.db"))
+	}
+
+	candidates = append(candidates, "rpp_devices.db")
+
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 func (n *Router) handleRetailPlayerChannelListChannels() http.HandlerFunc {
