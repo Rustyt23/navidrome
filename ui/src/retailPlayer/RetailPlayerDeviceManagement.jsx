@@ -674,7 +674,7 @@ const RetailPlayerDeviceRow = memo(
         </div>
         <div className={classes.macAddressCell}>{formattedMacAddress}</div>
         <div className={classes.channelNameCell}>
-          {node.channelName || node.channel || '—'}
+          {node.channelName || '—'}
         </div>
         <div className={classes.countCell}>
           {typeof channelCount === 'number' ? channelCount : '—'}

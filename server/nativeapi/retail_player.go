@@ -3127,9 +3127,6 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		strings.TrimSpace(device.Location),
 	)
 	channelName := strings.TrimSpace(device.ChannelName)
-	if channelName == "" {
-		channelName = strings.TrimSpace(device.Channel)
-	}
 
 	return retailPlayerDevice{
 		ID:           id,
