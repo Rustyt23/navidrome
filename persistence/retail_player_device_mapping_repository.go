@@ -2,11 +2,16 @@ package persistence
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	. "github.com/Masterminds/squirrel"
+	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/pocketbase/dbx"
@@ -202,38 +207,104 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 func (r retailPlayerDeviceMappingRepository) FindChannelName(ctx context.Context, deviceID, macAddress string) (string, error) {
 	trimmedID := strings.TrimSpace(deviceID)
 	trimmedMac := strings.TrimSpace(macAddress)
-	if trimmedID == "" && trimmedMac == "" {
+	normalizedMac := normalizeMacAddressForLookup(trimmedMac)
+	macCandidates := uniqueNonEmptyStrings(trimmedMac, normalizedMac)
+	if trimmedID == "" && len(macCandidates) == 0 {
 		return "", model.ErrNotFound
 	}
 
-	var conditions Or
-	if trimmedID != "" {
-		conditions = append(conditions, Eq{"device_id": trimmedID})
-	}
-	if trimmedMac != "" {
-		conditions = append(conditions, Eq{"mac_address": trimmedMac})
+	channelNameDBPath := strings.TrimSpace(conf.Server.RetailPlayer.ChannelNameDBPath)
+	if channelNameDBPath != "" {
+		return findChannelNameFromPath(ctx, channelNameDBPath, trimmedID, macCandidates)
 	}
 
-	sel := Select("channel_name").
-		From("devices").
-		Where(conditions).
-		Limit(1)
+	return findChannelNameWithDB(ctx, db.Db(), trimmedID, macCandidates)
+}
 
-	var result struct {
-		ChannelName string `db:"channel_name"`
+func normalizeMacAddressForLookup(macAddress string) string {
+	if macAddress == "" {
+		return ""
 	}
-	if err := r.queryOne(sel, &result); err != nil {
+	normalized := strings.ReplaceAll(macAddress, ":", "-")
+	return strings.ToUpper(normalized)
+}
+
+func uniqueNonEmptyStrings(values ...string) []string {
+	seen := make(map[string]struct{}, len(values))
+	results := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		results = append(results, trimmed)
+	}
+	return results
+}
+
+func findChannelNameFromPath(ctx context.Context, dbPath, deviceID string, macAddresses []string) (string, error) {
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", model.ErrNotFound
+		}
+		return "", err
+	}
+
+	conn, err := sql.Open(db.Driver, dbPath)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			log.Warn(ctx, "Unable to close channel name database", "err", closeErr)
+		}
+	}()
+
+	return findChannelNameWithDB(ctx, conn, deviceID, macAddresses)
+}
+
+func findChannelNameWithDB(ctx context.Context, conn *sql.DB, deviceID string, macAddresses []string) (string, error) {
+	conditions := make([]string, 0, 2)
+	args := make([]any, 0, 1+len(macAddresses))
+
+	if deviceID != "" {
+		conditions = append(conditions, "device_id = ?")
+		args = append(args, deviceID)
+	}
+	if len(macAddresses) > 0 {
+		placeholders := make([]string, 0, len(macAddresses))
+		for _, macAddress := range macAddresses {
+			placeholders = append(placeholders, "?")
+			args = append(args, macAddress)
+		}
+		conditions = append(conditions, fmt.Sprintf("mac_address IN (%s)", strings.Join(placeholders, ", ")))
+	}
+
+	if len(conditions) == 0 {
+		return "", model.ErrNotFound
+	}
+
+	query := fmt.Sprintf("SELECT channel_name FROM devices WHERE %s LIMIT 1", strings.Join(conditions, " OR "))
+	var channelName sql.NullString
+	if err := conn.QueryRowContext(ctx, query, args...).Scan(&channelName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", model.ErrNotFound
+		}
 		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
 			return "", model.ErrNotFound
 		}
 		return "", err
 	}
 
-	channelName := strings.TrimSpace(result.ChannelName)
-	if channelName == "" {
+	trimmedName := strings.TrimSpace(channelName.String)
+	if trimmedName == "" {
 		return "", model.ErrNotFound
 	}
-	return channelName, nil
+	return trimmedName, nil
 }
 
 func (r retailPlayerDeviceMappingRepository) All(ctx context.Context) ([]model.RetailPlayerDeviceMapping, error) {

@@ -205,6 +205,7 @@ type retailPlayerOptions struct {
 	OrgID                     string
 	APIKey                    string
 	APIKeyHeader              string
+	ChannelNameDBPath         string
 	RemoteControlBaseURL      string
 	RemoteControlAPIKey       string
 	RemoteControlAPIKeyHeader string
@@ -634,6 +635,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.orgid", "")
 	viper.SetDefault("retailplayer.apikey", "")
 	viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
+	viper.SetDefault("retailplayer.channelnamedbpath", "")
 	viper.SetDefault("retailplayer.qrloginurl", "")
 	viper.SetDefault("retailplayer.qrbaseurl", "")
 	viper.SetDefault("retailplayer.qrtenant", "")
