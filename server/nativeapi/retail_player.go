@@ -705,12 +705,11 @@ func (n *Router) populateRetailPlayerChannelNames(ctx context.Context, devices [
 			if !errors.Is(err, model.ErrNotFound) {
 				log.Warn(ctx, "Unable to load retail player channel name", "deviceID", deviceID, "macAddress", macAddress, "err", err)
 			}
+			devices[index].ChannelName = ""
 			continue
 		}
 
-		if strings.TrimSpace(channelName) != "" {
-			devices[index].ChannelName = channelName
-		}
+		devices[index].ChannelName = strings.TrimSpace(channelName)
 	}
 }
 
