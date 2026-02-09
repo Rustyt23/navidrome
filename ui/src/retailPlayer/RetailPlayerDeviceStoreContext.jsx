@@ -94,6 +94,7 @@ const baseDeviceShape = (device, existing) => {
   const normalizedName = normalizeValue(device?.name)
   const normalizedSlug = normalizeValue(device?.slug)
   const normalizedChannel = normalizeValue(device?.channel)
+  const normalizedChannelName = normalizeValue(device?.channelName)
   const normalizedChannelList = normalizeValue(device?.channelList)
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
@@ -131,6 +132,7 @@ const baseDeviceShape = (device, existing) => {
     slug,
     slugKey: deviceSlugKey(slug),
     channel: normalizedChannel || '',
+    channelName: normalizedChannelName || existing?.channelName || '',
     channelList: normalizedChannelList || '',
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',
@@ -284,6 +286,7 @@ const reducer = (state, action) => {
         id,
         name,
         channel,
+        channelName,
         channelList,
         organization,
         folderIds,
@@ -310,6 +313,7 @@ const reducer = (state, action) => {
           ...device,
           name: isLocal ? normalizeValue(name) || device.name : device.name,
           channel: normalizeValue(channel) || device.channel,
+          channelName: normalizeValue(channelName) || device.channelName,
           channelList: normalizeValue(channelList) || device.channelList,
           organization:
             normalizeValue(organization) || device.organization,
