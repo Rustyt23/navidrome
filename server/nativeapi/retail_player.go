@@ -208,6 +208,7 @@ type retailPlayerDevice struct {
 	OrganizationID  string   `json:"organizationId,omitempty"`
 	OrganisationID  string   `json:"organisationid,omitempty"`
 	Channel         string   `json:"channel"`
+	ChannelName     string   `json:"channelName,omitempty"`
 	ChannelList     string   `json:"channelList"`
 	Organization    string   `json:"organization"`
 	TimeZone        string   `json:"timeZone,omitempty"`
@@ -265,13 +266,17 @@ type retailPlayerAssignDeviceFoldersRequest struct {
 }
 
 type retailPlayerAPIChannel struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	DeviceID   string `json:"deviceId"`
+	DeviceName string `json:"deviceName"`
 }
 
 type retailPlayerChannel struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	DeviceID   string `json:"deviceId,omitempty"`
+	DeviceName string `json:"deviceName,omitempty"`
 }
 
 type retailPlayerChannelsResponse struct {
@@ -434,6 +439,12 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 
 		log.Info(ctx, "Retail player devices fetched", "count", len(response.Data))
 
+		if len(response.Data) > 0 {
+			if err := n.applyRetailPlayerChannelNames(ctx, response.Data); err != nil {
+				log.Warn(ctx, "Unable to fetch retail player channels", "err", err)
+			}
+		}
+
 		n.devices.RememberDevices(response.Data)
 		n.persistRetailPlayerDeviceMappings(ctx, response.Data)
 
@@ -557,6 +568,12 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 			return
 		}
 
+		if len(response.Data) > 0 {
+			if err := n.applyRetailPlayerChannelNames(ctx, response.Data); err != nil {
+				log.Warn(ctx, "Unable to fetch retail player channels", "err", err)
+			}
+		}
+
 		filtered := retailPlayerDevicesResponse{
 			Data: make([]retailPlayerDevice, 0, 1),
 		}
@@ -667,6 +684,72 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 			log.Error(ctx, "Unable to encode retail player device response", "err", err)
 		}
 	}
+}
+
+func (n *Router) applyRetailPlayerChannelNames(ctx context.Context, devices []retailPlayerDevice) error {
+	if len(devices) == 0 {
+		return nil
+	}
+
+	response, err := fetchRetailPlayerChannels(ctx)
+	if err != nil {
+		return err
+	}
+
+	if len(response.Channels) == 0 {
+		return nil
+	}
+
+	channelNameByID := make(map[string]string, len(response.Channels))
+	channelNameByDeviceID := make(map[string]string, len(response.Channels))
+	channelNameByDeviceName := make(map[string]string, len(response.Channels))
+
+	normalizeKey := func(value string) string {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return ""
+		}
+		return strings.ToLower(trimmed)
+	}
+
+	for _, channel := range response.Channels {
+		name := strings.TrimSpace(channel.Name)
+		if name == "" {
+			continue
+		}
+		if key := normalizeKey(channel.ID); key != "" {
+			channelNameByID[key] = name
+		}
+		if key := normalizeKey(channel.DeviceID); key != "" {
+			channelNameByDeviceID[key] = name
+		}
+		if key := normalizeKey(channel.DeviceName); key != "" {
+			channelNameByDeviceName[key] = name
+		}
+	}
+
+	for index := range devices {
+		channelName := ""
+		if key := normalizeKey(devices[index].Channel); key != "" {
+			channelName = channelNameByID[key]
+		}
+		if channelName == "" {
+			if key := normalizeKey(devices[index].ID); key != "" {
+				channelName = channelNameByDeviceID[key]
+			}
+		}
+		if channelName == "" {
+			if key := normalizeKey(devices[index].Name); key != "" {
+				channelName = channelNameByDeviceName[key]
+			}
+		}
+
+		if channelName != "" {
+			devices[index].ChannelName = channelName
+		}
+	}
+
+	return nil
 }
 
 func (n *Router) handleCreateRetailPlayerFolder() http.HandlerFunc {
@@ -2386,6 +2469,59 @@ func fetchRetailPlayerDependents(ctx context.Context, orgID string) (retailPlaye
 	return payload, nil
 }
 
+func fetchRetailPlayerChannels(ctx context.Context) (retailPlayerChannelsResponse, error) {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return retailPlayerChannelsResponse{}, errors.New("retail player API not configured")
+	}
+
+	requestConfig := retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}
+
+	req, err := buildRetailPlayerOrgRequest(ctx, requestConfig, "channels")
+	if err != nil {
+		return retailPlayerChannelsResponse{}, err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return retailPlayerChannelsResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return retailPlayerChannelsResponse{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return retailPlayerChannelsResponse{}, err
+	}
+
+	var payload retailPlayerChannelListAPIResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		var rawChannels []retailPlayerAPIChannel
+		if unmarshalErr := json.Unmarshal(body, &rawChannels); unmarshalErr != nil {
+			return retailPlayerChannelsResponse{}, err
+		}
+		payload.Channels = rawChannels
+	}
+
+	channels := make([]retailPlayerChannel, 0, len(payload.Channels))
+	for _, item := range payload.Channels {
+		if channel, ok := simplifyRetailPlayerChannel(item); ok {
+			channels = append(channels, channel)
+		}
+	}
+
+	return retailPlayerChannelsResponse{Channels: channels}, nil
+}
+
 func fetchRetailPlayerChannelListChannels(ctx context.Context, channelListID string) (retailPlayerChannelsResponse, error) {
 	cfg := conf.Server.RetailPlayer
 	if cfg.BaseURL == "" || cfg.OrgID == "" {
@@ -2827,6 +2963,31 @@ func buildRetailPlayerRequest(ctx context.Context, cfg retailPlayerConfig, pathP
 	return req, nil
 }
 
+func buildRetailPlayerOrgRequest(ctx context.Context, cfg retailPlayerConfig, pathParts ...string) (*http.Request, error) {
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	if baseURL == "" {
+		return nil, errors.New("retail player base URL is empty")
+	}
+
+	endpoint := fmt.Sprintf("%s/orgs/%s", baseURL, url.PathEscape(cfg.OrgID))
+	for _, part := range pathParts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		endpoint = fmt.Sprintf("%s/%s", endpoint, url.PathEscape(trimmed))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	applyRetailPlayerHeaders(req, cfg)
+
+	return req, nil
+}
+
 func buildRetailPlayerDependentsRequest(ctx context.Context, cfg retailPlayerConfig) (*http.Request, error) {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	if baseURL == "" {
@@ -3093,6 +3254,8 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 func simplifyRetailPlayerChannel(channel retailPlayerAPIChannel) (retailPlayerChannel, bool) {
 	id := strings.TrimSpace(channel.ID)
 	name := strings.TrimSpace(channel.Name)
+	deviceID := strings.TrimSpace(channel.DeviceID)
+	deviceName := strings.TrimSpace(channel.DeviceName)
 
 	if id == "" && name == "" {
 		return retailPlayerChannel{}, false
@@ -3102,7 +3265,12 @@ func simplifyRetailPlayerChannel(channel retailPlayerAPIChannel) (retailPlayerCh
 		name = id
 	}
 
-	return retailPlayerChannel{ID: id, Name: name}, true
+	return retailPlayerChannel{
+		ID:         id,
+		Name:       name,
+		DeviceID:   deviceID,
+		DeviceName: deviceName,
+	}, true
 }
 
 func firstNonEmpty(values ...string) string {
