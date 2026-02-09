@@ -183,7 +183,7 @@ type DualQueryOptions struct {
 func parseQueryOptions(r *http.Request) DualQueryOptions {
 	q := r.URL.Query()
 
-	base := model.QueryOptions{Order: "ASC", Filters: And{}}
+	base := model.QueryOptions{Order: "ASC", Filters: And{}, Sort: "name"}
 	folderOpts, playlistOpts := base, base
 	folderOpts.Filters = And{}
 	playlistOpts.Filters = And{}
