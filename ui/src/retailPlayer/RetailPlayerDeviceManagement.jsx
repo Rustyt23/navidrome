@@ -166,7 +166,7 @@ const useStyles = makeStyles((theme) => {
   listHeader: {
     display: 'grid',
     gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(96px, 0.8fr)',
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)',
     paddingTop: theme.spacing(0),
     paddingBottom: theme.spacing(0),
     paddingLeft: theme.spacing(1.7),
@@ -181,7 +181,7 @@ const useStyles = makeStyles((theme) => {
     gap: theme.spacing(1),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns:
-        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 1.1fr) minmax(140px, 1fr) 72px',
+        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 1.1fr) minmax(140px, 1fr) minmax(140px, 1fr) 72px',
       fontSize: theme.typography.pxToRem(11),
       letterSpacing: 0.6,
     },
@@ -201,7 +201,7 @@ const useStyles = makeStyles((theme) => {
   row: {
     display: 'grid',
     gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(96px, 0.8fr)',
+      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)',
     alignItems: 'center',
     padding: '1px 2px',
     borderTop: `1px solid ${theme.palette.divider}`,
@@ -218,7 +218,7 @@ const useStyles = makeStyles((theme) => {
     },
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns:
-        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 1.1fr) minmax(140px, 1fr) 72px',
+        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 1.1fr) minmax(140px, 1fr) minmax(140px, 1fr) 72px',
     },
   },
 
@@ -288,6 +288,13 @@ const useStyles = makeStyles((theme) => {
     whiteSpace: 'nowrap',
   },
   channelNameCell: {
+    fontSize: theme.typography.pxToRem(14),
+    color: theme.palette.text.secondary,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  macAddressCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
     overflow: 'hidden',
@@ -568,6 +575,7 @@ const RetailPlayerFolderRow = memo(
         <div className={classes.typeCell}>Folder</div>
         <div className={classes.countCell}>{deviceCount}</div>
         <div className={classes.channelNameCell}>—</div>
+        <div className={classes.macAddressCell}>—</div>
         <div className={classes.remoteControlCell}>—</div>
         <div className={classes.actionsCell}>
           <Tooltip title="Edit folder">
@@ -671,6 +679,9 @@ const RetailPlayerDeviceRow = memo(
         <div className={classes.channelNameCell}>
           {node.channelName ? node.channelName : '—'}
         </div>
+        <div className={classes.macAddressCell}>
+          {node.macAddress ? node.macAddress : '—'}
+        </div>
         <div className={classes.remoteControlCell}>
           {node.remoteControlId ? node.remoteControlId : '—'}
         </div>
@@ -714,6 +725,7 @@ RetailPlayerDeviceRow.propTypes = {
     id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
     channelName: PropTypes.string,
+    macAddress: PropTypes.string,
   }).isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
@@ -1511,6 +1523,7 @@ const RetailPlayerDeviceManagement = () => {
           <span>Type</span>
           <span>Devices / Channels</span>
           <span>Channel Name</span>
+          <span>Mac Address</span>
           <span>QR ID</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
