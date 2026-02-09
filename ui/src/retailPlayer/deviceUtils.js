@@ -8,6 +8,18 @@ const normalizeValue = (value) => {
   return ''
 }
 
+const formatMacAddress = (value) => {
+  const normalized = normalizeValue(value).toLowerCase()
+  if (!normalized) {
+    return ''
+  }
+  const parts = normalized.split(/[^a-z0-9]+/).filter(Boolean)
+  if (!parts.length) {
+    return ''
+  }
+  return parts.join(':')
+}
+
 const buildDeviceSlug = (device) => {
   if (!device || typeof device !== 'object') {
     return ''
@@ -89,7 +101,9 @@ const mapRetailPlayerDevice = (device) => {
     slug,
     slugKey: deviceSlugKey(slug),
     channel: normalizeValue(device.channel),
+    channelName: normalizeValue(device.channelName || device.channel_name),
     channelList: normalizeValue(device.channelList),
+    macAddress: formatMacAddress(device.macAddress || device.mac_address),
     organization:
       normalizeValue(device.organization) ||
       normalizeValue(device.orgUnit || device.org_unit) ||
@@ -102,4 +116,10 @@ const mapRetailPlayerDevice = (device) => {
   }
 }
 
-export { buildDeviceSlug, deviceSlugKey, mapRetailPlayerDevice, normalizeValue }
+export {
+  buildDeviceSlug,
+  deviceSlugKey,
+  formatMacAddress,
+  mapRetailPlayerDevice,
+  normalizeValue,
+}

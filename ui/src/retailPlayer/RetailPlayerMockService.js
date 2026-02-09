@@ -140,6 +140,7 @@ class RetailPlayerMockService {
       slug: buildDeviceSlug(device) || device.name || device.id,
       slugKey: deviceSlugKey(device.name || device.id),
       channel: device.channel,
+      channelName: device.channelName || device.channel,
       channelList: device.channelList,
       organization: device.organization,
     }))

@@ -10,7 +10,12 @@ import PropTypes from 'prop-types'
 import { v4 as uuidv4 } from 'uuid'
 import useRetailPlayerDevices from './useRetailPlayerDevices'
 import httpClient from '../dataProvider/httpClient'
-import { buildDeviceSlug, deviceSlugKey, normalizeValue } from './deviceUtils'
+import {
+  buildDeviceSlug,
+  deviceSlugKey,
+  formatMacAddress,
+  normalizeValue,
+} from './deviceUtils'
 
 const RetailPlayerDeviceStoreContext = createContext(null)
 
@@ -94,7 +99,11 @@ const baseDeviceShape = (device, existing) => {
   const normalizedName = normalizeValue(device?.name)
   const normalizedSlug = normalizeValue(device?.slug)
   const normalizedChannel = normalizeValue(device?.channel)
+  const normalizedChannelName = normalizeValue(device?.channelName)
   const normalizedChannelList = normalizeValue(device?.channelList)
+  const normalizedMacAddress = formatMacAddress(
+    device?.macAddress || device?.mac_address,
+  )
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
   const normalizedRemoteControlId = normalizeValue(device?.remoteControlId)
@@ -131,7 +140,9 @@ const baseDeviceShape = (device, existing) => {
     slug,
     slugKey: deviceSlugKey(slug),
     channel: normalizedChannel || '',
+    channelName: normalizedChannelName || existing?.channelName || '',
     channelList: normalizedChannelList || '',
+    macAddress: normalizedMacAddress || existing?.macAddress || '',
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',
     remoteControlId: normalizedRemoteControlId || '',
@@ -284,7 +295,9 @@ const reducer = (state, action) => {
         id,
         name,
         channel,
+        channelName,
         channelList,
+        macAddress,
         organization,
         folderIds,
         folderId,
@@ -310,7 +323,9 @@ const reducer = (state, action) => {
           ...device,
           name: isLocal ? normalizeValue(name) || device.name : device.name,
           channel: normalizeValue(channel) || device.channel,
+          channelName: normalizeValue(channelName) || device.channelName,
           channelList: normalizeValue(channelList) || device.channelList,
+          macAddress: formatMacAddress(macAddress) || device.macAddress,
           organization:
             normalizeValue(organization) || device.organization,
           folderIds: nextFolderIds,
