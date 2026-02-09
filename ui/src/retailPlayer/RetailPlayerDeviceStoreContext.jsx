@@ -134,7 +134,7 @@ const baseDeviceShape = (device, existing) => {
     slugKey: deviceSlugKey(slug),
     channel: normalizedChannel || '',
     channelList: normalizedChannelList || '',
-    channelName: normalizedChannelName || normalizedChannel || '',
+    channelName: normalizedChannelName || existing?.channelName || '',
     macAddress: normalizedMacAddress || existing?.macAddress || '',
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',
