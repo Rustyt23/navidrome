@@ -102,6 +102,7 @@ const baseDeviceShape = (device, existing) => {
   const normalizedSlug = normalizeValue(device?.slug)
   const normalizedChannel = normalizeValue(device?.channel)
   const normalizedChannelName = normalizeValue(device?.channelName)
+  const normalizedMacAddress = normalizeValue(device?.macAddress)
   const normalizedChannelList = normalizeValue(device?.channelList)
   const normalizedOrganization = normalizeValue(device?.organization)
   const normalizedTimeZone = normalizeValue(device?.timeZone)
@@ -140,6 +141,7 @@ const baseDeviceShape = (device, existing) => {
     slugKey: deviceSlugKey(slug),
     channel: normalizedChannel || '',
     channelName: normalizedChannelName || existing?.channelName || '',
+    macAddress: normalizedMacAddress || existing?.macAddress || '',
     channelList: normalizedChannelList || '',
     organization: normalizedOrganization || '',
     timeZone: normalizedTimeZone || '',

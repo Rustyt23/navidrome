@@ -90,6 +90,7 @@ const mapRetailPlayerDevice = (device) => {
     slugKey: deviceSlugKey(slug),
     channel: normalizeValue(device.channel),
     channelName: normalizeValue(device.channelName || device.channel_name),
+    macAddress: normalizeValue(device.macAddress || device.mac_address),
     channelList: normalizeValue(device.channelList),
     organization:
       normalizeValue(device.organization) ||
