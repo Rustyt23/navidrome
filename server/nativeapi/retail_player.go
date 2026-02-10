@@ -244,6 +244,7 @@ type retailPlayerFolder struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	ParentID  *string   `json:"parentId,omitempty"`
+	IsLocked  bool      `json:"isLocked"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -259,6 +260,7 @@ type retailPlayerFolderPayload struct {
 	ID       string  `json:"id"`
 	Name     string  `json:"name"`
 	ParentID *string `json:"parentId"`
+	IsLocked *bool   `json:"isLocked"`
 }
 
 type retailPlayerDeleteFoldersRequest struct {
@@ -776,6 +778,10 @@ func (n *Router) handleCreateRetailPlayerFolder() http.HandlerFunc {
 				parentID = &trimmed
 			}
 		}
+		isLocked := false
+		if payload.IsLocked != nil {
+			isLocked = *payload.IsLocked
+		}
 
 		var folder model.RetailPlayerFolder
 		err := n.ds.WithTx(func(tx model.DataStore) error {
@@ -784,7 +790,12 @@ func (n *Router) handleCreateRetailPlayerFolder() http.HandlerFunc {
 				return errors.New("retail player folder repository not available")
 			}
 
-			stored, err := repo.Upsert(ctx, model.RetailPlayerFolder{ID: folderID, Name: name, ParentID: parentID})
+			stored, err := repo.Upsert(ctx, model.RetailPlayerFolder{
+				ID:       folderID,
+				Name:     name,
+				ParentID: parentID,
+				IsLocked: isLocked,
+			})
 			if err != nil {
 				return err
 			}
@@ -848,7 +859,21 @@ func (n *Router) handleUpdateRetailPlayerFolder() http.HandlerFunc {
 				return errors.New("retail player folder repository not available")
 			}
 
-			stored, err := repo.Upsert(ctx, model.RetailPlayerFolder{ID: folderID, Name: name, ParentID: parentID})
+			isLocked := false
+			if payload.IsLocked != nil {
+				isLocked = *payload.IsLocked
+			} else if existing, err := repo.Find(ctx, folderID); err == nil {
+				isLocked = existing.IsLocked
+			} else if !errors.Is(err, model.ErrNotFound) {
+				return err
+			}
+
+			stored, err := repo.Upsert(ctx, model.RetailPlayerFolder{
+				ID:       folderID,
+				Name:     name,
+				ParentID: parentID,
+				IsLocked: isLocked,
+			})
 			if err != nil {
 				return err
 			}
@@ -1443,6 +1468,7 @@ func mapModelRetailPlayerFolder(folder model.RetailPlayerFolder) retailPlayerFol
 		ID:        strings.TrimSpace(folder.ID),
 		Name:      strings.TrimSpace(folder.Name),
 		ParentID:  parentID,
+		IsLocked:  folder.IsLocked,
 		CreatedAt: folder.CreatedAt,
 		UpdatedAt: folder.UpdatedAt,
 	}

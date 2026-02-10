@@ -65,6 +65,12 @@ const normalizeFolderRecord = (folder, existing) => {
   const existingFolder = existing || null
   const id = ensureFolderId(folder.id) || existingFolder?.id || uuidv4()
   const name = normalizeValue(folder.name) || existingFolder?.name || 'New Folder'
+  const normalizedIsLocked =
+    typeof folder.isLocked === 'boolean'
+      ? folder.isLocked
+      : typeof existingFolder?.isLocked === 'boolean'
+        ? existingFolder.isLocked
+        : false
 
   let parentId = existingFolder?.parentId || null
   if (Object.prototype.hasOwnProperty.call(folder, 'parentId')) {
@@ -85,6 +91,7 @@ const normalizeFolderRecord = (folder, existing) => {
     id,
     name,
     parentId,
+    isLocked: normalizedIsLocked,
     createdAt,
     updatedAt,
   }
@@ -582,6 +589,9 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         const normalizedParent = ensureFolderId(basePayload.parentId)
         requestBody.parentId = normalizedParent || null
       }
+      if (Object.prototype.hasOwnProperty.call(basePayload, 'isLocked')) {
+        requestBody.isLocked = Boolean(basePayload.isLocked)
+      }
 
       const { json } = await httpClient('/api/retailplayer/folders', {
         method: 'POST',
@@ -607,7 +617,8 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
       }
 
       if (!apiEnabled) {
-        const normalized = normalizeFolderRecord(basePayload)
+        const existing = state.folders.find((folder) => folder.id === folderId)
+        const normalized = normalizeFolderRecord(basePayload, existing)
         if (normalized) {
           dispatch({ type: 'UPSERT_FOLDER', payload: normalized })
         }
@@ -622,6 +633,9 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
       if (Object.prototype.hasOwnProperty.call(basePayload, 'parentId')) {
         const normalizedParent = ensureFolderId(basePayload.parentId)
         requestBody.parentId = normalizedParent || null
+      }
+      if (Object.prototype.hasOwnProperty.call(basePayload, 'isLocked')) {
+        requestBody.isLocked = Boolean(basePayload.isLocked)
       }
 
       const { json } = await httpClient(
@@ -639,7 +653,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
       }
       return folder
     },
-    [apiEnabled, dispatch],
+    [apiEnabled, dispatch, state.folders],
   )
 
   const createDevice = useCallback((payload) => {
