@@ -258,5 +258,33 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[1].Title).To(Equal("Antenna"))
 			Expect(tracks[2].Title).To(Equal("Radioactivity"))
 		})
+
+		It("sorts by createdAt using media file timestamps", func() {
+			updates := []struct {
+				id        string
+				createdAt string
+			}{
+				{songRadioactivity.ID, "2024-02-01 10:00:00"},
+				{songAntenna.ID, "2024-01-01 10:00:00"},
+				{songDayInALife.ID, "2024-03-01 10:00:00"},
+			}
+			for _, upd := range updates {
+				_, err := GetDBXBuilder().Update("media_file", dbx.Params{
+					"created_at": upd.createdAt,
+				}, dbx.HashExp{"id": upd.id}).Execute()
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			repo := playlistRepo.Tracks(playlist.ID, true)
+			result, err := repo.ReadAll(rest.QueryOptions{Sort: "createdAt", Order: "ASC"})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(3))
+			Expect(tracks[0].ID).To(Equal("2"))
+			Expect(tracks[1].ID).To(Equal("1"))
+			Expect(tracks[2].ID).To(Equal("3"))
+		})
 	})
 })
