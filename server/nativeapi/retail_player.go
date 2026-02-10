@@ -84,7 +84,7 @@ func (r *retailPlayerDeviceResolver) RememberDevices(devices []retailPlayerDevic
 		addKey(makeRetailPlayerNormalizedKey(trimmedID))
 		addKey(makeRetailPlayerSlugKey(trimmedID))
 
-		candidates := []string{device.Name, device.Channel, device.ChannelList, device.Organization}
+		candidates := []string{device.Name, device.Channel, device.ChannelList, device.MacAddress, device.Organization}
 		for _, candidate := range candidates {
 			trimmed := strings.TrimSpace(candidate)
 			if trimmed == "" {
@@ -187,6 +187,7 @@ type retailPlayerAPIDevice struct {
 	Channel      string `json:"channel"`
 	ChannelList  string `json:"channelList"`
 	MacAddress   string `json:"macAddress"`
+	MacAddressV1 string `json:"mac_address"`
 	TimeZone     string `json:"timeZone"`
 	Online       *bool  `json:"online"`
 }
@@ -214,6 +215,7 @@ type retailPlayerDevice struct {
 	Channel         string   `json:"channel"`
 	ChannelName     string   `json:"channelName,omitempty"`
 	ChannelList     string   `json:"channelList"`
+	MacAddress      string   `json:"macAddress,omitempty"`
 	Organization    string   `json:"organization"`
 	TimeZone        string   `json:"timeZone,omitempty"`
 	Online          *bool    `json:"online,omitempty"`
@@ -1949,7 +1951,7 @@ func fetchRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse,
 		OrderBy:           cfg.OrderBy,
 		OrderDirection:    cfg.OrderDirection,
 		Search:            cfg.Search,
-		Fields:            cfg.Fields,
+		Fields:            ensureRetailPlayerDeviceFields(cfg.Fields),
 		AdditionalHeaders: cfg.AdditionalHeaders,
 	}
 
@@ -2909,6 +2911,35 @@ func uniqueStringsInsensitive(values []string) []string {
 	return result
 }
 
+func ensureRetailPlayerDeviceFields(configured []string) []string {
+	if len(configured) == 0 {
+		return nil
+	}
+
+	fields := make([]string, 0, len(configured)+1)
+	hasMacAddress := false
+	for _, field := range configured {
+		trimmed := strings.TrimSpace(field)
+		if trimmed == "" {
+			continue
+		}
+		if strings.EqualFold(trimmed, "macAddress") || strings.EqualFold(trimmed, "mac_address") {
+			hasMacAddress = true
+		}
+		fields = append(fields, trimmed)
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+
+	if !hasMacAddress {
+		fields = append(fields, "macAddress")
+	}
+
+	return fields
+}
+
 func selectBestMediaFileMatch(baseName string, files model.MediaFiles) *model.MediaFile {
 	if len(files) == 0 {
 		return nil
@@ -3214,6 +3245,9 @@ func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
 	if strings.TrimSpace(device.MacAddress) != "" {
 		return false
 	}
+	if strings.TrimSpace(device.MacAddressV1) != "" {
+		return false
+	}
 	if strings.TrimSpace(device.Name) != "" {
 		return false
 	}
@@ -3244,8 +3278,13 @@ func isRetailPlayerAPIDeviceEmpty(device retailPlayerAPIDevice) bool {
 
 func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevice, bool) {
 	id := strings.TrimSpace(device.ID)
+	macAddress := firstNonEmpty(
+		strings.TrimSpace(device.MacAddress),
+		strings.TrimSpace(device.MacAddressV1),
+	)
+
 	if id == "" {
-		id = strings.TrimSpace(device.MacAddress)
+		id = macAddress
 	}
 	if id == "" && device.Ordinal != nil {
 		id = strconv.Itoa(*device.Ordinal)
@@ -3270,6 +3309,7 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		Name:         name,
 		Channel:      strings.TrimSpace(device.Channel),
 		ChannelList:  strings.TrimSpace(device.ChannelList),
+		MacAddress:   macAddress,
 		Organization: organization,
 		TimeZone:     strings.TrimSpace(device.TimeZone),
 		Online:       device.Online,
