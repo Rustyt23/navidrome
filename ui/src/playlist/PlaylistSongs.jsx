@@ -415,7 +415,7 @@ const PlaylistSongs = ({
       createdAt: (
         <DateField
           source="createdAt"
-          sortBy="playlist_tracks.created_at"
+          sortBy="created_at"
           showTime
         />
       ),
