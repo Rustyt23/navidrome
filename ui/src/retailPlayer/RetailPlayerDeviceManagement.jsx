@@ -50,6 +50,11 @@ import { isDeviceLocked } from './deviceLockState'
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
+  const desktopColumns =
+    '64px minmax(240px, 2fr) minmax(140px, 1fr) minmax(190px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)'
+  const mobileColumns =
+    '56px minmax(200px, 2fr) minmax(120px, 1fr) minmax(170px, 1.1fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px'
+
   return {
     root: {
       padding: theme.spacing(1, 5, 5, 5),
@@ -164,12 +169,11 @@ const useStyles = makeStyles((theme) => {
   },
   listHeader: {
     display: 'grid',
-    gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)',
+    gridTemplateColumns: desktopColumns,
     paddingTop: theme.spacing(0),
     paddingBottom: theme.spacing(0),
     paddingLeft: theme.spacing(1.7),
-    paddingRight: theme.spacing(2),
+    paddingRight: theme.spacing(1.7),
     backgroundColor: theme.palette.action.hover,
     color: theme.palette.text.secondary,
     fontSize: theme.typography.pxToRem(14),
@@ -177,10 +181,9 @@ const useStyles = makeStyles((theme) => {
     letterSpacing: 0.8,
     fontWeight: theme.typography.fontWeightMedium,
     alignItems: 'center',
-    gap: theme.spacing(1),
+    gap: theme.spacing(1.2),
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns:
-        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 1.1fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px',
+      gridTemplateColumns: mobileColumns,
       fontSize: theme.typography.pxToRem(11),
       letterSpacing: 0.6,
     },
@@ -199,10 +202,12 @@ const useStyles = makeStyles((theme) => {
 
   row: {
     display: 'grid',
-    gridTemplateColumns:
-      '64px minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)',
+    gridTemplateColumns: desktopColumns,
     alignItems: 'center',
-    padding: '1px 2px',
+    paddingTop: 1,
+    paddingBottom: 1,
+    paddingLeft: theme.spacing(1.7),
+    paddingRight: theme.spacing(1.7),
     borderTop: `1px solid ${theme.palette.divider}`,
     minHeight: 28, // 🔥 ensures consistent compact row height
     '& .MuiTypography-body1': {
@@ -216,8 +221,7 @@ const useStyles = makeStyles((theme) => {
       padding: 2, // shrink checkbox hit area
     },
     [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns:
-        '56px minmax(180px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 1.1fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px',
+      gridTemplateColumns: mobileColumns,
     },
   },
 
@@ -294,7 +298,8 @@ const useStyles = makeStyles((theme) => {
     whiteSpace: 'nowrap',
   },
   macAddressCell: {
-    fontSize: theme.typography.pxToRem(14),
+    fontSize: theme.typography.pxToRem(11),
+    fontFamily: 'monospace',
     color: theme.palette.text.secondary,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -302,7 +307,7 @@ const useStyles = makeStyles((theme) => {
   },
   actionsCell: {
     display: 'flex',
-    gap: theme.spacing(1),
+    gap: theme.spacing(1.2),
     justifyContent: 'flex-end',
   },
   lockIconActive: {
@@ -573,7 +578,6 @@ const RetailPlayerFolderRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>Folder</div>
         <div className={classes.countCell}>{deviceCount}</div>
         <div className={classes.channelNameCell}>—</div>
         <div className={classes.macAddressCell}>—</div>
@@ -637,6 +641,19 @@ RetailPlayerFolderRow.defaultProps = {
 
 RetailPlayerFolderRow.displayName = 'RetailPlayerFolderRow'
 
+const formatMacAddress = (value) => {
+  if (!value || typeof value !== 'string') {
+    return ''
+  }
+
+  const compactValue = value.trim()
+  if (!compactValue) {
+    return ''
+  }
+
+  return compactValue.replace(/-/g, ':').toLowerCase()
+}
+
 const RetailPlayerDeviceRow = memo(
   ({
     node,
@@ -695,7 +712,6 @@ const RetailPlayerDeviceRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.typeCell}>Device</div>
         <div className={classes.countCell}>
           {typeof channelCount === 'number' ? channelCount : '—'}
         </div>
@@ -703,7 +719,7 @@ const RetailPlayerDeviceRow = memo(
           {node.channelName ? node.channelName : '—'}
         </div>
         <div className={classes.macAddressCell}>
-          {node.macAddress ? node.macAddress : '—'}
+          {node.macAddress ? formatMacAddress(node.macAddress) : '—'}
         </div>
         <div className={classes.remoteControlCell}>
           {node.remoteControlId ? node.remoteControlId : '—'}
@@ -1628,7 +1644,6 @@ const RetailPlayerDeviceManagement = () => {
             />
           </div>
           <span>Name</span>
-          <span>Type</span>
           <span>Devices / Channels</span>
           <span>Channel Name</span>
           <span>MAC Address</span>
