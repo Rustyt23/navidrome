@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -82,6 +83,13 @@ func ListFoldersAndPlaylists(ds model.DataStore) http.HandlerFunc {
 				Type:      "playlist",
 			})
 		}
+
+		sort.SliceStable(commons, func(i, j int) bool {
+			if commons[i].Type != commons[j].Type {
+				return commons[i].Type == "folder"
+			}
+			return strings.ToLower(commons[i].Name) < strings.ToLower(commons[j].Name)
+		})
 
 		total := len(commons)
 		start, end := opts.Offset, opts.Offset+opts.Max
@@ -183,7 +191,7 @@ type DualQueryOptions struct {
 func parseQueryOptions(r *http.Request) DualQueryOptions {
 	q := r.URL.Query()
 
-	base := model.QueryOptions{Order: "ASC", Filters: And{}}
+	base := model.QueryOptions{Order: "ASC", Filters: And{}, Sort: "name"}
 	folderOpts, playlistOpts := base, base
 	folderOpts.Filters = And{}
 	playlistOpts.Filters = And{}
