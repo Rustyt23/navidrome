@@ -50,13 +50,13 @@ const useStyles = makeStyles((theme) => ({
   },
   headerRow: {
     display: 'grid',
-    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr',
+    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr 1fr',
     padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
     backgroundColor: theme.palette.action.hover,
     gap: theme.spacing(2),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: '120px 1.2fr 1fr',
-      gridTemplateAreas: "'actions name name' 'channel channelList org'",
+      gridTemplateAreas: "'actions name name' 'channel channelList mac' 'org org org'",
       rowGap: theme.spacing(1),
     },
   },
@@ -82,6 +82,9 @@ const useStyles = makeStyles((theme) => ({
       '&[data-area="organization"]': {
         gridArea: 'org',
       },
+      '&[data-area="macAddress"]': {
+        gridArea: 'mac',
+      },
     },
   },
   buttonBase: {
@@ -99,7 +102,7 @@ const useStyles = makeStyles((theme) => ({
   },
   rowButton: {
     display: 'grid',
-    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr',
+    gridTemplateColumns: '160px 1.5fr 1fr 1fr 1fr 1fr',
     padding: `${theme.spacing(2)}px ${theme.spacing(3)}px`,
     textAlign: 'left',
     gap: theme.spacing(2),
@@ -110,7 +113,7 @@ const useStyles = makeStyles((theme) => ({
     }),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: '120px 1.2fr 1fr',
-      gridTemplateAreas: "'actions name name' 'channel channelList org'",
+      gridTemplateAreas: "'actions name name' 'channel channelList mac' 'org org org'",
       rowGap: theme.spacing(1.5),
     },
   },
@@ -132,6 +135,9 @@ const useStyles = makeStyles((theme) => ({
       },
       '&[data-area="organization"]': {
         gridArea: 'org',
+      },
+      '&[data-area="macAddress"]': {
+        gridArea: 'mac',
       },
     },
   },
@@ -219,6 +225,9 @@ const RetailPlayerDevicesList = () => {
           <span className={classes.headerCell} data-area="organization">
             Organization
           </span>
+          <span className={classes.headerCell} data-area="macAddress">
+            Mac Address
+          </span>
         </div>
         {devicesLoading ? (
           <div className={classes.noResults}>
@@ -253,6 +262,9 @@ const RetailPlayerDevicesList = () => {
                 </span>
                 <span className={classes.cell} data-area="organization">
                   {device.organization}
+                </span>
+                <span className={classes.cell} data-area="macAddress">
+                  {device.macAddress || '-'}
                 </span>
               </span>
             </ButtonBase>

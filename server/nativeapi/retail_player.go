@@ -214,6 +214,7 @@ type retailPlayerDevice struct {
 	Channel         string   `json:"channel"`
 	ChannelName     string   `json:"channelName,omitempty"`
 	ChannelList     string   `json:"channelList"`
+	MacAddress      string   `json:"macAddress,omitempty"`
 	Organization    string   `json:"organization"`
 	TimeZone        string   `json:"timeZone,omitempty"`
 	Online          *bool    `json:"online,omitempty"`
@@ -3270,6 +3271,7 @@ func simplifyRetailPlayerDevice(device retailPlayerAPIDevice) (retailPlayerDevic
 		Name:         name,
 		Channel:      strings.TrimSpace(device.Channel),
 		ChannelList:  strings.TrimSpace(device.ChannelList),
+		MacAddress:   strings.TrimSpace(device.MacAddress),
 		Organization: organization,
 		TimeZone:     strings.TrimSpace(device.TimeZone),
 		Online:       device.Online,
