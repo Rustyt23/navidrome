@@ -77,7 +77,7 @@ const PlaylistShowLayout = (props) => {
             addLabel={false}
             reference="playlistTrack"
             target="playlist_id"
-            sort={{ field: 'id', order: 'ASC' }}
+            sort={{ field: 'title', order: 'ASC' }}
             perPage={50}
             filter={{
               playlist_id: props.id,
