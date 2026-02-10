@@ -45,15 +45,14 @@ import {
   useRetailPlayerFolderDrop,
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
-import useRetailPlayerChannelCounts from './useRetailPlayerChannelCounts'
 import { isDeviceLocked } from './deviceLockState'
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
   const desktopColumns =
-    '64px minmax(240px, 2fr) minmax(140px, 1fr) minmax(190px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)'
+    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)'
   const mobileColumns =
-    '56px minmax(200px, 2fr) minmax(120px, 1fr) minmax(170px, 1.1fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px'
+    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px'
 
   return {
     root: {
@@ -278,11 +277,6 @@ const useStyles = makeStyles((theme) => {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
   },
-  countCell: {
-    fontSize: theme.typography.pxToRem(14),
-    color: theme.palette.text.secondary,
-    textAlign: 'center',
-  },
   remoteControlCell: {
     fontSize: theme.typography.pxToRem(14),
     color: theme.palette.text.secondary,
@@ -298,7 +292,7 @@ const useStyles = makeStyles((theme) => {
     whiteSpace: 'nowrap',
   },
   macAddressCell: {
-    fontSize: theme.typography.pxToRem(11),
+    fontSize: theme.typography.pxToRem(14),
     fontFamily: 'monospace',
     color: theme.palette.text.secondary,
     overflow: 'hidden',
@@ -523,7 +517,6 @@ DeviceDialog.defaultProps = {
 const RetailPlayerFolderRow = memo(
   ({
     node,
-    deviceCount,
     isSelected,
     classes,
     onEnterFolder,
@@ -578,7 +571,6 @@ const RetailPlayerFolderRow = memo(
             </Typography>
           </div>
         </div>
-        <div className={classes.countCell}>{deviceCount}</div>
         <div className={classes.channelNameCell}>—</div>
         <div className={classes.macAddressCell}>—</div>
         <div className={classes.remoteControlCell}>—</div>
@@ -623,7 +615,6 @@ RetailPlayerFolderRow.propTypes = {
     name: PropTypes.string.isRequired,
     remoteControlId: PropTypes.string,
   }).isRequired,
-  deviceCount: PropTypes.number.isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
   onEnterFolder: PropTypes.func.isRequired,
@@ -659,7 +650,6 @@ const RetailPlayerDeviceRow = memo(
     node,
     isSelected,
     classes,
-    channelCount,
     onNavigate,
     onToggleSelection,
     onKeyDown,
@@ -711,9 +701,6 @@ const RetailPlayerDeviceRow = memo(
               {node.name}
             </Typography>
           </div>
-        </div>
-        <div className={classes.countCell}>
-          {typeof channelCount === 'number' ? channelCount : '—'}
         </div>
         <div className={classes.channelNameCell}>
           {node.channelName ? node.channelName : '—'}
@@ -768,7 +755,6 @@ RetailPlayerDeviceRow.propTypes = {
   }).isRequired,
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
-  channelCount: PropTypes.number,
   onNavigate: PropTypes.func.isRequired,
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
@@ -779,7 +765,6 @@ RetailPlayerDeviceRow.propTypes = {
 }
 
 RetailPlayerDeviceRow.defaultProps = {
-  channelCount: null,
   isLocked: false,
   isOnline: null,
 }
@@ -808,8 +793,6 @@ const RetailPlayerDeviceManagement = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deviceStatusMap, setDeviceStatusMap] = useState(() => new Map())
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
-  const { countsByDeviceId: channelCountsByDeviceId } =
-    useRetailPlayerChannelCounts(devices, isApiEnabled)
 
   const folderMap = useMemo(() => {
     const map = new Map()
@@ -1459,31 +1442,18 @@ const RetailPlayerDeviceManagement = () => {
     }
   }
 
-  const countDevices = useCallback((node) => {
-    if (!node || !Array.isArray(node.children)) {
-      return 0
-    }
-    return node.children.reduce((acc, child) => {
-      if (child.type === 'device') {
-        return acc + 1
-      }
-      return acc + countDevices(child)
-    }, 0)
-  }, [])
 
   const isLoading = loading
 
   const renderRows = (nodes) =>
     nodes.map((node) => {
       if (node.type === 'folder') {
-        const deviceCount = countDevices(node)
         const isSelected = selectedIds.has(node.id)
         const isLocked = Boolean(node.isLocked)
         return (
           <RetailPlayerFolderRow
             key={`folder-row-${node.id}`}
             node={node}
-            deviceCount={deviceCount}
             isSelected={isSelected}
             classes={classes}
             onEnterFolder={handleEnterFolder}
@@ -1498,7 +1468,6 @@ const RetailPlayerDeviceManagement = () => {
       }
       const isSelected = selectedIds.has(node.id)
       const rowKey = node.treeKey || node.id
-      const channelCount = channelCountsByDeviceId?.[node.id]
       const isOnline =
         typeof node.online === 'boolean' ? node.online : deviceStatusMap.get(node.id) ?? null
       return (
@@ -1507,7 +1476,6 @@ const RetailPlayerDeviceManagement = () => {
           node={node}
           isSelected={isSelected}
           classes={classes}
-          channelCount={channelCount}
           onNavigate={handleNavigateToDevice}
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
@@ -1644,7 +1612,6 @@ const RetailPlayerDeviceManagement = () => {
             />
           </div>
           <span>Name</span>
-          <span>Devices / Channels</span>
           <span>Channel Name</span>
           <span>MAC Address</span>
           <span>QR ID</span>
