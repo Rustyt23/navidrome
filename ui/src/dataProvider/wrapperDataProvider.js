@@ -84,6 +84,7 @@ const mapResource = (resource, params) => {
     }
     case 'album':
     case 'song':
+    case 'covertart':
     case 'artist':
     case 'tag': {
       params.filter = params.filter || {}
@@ -91,6 +92,10 @@ const mapResource = (resource, params) => {
         params.filter.missing = false
       }
       params = applyLibraryFilter(resource, params)
+
+      if (resource === 'covertart') {
+        return ['song', params]
+      }
 
       return [resource, params]
     }
