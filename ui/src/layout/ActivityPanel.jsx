@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useSelector } from 'react-redux'
 import { useNotify, useTranslate } from 'react-admin'
 import {
@@ -15,7 +15,7 @@ import {
   Typography,
 } from '@material-ui/core'
 import { FiActivity } from 'react-icons/fi'
-import { BiError, BiLink } from 'react-icons/bi'
+import { BiError, BiLink, BiDownload } from 'react-icons/bi'
 import { VscSync } from 'react-icons/vsc'
 import { GiMagnifyingGlass } from 'react-icons/gi'
 import subsonic from '../subsonic'
@@ -54,6 +54,23 @@ const useStyles = makeStyles((theme) => ({
   cardContent: {
     padding: theme.spacing(2, 3),
   },
+  metadataGrid: {
+    display: 'grid',
+    gap: theme.spacing(1),
+    gridTemplateColumns: 'repeat(3, minmax(11em, 1fr))',
+    marginTop: theme.spacing(2),
+  },
+  metadataCard: {
+    border: `1px solid ${theme.palette.divider}`,
+    borderRadius: theme.shape.borderRadius,
+    padding: theme.spacing(1.2),
+  },
+  metadataRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: '0.8rem',
+    marginTop: theme.spacing(0.5),
+  },
 }))
 
 const getUptime = (serverStart) =>
@@ -66,6 +83,14 @@ const Uptime = () => {
     setUptime(getUptime(serverStart))
   }, 1000)
   return <span>{uptime}</span>
+}
+
+const emptyProgress = { missing: 0, fetching: 0, fetched: 0, updated: 0, left: 0 }
+const emptyMetadataStatus = {
+  running: false,
+  album: emptyProgress,
+  year: emptyProgress,
+  genre: emptyProgress,
 }
 
 const ActivityPanel = () => {
@@ -85,8 +110,15 @@ const ActivityPanel = () => {
   const translate = useTranslate()
   const notify = useNotify()
   const [anchorEl, setAnchorEl] = useState(null)
+  const [metadataStatus, setMetadataStatus] = useState(emptyMetadataStatus)
   const open = Boolean(anchorEl)
   useInitialScanStatus()
+
+  const fetchMetadataStatus = useCallback(() => {
+    httpClient('/api/metadata/musicbrainz/status')
+      .then(({ json }) => setMetadataStatus(json || emptyMetadataStatus))
+      .catch(() => {})
+  }, [])
 
   const handleMenuOpen = (event) => {
     if (scanStatus.error) {
@@ -106,11 +138,35 @@ const ActivityPanel = () => {
       })
       .catch(() => notify('Sync failed', 'warning'))
 
+  const triggerMetadataFetch = () =>
+    httpClient('/api/metadata/musicbrainz/fetch', { method: 'POST' })
+      .then(({ status }) => {
+        if (status === 202) {
+          notify('activity.musicbrainz.started', 'info')
+        } else {
+          notify('activity.musicbrainz.alreadyRunning', 'warning')
+        }
+        fetchMetadataStatus()
+      })
+      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
+
   useEffect(() => {
     if (serverStart.version && serverStart.version !== config.version) {
       notify('ra.notification.new_version', 'info', {}, false, 604800000 * 50)
     }
   }, [serverStart, notify])
+
+  useEffect(() => {
+    if (open) {
+      fetchMetadataStatus()
+    }
+  }, [open, fetchMetadataStatus])
+
+  useInterval(() => {
+    if (open && metadataStatus.running) {
+      fetchMetadataStatus()
+    }
+  }, open && metadataStatus.running ? 2000 : null)
 
   const tooltipTitle = scanStatus.error
     ? `${translate('activity.status')}: ${scanStatus.error}`
@@ -126,6 +182,35 @@ const ActivityPanel = () => {
         return ''
     }
   })()
+
+  const renderMetadataCard = (title, key) => {
+    const progress = metadataStatus?.[key] || emptyProgress
+    return (
+      <Box className={classes.metadataCard}>
+        <Typography variant="subtitle2">{title}</Typography>
+        <Box className={classes.metadataRow}>
+          <span>{translate('activity.musicbrainz.missing')}</span>
+          <span>{progress.missing || 0}</span>
+        </Box>
+        <Box className={classes.metadataRow}>
+          <span>{translate('activity.musicbrainz.fetching')}</span>
+          <span>{progress.fetching || 0}</span>
+        </Box>
+        <Box className={classes.metadataRow}>
+          <span>{translate('activity.musicbrainz.fetched')}</span>
+          <span>{progress.fetched || 0}</span>
+        </Box>
+        <Box className={classes.metadataRow}>
+          <span>{translate('activity.musicbrainz.updated')}</span>
+          <span>{progress.updated || 0}</span>
+        </Box>
+        <Box className={classes.metadataRow}>
+          <span>{translate('activity.musicbrainz.left')}</span>
+          <span>{progress.left || 0}</span>
+        </Box>
+      </Box>
+    )
+  }
 
   return (
     <div className={classes.wrapper}>
@@ -195,6 +280,23 @@ const ActivityPanel = () => {
               </Box>
             </Box>
 
+            <Box mt={2}>
+              <Typography variant="subtitle2">
+                {translate('activity.musicbrainz.title')}
+              </Typography>
+              <Box className={classes.metadataGrid}>
+                {renderMetadataCard(
+                  translate('activity.musicbrainz.album'),
+                  'album',
+                )}
+                {renderMetadataCard(translate('activity.musicbrainz.year'), 'year')}
+                {renderMetadataCard(
+                  translate('activity.musicbrainz.genre'),
+                  'genre',
+                )}
+              </Box>
+            </Box>
+
             {scanStatus.error && (
               <Box
                 display="flex"
@@ -230,6 +332,14 @@ const ActivityPanel = () => {
                 disabled={scanStatus.scanning}
               >
                 <GiMagnifyingGlass />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={translate('activity.musicbrainz.fetch')}>
+              <IconButton
+                onClick={triggerMetadataFetch}
+                disabled={metadataStatus.running}
+              >
+                <BiDownload />
               </IconButton>
             </Tooltip>
           </CardActions>

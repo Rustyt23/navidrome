@@ -680,7 +680,22 @@
     "serverDown": "OFFLINE",
     "scanType": "Type",
     "status": "Scan Error",
-    "elapsedTime": "Elapsed Time"
+    "elapsedTime": "Elapsed Time",
+    "musicbrainz": {
+      "title": "MusicBrainz Metadata",
+      "fetch": "Fetch metadata from MusicBrainz",
+      "started": "Metadata fetch started",
+      "alreadyRunning": "Metadata fetch is already running",
+      "failed": "Metadata fetch failed",
+      "album": "Album",
+      "year": "Year",
+      "genre": "Genre",
+      "missing": "Missing",
+      "fetching": "Fetching",
+      "fetched": "Fetched",
+      "updated": "Updated",
+      "left": "Left"
+    }
   },
   "nowPlaying": {
     "title": "Now Playing",

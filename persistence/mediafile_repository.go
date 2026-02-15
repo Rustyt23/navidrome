@@ -275,6 +275,28 @@ func (r *mediaFileRepository) UpdateComment(ids []string, comment string) error 
 	return nil
 }
 
+func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, year *int, genre *string) error {
+	if album == nil && year == nil && genre == nil {
+		return nil
+	}
+
+	up := Update(r.tableName).Where(Eq{"id": id})
+
+	if album != nil {
+		up = up.Set("album", Expr("case when trim(ifnull(album, '')) = '' then ? else album end", *album))
+	}
+	if year != nil {
+		up = up.Set("year", Expr("case when ifnull(year, 0) = 0 then ? else year end", *year))
+	}
+	if genre != nil {
+		up = up.Set("genre", Expr("case when trim(ifnull(genre, '')) = '' then ? else genre end", *genre))
+	}
+
+	up = up.Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
 func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile) error {
 	ids := slice.SeqFunc(mfs, func(m *model.MediaFile) string { return m.ID })
 	for chunk := range slice.CollectChunks(ids, 200) {

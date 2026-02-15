@@ -359,6 +359,7 @@ type MediaFileRepository interface {
 	DeleteAllMissing() (int64, error)
 	FindByPaths(paths []string) (MediaFiles, error)
 	UpdateComment(ids []string, comment string) error
+	UpdateMissingMetadata(id string, album *string, year *int, genre *string) error
 
 	// The following methods are used exclusively by the scanner:
 	MarkMissing(bool, ...*MediaFile) error
