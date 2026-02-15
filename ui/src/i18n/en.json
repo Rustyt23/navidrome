@@ -694,7 +694,9 @@
       "fetching": "Fetching",
       "fetched": "Fetched",
       "updated": "Updated",
-      "left": "Left"
+      "left": "Left",
+      "coverArt": "Cover Art",
+      "missingAfterUpdates": "Missing after updates"
     }
   },
   "nowPlaying": {

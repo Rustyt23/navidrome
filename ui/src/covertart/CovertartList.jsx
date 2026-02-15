@@ -23,7 +23,14 @@ const CovertartFilter = (props) => (
   </Filter>
 )
 
-const emptyProgress = { missing: 0, fetching: 0, fetched: 0, updated: 0, left: 0 }
+const emptyProgress = {
+  missing: 0,
+  fetching: 0,
+  fetched: 0,
+  updated: 0,
+  left: 0,
+  missingAfterUpdates: 0,
+}
 
 const MetadataProgressCard = ({ title, progress, translate }) => (
   <Card>
@@ -49,6 +56,10 @@ const MetadataProgressCard = ({ title, progress, translate }) => (
         <span>{translate('activity.musicbrainz.left')}</span>
         <span>{progress.left || 0}</span>
       </Box>
+      <Box display="flex" justifyContent="space-between">
+        <span>{translate('activity.musicbrainz.missingAfterUpdates')}</span>
+        <span>{progress.missingAfterUpdates || 0}</span>
+      </Box>
     </CardContent>
   </Card>
 )
@@ -63,6 +74,7 @@ const CovertartListActions = () => {
     album: emptyProgress,
     year: emptyProgress,
     genre: emptyProgress,
+    coverArt: emptyProgress,
   })
 
   const loadStatus = useCallback(() => {
@@ -77,6 +89,7 @@ const CovertartListActions = () => {
             album: emptyProgress,
             year: emptyProgress,
             genre: emptyProgress,
+            coverArt: emptyProgress,
           },
         )
       })
@@ -128,24 +141,31 @@ const CovertartListActions = () => {
             {translate('activity.musicbrainz.title')}
           </Typography>
           <Grid container spacing={2}>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.album')}
                 progress={status.album || emptyProgress}
                 translate={translate}
               />
             </Grid>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.year')}
                 progress={status.year || emptyProgress}
                 translate={translate}
               />
             </Grid>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.genre')}
                 progress={status.genre || emptyProgress}
+                translate={translate}
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <MetadataProgressCard
+                title={translate('activity.musicbrainz.coverArt')}
+                progress={status.coverArt || emptyProgress}
                 translate={translate}
               />
             </Grid>
@@ -172,7 +192,7 @@ const CovertartList = (props) => (
         sortable={false}
         render={(record) => (
           <img
-            src={subsonic.getCoverArtUrl(record, 64, true)}
+            src={record.coverArtUrl || subsonic.getCoverArtUrl(record, 64, true)}
             alt={record.title || 'cover art'}
             width="64"
             height="64"

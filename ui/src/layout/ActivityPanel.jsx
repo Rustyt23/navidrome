@@ -57,7 +57,7 @@ const useStyles = makeStyles((theme) => ({
   metadataGrid: {
     display: 'grid',
     gap: theme.spacing(1),
-    gridTemplateColumns: 'repeat(3, minmax(11em, 1fr))',
+    gridTemplateColumns: 'repeat(4, minmax(11em, 1fr))',
     marginTop: theme.spacing(2),
   },
   metadataCard: {
@@ -85,12 +85,20 @@ const Uptime = () => {
   return <span>{uptime}</span>
 }
 
-const emptyProgress = { missing: 0, fetching: 0, fetched: 0, updated: 0, left: 0 }
+const emptyProgress = {
+  missing: 0,
+  fetching: 0,
+  fetched: 0,
+  updated: 0,
+  left: 0,
+  missingAfterUpdates: 0,
+}
 const emptyMetadataStatus = {
   running: false,
   album: emptyProgress,
   year: emptyProgress,
   genre: emptyProgress,
+  coverArt: emptyProgress,
 }
 
 const ActivityPanel = () => {
@@ -208,6 +216,10 @@ const ActivityPanel = () => {
           <span>{translate('activity.musicbrainz.left')}</span>
           <span>{progress.left || 0}</span>
         </Box>
+        <Box className={classes.metadataRow}>
+          <span>{translate('activity.musicbrainz.missingAfterUpdates')}</span>
+          <span>{progress.missingAfterUpdates || 0}</span>
+        </Box>
       </Box>
     )
   }
@@ -293,6 +305,11 @@ const ActivityPanel = () => {
                 {renderMetadataCard(
                   translate('activity.musicbrainz.genre'),
                   'genre',
+                )}
+
+                {renderMetadataCard(
+                  translate('activity.musicbrainz.coverArt'),
+                  'coverArt',
                 )}
               </Box>
             </Box>
