@@ -180,7 +180,6 @@ const useStyles = makeStyles((theme) => {
     letterSpacing: 0.8,
     fontWeight: theme.typography.fontWeightMedium,
     alignItems: 'center',
-    gap: theme.spacing(1.2),
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: mobileColumns,
       fontSize: theme.typography.pxToRem(11),
@@ -190,10 +189,12 @@ const useStyles = makeStyles((theme) => {
   headerSelect: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(0.5),
+    justifyContent: 'center',
   },
   headerLabel: {
     textTransform: 'uppercase',
+    display: 'flex',
+    alignItems: 'center',
   },
   headerActions: {
     justifySelf: 'flex-end',
@@ -1608,13 +1609,13 @@ const RetailPlayerDeviceManagement = () => {
               indeterminate={someSelected}
               onChange={handleSelectAllChange}
               inputProps={{ 'aria-label': 'Select all retail player items' }}
-              style={{ transform: 'scale(0.8)' }} 
+              style={{ transform: 'scale(0.8)' }}
             />
           </div>
-          <span>Name</span>
-          <span>Channel Name</span>
-          <span>MAC Address</span>
-          <span>QR ID</span>
+          <span className={classes.headerLabel}>Name</span>
+          <span className={classes.headerLabel}>Channel Name</span>
+          <span className={classes.headerLabel}>MAC Address</span>
+          <span className={classes.headerLabel}>QR ID</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
         {isLoading ? (
