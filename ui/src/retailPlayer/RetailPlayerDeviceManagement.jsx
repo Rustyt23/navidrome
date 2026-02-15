@@ -199,7 +199,8 @@ const useStyles = makeStyles((theme) => {
     textTransform: 'uppercase',
   },
   headerActions: {
-    justifySelf: 'flex-end',
+    justifySelf: 'center',
+    textAlign: 'center',
   },
 
   row: {
@@ -255,10 +256,8 @@ const useStyles = makeStyles((theme) => {
   nameCell: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: theme.spacing(1.5),
     fontWeight: theme.typography.fontWeightMedium,
-    textAlign: 'center',
   },
   nameIcon: {
     color: theme.palette.primary.main,
@@ -270,7 +269,6 @@ const useStyles = makeStyles((theme) => {
   nameLabel: {
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center',
     gap: theme.spacing(0.5),
   },
   searchField: {
@@ -300,7 +298,6 @@ const useStyles = makeStyles((theme) => {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    textAlign: 'center',
   },
   macAddressCell: {
     fontSize: theme.typography.pxToRem(14),
@@ -1627,8 +1624,8 @@ const RetailPlayerDeviceManagement = () => {
           </div>
           <span className={classes.headerCentered}>Name</span>
           <span className={classes.headerCentered}>Channel Name</span>
-          <span>MAC Address</span>
-          <span>QR ID</span>
+          <span className={classes.headerCentered}>MAC Address</span>
+          <span className={classes.headerCentered}>QR ID</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
         {isLoading ? (
