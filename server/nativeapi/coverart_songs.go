@@ -35,6 +35,18 @@ type coverArtSong struct {
 	CoverArtURL string  `json:"coverArtUrl"`
 }
 
+type coverArtStatus struct {
+	Running              bool   `json:"running"`
+	Total                int    `json:"total"`
+	Completed            int    `json:"completed"`
+	Remaining            int    `json:"remaining"`
+	Updated              int    `json:"updated"`
+	NotFound             int    `json:"notFound"`
+	MissingCoverSongs    int64  `json:"missingCoverSongs"`
+	MissingMetadataSongs int64  `json:"missingMetadataSongs"`
+	Message              string `json:"message,omitempty"`
+}
+
 type mbRecordingResponse struct {
 	Recordings []struct {
 		Length           int     `json:"length"`
@@ -59,10 +71,17 @@ type musicBrainzClient struct {
 	lastRequest time.Time
 }
 
+type coverArtRefreshTracker struct {
+	mu     sync.Mutex
+	status coverArtStatus
+}
+
 func newMusicBrainzClient() *musicBrainzClient {
-	return &musicBrainzClient{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-	}
+	return &musicBrainzClient{httpClient: &http.Client{Timeout: 10 * time.Second}}
+}
+
+func newCoverArtRefreshTracker() *coverArtRefreshTracker {
+	return &coverArtRefreshTracker{status: coverArtStatus{}}
 }
 
 func (c *musicBrainzClient) throttle() {
@@ -121,13 +140,60 @@ func (c *musicBrainzClient) coverArtExists(ctx context.Context, releaseID string
 }
 
 func (n *Router) addCoverArtSongsRoute(r chi.Router) {
-	r.Get("/coverart-songs", n.handleCoverArtSongs)
+	r.Route("/coverart-songs", func(r chi.Router) {
+		r.Get("/", n.handleCoverArtSongs)
+		r.Get("/status", n.handleCoverArtStatus)
+		r.Post("/refresh", n.handleCoverArtRefresh)
+	})
 }
 
 var (
 	coverArtUpdaterMu sync.Mutex
 	coverArtUpdater   = newMusicBrainzClient()
+	coverArtTracker   = newCoverArtRefreshTracker()
 )
+
+func (t *coverArtRefreshTracker) snapshot() coverArtStatus {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s := t.status
+	s.Remaining = max(0, s.Total-s.Completed)
+	return s
+}
+
+func (t *coverArtRefreshTracker) setStart(total int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.status = coverArtStatus{
+		Running:   true,
+		Total:     total,
+		Completed: 0,
+		Updated:   0,
+		NotFound:  0,
+		Message:   "Refresh started",
+	}
+}
+
+func (t *coverArtRefreshTracker) setComplete(msg string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.status.Running = false
+	t.status.Message = msg
+	t.status.Remaining = max(0, t.status.Total-t.status.Completed)
+}
+
+func (t *coverArtRefreshTracker) markSong(updated bool, found bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.status.Completed++
+	if updated {
+		t.status.Updated++
+	}
+	if !found {
+		t.status.NotFound++
+	}
+	t.status.Remaining = max(0, t.status.Total-t.status.Completed)
+}
 
 func (n *Router) handleCoverArtSongs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -136,18 +202,10 @@ func (n *Router) handleCoverArtSongs(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > coverArtBatchSize {
 		limit = coverArtBatchSize
 	}
+
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
 	refreshMissingOnly := strings.EqualFold(r.URL.Query().Get("refreshMissingCoverArt"), "true")
-
-	filters := squirrel.And{squirrel.Eq{"missing": false}}
-	if search != "" {
-		like := "%" + strings.ToLower(search) + "%"
-		filters = append(filters, squirrel.Or{
-			squirrel.Expr("lower(title) like ?", like),
-			squirrel.Expr("lower(artist) like ?", like),
-			squirrel.Expr("lower(album) like ?", like),
-		})
-	}
+	filters := listFilters(search)
 
 	repo := n.ds.MediaFile(ctx)
 	total, err := repo.CountAll(model.QueryOptions{Filters: filters})
@@ -190,19 +248,108 @@ func (n *Router) handleCoverArtSongs(w http.ResponseWriter, r *http.Request) {
 			Duration:    song.Duration,
 			CoverArtURL: coverURL,
 		})
+
 		if len(toUpdate) < coverArtBatchSize && needsMetadataUpdate(song, refreshMissingOnly) {
 			toUpdate = append(toUpdate, song)
 		}
 	}
 
 	if len(toUpdate) > 0 {
-		go n.updateSongsFromMusicBrainz(request.AddValues(context.Background(), ctx), toUpdate, refreshMissingOnly)
+		go n.updateSongsFromMusicBrainz(request.AddValues(context.Background(), ctx), toUpdate, refreshMissingOnly, nil)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
 	w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (n *Router) handleCoverArtRefresh(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	status := coverArtTracker.snapshot()
+	if status.Running {
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(status)
+		return
+	}
+
+	songs, err := n.ds.MediaFile(ctx).GetAll(model.QueryOptions{
+		Sort:  "title",
+		Order: "ASC",
+		Max:   coverArtBatchSize,
+		Filters: squirrel.And{
+			squirrel.Eq{"missing": false},
+			squirrel.Eq{"has_cover_art": false},
+		},
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	coverArtTracker.setStart(len(songs))
+	go func(items []model.MediaFile) {
+		if len(items) == 0 {
+			coverArtTracker.setComplete("No songs with missing cover art in current batch")
+			return
+		}
+		n.updateSongsFromMusicBrainz(request.AddValues(context.Background(), ctx), items, true, coverArtTracker)
+		coverArtTracker.setComplete("Refresh finished")
+	}(songs)
+
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(coverArtTracker.snapshot())
+}
+
+func (n *Router) handleCoverArtStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	status := coverArtTracker.snapshot()
+	status.MissingCoverSongs = n.countMissingCoverSongs(ctx)
+	status.MissingMetadataSongs = n.countMissingMetadataSongs(ctx)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(status)
+}
+
+func (n *Router) countMissingCoverSongs(ctx context.Context) int64 {
+	count, err := n.ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: squirrel.And{
+		squirrel.Eq{"missing": false},
+		squirrel.Eq{"has_cover_art": false},
+	}})
+	if err != nil {
+		log.Debug(ctx, "Could not count missing cover songs", "err", err)
+		return 0
+	}
+	return count
+}
+
+func (n *Router) countMissingMetadataSongs(ctx context.Context) int64 {
+	count, err := n.ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: squirrel.And{
+		squirrel.Eq{"missing": false},
+		squirrel.Or{
+			squirrel.Eq{"album": ""},
+			squirrel.Eq{"genre": ""},
+			squirrel.Eq{"year": 0},
+			squirrel.Eq{"duration": 0},
+		},
+	}})
+	if err != nil {
+		log.Debug(ctx, "Could not count missing metadata songs", "err", err)
+		return 0
+	}
+	return count
+}
+
+func listFilters(search string) squirrel.And {
+	filters := squirrel.And{squirrel.Eq{"missing": false}}
+	if search == "" {
+		return filters
+	}
+	like := "%" + strings.ToLower(search) + "%"
+	return append(filters, squirrel.Or{
+		squirrel.Expr("lower(title) like ?", like),
+		squirrel.Expr("lower(artist) like ?", like),
+		squirrel.Expr("lower(album) like ?", like),
+	})
 }
 
 func parseRange(r *http.Request) (int, int) {
@@ -222,89 +369,106 @@ func needsMetadataUpdate(song model.MediaFile, refreshMissingOnly bool) bool {
 	if refreshMissingOnly {
 		return !song.HasCoverArt
 	}
-	return song.Album == "" || song.Genre == "" || song.Year == 0 || song.Duration == 0 || (!song.HasCoverArt && song.MbzAlbumID == "")
+	return song.Album == "" || song.Genre == "" || song.Year == 0 || song.Duration == 0 || !song.HasCoverArt
 }
 
-func (n *Router) updateSongsFromMusicBrainz(ctx context.Context, songs []model.MediaFile, refreshMissingOnly bool) {
+func (n *Router) updateSongsFromMusicBrainz(
+	ctx context.Context,
+	songs []model.MediaFile,
+	refreshMissingOnly bool,
+	tracker *coverArtRefreshTracker,
+) {
 	coverArtUpdaterMu.Lock()
 	defer coverArtUpdaterMu.Unlock()
 
 	for _, song := range songs {
-		updated := song
-		changed := false
-
-		if (!refreshMissingOnly && (updated.Album == "" || updated.Genre == "" || updated.Year == 0 || updated.Duration == 0 || updated.MbzAlbumID == "")) || (refreshMissingOnly && updated.MbzAlbumID == "") {
-			mbData, err := coverArtUpdater.searchRecording(ctx, updated.Title, updated.Artist)
-			if err != nil {
-				log.Debug(ctx, "MusicBrainz lookup failed", "songId", updated.ID, "err", err)
-				continue
-			}
-			if len(mbData.Recordings) > 0 {
-				rec := mbData.Recordings[0]
-				if !refreshMissingOnly && updated.Album == "" && len(rec.Releases) > 0 && rec.Releases[0].Title != "" {
-					updated.Album = rec.Releases[0].Title
-					changed = true
-				}
-				if !refreshMissingOnly && updated.Year == 0 && len(rec.FirstReleaseDate) >= 4 {
-					if y, err := strconv.Atoi(rec.FirstReleaseDate[:4]); err == nil {
-						updated.Year = y
-						changed = true
-					}
-				}
-				if !refreshMissingOnly && updated.Genre == "" && len(rec.Tags) > 0 {
-					updated.Genre = rec.Tags[0].Name
-					changed = true
-				}
-				if !refreshMissingOnly && updated.Duration == 0 && rec.Length > 0 {
-					updated.Duration = float32(rec.Length) / 1000
-					changed = true
-				}
-				if updated.MbzAlbumID == "" && len(rec.Releases) > 0 && rec.Releases[0].ID != "" {
-					updated.MbzAlbumID = rec.Releases[0].ID
-					changed = true
-				}
-			}
+		updated, found := n.updateSingleSong(ctx, song, refreshMissingOnly)
+		if tracker != nil {
+			tracker.markSong(updated, found)
 		}
+	}
+}
 
-		if !updated.HasCoverArt && updated.MbzAlbumID != "" {
-			if coverArtUpdater.coverArtExists(ctx, updated.MbzAlbumID) {
+func (n *Router) updateSingleSong(ctx context.Context, song model.MediaFile, refreshMissingOnly bool) (bool, bool) {
+	updated := song
+	changed := false
+	found := false
+
+	if (!refreshMissingOnly && (updated.Album == "" || updated.Genre == "" || updated.Year == 0 || updated.Duration == 0 || updated.MbzAlbumID == "")) || (refreshMissingOnly && updated.MbzAlbumID == "") {
+		mbData, err := coverArtUpdater.searchRecording(ctx, updated.Title, updated.Artist)
+		if err != nil {
+			log.Debug(ctx, "MusicBrainz lookup failed", "songId", updated.ID, "err", err)
+			return false, false
+		}
+		if len(mbData.Recordings) > 0 {
+			found = true
+			rec := mbData.Recordings[0]
+			if !refreshMissingOnly && updated.Album == "" && len(rec.Releases) > 0 && rec.Releases[0].Title != "" {
+				updated.Album = rec.Releases[0].Title
+				changed = true
+			}
+			if !refreshMissingOnly && updated.Year == 0 && len(rec.FirstReleaseDate) >= 4 {
+				if y, err := strconv.Atoi(rec.FirstReleaseDate[:4]); err == nil {
+					updated.Year = y
+					changed = true
+				}
+			}
+			if !refreshMissingOnly && updated.Genre == "" && len(rec.Tags) > 0 {
+				updated.Genre = rec.Tags[0].Name
+				changed = true
+			}
+			if !refreshMissingOnly && updated.Duration == 0 && rec.Length > 0 {
+				updated.Duration = float32(rec.Length) / 1000
+				changed = true
+			}
+			if updated.MbzAlbumID == "" && len(rec.Releases) > 0 && rec.Releases[0].ID != "" {
+				updated.MbzAlbumID = rec.Releases[0].ID
 				changed = true
 			}
 		}
+	}
 
-		if !changed {
-			continue
-		}
-
-		err := n.ds.WithTx(func(tx model.DataStore) error {
-			repo := tx.MediaFile(ctx)
-			stored, err := repo.Get(updated.ID)
-			if err != nil {
-				return err
-			}
-			if stored.Title != updated.Title || stored.Artist != updated.Artist {
-				updated.Title = stored.Title
-				updated.Artist = stored.Artist
-			}
-			if stored.Album != "" {
-				updated.Album = stored.Album
-			}
-			if stored.Genre != "" {
-				updated.Genre = stored.Genre
-			}
-			if stored.Year != 0 {
-				updated.Year = stored.Year
-			}
-			if stored.Duration != 0 {
-				updated.Duration = stored.Duration
-			}
-			if stored.MbzAlbumID != "" {
-				updated.MbzAlbumID = stored.MbzAlbumID
-			}
-			return repo.Put(&updated)
-		})
-		if err != nil {
-			log.Debug(ctx, "Could not persist MusicBrainz data", "songId", updated.ID, "err", err)
+	if !updated.HasCoverArt && updated.MbzAlbumID != "" {
+		if coverArtUpdater.coverArtExists(ctx, updated.MbzAlbumID) {
+			found = true
+			changed = true
 		}
 	}
+
+	if !changed {
+		return false, found
+	}
+
+	err := n.ds.WithTx(func(tx model.DataStore) error {
+		repo := tx.MediaFile(ctx)
+		stored, err := repo.Get(updated.ID)
+		if err != nil {
+			return err
+		}
+		// Never overwrite title/artist
+		updated.Title = stored.Title
+		updated.Artist = stored.Artist
+
+		if stored.Album != "" {
+			updated.Album = stored.Album
+		}
+		if stored.Genre != "" {
+			updated.Genre = stored.Genre
+		}
+		if stored.Year != 0 {
+			updated.Year = stored.Year
+		}
+		if stored.Duration != 0 {
+			updated.Duration = stored.Duration
+		}
+		if stored.MbzAlbumID != "" {
+			updated.MbzAlbumID = stored.MbzAlbumID
+		}
+		return repo.Put(&updated)
+	})
+	if err != nil {
+		log.Debug(ctx, "Could not persist MusicBrainz data", "songId", updated.ID, "err", err)
+		return false, found
+	}
+	return true, true
 }

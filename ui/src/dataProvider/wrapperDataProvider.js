@@ -197,8 +197,23 @@ const getCoverArtSongs = async (params = {}) => {
   }
 }
 
+
+const getCoverArtStatus = async () => {
+  const response = await httpClient(`${REST_URL}/coverart-songs/status`)
+  return { data: response.json || {} }
+}
+
+const refreshCoverArtMissing = async () => {
+  const response = await httpClient(`${REST_URL}/coverart-songs/refresh`, {
+    method: 'POST',
+  })
+  return { data: response.json || {} }
+}
+
 const wrapperDataProvider = {
   ...dataProvider,
+  getCoverArtStatus: () => getCoverArtStatus(),
+  refreshCoverArtMissing: () => refreshCoverArtMissing(),
   getList: (resource, params) => {
     if (resource === 'coverart') {
       return getCoverArtSongs(params)
