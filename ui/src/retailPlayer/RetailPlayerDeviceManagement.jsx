@@ -50,9 +50,9 @@ import { isDeviceLocked } from './deviceLockState'
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
   const desktopColumns =
-    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)'
+    '64px minmax(234px, 1.8fr) minmax(232px, 1.35fr) minmax(176px, 1.1fr) minmax(160px, 1fr) minmax(96px, 0.75fr)'
   const mobileColumns =
-    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px'
+    '56px minmax(198px, 1.8fr) minmax(204px, 1.3fr) minmax(152px, 1fr) minmax(140px, 1fr) 72px'
 
   return {
     root: {
@@ -190,13 +190,17 @@ const useStyles = makeStyles((theme) => {
   headerSelect: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(0.5),
+    justifyContent: 'center',
+  },
+  headerCentered: {
+    textAlign: 'center',
   },
   headerLabel: {
     textTransform: 'uppercase',
   },
   headerActions: {
-    justifySelf: 'flex-end',
+    justifySelf: 'center',
+    textAlign: 'center',
   },
 
   row: {
@@ -244,6 +248,10 @@ const useStyles = makeStyles((theme) => {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  compactCheckbox: {
+    padding: 2,
+    margin: 0,
   },
   nameCell: {
     display: 'flex',
@@ -560,7 +568,8 @@ const RetailPlayerFolderRow = memo(
             }}
             onClick={(event) => event.stopPropagation()}
             inputProps={{ 'aria-label': `Select folder ${node.name}` }}
-            style={{ transform: 'scale(0.8)' }}
+            className={classes.compactCheckbox}
+            size="small"
           />
         </div>
         <div className={classes.nameCell}>
@@ -689,7 +698,8 @@ const RetailPlayerDeviceRow = memo(
             }}
             onClick={(event) => event.stopPropagation()}
             inputProps={{ 'aria-label': `Select device ${node.name}` }}
-            style={{ transform: 'scale(0.8)' }}
+            className={classes.compactCheckbox}
+            size="small"
           />
         </div>
         <div className={classes.nameCell}>
@@ -1608,13 +1618,14 @@ const RetailPlayerDeviceManagement = () => {
               indeterminate={someSelected}
               onChange={handleSelectAllChange}
               inputProps={{ 'aria-label': 'Select all retail player items' }}
-              style={{ transform: 'scale(0.8)' }} 
+              className={classes.compactCheckbox}
+              size="small"
             />
           </div>
-          <span>Name</span>
-          <span>Channel Name</span>
-          <span>MAC Address</span>
-          <span>QR ID</span>
+          <span className={classes.headerCentered}>Name</span>
+          <span className={classes.headerCentered}>Channel Name</span>
+          <span className={classes.headerCentered}>MAC Address</span>
+          <span className={classes.headerCentered}>QR ID</span>
           <span className={classes.headerActions}>Edit</span>
         </div>
         {isLoading ? (
