@@ -10,6 +10,7 @@ import transcoding from './transcoding'
 import player from './player'
 import user from './user'
 import song from './song'
+import coverart from './coverart'
 import album from './album'
 import artist from './artist'
 import playlist from './playlist'
@@ -109,6 +110,7 @@ const Admin = (props) => {
         <Resource name="album" {...album} options={{ subMenu: 'albumList' }} />,
         <Resource name="artist" {...artist} />,
         <Resource name="song" {...song} />,
+        <Resource name="coverart" {...coverart} />,
         <Resource
           name="radio"
           {...(permissions === 'admin' ? radio.admin : radio.all)}

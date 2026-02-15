@@ -169,9 +169,40 @@ const emitFoldersChanged = (detail) => {
   }
 }
 
+
+const getCoverArtSongs = async (params = {}) => {
+  const page = params?.pagination?.page || 1
+  const perPage = params?.pagination?.perPage || 50
+  const start = (page - 1) * perPage
+  const end = start + perPage
+  const q = params?.filter?.q || ''
+  const refreshMissingCoverArt = params?.filter?.refreshMissingCoverArt
+
+  const query = new URLSearchParams({
+    _start: String(start),
+    _end: String(end),
+  })
+
+  if (q) {
+    query.set('q', q)
+  }
+  if (refreshMissingCoverArt) {
+    query.set('refreshMissingCoverArt', 'true')
+  }
+
+  const response = await httpClient(`${REST_URL}/coverart-songs?${query.toString()}`)
+  return {
+    data: response.json || [],
+    total: Number(response.headers.get('x-total-count') || 0),
+  }
+}
+
 const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
+    if (resource === 'coverart') {
+      return getCoverArtSongs(params)
+    }
     const [r, p] = mapResource(resource, params)
     return dataProvider.getList(r, p)
   },

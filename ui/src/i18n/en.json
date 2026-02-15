@@ -56,6 +56,18 @@
         }
       }
     },
+    "coverart": {
+      "name": "CoverArt",
+      "fields": {
+        "title": "Title",
+        "artist": "Artist Name",
+        "album": "Album",
+        "genre": "Genre",
+        "year": "Year of Release",
+        "duration": "Duration",
+        "coverArt": "Cover Art"
+      }
+    },
     "album": {
       "name": "Album |||| Albums",
       "fields": {
