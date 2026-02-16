@@ -321,7 +321,7 @@ type mbSearchResponse struct {
 
 func (j *musicBrainzMetadataJob) fetchMetadata(mbTicker *time.Ticker, title, artist string) (string, int, string, string, error) {
 	<-mbTicker.C
-	query := fmt.Sprintf("recording:%s AND artist:%s", sanitizeQuery(title), sanitizeQuery(artist))
+	query := fmt.Sprintf("recording:\"%s\" AND artist:\"%s\"", sanitizeQuery(title), sanitizeQuery(artist))
 	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
