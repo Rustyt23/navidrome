@@ -31,22 +31,24 @@ const (
 
 type Router struct {
 	http.Handler
-	ds        model.DataStore
-	share     core.Share
-	playlists core.Playlists
-	insights  metrics.Insights
-	libs      core.Library
-	devices   *retailPlayerDeviceResolver
+	ds          model.DataStore
+	share       core.Share
+	playlists   core.Playlists
+	insights    metrics.Insights
+	libs        core.Library
+	devices     *retailPlayerDeviceResolver
+	metadataJob *musicBrainzMetadataJob
 }
 
 func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
 	r := &Router{
-		ds:        ds,
-		share:     share,
-		playlists: playlists,
-		insights:  insights,
-		libs:      libraryService,
-		devices:   newRetailPlayerDeviceResolver(),
+		ds:          ds,
+		share:       share,
+		playlists:   playlists,
+		insights:    insights,
+		libs:        libraryService,
+		devices:     newRetailPlayerDeviceResolver(),
+		metadataJob: newMusicBrainzMetadataJob(),
 	}
 	r.preloadRetailPlayerDeviceMappings()
 	r.Handler = r.routes()
@@ -138,6 +140,7 @@ func (n *Router) routes() http.Handler {
 			n.addConfigRoute(r)
 			n.addUserLibraryRoute(r)
 			n.addSyncRoute(r)
+			n.addMusicBrainzMetadataRoute(r)
 			n.RX(r, "/library", n.libs.NewRepository, true)
 		})
 	})
