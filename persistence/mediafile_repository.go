@@ -283,7 +283,7 @@ func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, ye
 	up := Update(r.tableName).Where(Eq{"id": id})
 
 	if album != nil {
-		up = up.Set("album", Expr("case when trim(ifnull(album, '')) = '' then ? else album end", *album))
+		up = up.Set("album", Expr("case when trim(ifnull(album, '')) = '' or lower(trim(ifnull(album, ''))) in ('unknown album', '[unknown album]') then ? else album end", *album))
 	}
 	if year != nil {
 		up = up.Set("year", Expr("case when ifnull(year, 0) = 0 then ? else year end", *year))
