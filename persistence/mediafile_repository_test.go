@@ -459,4 +459,22 @@ var _ = Describe("MediaRepository", func() {
 			})
 		})
 	})
+	Context("UpdateMissingMetadata", func() {
+		It("updates album when current value is [Unknown Album]", func() {
+			mf := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Title: "Song", Album: "[Unknown Album]", Year: 0, Genre: ""}
+			Expect(mr.Put(&mf)).To(Succeed())
+
+			album := "Real Album"
+			year := 2014
+			genre := "Rock"
+			Expect(mr.UpdateMissingMetadata(mf.ID, &album, &year, &genre)).To(Succeed())
+
+			updated, err := mr.Get(mf.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.Album).To(Equal("Real Album"))
+			Expect(updated.Year).To(Equal(2014))
+			Expect(updated.Genre).To(Equal("Rock"))
+		})
+	})
+
 })
