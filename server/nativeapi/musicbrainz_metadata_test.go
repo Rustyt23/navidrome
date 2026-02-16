@@ -11,8 +11,8 @@ func TestNormalizeMBString(t *testing.T) {
 
 func TestSelectBestRecording(t *testing.T) {
 	payload := mbSearchResponse{Recordings: []struct {
-		Score            string `json:"score"`
-		FirstReleaseDate string `json:"first-release-date"`
+		Score            mbScore `json:"score"`
+		FirstReleaseDate string  `json:"first-release-date"`
 		ArtistCredit     []struct {
 			Name string `json:"name"`
 		} `json:"artist-credit"`

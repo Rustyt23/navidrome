@@ -279,8 +279,8 @@ func (j *musicBrainzMetadataJob) setError(err error) {
 
 type mbSearchResponse struct {
 	Recordings []struct {
-		Score            string `json:"score"`
-		FirstReleaseDate string `json:"first-release-date"`
+		Score            mbScore `json:"score"`
+		FirstReleaseDate string  `json:"first-release-date"`
 		ArtistCredit     []struct {
 			Name string `json:"name"`
 		} `json:"artist-credit"`
@@ -295,6 +295,31 @@ type mbSearchResponse struct {
 		Tags   []mbName `json:"tags"`
 		Genres []mbName `json:"genres"`
 	} `json:"recordings"`
+}
+
+type mbScore string
+
+func (s *mbScore) UnmarshalJSON(data []byte) error {
+	v := strings.TrimSpace(string(data))
+	if v == "" || v == "null" {
+		*s = ""
+		return nil
+	}
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		*s = mbScore(strings.TrimSpace(v[1 : len(v)-1]))
+		return nil
+	}
+	*s = mbScore(v)
+	return nil
+}
+
+func (s mbScore) Int() int {
+	v := strings.TrimSpace(string(s))
+	i, err := strconv.Atoi(v)
+	if err != nil {
+		return 0
+	}
+	return i
 }
 
 type mbName struct {
@@ -352,8 +377,8 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (string, in
 }
 
 func selectBestRecording(recordings []struct {
-	Score            string `json:"score"`
-	FirstReleaseDate string `json:"first-release-date"`
+	Score            mbScore `json:"score"`
+	FirstReleaseDate string  `json:"first-release-date"`
 	ArtistCredit     []struct {
 		Name string `json:"name"`
 	} `json:"artist-credit"`
@@ -368,8 +393,8 @@ func selectBestRecording(recordings []struct {
 	Tags   []mbName `json:"tags"`
 	Genres []mbName `json:"genres"`
 }, artist string) *struct {
-	Score            string `json:"score"`
-	FirstReleaseDate string `json:"first-release-date"`
+	Score            mbScore `json:"score"`
+	FirstReleaseDate string  `json:"first-release-date"`
 	ArtistCredit     []struct {
 		Name string `json:"name"`
 	} `json:"artist-credit"`
@@ -388,8 +413,8 @@ func selectBestRecording(recordings []struct {
 
 	type recCandidate struct {
 		rec *struct {
-			Score            string `json:"score"`
-			FirstReleaseDate string `json:"first-release-date"`
+			Score            mbScore `json:"score"`
+			FirstReleaseDate string  `json:"first-release-date"`
 			ArtistCredit     []struct {
 				Name string `json:"name"`
 			} `json:"artist-credit"`
@@ -413,8 +438,8 @@ func selectBestRecording(recordings []struct {
 	candidates := make([]recCandidate, 0, len(recordings))
 	for i := range recordings {
 		rec := &recordings[i]
-		score, err := strconv.Atoi(rec.Score)
-		if err != nil || score < 80 {
+		score := rec.Score.Int()
+		if score < 80 {
 			continue
 		}
 		if !artistCreditMatches(rec.ArtistCredit, normalizedArtist) {
@@ -589,8 +614,8 @@ func isAlbumRelease(release struct {
 }
 
 func collectRecordingGenre(rec struct {
-	Score            string `json:"score"`
-	FirstReleaseDate string `json:"first-release-date"`
+	Score            mbScore `json:"score"`
+	FirstReleaseDate string  `json:"first-release-date"`
 	ArtistCredit     []struct {
 		Name string `json:"name"`
 	} `json:"artist-credit"`
@@ -609,8 +634,8 @@ func collectRecordingGenre(rec struct {
 }
 
 func collectGenre(rec struct {
-	Score            string `json:"score"`
-	FirstReleaseDate string `json:"first-release-date"`
+	Score            mbScore `json:"score"`
+	FirstReleaseDate string  `json:"first-release-date"`
 	ArtistCredit     []struct {
 		Name string `json:"name"`
 	} `json:"artist-credit"`
