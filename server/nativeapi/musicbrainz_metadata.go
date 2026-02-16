@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/log"
@@ -37,15 +39,20 @@ type musicBrainzMetadataStatus struct {
 }
 
 type musicBrainzMetadataJob struct {
-	mu       sync.RWMutex
-	status   musicBrainzMetadataStatus
-	client   *http.Client
-	mbTicker *time.Ticker
+	mu                     sync.RWMutex
+	status                 musicBrainzMetadataStatus
+	client                 *http.Client
+	discogsToken           string
+	discogsReleaseIDCache  map[string]int
+	discogsReleaseURLCache map[int]string
 }
 
 func newMusicBrainzMetadataJob() *musicBrainzMetadataJob {
 	return &musicBrainzMetadataJob{
-		client: &http.Client{Timeout: 20 * time.Second},
+		client:                 &http.Client{Timeout: 20 * time.Second},
+		discogsToken:           strings.TrimSpace(os.Getenv("ND_DISCOGS_TOKEN")),
+		discogsReleaseIDCache:  map[string]int{},
+		discogsReleaseURLCache: map[int]string{},
 	}
 }
 
@@ -81,10 +88,20 @@ type mbMetadataCandidate struct {
 	flags missingFlags
 }
 
+type coverArtRunStats struct {
+	totalMissing int
+	fetching     int
+	matched      int
+	failed       int
+	skipped      int
+}
+
 func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 	ctx := context.Background()
-	j.mbTicker = time.NewTicker(time.Second)
-	defer j.mbTicker.Stop()
+	mbTicker := time.NewTicker(time.Second)
+	discogsTicker := time.NewTicker(time.Second)
+	defer mbTicker.Stop()
+	defer discogsTicker.Stop()
 
 	defer func() {
 		j.mu.Lock()
@@ -100,17 +117,34 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		return
 	}
 
+	stats := coverArtRunStats{}
 	for _, c := range candidates {
+		if c.flags.coverArt {
+			stats.totalMissing++
+		} else {
+			stats.skipped++
+		}
 		j.setFetching(c.flags, 1)
 
-		album, year, genre, releaseMBID, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
+		album, year, genre, releaseMBID, fetchErr := j.fetchMetadata(mbTicker, c.mf.Title, c.mf.Artist)
 		if fetchErr != nil {
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
 		}
 
 		coverURL := ""
-		if c.flags.coverArt && releaseMBID != "" {
-			coverURL, _ = j.fetchCoverArtURL(releaseMBID)
+		if c.flags.coverArt {
+			stats.fetching++
+			if releaseMBID != "" {
+				coverURL, _ = j.fetchCoverArtURL(releaseMBID)
+			}
+			if coverURL == "" {
+				coverURL, _ = j.fetchCoverArtFromDiscogs(discogsTicker, c.mf)
+			}
+			if coverURL != "" {
+				stats.matched++
+			} else {
+				stats.failed++
+			}
 		}
 
 		var setAlbum *string
@@ -144,6 +178,14 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		fetched := missingFlags{album: album != "", year: year > 0, genre: genre != "", coverArt: coverURL != ""}
 		j.finishFetch(c.flags, fetched, updated)
 	}
+
+	log.Info(ctx, "Cover art metadata run summary",
+		"total_missing", stats.totalMissing,
+		"fetching", stats.fetching,
+		"matched", stats.matched,
+		"failed", stats.failed,
+		"skipped", stats.skipped,
+	)
 }
 
 func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model.DataStore) ([]mbMetadataCandidate, error) {
@@ -277,8 +319,8 @@ type mbSearchResponse struct {
 	} `json:"recordings"`
 }
 
-func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (string, int, string, string, error) {
-	<-j.mbTicker.C
+func (j *musicBrainzMetadataJob) fetchMetadata(mbTicker *time.Ticker, title, artist string) (string, int, string, string, error) {
+	<-mbTicker.C
 	query := fmt.Sprintf("recording:%s AND artist:%s", sanitizeQuery(title), sanitizeQuery(artist))
 	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
@@ -361,24 +403,320 @@ func (j *musicBrainzMetadataJob) fetchCoverArtURL(releaseMBID string) (string, e
 	if len(payload.Images) == 0 {
 		return "", nil
 	}
-	pick := func(img struct {
-		Front      bool   `json:"front"`
-		Image      string `json:"image"`
-		Thumbnails struct {
-			Large string `json:"large"`
-		} `json:"thumbnails"`
-	}) string {
-		if strings.TrimSpace(img.Thumbnails.Large) != "" {
-			return strings.TrimSpace(img.Thumbnails.Large)
-		}
-		return strings.TrimSpace(img.Image)
-	}
 	for _, img := range payload.Images {
 		if img.Front {
-			return pick(img), nil
+			return pickCoverArtURL(img.Image, img.Thumbnails.Large), nil
 		}
 	}
-	return pick(payload.Images[0]), nil
+	return pickCoverArtURL(payload.Images[0].Image, payload.Images[0].Thumbnails.Large), nil
+}
+
+type discogsSearchResponse struct {
+	Results []struct {
+		ID          int      `json:"id"`
+		Title       string   `json:"title"`
+		Country     string   `json:"country"`
+		Year        int      `json:"year"`
+		Type        string   `json:"type"`
+		Format      []string `json:"format"`
+		CoverImage  string   `json:"cover_image"`
+		ResourceURL string   `json:"resource_url"`
+		Community   struct {
+			Want int `json:"want"`
+			Have int `json:"have"`
+		} `json:"community"`
+	} `json:"results"`
+}
+
+type discogsReleaseResponse struct {
+	Images []struct {
+		Type string `json:"type"`
+		URI  string `json:"uri"`
+	} `json:"images"`
+}
+
+func (j *musicBrainzMetadataJob) fetchCoverArtFromDiscogs(discogsTicker *time.Ticker, mf model.MediaFile) (string, error) {
+	if j.discogsToken == "" {
+		return "", nil
+	}
+	cacheKey := strings.ToLower(strings.TrimSpace(mf.Artist)) + "|" + strings.ToLower(strings.TrimSpace(mf.Title))
+	if releaseID, ok := j.getCachedDiscogsRelease(cacheKey); ok {
+		if u, ok := j.getCachedDiscogsReleaseURL(releaseID); ok {
+			return u, nil
+		}
+		<-discogsTicker.C
+		releaseURL := fmt.Sprintf("https://api.discogs.com/releases/%d", releaseID)
+		img, err := j.fetchDiscogsReleaseImage(releaseURL)
+		if err == nil && img != "" {
+			j.setCachedDiscogsReleaseURL(releaseID, img)
+			return img, nil
+		}
+	}
+
+	<-discogsTicker.C
+	u := fmt.Sprintf("https://api.discogs.com/database/search?q=%s&type=release&token=%s", url.QueryEscape(strings.TrimSpace(mf.Artist)+" "+strings.TrimSpace(mf.Title)), url.QueryEscape(j.discogsToken))
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("discogs search status %d", resp.StatusCode)
+	}
+
+	var payload discogsSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", err
+	}
+	if len(payload.Results) == 0 {
+		return "", nil
+	}
+
+	best := j.selectBestDiscogsResult(payload.Results, mf)
+	if best == nil {
+		return "", nil
+	}
+	j.setCachedDiscogsRelease(cacheKey, best.ID)
+
+	if strings.TrimSpace(best.CoverImage) != "" {
+		j.setCachedDiscogsReleaseURL(best.ID, strings.TrimSpace(best.CoverImage))
+		return strings.TrimSpace(best.CoverImage), nil
+	}
+	if strings.TrimSpace(best.ResourceURL) == "" {
+		return "", nil
+	}
+
+	<-discogsTicker.C
+	img, err := j.fetchDiscogsReleaseImage(best.ResourceURL)
+	if err != nil {
+		return "", err
+	}
+	if img != "" {
+		j.setCachedDiscogsReleaseURL(best.ID, img)
+	}
+	return img, nil
+}
+
+func (j *musicBrainzMetadataJob) selectBestDiscogsResult(results []struct {
+	ID          int      `json:"id"`
+	Title       string   `json:"title"`
+	Country     string   `json:"country"`
+	Year        int      `json:"year"`
+	Type        string   `json:"type"`
+	Format      []string `json:"format"`
+	CoverImage  string   `json:"cover_image"`
+	ResourceURL string   `json:"resource_url"`
+	Community   struct {
+		Want int `json:"want"`
+		Have int `json:"have"`
+	} `json:"community"`
+}, mf model.MediaFile) *struct {
+	ID          int      `json:"id"`
+	Title       string   `json:"title"`
+	Country     string   `json:"country"`
+	Year        int      `json:"year"`
+	Type        string   `json:"type"`
+	Format      []string `json:"format"`
+	CoverImage  string   `json:"cover_image"`
+	ResourceURL string   `json:"resource_url"`
+	Community   struct {
+		Want int `json:"want"`
+		Have int `json:"have"`
+	} `json:"community"`
+} {
+	artistNorm := normalizeText(mf.Artist)
+	titleNorm := normalizeText(mf.Title)
+	targetCountry := normalizeText(firstTagValue(mf.Tags, "releasecountry", "country"))
+	targetYear := mf.Year
+
+	var best *struct {
+		ID          int      `json:"id"`
+		Title       string   `json:"title"`
+		Country     string   `json:"country"`
+		Year        int      `json:"year"`
+		Type        string   `json:"type"`
+		Format      []string `json:"format"`
+		CoverImage  string   `json:"cover_image"`
+		ResourceURL string   `json:"resource_url"`
+		Community   struct {
+			Want int `json:"want"`
+			Have int `json:"have"`
+		} `json:"community"`
+	}
+	bestScore := -999.0
+	for i := range results {
+		r := &results[i]
+		if !strings.EqualFold(strings.TrimSpace(r.Type), "release") {
+			continue
+		}
+		if isUnofficialOrPromo(r.Format) {
+			continue
+		}
+
+		resArtist, resTitle := splitDiscogsTitle(r.Title)
+		score := 0.0
+		if normalizeText(resArtist) == artistNorm {
+			score += 100
+		} else if strings.Contains(normalizeText(resArtist), artistNorm) {
+			score += 70
+		}
+
+		tsim := titleSimilarity(titleNorm, normalizeText(resTitle))
+		score += tsim * 50
+
+		score += formatPriority(r.Format)
+
+		if targetCountry != "" && normalizeText(r.Country) == targetCountry {
+			score += 10
+		}
+		if targetYear > 0 && r.Year > 0 {
+			delta := absInt(targetYear - r.Year)
+			score += float64(maxInt(0, 10-delta))
+		}
+		score += float64(r.Community.Have+r.Community.Want) / 1000.0
+
+		if score > bestScore {
+			bestScore = score
+			best = r
+		}
+	}
+	return best
+}
+
+func (j *musicBrainzMetadataJob) fetchDiscogsReleaseImage(resourceURL string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, resourceURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("discogs release status %d", resp.StatusCode)
+	}
+	var rel discogsReleaseResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return "", err
+	}
+	if len(rel.Images) == 0 {
+		return "", nil
+	}
+	for _, img := range rel.Images {
+		if strings.EqualFold(strings.TrimSpace(img.Type), "primary") && strings.TrimSpace(img.URI) != "" {
+			return strings.TrimSpace(img.URI), nil
+		}
+	}
+	return strings.TrimSpace(rel.Images[0].URI), nil
+}
+
+func splitDiscogsTitle(s string) (string, string) {
+	parts := strings.SplitN(strings.TrimSpace(s), " - ", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", s
+}
+
+func titleSimilarity(a, b string) float64 {
+	if a == "" || b == "" {
+		return 0
+	}
+	if a == b {
+		return 1
+	}
+	ta := strings.Fields(a)
+	tb := strings.Fields(b)
+	if len(ta) == 0 || len(tb) == 0 {
+		return 0
+	}
+	setA := map[string]bool{}
+	for _, t := range ta {
+		setA[t] = true
+	}
+	inter := 0
+	for _, t := range tb {
+		if setA[t] {
+			inter++
+		}
+	}
+	den := len(ta) + len(tb) - inter
+	if den <= 0 {
+		return 0
+	}
+	return float64(inter) / float64(den)
+}
+
+func formatPriority(formats []string) float64 {
+	score := 0.0
+	for _, f := range formats {
+		n := normalizeText(f)
+		switch {
+		case n == "album":
+			score += 20
+		case n == "ep":
+			score += 15
+		case n == "single":
+			score += 5
+		case n == "compilation":
+			score -= 10
+		case n == "live":
+			score -= 10
+		}
+	}
+	return score
+}
+
+func isUnofficialOrPromo(formats []string) bool {
+	for _, f := range formats {
+		n := normalizeText(f)
+		if n == "unofficial release" || n == "promo" || n == "promotional" || n == "bootleg" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeText(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	b := strings.Builder{}
+	lastSpace := false
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			b.WriteRune(r)
+			lastSpace = false
+			continue
+		}
+		if !lastSpace {
+			b.WriteByte(' ')
+			lastSpace = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func firstTagValue(tags model.Tags, keys ...string) string {
+	for _, k := range keys {
+		vals := tags[model.TagName(k)]
+		if len(vals) > 0 {
+			return vals[0]
+		}
+	}
+	return ""
+}
+
+func pickCoverArtURL(image, large string) string {
+	if strings.TrimSpace(large) != "" {
+		return strings.TrimSpace(large)
+	}
+	return strings.TrimSpace(image)
 }
 
 func collectGenre(rec struct {
@@ -434,6 +772,52 @@ func yearFromDate(date string) int {
 		return 0
 	}
 	return y
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (j *musicBrainzMetadataJob) getCachedDiscogsRelease(key string) (int, bool) {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	id, ok := j.discogsReleaseIDCache[key]
+	return id, ok
+}
+
+func (j *musicBrainzMetadataJob) setCachedDiscogsRelease(key string, releaseID int) {
+	if releaseID <= 0 {
+		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.discogsReleaseIDCache[key] = releaseID
+}
+
+func (j *musicBrainzMetadataJob) getCachedDiscogsReleaseURL(releaseID int) (string, bool) {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	u, ok := j.discogsReleaseURLCache[releaseID]
+	return u, ok
+}
+
+func (j *musicBrainzMetadataJob) setCachedDiscogsReleaseURL(releaseID int, coverURL string) {
+	if releaseID <= 0 || strings.TrimSpace(coverURL) == "" {
+		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.discogsReleaseURLCache[releaseID] = strings.TrimSpace(coverURL)
 }
 
 func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
