@@ -259,6 +259,23 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[2].Title).To(Equal("Radioactivity"))
 		})
 
+		It("sets sequential index values for sorted results", func() {
+			repo := playlistRepo.Tracks(playlist.ID, true)
+
+			result, err := repo.ReadAll(rest.QueryOptions{Sort: "title", Order: "ASC"})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(3))
+			Expect(tracks[0].ID).To(Equal("3"))
+			Expect(tracks[1].ID).To(Equal("2"))
+			Expect(tracks[2].ID).To(Equal("1"))
+			Expect(tracks[0].Index).To(Equal(1))
+			Expect(tracks[1].Index).To(Equal(2))
+			Expect(tracks[2].Index).To(Equal(3))
+		})
+
 		It("sorts by createdAt using media file timestamps", func() {
 			updates := []struct {
 				id        string

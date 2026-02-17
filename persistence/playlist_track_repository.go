@@ -299,6 +299,13 @@ func (r *playlistTrackRepository) ReadAll(options ...rest.QueryOptions) (interfa
 	return r.GetAll(r.parseRestOptions(r.ctx, options...))
 }
 
+func setPlaylistTrackIndexes(tracks model.PlaylistTracks) model.PlaylistTracks {
+	for i := range tracks {
+		tracks[i].Index = i + 1
+	}
+	return tracks
+}
+
 func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOpts rest.QueryOptions) (model.PlaylistTracks, error) {
 	noLimit := opt
 	noLimit.Max = 0
@@ -329,18 +336,18 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 			missingDuplicates, err := collectDuplicateMissingPlaylistTracks(r.ctx, tracks, r.playlist, searchTerm)
 			if err != nil {
 				log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
-				return duplicates, nil
+				return setPlaylistTrackIndexes(duplicates), nil
 			}
 			if len(missingDuplicates) > 0 {
 				duplicates = append(duplicates, missingDuplicates...)
 			}
 		}
 
-		return duplicates, nil
+		return setPlaylistTrackIndexes(duplicates), nil
 	}
 
 	if searchTerm != "" {
-		return tracks, nil
+		return setPlaylistTrackIndexes(tracks), nil
 	}
 
 	sortKey := strings.TrimSpace(opt.Sort)
@@ -351,15 +358,15 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 	hasCustomSort := sortKey != "" && !strings.EqualFold(sortKey, defaultSort)
 
 	if hasCustomSort || r.playlist == nil || !r.playlist.Sync || r.playlist.Path == "" {
-		return tracks, nil
+		return setPlaylistTrackIndexes(tracks), nil
 	}
 
 	merged, err := mergePlaylistTracksWithMissing(r.ctx, tracks, r.playlist, searchTerm, preservePlaylistOrder)
 	if err != nil {
 		log.Warn(r.ctx, "Error resolving missing playlist tracks", "playlistId", r.playlistId, err)
-		return tracks, nil
+		return setPlaylistTrackIndexes(tracks), nil
 	}
-	return merged, nil
+	return setPlaylistTrackIndexes(merged), nil
 }
 
 func parseBoolFilter(value interface{}) bool {

@@ -77,7 +77,9 @@ export const selectPlaylistTrackIds = ({
 
   const filter = { ...filterValues, playlist_id: playlistId }
   const sort =
-    currentSort && currentSort.field ? currentSort : { field: 'id', order: 'ASC' }
+    currentSort && currentSort.field
+      ? currentSort
+      : { field: 'id', order: 'ASC' }
 
   return dataProvider
     .getList('playlistTrack', {
@@ -353,7 +355,12 @@ const PlaylistSongs = ({
       ...baseProps,
       onRequestPositionChange: handleRequestPositionChange,
     }
-  }, [onAddToPlaylist, classes.contextMenu, readOnly, handleRequestPositionChange])
+  }, [
+    onAddToPlaylist,
+    classes.contextMenu,
+    readOnly,
+    handleRequestPositionChange,
+  ])
 
   const toggleableFields = useMemo(() => {
     return {
@@ -374,24 +381,14 @@ const PlaylistSongs = ({
             ),
           }
         : {}),
-      trackNumber:
-        isDesktop && (
-          <FunctionField
-            source="id"
-            label={'#'}
-            sortBy={'id'}
-            render={(record) => {
-              const value = record?.id
-              if (value == null) {
-                return ''
-              }
-              if (typeof value === 'string') {
-                return value.replace(/^_+/, '')
-              }
-              return value
-            }}
-          />
-        ),
+      trackNumber: isDesktop && (
+        <FunctionField
+          source="index"
+          label={'#'}
+          sortable={false}
+          render={(record) => record?.index ?? ''}
+        />
+      ),
       title: <SongTitleField source="title" showTrackNumbers={false} />,
       album: isDesktop && <AlbumLinkField source="album" />,
       artist: <ArtistLinkField source="artist" />,
@@ -412,13 +409,7 @@ const PlaylistSongs = ({
       playDate: isDesktop && (
         <DateField source="playDate" sortByOrder={'DESC'} showTime />
       ),
-      createdAt: (
-        <DateField
-          source="createdAt"
-          sortBy="created_at"
-          showTime
-        />
-      ),
+      createdAt: <DateField source="createdAt" sortBy="created_at" showTime />,
       quality: isDesktop && <QualityInfo source="quality" sortable={false} />,
       channels: isDesktop && <NumberField source="channels" />,
       bpm: isDesktop && <NumberField source="bpm" />,
@@ -481,10 +472,7 @@ const PlaylistSongs = ({
         return
       }
 
-      const orderedIds = [
-        ...ids.slice(startIndex),
-        ...ids.slice(0, startIndex),
-      ]
+      const orderedIds = [...ids.slice(startIndex), ...ids.slice(0, startIndex)]
 
       dispatch(playTracks(data, orderedIds, id))
     },

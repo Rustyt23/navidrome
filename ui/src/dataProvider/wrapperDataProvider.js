@@ -40,13 +40,7 @@ const getSelectedLibraries = () => {
 // Function to apply library filtering to appropriate resources
 const applyLibraryFilter = (resource, params) => {
   // Content resources that should be filtered by selected libraries
-  const filteredResources = [
-    'album',
-    'song',
-    'artist',
-    'playlistTrack',
-    'tag',
-  ]
+  const filteredResources = ['album', 'song', 'artist', 'playlistTrack', 'tag']
 
   // Get selected libraries from localStorage
   const selectedLibraries = getSelectedLibraries()
@@ -114,10 +108,10 @@ const handleUserLibraryAssociation = async (userId, libraryIds) => {
   }
 
   try {
-  await httpClient(`${REST_URL}/user/${userId}/library`, {
-    method: 'PUT',
-    body: JSON.stringify({ libraryIds }),
-  })
+    await httpClient(`${REST_URL}/user/${userId}/library`, {
+      method: 'PUT',
+      body: JSON.stringify({ libraryIds }),
+    })
   } catch (error) {
     console.error('Error setting user libraries:', error) //eslint-disable-line no-console
     throw error
@@ -208,7 +202,11 @@ const wrapperDataProvider = {
       if (resource === 'playlist' || resource === 'folder') {
         const parentId =
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
-        emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
+        emitFoldersChanged({
+          type: 'create',
+          resource,
+          targetParentId: parentId,
+        })
       }
       return res
     })
@@ -229,7 +227,11 @@ const wrapperDataProvider = {
       if (resource === 'playlist' || resource === 'folder') {
         const parentId =
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
-        emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
+        emitFoldersChanged({
+          type: 'create',
+          resource,
+          targetParentId: parentId,
+        })
       }
       return res
     })
@@ -245,7 +247,11 @@ const wrapperDataProvider = {
   },
   deleteMany: (resource, params) => {
     const [r, p] = mapResource(resource, params)
-    if (r.endsWith('/tracks') || resource === 'missing' || resource === 'folder') {
+    if (
+      r.endsWith('/tracks') ||
+      resource === 'missing' ||
+      resource === 'folder'
+    ) {
       return callDeleteMany(r, p)
     }
     return dataProvider.deleteMany(r, p)
@@ -271,7 +277,7 @@ const wrapperDataProvider = {
     return httpClient(`${REST_URL}/playlist/${playlistId}/folder`, {
       method: 'PATCH',
       body: JSON.stringify({
-        folderId: targetFolderId
+        folderId: targetFolderId,
       }),
     }).then(() => {
       emitFoldersChanged({
@@ -288,7 +294,7 @@ const wrapperDataProvider = {
     return httpClient(`${REST_URL}/folder/${folderId}/parent`, {
       method: 'PATCH',
       body: JSON.stringify({
-        parentId: targetParentId
+        parentId: targetParentId,
       }),
     }).then(({ json }) => {
       emitFoldersChanged({
