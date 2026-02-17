@@ -132,6 +132,7 @@ type PlaylistRepository interface {
 
 type PlaylistTrack struct {
 	ID          string `json:"id"`
+	Index       int    `json:"index,omitempty"`
 	MediaFileID string `json:"mediaFileId"`
 	PlaylistID  string `json:"playlistId"`
 	MediaFile
