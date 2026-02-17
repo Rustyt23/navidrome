@@ -9,88 +9,41 @@ func TestNormalizeMBString(t *testing.T) {
 	}
 }
 
-func TestSelectBestRecording(t *testing.T) {
-	payload := mbSearchResponse{Recordings: []struct {
-		Score            mbScore `json:"score"`
-		FirstReleaseDate string  `json:"first-release-date"`
-		ArtistCredit     []struct {
-			Name string `json:"name"`
-		} `json:"artist-credit"`
-		Releases []struct {
-			Title        string   `json:"title"`
-			Date         string   `json:"date"`
-			Status       string   `json:"status"`
-			ReleaseGroup mbGroup  `json:"release-group"`
-			Tags         []mbName `json:"tags"`
-			Genres       []mbName `json:"genres"`
-		} `json:"releases"`
-		Tags   []mbName `json:"tags"`
-		Genres []mbName `json:"genres"`
-	}{
-		{
-			Score: "95",
-			ArtistCredit: []struct {
-				Name string `json:"name"`
-			}{{Name: "Wrong Artist"}},
-			Releases: []struct {
-				Title        string   `json:"title"`
-				Date         string   `json:"date"`
-				Status       string   `json:"status"`
-				ReleaseGroup mbGroup  `json:"release-group"`
-				Tags         []mbName `json:"tags"`
-				Genres       []mbName `json:"genres"`
-			}{{Title: "Wrong Album", Date: "2010-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
-		},
-		{
-			Score: "92",
-			ArtistCredit: []struct {
-				Name string `json:"name"`
-			}{{Name: "The Artist"}},
-			Releases: []struct {
-				Title        string   `json:"title"`
-				Date         string   `json:"date"`
-				Status       string   `json:"status"`
-				ReleaseGroup mbGroup  `json:"release-group"`
-				Tags         []mbName `json:"tags"`
-				Genres       []mbName `json:"genres"`
-			}{{Title: "Best Album", Date: "2001-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
-		},
-		{
-			Score: "79",
-			ArtistCredit: []struct {
-				Name string `json:"name"`
-			}{{Name: "The Artist"}},
-		},
-	}}
-
-	rec := selectBestRecording(payload.Recordings, "the artist")
-	if rec == nil {
-		t.Fatal("expected a recording")
+func TestSelectBestRecording_Strict(t *testing.T) {
+	recordings := []mbRecording{
+		{Title: "Song A", Score: "90", ArtistCredit: []mbArtistCredit{{Name: "Wrong Artist"}}},
+		{Title: "Song A (Live)", Score: "99", ArtistCredit: []mbArtistCredit{{Name: "The Artist"}}},
+		{Title: "Song A", Score: "91", ArtistCredit: []mbArtistCredit{{Name: "The Artist"}}},
 	}
-	if len(rec.Releases) == 0 || rec.Releases[0].Title != "Best Album" {
+
+	rec, ok := selectBestRecording(recordings, "Song A", "the artist")
+	if !ok {
+		t.Fatal("expected strict recording match")
+	}
+	if rec.Title != "Song A" {
 		t.Fatalf("unexpected selected recording: %+v", rec)
 	}
 }
 
-func TestSelectBestRelease(t *testing.T) {
-	releases := []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	}{
-		{Title: "Live Cut", Date: "1990", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Live"}}},
-		{Title: "Single Cut", Date: "2003", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
-		{Title: "Album Cut", Date: "2001", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+func TestSelectBestRelease_StrictScoring(t *testing.T) {
+	releases := []mbRelease{
+		{Title: "Live Cut", Date: "1990", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Live"}, FirstRelease: "1990-01-01"}},
+		{Title: "Single Cut", Date: "2003", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Single", FirstRelease: "2003-01-01"}},
+		{Title: "Album Cut", Date: "2001", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", FirstRelease: "2001-01-01"}},
 	}
 
-	rel := selectBestRelease(releases)
-	if rel == nil {
+	rel, ok := selectBestRelease(releases, "")
+	if !ok {
 		t.Fatal("expected release")
 	}
 	if rel.Title != "Album Cut" {
 		t.Fatalf("expected Album Cut, got %q", rel.Title)
+	}
+}
+
+func TestCollectGenres_CountThreshold(t *testing.T) {
+	genres := collectGenres([]mbTag{{Name: "Rock", Count: 2}, {Name: "Pop", Count: 1}}, []mbTag{{Name: "Alt Rock", Count: 3}})
+	if genres != "rock, alt rock" {
+		t.Fatalf("unexpected genres: %q", genres)
 	}
 }
