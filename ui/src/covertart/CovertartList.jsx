@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Button,
@@ -17,6 +17,7 @@ import {
   SearchInput,
   TextField,
   useListContext,
+  useNotify,
   useRefresh,
 } from 'react-admin'
 import { DurationField } from '../common'
@@ -110,9 +111,12 @@ const MetricCard = ({ title, metrics, missingLabel }) => {
 const CovertartSummary = () => {
   const classes = useStyles()
   const refresh = useRefresh()
+  const notify = useNotify()
   const { ids, data } = useListContext()
   const [baseline, setBaseline] = useState(null)
+  const [isFetching, setIsFetching] = useState(false)
   const hasInitializedBaseline = useRef(false)
+  const pollTimerRef = useRef(null)
 
   const records = useMemo(() => {
     if (!ids || !data) return []
@@ -155,7 +159,15 @@ const CovertartSummary = () => {
     }
   }, [baseline, records])
 
-  const handleFetch = () => {
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current)
+      pollTimerRef.current = null
+    }
+    setIsFetching(false)
+  }, [])
+
+  const handleFetch = async () => {
     if (baseline == null) {
       setBaseline({
         album: albumMissingNow,
@@ -165,8 +177,33 @@ const CovertartSummary = () => {
       })
       hasInitializedBaseline.current = true
     }
-    refresh()
+
+    try {
+      await subsonic.startScan({ fullScan: false })
+      setIsFetching(true)
+
+      stopPolling()
+      setIsFetching(true)
+      pollTimerRef.current = setInterval(async () => {
+        try {
+          const { json } = await subsonic.getScanStatus()
+          const scanStatus = json?.['subsonic-response']?.scanStatus
+          refresh()
+          if (scanStatus && scanStatus.scanning === false) {
+            stopPolling()
+          }
+        } catch (err) {
+          stopPolling()
+          notify('Failed to poll scan status', 'warning')
+        }
+      }, 1000)
+    } catch (err) {
+      stopPolling()
+      notify('Failed to start scan', 'warning')
+    }
   }
+
+  useEffect(() => () => stopPolling(), [stopPolling])
 
   return (
     <Box className={classes.summaryContainer}>
@@ -175,9 +212,10 @@ const CovertartSummary = () => {
           variant="contained"
           color="primary"
           onClick={handleFetch}
+          disabled={isFetching}
           startIcon={<RefreshIcon />}
         >
-          Fetch Phase 1 Updates
+          {isFetching ? 'Fetching Phase 1…' : 'Fetch Phase 1 Updates'}
         </Button>
       </Box>
       <Grid container spacing={2}>
@@ -238,7 +276,14 @@ const CovertartContent = (props) => (
       <FunctionField
         label="Metadata Phase"
         sortable={false}
-        render={() => 'Phase 1'}
+        render={(record) => {
+          const missingAlbum = isMissingAlbum(record)
+          const missingYear = isMissingYear(record)
+          const missingGenre = isMissingGenre(record)
+          return missingAlbum || missingYear || missingGenre
+            ? 'Pending'
+            : 'Phase 1 Complete'
+        }}
       />
       <DurationField source="duration" />
     </Datagrid>
