@@ -214,17 +214,10 @@ const CovertartSummary = () => {
   )
 }
 
-const CovertartList = (props) => (
-  <List
-    {...props}
-    sort={{ field: 'title', order: 'ASC' }}
-    filters={<CovertartFilter />}
-    exporter={false}
-    bulkActionButtons={false}
-    perPage={50}
-  >
+const CovertartContent = (props) => (
+  <>
     <CovertartSummary />
-    <Datagrid rowClick={false}>
+    <Datagrid rowClick={false} {...props}>
       <FunctionField
         label="Cover Art"
         sortable={false}
@@ -249,6 +242,19 @@ const CovertartList = (props) => (
       />
       <DurationField source="duration" />
     </Datagrid>
+  </>
+)
+
+const CovertartList = (props) => (
+  <List
+    {...props}
+    sort={{ field: 'title', order: 'ASC' }}
+    filters={<CovertartFilter />}
+    exporter={false}
+    bulkActionButtons={false}
+    perPage={50}
+  >
+    <CovertartContent />
   </List>
 )
 
