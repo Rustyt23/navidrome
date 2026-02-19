@@ -61,7 +61,7 @@ func createPhaseFolders(ctx context.Context, state *scanState, ds model.DataStor
 	// Update the state with the libraries that have been processed and have their scan timestamps set
 	state.libraries = updatedLibs
 
-	return &phaseFolders{jobs: jobs, ctx: ctx, ds: ds, state: state}
+	return &phaseFolders{jobs: jobs, ctx: ctx, ds: ds, state: state, enricher: newMusicBrainzEnricher()}
 }
 
 type scanJob struct {
@@ -123,6 +123,7 @@ type phaseFolders struct {
 	ctx              context.Context
 	state            *scanState
 	prevAlbumPIDConf string
+	enricher         *musicBrainzEnricher
 }
 
 func (p *phaseFolders) description() string {
@@ -251,6 +252,13 @@ func (p *phaseFolders) processFolder(entry *folderEntry) (*folderEntry, error) {
 			log.Warn(p.ctx, "Scanner: Error loading tags from files. Skipping", "folder", entry.path, err)
 			p.state.sendWarning(fmt.Sprintf("Error loading tags from files in %s: %v", entry.path, err))
 			return entry, nil
+		}
+
+		if p.enricher != nil {
+			if err = p.enricher.enrichTracks(p.ctx, entry); err != nil {
+				log.Warn(p.ctx, "Scanner: MusicBrainz enrichment failed", "folder", entry.path, err)
+				p.state.sendWarning(fmt.Sprintf("MusicBrainz enrichment failed in %s: %v", entry.path, err))
+			}
 		}
 
 		p.createAlbumsFromMediaFiles(entry)
@@ -458,6 +466,9 @@ func (p *phaseFolders) logFolder(entry *folderEntry) (*folderEntry, error) {
 }
 
 func (p *phaseFolders) finalize(err error) error {
+	if p.enricher != nil {
+		p.enricher.logStats(p.ctx)
+	}
 	errF := p.ds.WithTx(func(tx model.DataStore) error {
 		for _, job := range p.jobs {
 			// Mark all folders that were not updated as missing
