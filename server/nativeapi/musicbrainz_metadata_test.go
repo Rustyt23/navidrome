@@ -1,6 +1,12 @@
 package nativeapi
 
-import "testing"
+import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+)
 
 func TestNormalizeMBString(t *testing.T) {
 	got := normalizeMBString("  AC/DC - Live!  ")
@@ -42,6 +48,39 @@ func TestSelectBestRecording(t *testing.T) {
 	}
 }
 
+func TestSelectBestRecordingReleasePrefersCover(t *testing.T) {
+	job := newMusicBrainzMetadataJob()
+	job.coverClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "rel-no-cover") {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+		if strings.Contains(r.URL.Path, "rel-cover") {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+
+	recordings := []mbRecording{{
+		ID:    "rec-1",
+		Score: "99",
+		ArtistCredit: []struct {
+			Name string `json:"name"`
+		}{{Name: "Artist"}},
+		Releases: []mbRelease{
+			{ID: "rel-no-cover", Title: "No Cover", Date: "1999-01-01", Status: "Official", Country: "US", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+			{ID: "rel-cover", Title: "Has Cover", Date: "2005-01-01", Status: "Official", Country: "GB", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		},
+	}}
+
+	best := job.selectBestRecordingRelease(context.Background(), filterCandidateRecordings(recordings, "Artist"))
+	if best == nil {
+		t.Fatal("expected release candidate")
+	}
+	if best.release.ID != "rel-cover" {
+		t.Fatalf("expected rel-cover, got %q", best.release.ID)
+	}
+}
+
 func TestSelectBestRelease(t *testing.T) {
 	releases := []mbRelease{
 		{Title: "Live Cut", Date: "1990", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Live"}}},
@@ -56,4 +95,10 @@ func TestSelectBestRelease(t *testing.T) {
 	if rel.Title != "US Album Cut" {
 		t.Fatalf("expected US Album Cut, got %q", rel.Title)
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
