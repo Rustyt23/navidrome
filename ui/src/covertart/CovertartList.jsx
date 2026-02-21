@@ -72,6 +72,7 @@ const CovertartListActions = () => {
     genre: emptyProgress,
     recordingMbid: emptyProgress,
     releaseMbid: emptyProgress,
+    coverArt: emptyProgress,
   })
 
   const loadStatus = useCallback(() => {
@@ -88,6 +89,7 @@ const CovertartListActions = () => {
             genre: emptyProgress,
             recordingMbid: emptyProgress,
             releaseMbid: emptyProgress,
+            coverArt: emptyProgress,
           },
         )
       })
@@ -171,6 +173,13 @@ const CovertartListActions = () => {
               <MetadataProgressCard
                 title="Release MBID"
                 progress={status.releaseMbid || emptyProgress}
+                translate={translate}
+              />
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <MetadataProgressCard
+                title="Cover Art"
+                progress={status.coverArt || emptyProgress}
                 translate={translate}
               />
             </Grid>

@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -15,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
@@ -37,12 +41,14 @@ type musicBrainzMetadataStatus struct {
 	Genre         metadataFieldProgress `json:"genre"`
 	RecordingMBID metadataFieldProgress `json:"recordingMbid"`
 	ReleaseMBID   metadataFieldProgress `json:"releaseMbid"`
+	CoverArt      metadataFieldProgress `json:"coverArt"`
 }
 
 type musicBrainzMetadataJob struct {
-	mu     sync.RWMutex
-	status musicBrainzMetadataStatus
-	client *http.Client
+	mu          sync.RWMutex
+	status      musicBrainzMetadataStatus
+	client      *http.Client
+	coverMisses sync.Map
 }
 
 func newMusicBrainzMetadataJob() *musicBrainzMetadataJob {
@@ -77,6 +83,7 @@ type missingFlags struct {
 	genre         bool
 	recordingMBID bool
 	releaseMBID   bool
+	coverArt      bool
 }
 
 type mbMetadataCandidate struct {
@@ -133,7 +140,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		if fetchErr != nil {
 			failed++
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
-			j.finishFetch(c.flags, false, false, false, false, false)
+			j.finishFetch(c.flags, false, false, false, false, false, false)
 			continue
 		}
 
@@ -159,13 +166,36 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 				log.Error(ctx, "Could not update fetched MusicBrainz metadata", "songId", c.mf.ID, err)
 			} else {
 				updated++
-				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil, c.flags.recordingMBID && metadata.RecordingMBID != "", c.flags.releaseMBID && metadata.ReleaseMBID != "")
+				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil, c.flags.recordingMBID && metadata.RecordingMBID != "", c.flags.releaseMBID && metadata.ReleaseMBID != "", false)
 			}
 		} else {
 			skipped++
 		}
 
-		j.finishFetch(c.flags, metadata.Album != "", metadata.Year > 0, metadata.Genre != "", metadata.RecordingMBID != "", metadata.ReleaseMBID != "")
+		coverFetched := false
+		coverUpdated := false
+		if c.flags.coverArt && !c.mf.HasCoverArt && strings.TrimSpace(c.mf.CoverPath) == "" {
+			releaseMBID := strings.TrimSpace(c.mf.MbzReleaseID)
+			if releaseMBID == "" {
+				releaseMBID = strings.TrimSpace(metadata.ReleaseMBID)
+			}
+			if releaseMBID != "" && releaseMBIDRegex.MatchString(releaseMBID) {
+				relPath, ok := j.ensureReleaseCover(ctx, releaseMBID)
+				if ok {
+					coverFetched = true
+					if err := ds.MediaFile(ctx).UpdateCoverPath(c.mf.ID, relPath); err != nil {
+						log.Warn(ctx, "Could not update cover path", "songId", c.mf.ID, "releaseMBID", releaseMBID, "err", err)
+					} else {
+						coverUpdated = true
+					}
+				}
+			}
+		}
+
+		if coverUpdated {
+			j.setUpdated(false, false, false, false, false, true)
+		}
+		j.finishFetch(c.flags, metadata.Album != "", metadata.Year > 0, metadata.Genre != "", metadata.RecordingMBID != "", metadata.ReleaseMBID != "", coverFetched)
 	}
 
 	log.Info(ctx, "MusicBrainz metadata fetch completed",
@@ -198,8 +228,9 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 			genre:         strings.TrimSpace(mf.Genre) == "",
 			recordingMBID: strings.TrimSpace(mf.MbzRecordingID) == "",
 			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
+			coverArt:      !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == "",
 		}
-		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID {
+		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID && !flags.coverArt {
 			continue
 		}
 
@@ -237,6 +268,10 @@ func (j *musicBrainzMetadataJob) incrementMissing(flags missingFlags) {
 		j.status.ReleaseMBID.Missing++
 		j.status.ReleaseMBID.Left++
 	}
+	if flags.coverArt {
+		j.status.CoverArt.Missing++
+		j.status.CoverArt.Left++
+	}
 }
 
 func (j *musicBrainzMetadataJob) setFetching(flags missingFlags, delta int) {
@@ -257,9 +292,12 @@ func (j *musicBrainzMetadataJob) setFetching(flags missingFlags, delta int) {
 	if flags.releaseMBID {
 		j.status.ReleaseMBID.Fetching += delta
 	}
+	if flags.coverArt {
+		j.status.CoverArt.Fetching += delta
+	}
 }
 
-func (j *musicBrainzMetadataJob) setUpdated(album, year, genre, recordingMBID, releaseMBID bool) {
+func (j *musicBrainzMetadataJob) setUpdated(album, year, genre, recordingMBID, releaseMBID, coverArt bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if album {
@@ -277,9 +315,12 @@ func (j *musicBrainzMetadataJob) setUpdated(album, year, genre, recordingMBID, r
 	if releaseMBID {
 		j.status.ReleaseMBID.Updated++
 	}
+	if coverArt {
+		j.status.CoverArt.Updated++
+	}
 }
 
-func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, fetchedYear, fetchedGenre, fetchedRecordingMBID, fetchedReleaseMBID bool) {
+func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, fetchedYear, fetchedGenre, fetchedRecordingMBID, fetchedReleaseMBID, fetchedCoverArt bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if flags.album {
@@ -317,12 +358,83 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 			j.status.ReleaseMBID.Fetched++
 		}
 	}
+	if flags.coverArt {
+		j.status.CoverArt.Fetching--
+		j.status.CoverArt.Left--
+		if fetchedCoverArt {
+			j.status.CoverArt.Fetched++
+		}
+	}
 }
 
 func (j *musicBrainzMetadataJob) setError(err error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.status.LastError = err.Error()
+}
+
+func (j *musicBrainzMetadataJob) ensureReleaseCover(ctx context.Context, releaseMBID string) (string, bool) {
+	if _, err := os.Stat(filepath.Join(conf.Server.DataFolder, coverCacheDirName)); err != nil {
+		if err := os.MkdirAll(filepath.Join(conf.Server.DataFolder, coverCacheDirName), 0o755); err != nil {
+			log.Warn(ctx, "Could not create cover cache directory", "err", err)
+			return "", false
+		}
+	}
+
+	coverPath := filepath.Join(conf.Server.DataFolder, coverCacheDirName, releaseMBID+".jpg")
+	if _, err := os.Stat(coverPath); err == nil {
+		return filepath.ToSlash(filepath.Join(coverCacheDirName, releaseMBID+".jpg")), true
+	}
+	if _, missed := j.coverMisses.Load(releaseMBID); missed {
+		return "", false
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://coverartarchive.org/release/"+releaseMBID+"/front-500", nil)
+	if err != nil {
+		log.Warn(ctx, "Could not build cover request", "releaseMBID", releaseMBID, "err", err)
+		return "", false
+	}
+	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		log.Warn(ctx, "Could not fetch cover art", "releaseMBID", releaseMBID, "err", err)
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		j.coverMisses.Store(releaseMBID, true)
+		return "", false
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Warn(ctx, "Unexpected cover status", "releaseMBID", releaseMBID, "status", resp.StatusCode)
+		return "", false
+	}
+
+	tmpPath := coverPath + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		log.Warn(ctx, "Could not create cover file", "path", tmpPath, "err", err)
+		return "", false
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		log.Warn(ctx, "Could not save cover file", "path", tmpPath, "err", err)
+		return "", false
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", false
+	}
+	if err := os.Rename(tmpPath, coverPath); err != nil {
+		_ = os.Remove(tmpPath)
+		log.Warn(ctx, "Could not store cover file", "path", coverPath, "err", err)
+		return "", false
+	}
+
+	return filepath.ToSlash(filepath.Join(coverCacheDirName, releaseMBID+".jpg")), true
 }
 
 type mbSearchResponse struct {
