@@ -15,6 +15,7 @@ import artist from './artist'
 import playlist from './playlist'
 import playlist_folder from './playlist_folder'
 import discovery from './discovery'
+import coverArtManager from './coverArtManager'
 import radio from './radio'
 import share from './share'
 import library from './library'
@@ -109,6 +110,7 @@ const Admin = (props) => {
         <Resource name="album" {...album} options={{ subMenu: 'albumList' }} />,
         <Resource name="artist" {...artist} />,
         <Resource name="song" {...song} />,
+        <Resource name="coverArtManager" {...coverArtManager} />,
         <Resource
           name="radio"
           {...(permissions === 'admin' ? radio.admin : radio.all)}
