@@ -33,3 +33,14 @@ func TestNormalizeMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestFirstN(t *testing.T) {
+	t.Parallel()
+
+	if got := firstN("abcdef", 3); got != "abc" {
+		t.Fatalf("firstN truncation failed: got %q", got)
+	}
+	if got := firstN("abc", 10); got != "abc" {
+		t.Fatalf("firstN no-truncate failed: got %q", got)
+	}
+}

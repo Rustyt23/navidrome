@@ -160,6 +160,58 @@ on conflict(navidrome_track_id) do update set
 	return nil
 }
 
+func (s *Service) VerifyMusicBrainzConnectivity(ctx context.Context) error {
+	enrichmentDB, err := sql.Open("sqlite3", s.dbPath)
+	if err != nil {
+		return fmt.Errorf("open enrichment db: %w", err)
+	}
+	defer enrichmentDB.Close()
+
+	rows, err := enrichmentDB.QueryContext(ctx, `
+select navidrome_track_id, title, artist
+from tracks
+where status = ?
+limit 5
+`, defaultStatus)
+	if err != nil {
+		return fmt.Errorf("query pending tracks: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var trackID, title, artist string
+		if err := rows.Scan(&trackID, &title, &artist); err != nil {
+			return fmt.Errorf("scan pending track: %w", err)
+		}
+
+		body, statusCode, err := SearchMusicBrainzRecording(title, artist)
+		preview := firstN(string(body), 500)
+		if err != nil {
+			log.Error(ctx, "MusicBrainz connectivity check failed", "navidrome_track_id", trackID, "title", title, "artist", artist, "http_status", statusCode, err)
+			continue
+		}
+
+		log.Info(ctx, "MusicBrainz connectivity check", "navidrome_track_id", trackID, "title", title, "artist", artist, "http_status", statusCode, "response_preview", preview)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate pending tracks: %w", err)
+	}
+
+	return nil
+}
+
+func firstN(value string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= maxLen {
+		return value
+	}
+	return string(runes[:maxLen])
+}
+
 func normalizeMetadata(value string) string {
 	normalized := strings.ToLower(value)
 	normalized = featRegex.ReplaceAllString(normalized, " ")

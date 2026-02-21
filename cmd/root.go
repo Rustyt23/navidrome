@@ -75,8 +75,12 @@ func postRun() {
 func runNavidrome(ctx context.Context) {
 	defer db.Init(ctx)()
 
-	if err := metadataenrichment.NewService().InitAndImport(ctx); err != nil {
+	metadataEnrichmentService := metadataenrichment.NewService()
+	if err := metadataEnrichmentService.InitAndImport(ctx); err != nil {
 		log.Error(ctx, "Metadata enrichment startup failed", err)
+	}
+	if err := metadataEnrichmentService.VerifyMusicBrainzConnectivity(ctx); err != nil {
+		log.Error(ctx, "MusicBrainz connectivity verification failed", err)
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
