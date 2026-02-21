@@ -15,7 +15,6 @@ import { Box, Button, Card, CardContent, Grid, Typography } from '@material-ui/c
 import { makeStyles } from '@material-ui/core/styles'
 import { BiDownload } from 'react-icons/bi'
 import { DurationField } from '../common'
-import subsonic from '../subsonic'
 import { httpClient } from '../dataProvider'
 
 const useStyles = makeStyles({
@@ -201,10 +200,13 @@ const CovertartList = (props) => {
           sortable={false}
           render={(record) => (
             <img
-              src={subsonic.getCoverArtUrl(record, 64, true)}
+              src={record?.cover_art_url || '/default-cover.png'}
               alt={record.title || 'cover art'}
-              width="64"
-              height="64"
+              width="50"
+              height="50"
+              onError={(e) => {
+                e.currentTarget.src = '/default-cover.png'
+              }}
             />
           )}
         />

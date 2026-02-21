@@ -241,22 +241,36 @@ func (n *Router) populateSongArtwork(r *http.Request, song *model.MediaFile) {
 		return
 	}
 
-	coverArtID := song.CoverArtID().String()
-	song.ArtworkID = coverArtID
-
-	if coverArtID == "" {
+	if strings.TrimSpace(song.ArtworkID) != "" || strings.TrimSpace(song.ArtworkURL) != "" || song.HasCoverArt {
+		coverArtID := strings.TrimSpace(song.ArtworkID)
+		if coverArtID == "" {
+			coverArtID = song.CoverArtID().String()
+		}
+		song.ArtworkID = coverArtID
+		coverArtURL := strings.TrimSpace(song.ArtworkURL)
+		if coverArtURL == "" && coverArtID != "" {
+			coverArtURL = public.ImageURL(r, song.CoverArtID(), coverArtDefaultSize)
+		}
+		if coverArtURL != "" {
+			if strings.Contains(coverArtURL, "?") {
+				coverArtURL += "&square=true"
+			} else {
+				coverArtURL += "?square=true"
+			}
+		}
+		song.ArtworkURL = coverArtURL
+		song.CoverArtURL = coverArtURL
 		return
 	}
 
-	coverArtURL := public.ImageURL(r, song.CoverArtID(), coverArtDefaultSize)
-	if coverArtURL != "" {
-		if strings.Contains(coverArtURL, "?") {
-			coverArtURL += "&square=true"
-		} else {
-			coverArtURL += "?square=true"
-		}
+	if strings.TrimSpace(song.MbzReleaseID) != "" {
+		coverArtURL := "https://coverartarchive.org/release/" + strings.TrimSpace(song.MbzReleaseID) + "/front-250"
+		song.ArtworkURL = coverArtURL
+		song.CoverArtURL = coverArtURL
+		return
 	}
-	song.ArtworkURL = coverArtURL
+
+	song.CoverArtURL = ""
 }
 
 func (n *Router) addSongRoute(r chi.Router) {

@@ -42,6 +42,7 @@ type MediaFile struct {
 	HasCoverArt          bool     `structs:"has_cover_art" json:"hasCoverArt"`
 	ArtworkID            string   `structs:"-" json:"artworkId,omitempty"`
 	ArtworkURL           string   `structs:"-" json:"artworkUrl,omitempty"`
+	CoverArtURL          string   `structs:"-" json:"cover_art_url,omitempty"`
 	TrackNumber          int      `structs:"track_number" json:"trackNumber"`
 	DiscNumber           int      `structs:"disc_number" json:"discNumber"`
 	DiscSubtitle         string   `structs:"disc_subtitle" json:"discSubtitle,omitempty"`
