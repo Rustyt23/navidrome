@@ -28,13 +28,15 @@ type metadataFieldProgress struct {
 }
 
 type musicBrainzMetadataStatus struct {
-	Running    bool                  `json:"running"`
-	StartedAt  *time.Time            `json:"startedAt,omitempty"`
-	FinishedAt *time.Time            `json:"finishedAt,omitempty"`
-	LastError  string                `json:"lastError,omitempty"`
-	Album      metadataFieldProgress `json:"album"`
-	Year       metadataFieldProgress `json:"year"`
-	Genre      metadataFieldProgress `json:"genre"`
+	Running       bool                  `json:"running"`
+	StartedAt     *time.Time            `json:"startedAt,omitempty"`
+	FinishedAt    *time.Time            `json:"finishedAt,omitempty"`
+	LastError     string                `json:"lastError,omitempty"`
+	Album         metadataFieldProgress `json:"album"`
+	Year          metadataFieldProgress `json:"year"`
+	Genre         metadataFieldProgress `json:"genre"`
+	RecordingMBID metadataFieldProgress `json:"recordingMbid"`
+	ReleaseMBID   metadataFieldProgress `json:"releaseMbid"`
 }
 
 type musicBrainzMetadataJob struct {
@@ -70,9 +72,11 @@ func (j *musicBrainzMetadataJob) start(ds model.DataStore) bool {
 }
 
 type missingFlags struct {
-	album bool
-	year  bool
-	genre bool
+	album         bool
+	year          bool
+	genre         bool
+	recordingMBID bool
+	releaseMBID   bool
 }
 
 type mbMetadataCandidate struct {
@@ -129,7 +133,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		if fetchErr != nil {
 			failed++
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
-			j.finishFetch(c.flags, false, false, false)
+			j.finishFetch(c.flags, false, false, false, false, false)
 			continue
 		}
 
@@ -155,13 +159,13 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 				log.Error(ctx, "Could not update fetched MusicBrainz metadata", "songId", c.mf.ID, err)
 			} else {
 				updated++
-				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil)
+				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil, c.flags.recordingMBID && metadata.RecordingMBID != "", c.flags.releaseMBID && metadata.ReleaseMBID != "")
 			}
 		} else {
 			skipped++
 		}
 
-		j.finishFetch(c.flags, metadata.Album != "", metadata.Year > 0, metadata.Genre != "")
+		j.finishFetch(c.flags, metadata.Album != "", metadata.Year > 0, metadata.Genre != "", metadata.RecordingMBID != "", metadata.ReleaseMBID != "")
 	}
 
 	log.Info(ctx, "MusicBrainz metadata fetch completed",
@@ -189,11 +193,13 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 		}
 
 		flags := missingFlags{
-			album: isMissingAlbum(mf.Album),
-			year:  mf.Year == 0,
-			genre: strings.TrimSpace(mf.Genre) == "",
+			album:         isMissingAlbum(mf.Album),
+			year:          mf.Year == 0,
+			genre:         strings.TrimSpace(mf.Genre) == "",
+			recordingMBID: strings.TrimSpace(mf.MbzRecordingID) == "",
+			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
 		}
-		if !flags.album && !flags.year && !flags.genre {
+		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID {
 			continue
 		}
 
@@ -223,6 +229,14 @@ func (j *musicBrainzMetadataJob) incrementMissing(flags missingFlags) {
 		j.status.Genre.Missing++
 		j.status.Genre.Left++
 	}
+	if flags.recordingMBID {
+		j.status.RecordingMBID.Missing++
+		j.status.RecordingMBID.Left++
+	}
+	if flags.releaseMBID {
+		j.status.ReleaseMBID.Missing++
+		j.status.ReleaseMBID.Left++
+	}
 }
 
 func (j *musicBrainzMetadataJob) setFetching(flags missingFlags, delta int) {
@@ -237,9 +251,15 @@ func (j *musicBrainzMetadataJob) setFetching(flags missingFlags, delta int) {
 	if flags.genre {
 		j.status.Genre.Fetching += delta
 	}
+	if flags.recordingMBID {
+		j.status.RecordingMBID.Fetching += delta
+	}
+	if flags.releaseMBID {
+		j.status.ReleaseMBID.Fetching += delta
+	}
 }
 
-func (j *musicBrainzMetadataJob) setUpdated(album, year, genre bool) {
+func (j *musicBrainzMetadataJob) setUpdated(album, year, genre, recordingMBID, releaseMBID bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if album {
@@ -251,9 +271,15 @@ func (j *musicBrainzMetadataJob) setUpdated(album, year, genre bool) {
 	if genre {
 		j.status.Genre.Updated++
 	}
+	if recordingMBID {
+		j.status.RecordingMBID.Updated++
+	}
+	if releaseMBID {
+		j.status.ReleaseMBID.Updated++
+	}
 }
 
-func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, fetchedYear, fetchedGenre bool) {
+func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, fetchedYear, fetchedGenre, fetchedRecordingMBID, fetchedReleaseMBID bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if flags.album {
@@ -275,6 +301,20 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 		j.status.Genre.Left--
 		if fetchedGenre {
 			j.status.Genre.Fetched++
+		}
+	}
+	if flags.recordingMBID {
+		j.status.RecordingMBID.Fetching--
+		j.status.RecordingMBID.Left--
+		if fetchedRecordingMBID {
+			j.status.RecordingMBID.Fetched++
+		}
+	}
+	if flags.releaseMBID {
+		j.status.ReleaseMBID.Fetching--
+		j.status.ReleaseMBID.Left--
+		if fetchedReleaseMBID {
+			j.status.ReleaseMBID.Fetched++
 		}
 	}
 }
