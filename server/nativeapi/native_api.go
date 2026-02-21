@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +30,19 @@ import (
 
 const (
 	coverArtDefaultSize = consts.UICoverArtSize
+	coverCacheDirName   = "covercache"
 )
+
+var releaseMBIDRegex = regexp.MustCompile(`^[a-fA-F0-9-]+$`)
+
+var defaultCoverPlaceholder = []byte{
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+	0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x04, 0x00, 0x00, 0x00, 0xB5, 0x1C, 0x0C, 0x02, 0x00, 0x00, 0x00,
+	0x0B, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0xFC, 0xFF, 0x1F, 0x00,
+	0x03, 0x03, 0x02, 0x00, 0xEF, 0x26, 0x05, 0x9B, 0x00, 0x00, 0x00, 0x00,
+	0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+}
 
 type Router struct {
 	http.Handler
@@ -50,6 +65,7 @@ func New(ds model.DataStore, share core.Share, playlists core.Playlists, insight
 		devices:     newRetailPlayerDeviceResolver(),
 		metadataJob: newMusicBrainzMetadataJob(),
 	}
+	r.ensureCoverCacheDir()
 	r.preloadRetailPlayerDeviceMappings()
 	r.Handler = r.routes()
 	return r
@@ -101,6 +117,7 @@ func (n *Router) routes() http.Handler {
 
 	// Public
 	n.addRetailPlayerPublicRoutes(r)
+	n.addCoverRoute(r)
 	n.addSongRoute(r)
 	n.RX(r, "/translation", newTranslationRepository, false)
 
@@ -172,6 +189,45 @@ func (n *Router) RX(r chi.Router, pathPrefix string, constructor rest.Repository
 	})
 }
 
+func (n *Router) coverCacheDir() string {
+	return filepath.Join(conf.Server.DataFolder, coverCacheDirName)
+}
+
+func (n *Router) ensureCoverCacheDir() {
+	if err := os.MkdirAll(n.coverCacheDir(), 0o755); err != nil {
+		log.Error(context.Background(), "Could not create cover cache directory", "dir", n.coverCacheDir(), "err", err)
+	}
+}
+
+func (n *Router) coverFilePath(releaseMBID string) string {
+	return filepath.Join(n.coverCacheDir(), releaseMBID+".jpg")
+}
+
+func (n *Router) addCoverRoute(r chi.Router) {
+	r.Get("/cover/{releaseMBID}", func(w http.ResponseWriter, req *http.Request) {
+		releaseMBID := strings.TrimSpace(chi.URLParam(req, "releaseMBID"))
+		if releaseMBID == "" || !releaseMBIDRegex.MatchString(releaseMBID) {
+			n.writeDefaultCover(w)
+			return
+		}
+
+		filePath := n.coverFilePath(releaseMBID)
+		w.Header().Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+		if _, err := os.Stat(filePath); err == nil {
+			http.ServeFile(w, req, filePath)
+			return
+		}
+
+		n.writeDefaultCover(w)
+	})
+}
+
+func (n *Router) writeDefaultCover(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(defaultCoverPlaceholder)
+}
+
 func (n *Router) withSongArtwork(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rec := httptest.NewRecorder()
@@ -241,22 +297,35 @@ func (n *Router) populateSongArtwork(r *http.Request, song *model.MediaFile) {
 		return
 	}
 
-	coverArtID := song.CoverArtID().String()
-	song.ArtworkID = coverArtID
-
-	if coverArtID == "" {
+	if strings.TrimSpace(song.ArtworkID) != "" || strings.TrimSpace(song.ArtworkURL) != "" || song.HasCoverArt {
+		coverArtID := strings.TrimSpace(song.ArtworkID)
+		if coverArtID == "" {
+			coverArtID = song.CoverArtID().String()
+		}
+		song.ArtworkID = coverArtID
+		coverArtURL := strings.TrimSpace(song.ArtworkURL)
+		if coverArtURL == "" && coverArtID != "" {
+			coverArtURL = public.ImageURL(r, song.CoverArtID(), coverArtDefaultSize)
+		}
+		if coverArtURL != "" {
+			if strings.Contains(coverArtURL, "?") {
+				coverArtURL += "&square=true"
+			} else {
+				coverArtURL += "?square=true"
+			}
+		}
+		song.ArtworkURL = coverArtURL
+		song.CoverArtURL = coverArtURL
 		return
 	}
 
-	coverArtURL := public.ImageURL(r, song.CoverArtID(), coverArtDefaultSize)
-	if coverArtURL != "" {
-		if strings.Contains(coverArtURL, "?") {
-			coverArtURL += "&square=true"
-		} else {
-			coverArtURL += "?square=true"
-		}
+	if releaseMBID := strings.TrimSpace(song.MbzReleaseID); releaseMBID != "" && releaseMBIDRegex.MatchString(releaseMBID) {
+		song.CoverArtURL = "/api/cover/" + releaseMBID
+		song.ArtworkURL = song.CoverArtURL
+		return
 	}
-	song.ArtworkURL = coverArtURL
+
+	song.CoverArtURL = ""
 }
 
 func (n *Router) addSongRoute(r chi.Router) {

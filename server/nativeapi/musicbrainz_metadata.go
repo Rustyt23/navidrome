@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -15,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
@@ -28,24 +32,31 @@ type metadataFieldProgress struct {
 }
 
 type musicBrainzMetadataStatus struct {
-	Running    bool                  `json:"running"`
-	StartedAt  *time.Time            `json:"startedAt,omitempty"`
-	FinishedAt *time.Time            `json:"finishedAt,omitempty"`
-	LastError  string                `json:"lastError,omitempty"`
-	Album      metadataFieldProgress `json:"album"`
-	Year       metadataFieldProgress `json:"year"`
-	Genre      metadataFieldProgress `json:"genre"`
+	Running       bool                  `json:"running"`
+	StartedAt     *time.Time            `json:"startedAt,omitempty"`
+	FinishedAt    *time.Time            `json:"finishedAt,omitempty"`
+	LastError     string                `json:"lastError,omitempty"`
+	Album         metadataFieldProgress `json:"album"`
+	Year          metadataFieldProgress `json:"year"`
+	Genre         metadataFieldProgress `json:"genre"`
+	RecordingMBID metadataFieldProgress `json:"recordingMbid"`
+	ReleaseMBID   metadataFieldProgress `json:"releaseMbid"`
+	CoverArt      metadataFieldProgress `json:"coverArt"`
 }
 
 type musicBrainzMetadataJob struct {
-	mu     sync.RWMutex
-	status musicBrainzMetadataStatus
-	client *http.Client
+	mu          sync.RWMutex
+	status      musicBrainzMetadataStatus
+	client      *http.Client
+	coverClient *http.Client
+	coverMisses sync.Map
+	coverChecks sync.Map
 }
 
 func newMusicBrainzMetadataJob() *musicBrainzMetadataJob {
 	return &musicBrainzMetadataJob{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client:      &http.Client{Timeout: 15 * time.Second},
+		coverClient: &http.Client{Timeout: 2 * time.Second},
 	}
 }
 
@@ -70,14 +81,25 @@ func (j *musicBrainzMetadataJob) start(ds model.DataStore) bool {
 }
 
 type missingFlags struct {
-	album bool
-	year  bool
-	genre bool
+	album         bool
+	year          bool
+	genre         bool
+	recordingMBID bool
+	releaseMBID   bool
+	coverArt      bool
 }
 
 type mbMetadataCandidate struct {
 	mf    model.MediaFile
 	flags missingFlags
+}
+
+type metadataResult struct {
+	Album         string
+	Year          int
+	Genre         string
+	RecordingMBID string
+	ReleaseMBID   string
 }
 
 func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
@@ -117,11 +139,11 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		}
 		j.setFetching(c.flags, 1)
 
-		album, year, genre, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
+		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
 		if fetchErr != nil {
 			failed++
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
-			j.finishFetch(c.flags, false, false, false)
+			j.finishFetch(c.flags, false, false, false, false, false, false)
 			continue
 		}
 
@@ -131,29 +153,52 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		var setYear *int
 		var setGenre *string
 
-		if c.flags.album && album != "" {
-			setAlbum = &album
+		if c.flags.album && metadata.Album != "" {
+			setAlbum = &metadata.Album
 		}
-		if c.flags.year && year > 0 {
-			setYear = &year
+		if c.flags.year && metadata.Year > 0 {
+			setYear = &metadata.Year
 		}
-		if c.flags.genre && genre != "" {
-			setGenre = &genre
+		if c.flags.genre && metadata.Genre != "" {
+			setGenre = &metadata.Genre
 		}
 
-		if setAlbum != nil || setYear != nil || setGenre != nil {
-			if err := ds.MediaFile(ctx).UpdateMissingMetadata(c.mf.ID, setAlbum, setYear, setGenre); err != nil {
+		if setAlbum != nil || setYear != nil || setGenre != nil || metadata.RecordingMBID != "" || metadata.ReleaseMBID != "" {
+			if err := ds.MediaFile(ctx).UpdateMissingMetadata(c.mf.ID, setAlbum, setYear, setGenre, valueOrNil(metadata.RecordingMBID), valueOrNil(metadata.ReleaseMBID)); err != nil {
 				failed++
 				log.Error(ctx, "Could not update fetched MusicBrainz metadata", "songId", c.mf.ID, err)
 			} else {
 				updated++
-				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil)
+				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil, c.flags.recordingMBID && metadata.RecordingMBID != "", c.flags.releaseMBID && metadata.ReleaseMBID != "", false)
 			}
 		} else {
 			skipped++
 		}
 
-		j.finishFetch(c.flags, album != "", year > 0, genre != "")
+		coverFetched := false
+		coverUpdated := false
+		if c.flags.coverArt && !c.mf.HasCoverArt && strings.TrimSpace(c.mf.CoverPath) == "" {
+			releaseMBID := strings.TrimSpace(c.mf.MbzReleaseID)
+			if releaseMBID == "" {
+				releaseMBID = strings.TrimSpace(metadata.ReleaseMBID)
+			}
+			if releaseMBID != "" && releaseMBIDRegex.MatchString(releaseMBID) {
+				relPath, ok := j.ensureReleaseCover(ctx, releaseMBID)
+				if ok {
+					coverFetched = true
+					if err := ds.MediaFile(ctx).UpdateCoverPath(c.mf.ID, relPath); err != nil {
+						log.Warn(ctx, "Could not update cover path", "songId", c.mf.ID, "releaseMBID", releaseMBID, "err", err)
+					} else {
+						coverUpdated = true
+					}
+				}
+			}
+		}
+
+		if coverUpdated {
+			j.setUpdated(false, false, false, false, false, true)
+		}
+		j.finishFetch(c.flags, metadata.Album != "", metadata.Year > 0, metadata.Genre != "", metadata.RecordingMBID != "", metadata.ReleaseMBID != "", coverFetched)
 	}
 
 	log.Info(ctx, "MusicBrainz metadata fetch completed",
@@ -181,11 +226,14 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 		}
 
 		flags := missingFlags{
-			album: isMissingAlbum(mf.Album),
-			year:  mf.Year == 0,
-			genre: strings.TrimSpace(mf.Genre) == "",
+			album:         isMissingAlbum(mf.Album),
+			year:          mf.Year == 0,
+			genre:         strings.TrimSpace(mf.Genre) == "",
+			recordingMBID: strings.TrimSpace(mf.MbzRecordingID) == "",
+			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
+			coverArt:      !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == "",
 		}
-		if !flags.album && !flags.year && !flags.genre {
+		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID && !flags.coverArt {
 			continue
 		}
 
@@ -215,6 +263,18 @@ func (j *musicBrainzMetadataJob) incrementMissing(flags missingFlags) {
 		j.status.Genre.Missing++
 		j.status.Genre.Left++
 	}
+	if flags.recordingMBID {
+		j.status.RecordingMBID.Missing++
+		j.status.RecordingMBID.Left++
+	}
+	if flags.releaseMBID {
+		j.status.ReleaseMBID.Missing++
+		j.status.ReleaseMBID.Left++
+	}
+	if flags.coverArt {
+		j.status.CoverArt.Missing++
+		j.status.CoverArt.Left++
+	}
 }
 
 func (j *musicBrainzMetadataJob) setFetching(flags missingFlags, delta int) {
@@ -229,9 +289,18 @@ func (j *musicBrainzMetadataJob) setFetching(flags missingFlags, delta int) {
 	if flags.genre {
 		j.status.Genre.Fetching += delta
 	}
+	if flags.recordingMBID {
+		j.status.RecordingMBID.Fetching += delta
+	}
+	if flags.releaseMBID {
+		j.status.ReleaseMBID.Fetching += delta
+	}
+	if flags.coverArt {
+		j.status.CoverArt.Fetching += delta
+	}
 }
 
-func (j *musicBrainzMetadataJob) setUpdated(album, year, genre bool) {
+func (j *musicBrainzMetadataJob) setUpdated(album, year, genre, recordingMBID, releaseMBID, coverArt bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if album {
@@ -243,9 +312,18 @@ func (j *musicBrainzMetadataJob) setUpdated(album, year, genre bool) {
 	if genre {
 		j.status.Genre.Updated++
 	}
+	if recordingMBID {
+		j.status.RecordingMBID.Updated++
+	}
+	if releaseMBID {
+		j.status.ReleaseMBID.Updated++
+	}
+	if coverArt {
+		j.status.CoverArt.Updated++
+	}
 }
 
-func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, fetchedYear, fetchedGenre bool) {
+func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, fetchedYear, fetchedGenre, fetchedRecordingMBID, fetchedReleaseMBID, fetchedCoverArt bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if flags.album {
@@ -269,6 +347,27 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 			j.status.Genre.Fetched++
 		}
 	}
+	if flags.recordingMBID {
+		j.status.RecordingMBID.Fetching--
+		j.status.RecordingMBID.Left--
+		if fetchedRecordingMBID {
+			j.status.RecordingMBID.Fetched++
+		}
+	}
+	if flags.releaseMBID {
+		j.status.ReleaseMBID.Fetching--
+		j.status.ReleaseMBID.Left--
+		if fetchedReleaseMBID {
+			j.status.ReleaseMBID.Fetched++
+		}
+	}
+	if flags.coverArt {
+		j.status.CoverArt.Fetching--
+		j.status.CoverArt.Left--
+		if fetchedCoverArt {
+			j.status.CoverArt.Fetched++
+		}
+	}
 }
 
 func (j *musicBrainzMetadataJob) setError(err error) {
@@ -277,24 +376,95 @@ func (j *musicBrainzMetadataJob) setError(err error) {
 	j.status.LastError = err.Error()
 }
 
+func (j *musicBrainzMetadataJob) ensureReleaseCover(ctx context.Context, releaseMBID string) (string, bool) {
+	if _, err := os.Stat(filepath.Join(conf.Server.DataFolder, coverCacheDirName)); err != nil {
+		if err := os.MkdirAll(filepath.Join(conf.Server.DataFolder, coverCacheDirName), 0o755); err != nil {
+			log.Warn(ctx, "Could not create cover cache directory", "err", err)
+			return "", false
+		}
+	}
+
+	coverPath := filepath.Join(conf.Server.DataFolder, coverCacheDirName, releaseMBID+".jpg")
+	if _, err := os.Stat(coverPath); err == nil {
+		return filepath.ToSlash(filepath.Join(coverCacheDirName, releaseMBID+".jpg")), true
+	}
+	if _, missed := j.coverMisses.Load(releaseMBID); missed {
+		return "", false
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://coverartarchive.org/release/"+releaseMBID+"/front-500", nil)
+	if err != nil {
+		log.Warn(ctx, "Could not build cover request", "releaseMBID", releaseMBID, "err", err)
+		return "", false
+	}
+	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		log.Warn(ctx, "Could not fetch cover art", "releaseMBID", releaseMBID, "err", err)
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		j.coverMisses.Store(releaseMBID, true)
+		return "", false
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Warn(ctx, "Unexpected cover status", "releaseMBID", releaseMBID, "status", resp.StatusCode)
+		return "", false
+	}
+
+	tmpPath := coverPath + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		log.Warn(ctx, "Could not create cover file", "path", tmpPath, "err", err)
+		return "", false
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		log.Warn(ctx, "Could not save cover file", "path", tmpPath, "err", err)
+		return "", false
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", false
+	}
+	if err := os.Rename(tmpPath, coverPath); err != nil {
+		_ = os.Remove(tmpPath)
+		log.Warn(ctx, "Could not store cover file", "path", coverPath, "err", err)
+		return "", false
+	}
+
+	return filepath.ToSlash(filepath.Join(coverCacheDirName, releaseMBID+".jpg")), true
+}
+
 type mbSearchResponse struct {
-	Recordings []struct {
-		Score            mbScore `json:"score"`
-		FirstReleaseDate string  `json:"first-release-date"`
-		ArtistCredit     []struct {
-			Name string `json:"name"`
-		} `json:"artist-credit"`
-		Releases []struct {
-			Title        string   `json:"title"`
-			Date         string   `json:"date"`
-			Status       string   `json:"status"`
-			ReleaseGroup mbGroup  `json:"release-group"`
-			Tags         []mbName `json:"tags"`
-			Genres       []mbName `json:"genres"`
-		} `json:"releases"`
-		Tags   []mbName `json:"tags"`
-		Genres []mbName `json:"genres"`
-	} `json:"recordings"`
+	Recordings []mbRecording `json:"recordings"`
+}
+
+type mbRecording struct {
+	ID               string  `json:"id"`
+	Score            mbScore `json:"score"`
+	FirstReleaseDate string  `json:"first-release-date"`
+	ArtistCredit     []struct {
+		Name string `json:"name"`
+	} `json:"artist-credit"`
+	Releases []mbRelease `json:"releases"`
+	Tags     []mbName    `json:"tags"`
+	Genres   []mbName    `json:"genres"`
+}
+
+type mbRelease struct {
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Date         string   `json:"date"`
+	Status       string   `json:"status"`
+	Country      string   `json:"country"`
+	ReleaseGroup mbGroup  `json:"release-group"`
+	Tags         []mbName `json:"tags"`
+	Genres       []mbName `json:"genres"`
 }
 
 type mbScore string
@@ -331,163 +501,212 @@ type mbGroup struct {
 	SecondaryType []string `json:"secondary-types"`
 }
 
-func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (string, int, string, error) {
+func valueOrNil(v string) *string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
 	query := fmt.Sprintf("artist:%s AND recording:%s", artist, title)
-	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json"
+	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
-		return "", 0, "", err
+		return metadataResult{}, err
 	}
 	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
 
 	resp, err := j.client.Do(req)
 	if err != nil {
-		return "", 0, "", err
+		return metadataResult{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, "", fmt.Errorf("musicbrainz status %d", resp.StatusCode)
+		return metadataResult{}, fmt.Errorf("musicbrainz status %d", resp.StatusCode)
 	}
 
 	var payload mbSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", 0, "", err
+		return metadataResult{}, err
 	}
 	if len(payload.Recordings) == 0 {
-		return "", 0, "", nil
+		return metadataResult{}, nil
 	}
 
-	bestRecording := selectBestRecording(payload.Recordings, artist)
-	if bestRecording == nil {
-		return "", 0, "", nil
+	recordings := filterCandidateRecordings(payload.Recordings, artist)
+	if len(recordings) == 0 {
+		return metadataResult{}, nil
 	}
 
-	bestRelease := selectBestRelease(bestRecording.Releases)
-	if bestRelease == nil {
-		return "", 0, collectRecordingGenre(*bestRecording), nil
+	best := j.selectBestRecordingRelease(context.Background(), recordings)
+	if best == nil {
+		return metadataResult{}, nil
 	}
 
-	album := strings.TrimSpace(bestRelease.Title)
-	year := yearFromDate(bestRelease.Date)
+	album := strings.TrimSpace(best.release.Title)
+	year := yearFromDate(best.release.Date)
 	if year == 0 {
-		year = yearFromDate(bestRecording.FirstReleaseDate)
+		year = yearFromDate(best.recording.FirstReleaseDate)
 	}
-	genre := collectGenre(*bestRecording, *bestRelease)
-	return album, year, genre, nil
+	genre := collectGenre(*best.recording, *best.release)
+	return metadataResult{
+		Album:         album,
+		Year:          year,
+		Genre:         genre,
+		RecordingMBID: strings.TrimSpace(best.recording.ID),
+		ReleaseMBID:   strings.TrimSpace(best.release.ID),
+	}, nil
 }
 
-func selectBestRecording(recordings []struct {
-	Score            mbScore `json:"score"`
-	FirstReleaseDate string  `json:"first-release-date"`
-	ArtistCredit     []struct {
-		Name string `json:"name"`
-	} `json:"artist-credit"`
-	Releases []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	} `json:"releases"`
-	Tags   []mbName `json:"tags"`
-	Genres []mbName `json:"genres"`
-}, artist string) *struct {
-	Score            mbScore `json:"score"`
-	FirstReleaseDate string  `json:"first-release-date"`
-	ArtistCredit     []struct {
-		Name string `json:"name"`
-	} `json:"artist-credit"`
-	Releases []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	} `json:"releases"`
-	Tags   []mbName `json:"tags"`
-	Genres []mbName `json:"genres"`
-} {
+type mbReleaseCandidate struct {
+	recording *mbRecording
+	release   *mbRelease
+	hasCover  bool
+	year      int
+	usCountry bool
+}
+
+func filterCandidateRecordings(recordings []mbRecording, artist string) []mbRecording {
 	normalizedArtist := normalizeMBString(artist)
-
-	type recCandidate struct {
-		rec *struct {
-			Score            mbScore `json:"score"`
-			FirstReleaseDate string  `json:"first-release-date"`
-			ArtistCredit     []struct {
-				Name string `json:"name"`
-			} `json:"artist-credit"`
-			Releases []struct {
-				Title        string   `json:"title"`
-				Date         string   `json:"date"`
-				Status       string   `json:"status"`
-				ReleaseGroup mbGroup  `json:"release-group"`
-				Tags         []mbName `json:"tags"`
-				Genres       []mbName `json:"genres"`
-			} `json:"releases"`
-			Tags   []mbName `json:"tags"`
-			Genres []mbName `json:"genres"`
-		}
-		score    int
-		releases int
-		hasAlbum bool
-		earliest int
-	}
-
-	candidates := make([]recCandidate, 0, len(recordings))
-	for i := range recordings {
-		rec := &recordings[i]
-		score := rec.Score.Int()
-		if score < 80 {
+	filtered := make([]mbRecording, 0, len(recordings))
+	for _, rec := range recordings {
+		if rec.Score.Int() < 80 {
 			continue
 		}
 		if !artistCreditMatches(rec.ArtistCredit, normalizedArtist) {
 			continue
 		}
+		filtered = append(filtered, rec)
+	}
+	return filtered
+}
 
-		hasAlbum := false
-		earliest := 9999
-		for _, rel := range rec.Releases {
-			if !isValidRelease(rel) {
+func (j *musicBrainzMetadataJob) selectBestRecordingRelease(ctx context.Context, recordings []mbRecording) *mbReleaseCandidate {
+	preferred := make([]mbReleaseCandidate, 0)
+	officialFallback := make([]mbReleaseCandidate, 0)
+
+	for i := range recordings {
+		rec := &recordings[i]
+		for k := range rec.Releases {
+			rel := &rec.Releases[k]
+			if !isValidRelease(*rel) {
 				continue
 			}
-			if isAlbumRelease(rel) {
-				hasAlbum = true
-			}
-			if y := yearFromDate(rel.Date); y > 0 && y < earliest {
-				earliest = y
+			if strings.EqualFold(strings.TrimSpace(rel.Status), "Official") {
+				candidate := mbReleaseCandidate{
+					recording: rec,
+					release:   rel,
+					year:      yearFromDate(rel.Date),
+					usCountry: strings.EqualFold(strings.TrimSpace(rel.Country), "US"),
+				}
+				officialFallback = append(officialFallback, candidate)
+				if isAlbumRelease(*rel) {
+					preferred = append(preferred, candidate)
+				}
 			}
 		}
-		candidates = append(candidates, recCandidate{rec: rec, score: score, releases: len(rec.Releases), hasAlbum: hasAlbum, earliest: earliest})
+	}
+
+	candidates := preferred
+	if len(candidates) == 0 {
+		candidates = officialFallback
 	}
 	if len(candidates) == 0 {
 		return nil
 	}
 
-	slices.SortFunc(candidates, func(a, b recCandidate) int {
-		if a.releases > 0 && b.releases == 0 {
+	if hasPreferredSubtype(candidates) {
+		filtered := make([]mbReleaseCandidate, 0, len(candidates))
+		for _, c := range candidates {
+			if !hasDiscouragedSecondaryType(*c.release) {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) > 0 {
+			candidates = filtered
+		}
+	}
+
+	for i := range candidates {
+		candidates[i].hasCover = j.releaseHasCover(ctx, strings.TrimSpace(candidates[i].release.ID))
+	}
+
+	slices.SortFunc(candidates, func(a, b mbReleaseCandidate) int {
+		if a.hasCover && !b.hasCover {
 			return -1
 		}
-		if a.releases == 0 && b.releases > 0 {
+		if !a.hasCover && b.hasCover {
 			return 1
 		}
-		if a.score != b.score {
-			return b.score - a.score
+		if a.year == 0 && b.year > 0 {
+			return 1
 		}
-		if a.hasAlbum && !b.hasAlbum {
+		if b.year == 0 && a.year > 0 {
 			return -1
 		}
-		if !a.hasAlbum && b.hasAlbum {
-			return 1
+		if a.year != b.year {
+			return a.year - b.year
 		}
-		if a.earliest != b.earliest {
-			return a.earliest - b.earliest
+		if a.usCountry && !b.usCountry {
+			return -1
+		}
+		if !a.usCountry && b.usCountry {
+			return 1
 		}
 		return 0
 	})
 
-	return candidates[0].rec
+	return &candidates[0]
+}
+
+func hasPreferredSubtype(candidates []mbReleaseCandidate) bool {
+	for _, c := range candidates {
+		if !hasDiscouragedSecondaryType(*c.release) {
+			return true
+		}
+	}
+	return false
+}
+
+func (j *musicBrainzMetadataJob) releaseHasCover(ctx context.Context, releaseID string) bool {
+	if releaseID == "" {
+		return false
+	}
+	if cached, ok := j.coverChecks.Load(releaseID); ok {
+		if hasCover, ok := cached.(bool); ok {
+			return hasCover
+		}
+	}
+
+	headCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(headCtx, http.MethodHead, "https://coverartarchive.org/release/"+releaseID, nil)
+	if err != nil {
+		j.coverChecks.Store(releaseID, false)
+		return false
+	}
+	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+
+	resp, err := j.coverClient.Do(req)
+	if err != nil {
+		j.coverChecks.Store(releaseID, false)
+		return false
+	}
+	defer resp.Body.Close()
+
+	hasCover := resp.StatusCode == http.StatusOK
+	j.coverChecks.Store(releaseID, hasCover)
+	return hasCover
+}
+
+func selectBestRecording(recordings []mbRecording, artist string) *mbRecording {
+	filtered := filterCandidateRecordings(recordings, artist)
+	if len(filtered) == 0 {
+		return nil
+	}
+	return &filtered[0]
 }
 
 func artistCreditMatches(credits []struct {
@@ -504,33 +723,14 @@ func artistCreditMatches(credits []struct {
 	return false
 }
 
-func selectBestRelease(releases []struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-}) *struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-} {
+func selectBestRelease(releases []mbRelease) *mbRelease {
 	type relCandidate struct {
-		release *struct {
-			Title        string   `json:"title"`
-			Date         string   `json:"date"`
-			Status       string   `json:"status"`
-			ReleaseGroup mbGroup  `json:"release-group"`
-			Tags         []mbName `json:"tags"`
-			Genres       []mbName `json:"genres"`
-		}
-		official bool
-		album    bool
-		year     int
+		release               *mbRelease
+		official              bool
+		album                 bool
+		hasDiscouragedSubtype bool
+		usCountry             bool
+		year                  int
 	}
 
 	candidates := make([]relCandidate, 0, len(releases))
@@ -540,10 +740,12 @@ func selectBestRelease(releases []struct {
 			continue
 		}
 		candidates = append(candidates, relCandidate{
-			release:  release,
-			official: strings.EqualFold(strings.TrimSpace(release.Status), "Official"),
-			album:    isAlbumRelease(*release),
-			year:     yearFromDate(release.Date),
+			release:               release,
+			official:              strings.EqualFold(strings.TrimSpace(release.Status), "Official"),
+			album:                 isAlbumRelease(*release),
+			hasDiscouragedSubtype: hasDiscouragedSecondaryType(*release),
+			usCountry:             strings.EqualFold(strings.TrimSpace(release.Country), "US"),
+			year:                  yearFromDate(release.Date),
 		})
 	}
 	if len(candidates) == 0 {
@@ -563,6 +765,12 @@ func selectBestRelease(releases []struct {
 		if !a.album && b.album {
 			return 1
 		}
+		if !a.hasDiscouragedSubtype && b.hasDiscouragedSubtype {
+			return -1
+		}
+		if a.hasDiscouragedSubtype && !b.hasDiscouragedSubtype {
+			return 1
+		}
 		if a.year == 0 && b.year > 0 {
 			return 1
 		}
@@ -572,91 +780,51 @@ func selectBestRelease(releases []struct {
 		if a.year != b.year {
 			return a.year - b.year
 		}
+		if a.usCountry && !b.usCountry {
+			return -1
+		}
+		if !a.usCountry && b.usCountry {
+			return 1
+		}
 		return 0
 	})
 
 	return candidates[0].release
 }
 
-func isValidRelease(release struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-}) bool {
+func isValidRelease(release mbRelease) bool {
 	if strings.TrimSpace(release.Title) == "" {
 		return false
 	}
-	types := make([]string, 0, len(release.ReleaseGroup.SecondaryType)+1)
-	types = append(types, release.ReleaseGroup.PrimaryType)
-	types = append(types, release.ReleaseGroup.SecondaryType...)
-	for _, t := range types {
+	for _, t := range release.ReleaseGroup.SecondaryType {
 		n := normalizeMBString(t)
-		if n == "compilation" || n == "live" || n == "unofficial" || n == "promo" {
+		if n == "unofficial" || n == "promo" {
 			return false
 		}
 	}
 	return true
 }
 
-func isAlbumRelease(release struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-}) bool {
+func hasDiscouragedSecondaryType(release mbRelease) bool {
+	for _, t := range release.ReleaseGroup.SecondaryType {
+		n := normalizeMBString(t)
+		if n == "compilation" || n == "live" {
+			return true
+		}
+	}
+	return false
+}
+
+func isAlbumRelease(release mbRelease) bool {
 	primaryType := normalizeMBString(release.ReleaseGroup.PrimaryType)
 	return primaryType == "album"
 }
 
-func collectRecordingGenre(rec struct {
-	Score            mbScore `json:"score"`
-	FirstReleaseDate string  `json:"first-release-date"`
-	ArtistCredit     []struct {
-		Name string `json:"name"`
-	} `json:"artist-credit"`
-	Releases []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	} `json:"releases"`
-	Tags   []mbName `json:"tags"`
-	Genres []mbName `json:"genres"`
-}) string {
+func collectRecordingGenre(rec mbRecording) string {
 	return collectGenres(rec.Genres, rec.Tags)
 }
 
-func collectGenre(rec struct {
-	Score            mbScore `json:"score"`
-	FirstReleaseDate string  `json:"first-release-date"`
-	ArtistCredit     []struct {
-		Name string `json:"name"`
-	} `json:"artist-credit"`
-	Releases []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	} `json:"releases"`
-	Tags   []mbName `json:"tags"`
-	Genres []mbName `json:"genres"`
-}, release struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-}) string {
+func collectGenre(rec mbRecording, release mbRelease) string {
 	genre := collectGenres(release.Genres, release.Tags)
 	if genre != "" {
 		return genre

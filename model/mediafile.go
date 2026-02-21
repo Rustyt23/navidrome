@@ -42,6 +42,8 @@ type MediaFile struct {
 	HasCoverArt          bool     `structs:"has_cover_art" json:"hasCoverArt"`
 	ArtworkID            string   `structs:"-" json:"artworkId,omitempty"`
 	ArtworkURL           string   `structs:"-" json:"artworkUrl,omitempty"`
+	CoverArtURL          string   `structs:"-" json:"cover_art_url,omitempty"`
+	CoverPath            string   `structs:"cover_path" json:"coverPath,omitempty"`
 	TrackNumber          int      `structs:"track_number" json:"trackNumber"`
 	DiscNumber           int      `structs:"disc_number" json:"discNumber"`
 	DiscSubtitle         string   `structs:"disc_subtitle" json:"discSubtitle,omitempty"`
@@ -75,6 +77,7 @@ type MediaFile struct {
 	ExplicitStatus       string   `structs:"explicit_status" json:"explicitStatus"`
 	CatalogNum           string   `structs:"catalog_num" json:"catalogNum,omitempty"`
 	MbzRecordingID       string   `structs:"mbz_recording_id" json:"mbzRecordingID,omitempty"`
+	MbzReleaseID         string   `structs:"mbz_release_id" json:"mbzReleaseId,omitempty"`
 	MbzReleaseTrackID    string   `structs:"mbz_release_track_id" json:"mbzReleaseTrackId,omitempty"`
 	MbzAlbumID           string   `structs:"mbz_album_id" json:"mbzAlbumId,omitempty"`
 	MbzReleaseGroupID    string   `structs:"mbz_release_group_id" json:"mbzReleaseGroupId,omitempty"`
@@ -359,7 +362,8 @@ type MediaFileRepository interface {
 	DeleteAllMissing() (int64, error)
 	FindByPaths(paths []string) (MediaFiles, error)
 	UpdateComment(ids []string, comment string) error
-	UpdateMissingMetadata(id string, album *string, year *int, genre *string) error
+	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
+	UpdateCoverPath(id string, coverPath string) error
 
 	// The following methods are used exclusively by the scanner:
 	MarkMissing(bool, ...*MediaFile) error

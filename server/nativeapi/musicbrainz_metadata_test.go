@@ -1,6 +1,12 @@
 package nativeapi
 
-import "testing"
+import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+)
 
 func TestNormalizeMBString(t *testing.T) {
 	got := normalizeMBString("  AC/DC - Live!  ")
@@ -10,50 +16,20 @@ func TestNormalizeMBString(t *testing.T) {
 }
 
 func TestSelectBestRecording(t *testing.T) {
-	payload := mbSearchResponse{Recordings: []struct {
-		Score            mbScore `json:"score"`
-		FirstReleaseDate string  `json:"first-release-date"`
-		ArtistCredit     []struct {
-			Name string `json:"name"`
-		} `json:"artist-credit"`
-		Releases []struct {
-			Title        string   `json:"title"`
-			Date         string   `json:"date"`
-			Status       string   `json:"status"`
-			ReleaseGroup mbGroup  `json:"release-group"`
-			Tags         []mbName `json:"tags"`
-			Genres       []mbName `json:"genres"`
-		} `json:"releases"`
-		Tags   []mbName `json:"tags"`
-		Genres []mbName `json:"genres"`
-	}{
+	payload := mbSearchResponse{Recordings: []mbRecording{
 		{
 			Score: "95",
 			ArtistCredit: []struct {
 				Name string `json:"name"`
 			}{{Name: "Wrong Artist"}},
-			Releases: []struct {
-				Title        string   `json:"title"`
-				Date         string   `json:"date"`
-				Status       string   `json:"status"`
-				ReleaseGroup mbGroup  `json:"release-group"`
-				Tags         []mbName `json:"tags"`
-				Genres       []mbName `json:"genres"`
-			}{{Title: "Wrong Album", Date: "2010-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
+			Releases: []mbRelease{{Title: "Wrong Album", Date: "2010-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
 		},
 		{
 			Score: "92",
 			ArtistCredit: []struct {
 				Name string `json:"name"`
 			}{{Name: "The Artist"}},
-			Releases: []struct {
-				Title        string   `json:"title"`
-				Date         string   `json:"date"`
-				Status       string   `json:"status"`
-				ReleaseGroup mbGroup  `json:"release-group"`
-				Tags         []mbName `json:"tags"`
-				Genres       []mbName `json:"genres"`
-			}{{Title: "Best Album", Date: "2001-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
+			Releases: []mbRelease{{Title: "Best Album", Date: "2001-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
 		},
 		{
 			Score: "79",
@@ -72,25 +48,57 @@ func TestSelectBestRecording(t *testing.T) {
 	}
 }
 
+func TestSelectBestRecordingReleasePrefersCover(t *testing.T) {
+	job := newMusicBrainzMetadataJob()
+	job.coverClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "rel-no-cover") {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+		if strings.Contains(r.URL.Path, "rel-cover") {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+
+	recordings := []mbRecording{{
+		ID:    "rec-1",
+		Score: "99",
+		ArtistCredit: []struct {
+			Name string `json:"name"`
+		}{{Name: "Artist"}},
+		Releases: []mbRelease{
+			{ID: "rel-no-cover", Title: "No Cover", Date: "1999-01-01", Status: "Official", Country: "US", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+			{ID: "rel-cover", Title: "Has Cover", Date: "2005-01-01", Status: "Official", Country: "GB", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		},
+	}}
+
+	best := job.selectBestRecordingRelease(context.Background(), filterCandidateRecordings(recordings, "Artist"))
+	if best == nil {
+		t.Fatal("expected release candidate")
+	}
+	if best.release.ID != "rel-cover" {
+		t.Fatalf("expected rel-cover, got %q", best.release.ID)
+	}
+}
+
 func TestSelectBestRelease(t *testing.T) {
-	releases := []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	}{
+	releases := []mbRelease{
 		{Title: "Live Cut", Date: "1990", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Live"}}},
-		{Title: "Single Cut", Date: "2003", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
-		{Title: "Album Cut", Date: "2001", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		{Title: "US Album Cut", Date: "2001", Country: "US", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		{Title: "Album Cut", Date: "2001", Country: "GB", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
 	}
 
 	rel := selectBestRelease(releases)
 	if rel == nil {
 		t.Fatal("expected release")
 	}
-	if rel.Title != "Album Cut" {
-		t.Fatalf("expected Album Cut, got %q", rel.Title)
+	if rel.Title != "US Album Cut" {
+		t.Fatalf("expected US Album Cut, got %q", rel.Title)
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }

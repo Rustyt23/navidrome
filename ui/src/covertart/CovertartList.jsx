@@ -12,10 +12,17 @@ import {
   useTranslate,
 } from 'react-admin'
 import { Box, Button, Card, CardContent, Grid, Typography } from '@material-ui/core'
+import { makeStyles } from '@material-ui/core/styles'
 import { BiDownload } from 'react-icons/bi'
 import { DurationField } from '../common'
-import subsonic from '../subsonic'
 import { httpClient } from '../dataProvider'
+
+const useStyles = makeStyles({
+  mbidText: {
+    fontFamily: 'monospace',
+    fontSize: '0.75rem',
+  },
+})
 
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
@@ -63,6 +70,9 @@ const CovertartListActions = () => {
     album: emptyProgress,
     year: emptyProgress,
     genre: emptyProgress,
+    recordingMbid: emptyProgress,
+    releaseMbid: emptyProgress,
+    coverArt: emptyProgress,
   })
 
   const loadStatus = useCallback(() => {
@@ -77,6 +87,9 @@ const CovertartListActions = () => {
             album: emptyProgress,
             year: emptyProgress,
             genre: emptyProgress,
+            recordingMbid: emptyProgress,
+            releaseMbid: emptyProgress,
+            coverArt: emptyProgress,
           },
         )
       })
@@ -128,24 +141,45 @@ const CovertartListActions = () => {
             {translate('activity.musicbrainz.title')}
           </Typography>
           <Grid container spacing={2}>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.album')}
                 progress={status.album || emptyProgress}
                 translate={translate}
               />
             </Grid>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.year')}
                 progress={status.year || emptyProgress}
                 translate={translate}
               />
             </Grid>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={2}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.genre')}
                 progress={status.genre || emptyProgress}
+                translate={translate}
+              />
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <MetadataProgressCard
+                title="Recording MBID"
+                progress={status.recordingMbid || emptyProgress}
+                translate={translate}
+              />
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <MetadataProgressCard
+                title="Release MBID"
+                progress={status.releaseMbid || emptyProgress}
+                translate={translate}
+              />
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <MetadataProgressCard
+                title="Cover Art"
+                progress={status.coverArt || emptyProgress}
                 translate={translate}
               />
             </Grid>
@@ -156,37 +190,62 @@ const CovertartListActions = () => {
   )
 }
 
-const CovertartList = (props) => (
-  <List
-    {...props}
-    sort={{ field: 'title', order: 'ASC' }}
-    filters={<CovertartFilter />}
-    exporter={false}
-    bulkActionButtons={false}
-    perPage={50}
-    actions={<CovertartListActions />}
-  >
-    <Datagrid rowClick={false}>
-      <FunctionField
-        label="Cover Art"
-        sortable={false}
-        render={(record) => (
-          <img
-            src={subsonic.getCoverArtUrl(record, 64, true)}
-            alt={record.title || 'cover art'}
-            width="64"
-            height="64"
-          />
-        )}
-      />
-      <TextField source="title" />
-      <TextField source="artist" label="Artist" />
-      <TextField source="album" label="Album" />
-      <TextField source="year" label="Release Year" />
-      <TextField source="genre" label="Genre" />
-      <DurationField source="duration" />
-    </Datagrid>
-  </List>
-)
+const CovertartList = (props) => {
+  const classes = useStyles()
+
+  return (
+    <List
+      {...props}
+      sort={{ field: 'title', order: 'ASC' }}
+      filters={<CovertartFilter />}
+      exporter={false}
+      bulkActionButtons={false}
+      perPage={50}
+      actions={<CovertartListActions />}
+    >
+      <Datagrid rowClick={false}>
+        <FunctionField
+          label="Cover Art"
+          sortable={false}
+          render={(record) => {
+            const coverSrc = record?.mbzReleaseId
+              ? `/api/cover/${record.mbzReleaseId}`
+              : '/default-cover.png'
+
+            return (
+              <img
+                src={coverSrc}
+                alt={record.title || 'cover art'}
+                width="50"
+                height="50"
+                loading="lazy"
+              />
+            )
+          }}
+        />
+        <TextField source="title" />
+        <TextField source="artist" label="Artist" />
+        <TextField source="album" label="Album" />
+        <TextField source="year" label="Release Year" />
+        <TextField source="genre" label="Genre" />
+        <FunctionField
+          label="Recording MBID"
+          sortable={false}
+          render={(record) => (
+            <span className={classes.mbidText}>{record?.mbzRecordingID || ''}</span>
+          )}
+        />
+        <FunctionField
+          label="Release MBID"
+          sortable={false}
+          render={(record) => (
+            <span className={classes.mbidText}>{record?.mbzReleaseId || ''}</span>
+          )}
+        />
+        <DurationField source="duration" />
+      </Datagrid>
+    </List>
+  )
+}
 
 export default CovertartList
