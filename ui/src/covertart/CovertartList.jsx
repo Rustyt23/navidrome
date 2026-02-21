@@ -207,17 +207,21 @@ const CovertartList = (props) => {
         <FunctionField
           label="Cover Art"
           sortable={false}
-          render={(record) => (
-            <img
-              src={record?.mbzReleaseId ? `/api/cover/${record.mbzReleaseId}` : '/default-cover.png'}
-              alt={record.title || 'cover art'}
-              width="50"
-              height="50"
-              onError={(e) => {
-                e.currentTarget.src = '/default-cover.png'
-              }}
-            />
-          )}
+          render={(record) => {
+            const coverSrc = record?.mbzReleaseId
+              ? `/api/cover/${record.mbzReleaseId}`
+              : '/default-cover.png'
+
+            return (
+              <img
+                src={coverSrc}
+                alt={record.title || 'cover art'}
+                width="50"
+                height="50"
+                loading="lazy"
+              />
+            )
+          }}
         />
         <TextField source="title" />
         <TextField source="artist" label="Artist" />

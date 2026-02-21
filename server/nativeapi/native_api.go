@@ -212,6 +212,7 @@ func (n *Router) addCoverRoute(r chi.Router) {
 		}
 
 		filePath := n.coverFilePath(releaseMBID)
+		w.Header().Set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
 		if _, err := os.Stat(filePath); err == nil {
 			http.ServeFile(w, req, filePath)
 			return
