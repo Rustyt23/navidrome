@@ -275,8 +275,8 @@ func (r *mediaFileRepository) UpdateComment(ids []string, comment string) error 
 	return nil
 }
 
-func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, year *int, genre *string) error {
-	if album == nil && year == nil && genre == nil {
+func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error {
+	if album == nil && year == nil && genre == nil && mbzRecordingID == nil && mbzReleaseID == nil {
 		return nil
 	}
 
@@ -290,6 +290,12 @@ func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, ye
 	}
 	if genre != nil {
 		up = up.Set("genre", Expr("case when trim(ifnull(genre, '')) = '' then ? else genre end", *genre))
+	}
+	if mbzRecordingID != nil {
+		up = up.Set("mbz_recording_id", Expr("case when trim(ifnull(mbz_recording_id, '')) = '' then ? else mbz_recording_id end", *mbzRecordingID))
+	}
+	if mbzReleaseID != nil {
+		up = up.Set("mbz_release_id", Expr("case when trim(ifnull(mbz_release_id, '')) = '' then ? else mbz_release_id end", *mbzReleaseID))
 	}
 
 	up = up.Set("updated_at", time.Now())

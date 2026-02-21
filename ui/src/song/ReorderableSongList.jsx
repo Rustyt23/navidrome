@@ -70,6 +70,10 @@ const useStyles = makeStyles({
     margin: 0,
     height: '24px',
   },
+  debugMbid: {
+    fontFamily: 'monospace',
+    fontSize: '0.75rem',
+  },
 })
 
 const DEFAULT_OFF_COLUMNS = [
@@ -312,6 +316,16 @@ const ReorderableSongList = (props) => {
         />
       ) : null,
       comment: <TextField source="comment" sortBy="comment" />,
+      releaseMbid: (
+        <FunctionField
+          source="mbzReleaseId"
+          sortable={false}
+          label="Release MBID"
+          render={(record) => (
+            <span className={classes.debugMbid}>{record?.mbzReleaseId || ''}</span>
+          )}
+        />
+      ),
       path: <PathField source="path" />,
       createdAt: <DateField source="createdAt" sortBy="recently_added" showTime />,
     }

@@ -80,6 +80,14 @@ type mbMetadataCandidate struct {
 	flags missingFlags
 }
 
+type metadataResult struct {
+	Album         string
+	Year          int
+	Genre         string
+	RecordingMBID string
+	ReleaseMBID   string
+}
+
 func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 	ctx := context.Background()
 	defer func() {
@@ -117,7 +125,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		}
 		j.setFetching(c.flags, 1)
 
-		album, year, genre, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
+		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
 		if fetchErr != nil {
 			failed++
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
@@ -131,18 +139,18 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		var setYear *int
 		var setGenre *string
 
-		if c.flags.album && album != "" {
-			setAlbum = &album
+		if c.flags.album && metadata.Album != "" {
+			setAlbum = &metadata.Album
 		}
-		if c.flags.year && year > 0 {
-			setYear = &year
+		if c.flags.year && metadata.Year > 0 {
+			setYear = &metadata.Year
 		}
-		if c.flags.genre && genre != "" {
-			setGenre = &genre
+		if c.flags.genre && metadata.Genre != "" {
+			setGenre = &metadata.Genre
 		}
 
-		if setAlbum != nil || setYear != nil || setGenre != nil {
-			if err := ds.MediaFile(ctx).UpdateMissingMetadata(c.mf.ID, setAlbum, setYear, setGenre); err != nil {
+		if setAlbum != nil || setYear != nil || setGenre != nil || metadata.RecordingMBID != "" || metadata.ReleaseMBID != "" {
+			if err := ds.MediaFile(ctx).UpdateMissingMetadata(c.mf.ID, setAlbum, setYear, setGenre, valueOrNil(metadata.RecordingMBID), valueOrNil(metadata.ReleaseMBID)); err != nil {
 				failed++
 				log.Error(ctx, "Could not update fetched MusicBrainz metadata", "songId", c.mf.ID, err)
 			} else {
@@ -153,7 +161,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 			skipped++
 		}
 
-		j.finishFetch(c.flags, album != "", year > 0, genre != "")
+		j.finishFetch(c.flags, metadata.Album != "", metadata.Year > 0, metadata.Genre != "")
 	}
 
 	log.Info(ctx, "MusicBrainz metadata fetch completed",
@@ -278,23 +286,30 @@ func (j *musicBrainzMetadataJob) setError(err error) {
 }
 
 type mbSearchResponse struct {
-	Recordings []struct {
-		Score            mbScore `json:"score"`
-		FirstReleaseDate string  `json:"first-release-date"`
-		ArtistCredit     []struct {
-			Name string `json:"name"`
-		} `json:"artist-credit"`
-		Releases []struct {
-			Title        string   `json:"title"`
-			Date         string   `json:"date"`
-			Status       string   `json:"status"`
-			ReleaseGroup mbGroup  `json:"release-group"`
-			Tags         []mbName `json:"tags"`
-			Genres       []mbName `json:"genres"`
-		} `json:"releases"`
-		Tags   []mbName `json:"tags"`
-		Genres []mbName `json:"genres"`
-	} `json:"recordings"`
+	Recordings []mbRecording `json:"recordings"`
+}
+
+type mbRecording struct {
+	ID               string  `json:"id"`
+	Score            mbScore `json:"score"`
+	FirstReleaseDate string  `json:"first-release-date"`
+	ArtistCredit     []struct {
+		Name string `json:"name"`
+	} `json:"artist-credit"`
+	Releases []mbRelease `json:"releases"`
+	Tags     []mbName    `json:"tags"`
+	Genres   []mbName    `json:"genres"`
+}
+
+type mbRelease struct {
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Date         string   `json:"date"`
+	Status       string   `json:"status"`
+	Country      string   `json:"country"`
+	ReleaseGroup mbGroup  `json:"release-group"`
+	Tags         []mbName `json:"tags"`
+	Genres       []mbName `json:"genres"`
 }
 
 type mbScore string
@@ -331,40 +346,48 @@ type mbGroup struct {
 	SecondaryType []string `json:"secondary-types"`
 }
 
-func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (string, int, string, error) {
+func valueOrNil(v string) *string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
 	query := fmt.Sprintf("artist:%s AND recording:%s", artist, title)
-	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json"
+	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
-		return "", 0, "", err
+		return metadataResult{}, err
 	}
 	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
 
 	resp, err := j.client.Do(req)
 	if err != nil {
-		return "", 0, "", err
+		return metadataResult{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, "", fmt.Errorf("musicbrainz status %d", resp.StatusCode)
+		return metadataResult{}, fmt.Errorf("musicbrainz status %d", resp.StatusCode)
 	}
 
 	var payload mbSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", 0, "", err
+		return metadataResult{}, err
 	}
 	if len(payload.Recordings) == 0 {
-		return "", 0, "", nil
+		return metadataResult{}, nil
 	}
 
 	bestRecording := selectBestRecording(payload.Recordings, artist)
 	if bestRecording == nil {
-		return "", 0, "", nil
+		return metadataResult{}, nil
 	}
 
 	bestRelease := selectBestRelease(bestRecording.Releases)
 	if bestRelease == nil {
-		return "", 0, collectRecordingGenre(*bestRecording), nil
+		return metadataResult{Genre: collectRecordingGenre(*bestRecording), RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
 	}
 
 	album := strings.TrimSpace(bestRelease.Title)
@@ -373,62 +396,20 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (string, in
 		year = yearFromDate(bestRecording.FirstReleaseDate)
 	}
 	genre := collectGenre(*bestRecording, *bestRelease)
-	return album, year, genre, nil
+	return metadataResult{
+		Album:         album,
+		Year:          year,
+		Genre:         genre,
+		RecordingMBID: strings.TrimSpace(bestRecording.ID),
+		ReleaseMBID:   strings.TrimSpace(bestRelease.ID),
+	}, nil
 }
 
-func selectBestRecording(recordings []struct {
-	Score            mbScore `json:"score"`
-	FirstReleaseDate string  `json:"first-release-date"`
-	ArtistCredit     []struct {
-		Name string `json:"name"`
-	} `json:"artist-credit"`
-	Releases []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	} `json:"releases"`
-	Tags   []mbName `json:"tags"`
-	Genres []mbName `json:"genres"`
-}, artist string) *struct {
-	Score            mbScore `json:"score"`
-	FirstReleaseDate string  `json:"first-release-date"`
-	ArtistCredit     []struct {
-		Name string `json:"name"`
-	} `json:"artist-credit"`
-	Releases []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	} `json:"releases"`
-	Tags   []mbName `json:"tags"`
-	Genres []mbName `json:"genres"`
-} {
+func selectBestRecording(recordings []mbRecording, artist string) *mbRecording {
 	normalizedArtist := normalizeMBString(artist)
 
 	type recCandidate struct {
-		rec *struct {
-			Score            mbScore `json:"score"`
-			FirstReleaseDate string  `json:"first-release-date"`
-			ArtistCredit     []struct {
-				Name string `json:"name"`
-			} `json:"artist-credit"`
-			Releases []struct {
-				Title        string   `json:"title"`
-				Date         string   `json:"date"`
-				Status       string   `json:"status"`
-				ReleaseGroup mbGroup  `json:"release-group"`
-				Tags         []mbName `json:"tags"`
-				Genres       []mbName `json:"genres"`
-			} `json:"releases"`
-			Tags   []mbName `json:"tags"`
-			Genres []mbName `json:"genres"`
-		}
+		rec      *mbRecording
 		score    int
 		releases int
 		hasAlbum bool
@@ -504,33 +485,14 @@ func artistCreditMatches(credits []struct {
 	return false
 }
 
-func selectBestRelease(releases []struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-}) *struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-} {
+func selectBestRelease(releases []mbRelease) *mbRelease {
 	type relCandidate struct {
-		release *struct {
-			Title        string   `json:"title"`
-			Date         string   `json:"date"`
-			Status       string   `json:"status"`
-			ReleaseGroup mbGroup  `json:"release-group"`
-			Tags         []mbName `json:"tags"`
-			Genres       []mbName `json:"genres"`
-		}
-		official bool
-		album    bool
-		year     int
+		release               *mbRelease
+		official              bool
+		album                 bool
+		hasDiscouragedSubtype bool
+		usCountry             bool
+		year                  int
 	}
 
 	candidates := make([]relCandidate, 0, len(releases))
@@ -540,10 +502,12 @@ func selectBestRelease(releases []struct {
 			continue
 		}
 		candidates = append(candidates, relCandidate{
-			release:  release,
-			official: strings.EqualFold(strings.TrimSpace(release.Status), "Official"),
-			album:    isAlbumRelease(*release),
-			year:     yearFromDate(release.Date),
+			release:               release,
+			official:              strings.EqualFold(strings.TrimSpace(release.Status), "Official"),
+			album:                 isAlbumRelease(*release),
+			hasDiscouragedSubtype: hasDiscouragedSecondaryType(*release),
+			usCountry:             strings.EqualFold(strings.TrimSpace(release.Country), "US"),
+			year:                  yearFromDate(release.Date),
 		})
 	}
 	if len(candidates) == 0 {
@@ -563,6 +527,12 @@ func selectBestRelease(releases []struct {
 		if !a.album && b.album {
 			return 1
 		}
+		if !a.hasDiscouragedSubtype && b.hasDiscouragedSubtype {
+			return -1
+		}
+		if a.hasDiscouragedSubtype && !b.hasDiscouragedSubtype {
+			return 1
+		}
 		if a.year == 0 && b.year > 0 {
 			return 1
 		}
@@ -572,91 +542,51 @@ func selectBestRelease(releases []struct {
 		if a.year != b.year {
 			return a.year - b.year
 		}
+		if a.usCountry && !b.usCountry {
+			return -1
+		}
+		if !a.usCountry && b.usCountry {
+			return 1
+		}
 		return 0
 	})
 
 	return candidates[0].release
 }
 
-func isValidRelease(release struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-}) bool {
+func isValidRelease(release mbRelease) bool {
 	if strings.TrimSpace(release.Title) == "" {
 		return false
 	}
-	types := make([]string, 0, len(release.ReleaseGroup.SecondaryType)+1)
-	types = append(types, release.ReleaseGroup.PrimaryType)
-	types = append(types, release.ReleaseGroup.SecondaryType...)
-	for _, t := range types {
+	for _, t := range release.ReleaseGroup.SecondaryType {
 		n := normalizeMBString(t)
-		if n == "compilation" || n == "live" || n == "unofficial" || n == "promo" {
+		if n == "unofficial" || n == "promo" {
 			return false
 		}
 	}
 	return true
 }
 
-func isAlbumRelease(release struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-}) bool {
+func hasDiscouragedSecondaryType(release mbRelease) bool {
+	for _, t := range release.ReleaseGroup.SecondaryType {
+		n := normalizeMBString(t)
+		if n == "compilation" || n == "live" {
+			return true
+		}
+	}
+	return false
+}
+
+func isAlbumRelease(release mbRelease) bool {
 	primaryType := normalizeMBString(release.ReleaseGroup.PrimaryType)
 	return primaryType == "album"
 }
 
-func collectRecordingGenre(rec struct {
-	Score            mbScore `json:"score"`
-	FirstReleaseDate string  `json:"first-release-date"`
-	ArtistCredit     []struct {
-		Name string `json:"name"`
-	} `json:"artist-credit"`
-	Releases []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	} `json:"releases"`
-	Tags   []mbName `json:"tags"`
-	Genres []mbName `json:"genres"`
-}) string {
+func collectRecordingGenre(rec mbRecording) string {
 	return collectGenres(rec.Genres, rec.Tags)
 }
 
-func collectGenre(rec struct {
-	Score            mbScore `json:"score"`
-	FirstReleaseDate string  `json:"first-release-date"`
-	ArtistCredit     []struct {
-		Name string `json:"name"`
-	} `json:"artist-credit"`
-	Releases []struct {
-		Title        string   `json:"title"`
-		Date         string   `json:"date"`
-		Status       string   `json:"status"`
-		ReleaseGroup mbGroup  `json:"release-group"`
-		Tags         []mbName `json:"tags"`
-		Genres       []mbName `json:"genres"`
-	} `json:"releases"`
-	Tags   []mbName `json:"tags"`
-	Genres []mbName `json:"genres"`
-}, release struct {
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
-}) string {
+func collectGenre(rec mbRecording, release mbRelease) string {
 	genre := collectGenres(release.Genres, release.Tags)
 	if genre != "" {
 		return genre
