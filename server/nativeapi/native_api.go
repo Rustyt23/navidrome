@@ -7,8 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/deluan/rest"
@@ -27,7 +31,19 @@ import (
 
 const (
 	coverArtDefaultSize = consts.UICoverArtSize
+	coverCacheDirName   = "covercache"
 )
+
+var releaseMBIDRegex = regexp.MustCompile(`^[a-fA-F0-9-]+$`)
+
+var defaultCoverPlaceholder = []byte{
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+	0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x04, 0x00, 0x00, 0x00, 0xB5, 0x1C, 0x0C, 0x02, 0x00, 0x00, 0x00,
+	0x0B, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0xFC, 0xFF, 0x1F, 0x00,
+	0x03, 0x03, 0x02, 0x00, 0xEF, 0x26, 0x05, 0x9B, 0x00, 0x00, 0x00, 0x00,
+	0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+}
 
 type Router struct {
 	http.Handler
@@ -38,6 +54,8 @@ type Router struct {
 	libs        core.Library
 	devices     *retailPlayerDeviceResolver
 	metadataJob *musicBrainzMetadataJob
+	coverClient *http.Client
+	coverMisses sync.Map
 }
 
 func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
@@ -49,7 +67,9 @@ func New(ds model.DataStore, share core.Share, playlists core.Playlists, insight
 		libs:        libraryService,
 		devices:     newRetailPlayerDeviceResolver(),
 		metadataJob: newMusicBrainzMetadataJob(),
+		coverClient: &http.Client{Timeout: 10 * time.Second},
 	}
+	r.ensureCoverCacheDir()
 	r.preloadRetailPlayerDeviceMappings()
 	r.Handler = r.routes()
 	return r
@@ -101,6 +121,7 @@ func (n *Router) routes() http.Handler {
 
 	// Public
 	n.addRetailPlayerPublicRoutes(r)
+	n.addCoverRoute(r)
 	n.addSongRoute(r)
 	n.RX(r, "/translation", newTranslationRepository, false)
 
@@ -170,6 +191,44 @@ func (n *Router) RX(r chi.Router, pathPrefix string, constructor rest.Repository
 			}
 		})
 	})
+}
+
+func (n *Router) coverCacheDir() string {
+	return filepath.Join(conf.Server.DataFolder, coverCacheDirName)
+}
+
+func (n *Router) ensureCoverCacheDir() {
+	if err := os.MkdirAll(n.coverCacheDir(), 0o755); err != nil {
+		log.Error(context.Background(), "Could not create cover cache directory", "dir", n.coverCacheDir(), "err", err)
+	}
+}
+
+func (n *Router) coverFilePath(releaseMBID string) string {
+	return filepath.Join(n.coverCacheDir(), releaseMBID+".jpg")
+}
+
+func (n *Router) addCoverRoute(r chi.Router) {
+	r.Get("/cover/{releaseMBID}", func(w http.ResponseWriter, req *http.Request) {
+		releaseMBID := strings.TrimSpace(chi.URLParam(req, "releaseMBID"))
+		if releaseMBID == "" || !releaseMBIDRegex.MatchString(releaseMBID) {
+			n.writeDefaultCover(w)
+			return
+		}
+
+		filePath := n.coverFilePath(releaseMBID)
+		if _, err := os.Stat(filePath); err == nil {
+			http.ServeFile(w, req, filePath)
+			return
+		}
+
+		n.writeDefaultCover(w)
+	})
+}
+
+func (n *Router) writeDefaultCover(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(defaultCoverPlaceholder)
 }
 
 func (n *Router) withSongArtwork(handler http.HandlerFunc) http.HandlerFunc {
@@ -264,13 +323,86 @@ func (n *Router) populateSongArtwork(r *http.Request, song *model.MediaFile) {
 	}
 
 	if strings.TrimSpace(song.MbzReleaseID) != "" {
-		coverArtURL := "https://coverartarchive.org/release/" + strings.TrimSpace(song.MbzReleaseID) + "/front-250"
-		song.ArtworkURL = coverArtURL
-		song.CoverArtURL = coverArtURL
+		releaseMBID := strings.TrimSpace(song.MbzReleaseID)
+		if releaseMBIDRegex.MatchString(releaseMBID) {
+			if strings.TrimSpace(song.CoverPath) == "" {
+				if _, err := os.Stat(n.coverFilePath(releaseMBID)); err == nil {
+					coverPath := filepath.ToSlash(filepath.Join(coverCacheDirName, releaseMBID+".jpg"))
+					song.CoverPath = coverPath
+					if err := n.ds.MediaFile(r.Context()).UpdateCoverPath(song.ID, coverPath); err != nil {
+						log.Warn(r.Context(), "Could not persist cover path", "songId", song.ID, "releaseMBID", releaseMBID, "err", err)
+					}
+				} else if _, attempted := n.coverMisses.Load(releaseMBID); !attempted {
+					downloaded, notFound := n.downloadReleaseCover(r.Context(), releaseMBID)
+					if downloaded {
+						coverPath := filepath.ToSlash(filepath.Join(coverCacheDirName, releaseMBID+".jpg"))
+						song.CoverPath = coverPath
+						if err := n.ds.MediaFile(r.Context()).UpdateCoverPath(song.ID, coverPath); err != nil {
+							log.Warn(r.Context(), "Could not persist downloaded cover path", "songId", song.ID, "releaseMBID", releaseMBID, "err", err)
+						}
+					}
+					if notFound {
+						n.coverMisses.Store(releaseMBID, true)
+					}
+				}
+			}
+			song.CoverArtURL = "/api/cover/" + releaseMBID
+			song.ArtworkURL = song.CoverArtURL
+		}
 		return
 	}
 
 	song.CoverArtURL = ""
+}
+
+func (n *Router) downloadReleaseCover(ctx context.Context, releaseMBID string) (downloaded bool, notFound bool) {
+	url := "https://coverartarchive.org/release/" + releaseMBID + "/front-500"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		log.Warn(ctx, "Could not build cover download request", "releaseMBID", releaseMBID, "err", err)
+		return false, false
+	}
+
+	resp, err := n.coverClient.Do(req)
+	if err != nil {
+		log.Warn(ctx, "Could not download release cover", "releaseMBID", releaseMBID, "err", err)
+		return false, false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return false, true
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Warn(ctx, "Unexpected cover download status", "releaseMBID", releaseMBID, "status", resp.StatusCode)
+		return false, false
+	}
+
+	coverPath := n.coverFilePath(releaseMBID)
+	tmpPath := coverPath + ".tmp"
+	file, err := os.Create(tmpPath)
+	if err != nil {
+		log.Warn(ctx, "Could not create temporary cover file", "path", tmpPath, "err", err)
+		return false, false
+	}
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tmpPath)
+		log.Warn(ctx, "Could not write cover file", "path", tmpPath, "err", err)
+		return false, false
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		log.Warn(ctx, "Could not close temporary cover file", "path", tmpPath, "err", err)
+		return false, false
+	}
+	if err := os.Rename(tmpPath, coverPath); err != nil {
+		_ = os.Remove(tmpPath)
+		log.Warn(ctx, "Could not move cover file into cache", "path", coverPath, "err", err)
+		return false, false
+	}
+
+	return true, false
 }
 
 func (n *Router) addSongRoute(r chi.Router) {

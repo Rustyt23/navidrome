@@ -200,7 +200,7 @@ const CovertartList = (props) => {
           sortable={false}
           render={(record) => (
             <img
-              src={record?.cover_art_url || '/default-cover.png'}
+              src={record?.mbzReleaseId ? `/api/cover/${record.mbzReleaseId}` : '/default-cover.png'}
               alt={record.title || 'cover art'}
               width="50"
               height="50"

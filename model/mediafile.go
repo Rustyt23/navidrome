@@ -43,6 +43,7 @@ type MediaFile struct {
 	ArtworkID            string   `structs:"-" json:"artworkId,omitempty"`
 	ArtworkURL           string   `structs:"-" json:"artworkUrl,omitempty"`
 	CoverArtURL          string   `structs:"-" json:"cover_art_url,omitempty"`
+	CoverPath            string   `structs:"cover_path" json:"coverPath,omitempty"`
 	TrackNumber          int      `structs:"track_number" json:"trackNumber"`
 	DiscNumber           int      `structs:"disc_number" json:"discNumber"`
 	DiscSubtitle         string   `structs:"disc_subtitle" json:"discSubtitle,omitempty"`
@@ -362,6 +363,7 @@ type MediaFileRepository interface {
 	FindByPaths(paths []string) (MediaFiles, error)
 	UpdateComment(ids []string, comment string) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
+	UpdateCoverPath(id string, coverPath string) error
 
 	// The following methods are used exclusively by the scanner:
 	MarkMissing(bool, ...*MediaFile) error

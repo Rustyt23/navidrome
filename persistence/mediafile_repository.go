@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -299,6 +300,20 @@ func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, ye
 	}
 
 	up = up.Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
+func (r *mediaFileRepository) UpdateCoverPath(id string, coverPath string) error {
+	coverPath = strings.TrimSpace(coverPath)
+	if id == "" || coverPath == "" {
+		return nil
+	}
+
+	up := Update(r.tableName).
+		Set("cover_path", Expr("case when trim(ifnull(cover_path, '')) = '' then ? else cover_path end", coverPath)).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
 	_, err := r.executeSQL(up)
 	return err
 }
