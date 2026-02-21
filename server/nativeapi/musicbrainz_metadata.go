@@ -532,29 +532,65 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 		return metadataResult{}, nil
 	}
 
-	bestRecording := selectBestRecording(payload.Recordings, artist)
-	if bestRecording == nil {
+	bestCandidates := collectReleaseCandidates(payload.Recordings, artist)
+	if len(bestCandidates) == 0 {
 		return metadataResult{}, nil
 	}
 
-	bestRelease := selectBestRelease(bestRecording.Releases)
-	if bestRelease == nil {
-		return metadataResult{Genre: collectRecordingGenre(*bestRecording), RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
+	coverCache := make(map[string]bool, len(bestCandidates))
+	best := selectBestReleaseCandidate(bestCandidates, func(releaseID string) bool {
+		return j.releaseHasCover(releaseID, coverCache)
+	})
+	if best == nil {
+		return metadataResult{}, nil
 	}
 
-	album := strings.TrimSpace(bestRelease.Title)
-	year := yearFromDate(bestRelease.Date)
+	album := strings.TrimSpace(best.release.Title)
+	year := yearFromDate(best.release.Date)
 	if year == 0 {
-		year = yearFromDate(bestRecording.FirstReleaseDate)
+		year = yearFromDate(best.recording.FirstReleaseDate)
 	}
-	genre := collectGenre(*bestRecording, *bestRelease)
+	genre := collectGenre(*best.recording, *best.release)
 	return metadataResult{
 		Album:         album,
 		Year:          year,
 		Genre:         genre,
-		RecordingMBID: strings.TrimSpace(bestRecording.ID),
-		ReleaseMBID:   strings.TrimSpace(bestRelease.ID),
+		RecordingMBID: strings.TrimSpace(best.recording.ID),
+		ReleaseMBID:   strings.TrimSpace(best.release.ID),
 	}, nil
+}
+
+func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[string]bool) bool {
+	releaseID = strings.TrimSpace(releaseID)
+	if releaseID == "" {
+		return false
+	}
+	if cached, ok := cache[releaseID]; ok {
+		return cached
+	}
+
+	u := "https://coverartarchive.org/release/" + url.PathEscape(releaseID)
+	req, err := http.NewRequest(http.MethodHead, u, nil)
+	if err != nil {
+		cache[releaseID] = false
+		return false
+	}
+	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		cache[releaseID] = false
+		return false
+	}
+	defer resp.Body.Close()
+
+	hasCover := resp.StatusCode == http.StatusOK
+	cache[releaseID] = hasCover
+	return hasCover
 }
 
 func selectBestRecording(recordings []mbRecording, artist string) *mbRecording {
@@ -637,52 +673,69 @@ func artistCreditMatches(credits []struct {
 	return false
 }
 
-func selectBestRelease(releases []mbRelease) *mbRelease {
-	type relCandidate struct {
-		release               *mbRelease
-		official              bool
-		album                 bool
-		hasDiscouragedSubtype bool
-		usCountry             bool
-		year                  int
-	}
+type releaseCandidate struct {
+	recording *mbRecording
+	release   *mbRelease
+}
 
-	candidates := make([]relCandidate, 0, len(releases))
-	for i := range releases {
-		release := &releases[i]
-		if !isValidRelease(*release) {
-			continue
-		}
-		candidates = append(candidates, relCandidate{
-			release:               release,
-			official:              strings.EqualFold(strings.TrimSpace(release.Status), "Official"),
-			album:                 isAlbumRelease(*release),
-			hasDiscouragedSubtype: hasDiscouragedSecondaryType(*release),
-			usCountry:             strings.EqualFold(strings.TrimSpace(release.Country), "US"),
-			year:                  yearFromDate(release.Date),
-		})
-	}
-	if len(candidates) == 0 {
+func collectReleaseCandidates(recordings []mbRecording, artist string) []releaseCandidate {
+	bestRecording := selectBestRecording(recordings, artist)
+	if bestRecording == nil {
 		return nil
 	}
 
-	slices.SortFunc(candidates, func(a, b relCandidate) int {
-		if a.official && !b.official {
+	matches := make([]releaseCandidate, 0, len(bestRecording.Releases))
+	fallback := make([]releaseCandidate, 0, len(bestRecording.Releases))
+	for i := range bestRecording.Releases {
+		release := &bestRecording.Releases[i]
+		if !isValidRelease(*release) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(release.Status), "Official") {
+			continue
+		}
+
+		candidate := releaseCandidate{recording: bestRecording, release: release}
+		fallback = append(fallback, candidate)
+		if isAlbumRelease(*release) && !hasDiscouragedSecondaryType(*release) {
+			matches = append(matches, candidate)
+		}
+	}
+
+	if len(matches) > 0 {
+		return matches
+	}
+	return fallback
+}
+
+func selectBestReleaseCandidate(candidates []releaseCandidate, hasCover func(releaseID string) bool) *releaseCandidate {
+	type relCandidate struct {
+		candidate *releaseCandidate
+		hasCover  bool
+		usCountry bool
+		year      int
+	}
+
+	sortedCandidates := make([]relCandidate, 0, len(candidates))
+	for i := range candidates {
+		candidate := &candidates[i]
+		releaseID := strings.TrimSpace(candidate.release.ID)
+		sortedCandidates = append(sortedCandidates, relCandidate{
+			candidate: candidate,
+			hasCover:  hasCover(releaseID),
+			usCountry: strings.EqualFold(strings.TrimSpace(candidate.release.Country), "US"),
+			year:      yearFromDate(candidate.release.Date),
+		})
+	}
+	if len(sortedCandidates) == 0 {
+		return nil
+	}
+
+	slices.SortFunc(sortedCandidates, func(a, b relCandidate) int {
+		if a.hasCover && !b.hasCover {
 			return -1
 		}
-		if !a.official && b.official {
-			return 1
-		}
-		if a.album && !b.album {
-			return -1
-		}
-		if !a.album && b.album {
-			return 1
-		}
-		if !a.hasDiscouragedSubtype && b.hasDiscouragedSubtype {
-			return -1
-		}
-		if a.hasDiscouragedSubtype && !b.hasDiscouragedSubtype {
+		if !a.hasCover && b.hasCover {
 			return 1
 		}
 		if a.year == 0 && b.year > 0 {
@@ -703,7 +756,7 @@ func selectBestRelease(releases []mbRelease) *mbRelease {
 		return 0
 	})
 
-	return candidates[0].release
+	return sortedCandidates[0].candidate
 }
 
 func isValidRelease(release mbRelease) bool {
