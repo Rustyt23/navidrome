@@ -12,6 +12,7 @@ import (
 	_ "github.com/navidrome/navidrome/adapters/taglib"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/metadataenrichment"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -73,6 +74,14 @@ func postRun() {
 // it will cancel the context and exit gracefully.
 func runNavidrome(ctx context.Context) {
 	defer db.Init(ctx)()
+
+	metadataEnrichmentService := metadataenrichment.NewService()
+	if err := metadataEnrichmentService.InitAndImport(ctx); err != nil {
+		log.Error(ctx, "Metadata enrichment startup failed", err)
+	}
+	if err := metadataEnrichmentService.VerifyMusicBrainzConnectivity(ctx); err != nil {
+		log.Error(ctx, "MusicBrainz connectivity verification failed", err)
+	}
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(startServer(ctx))
