@@ -131,3 +131,41 @@ func TestCollectReleaseCandidatesLenientPriority(t *testing.T) {
 		t.Fatalf("expected official EP candidate, got %#v", candidates)
 	}
 }
+
+func TestSplitPrimaryArtist(t *testing.T) {
+	cases := map[string]string{
+		"Bleachers,Grimes":             "Bleachers",
+		"Bobby Caldwell & Jack Splash": "Bobby Caldwell",
+		"Artist feat. Guest":           "Artist",
+		"Artist/Guest":                 "Artist",
+		"Solo Artist":                  "Solo Artist",
+	}
+
+	for input, want := range cases {
+		got := splitPrimaryArtist(input)
+		if got != want {
+			t.Fatalf("splitPrimaryArtist(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestDurationMatches(t *testing.T) {
+	if !durationMatches(180, 183000) {
+		t.Fatalf("expected duration within 5s tolerance to match")
+	}
+	if durationMatches(180, 186500) {
+		t.Fatalf("expected duration outside 5s tolerance to not match")
+	}
+}
+
+func TestCollectReleaseCandidatesForRecordingLenientPriority(t *testing.T) {
+	rec := &mbRecording{Releases: []mbRelease{
+		{ID: "single", Title: "Single", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
+		{ID: "album", Title: "Album", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+	}}
+
+	candidates := collectReleaseCandidatesForRecording(rec, true)
+	if len(candidates) != 1 || candidates[0].release.ID != "album" {
+		t.Fatalf("expected album priority for lenient mode, got %#v", candidates)
+	}
+}

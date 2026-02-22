@@ -74,6 +74,12 @@ const CovertartListActions = () => {
     releaseMbid: emptyProgress,
     coverArt: emptyProgress,
   })
+  const [phase2Stats, setPhase2Stats] = useState({
+    phase1Total: 0,
+    phase2Fetched: 0,
+    missing: 0,
+    stillMissing: 0,
+  })
 
   const loadStatus = useCallback(() => {
     if (!isAdmin) {
@@ -96,17 +102,39 @@ const CovertartListActions = () => {
       .catch(() => {})
   }, [isAdmin])
 
+  const loadPhase2Stats = useCallback(() => {
+    if (!isAdmin) {
+      return
+    }
+    httpClient('/api/metadata/phase2/stats')
+      .then(({ json }) => {
+        setPhase2Stats(
+          json || {
+            phase1Total: 0,
+            phase2Fetched: 0,
+            missing: 0,
+            stillMissing: 0,
+          },
+        )
+      })
+      .catch(() => {})
+  }, [isAdmin])
+
   useEffect(() => {
     loadStatus()
-  }, [loadStatus])
+    loadPhase2Stats()
+  }, [loadStatus, loadPhase2Stats])
 
   useEffect(() => {
     if (!status.running) {
       return undefined
     }
-    const timer = setInterval(() => loadStatus(), 2000)
+    const timer = setInterval(() => {
+      loadStatus()
+      loadPhase2Stats()
+    }, 2000)
     return () => clearInterval(timer)
-  }, [status.running, loadStatus])
+  }, [status.running, loadStatus, loadPhase2Stats])
 
   const startPhase2Fetch = () => {
     httpClient('/api/metadata/phase2', { method: 'POST' })
@@ -117,6 +145,7 @@ const CovertartListActions = () => {
           notify('activity.musicbrainz.alreadyRunning', 'warning')
         }
         loadStatus()
+        loadPhase2Stats()
       })
       .catch(() => notify('activity.musicbrainz.failed', 'warning'))
   }
@@ -179,6 +208,29 @@ const CovertartListActions = () => {
                 progress={status.year || emptyProgress}
                 translate={translate}
               />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2">Phase 2</Typography>
+                  <Box display="flex" justifyContent="space-between" mt={1}>
+                    <span>Phase 1 Total</span>
+                    <span>{phase2Stats.phase1Total || 0}</span>
+                  </Box>
+                  <Box display="flex" justifyContent="space-between">
+                    <span>Phase 2 Fetched</span>
+                    <span>{phase2Stats.phase2Fetched || 0}</span>
+                  </Box>
+                  <Box display="flex" justifyContent="space-between">
+                    <span>Missing</span>
+                    <span>{phase2Stats.missing || 0}</span>
+                  </Box>
+                  <Box display="flex" justifyContent="space-between">
+                    <span>Still Missing</span>
+                    <span>{phase2Stats.stillMissing || 0}</span>
+                  </Box>
+                </CardContent>
+              </Card>
             </Grid>
             <Grid item xs={12} md={2}>
               <MetadataProgressCard
