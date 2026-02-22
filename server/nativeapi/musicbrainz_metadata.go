@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,11 +17,13 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"golang.org/x/text/unicode/norm"
 )
 
 type metadataFieldProgress struct {
@@ -136,7 +139,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		}
 		j.setFetching(c.flags, 1)
 
-		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
+		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist, c.mf.Duration)
 		if fetchErr != nil {
 			failed++
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
@@ -443,6 +446,7 @@ type mbSearchResponse struct {
 
 type mbRecording struct {
 	ID               string  `json:"id"`
+	Length           int     `json:"length"`
 	Score            mbScore `json:"score"`
 	FirstReleaseDate string  `json:"first-release-date"`
 	ArtistCredit     []struct {
@@ -506,8 +510,14 @@ func valueOrNil(v string) *string {
 	return &v
 }
 
-func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
-	query := fmt.Sprintf("artist:%s AND recording:%s", artist, title)
+func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, durationSeconds float32) (metadataResult, error) {
+	normalizedTitle := normalizeTitle(title)
+	normalizedArtist := normalizeArtist(artist)
+	query := fmt.Sprintf(
+		"recording:\"%s\" AND artist:\"%s\"",
+		normalizedTitle,
+		normalizedArtist,
+	)
 	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
@@ -532,7 +542,8 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 		return metadataResult{}, nil
 	}
 
-	bestCandidates := collectReleaseCandidates(payload.Recordings, artist)
+	localDurationMS := int(math.Round(float64(durationSeconds * 1000)))
+	bestCandidates := collectReleaseCandidates(payload.Recordings, artist, localDurationMS)
 	if len(bestCandidates) == 0 {
 		return metadataResult{}, nil
 	}
@@ -593,7 +604,7 @@ func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[str
 	return hasCover
 }
 
-func selectBestRecording(recordings []mbRecording, artist string) *mbRecording {
+func selectBestRecording(recordings []mbRecording, artist string, localDurationMS int) *mbRecording {
 	normalizedArtist := normalizeMBString(artist)
 
 	type recCandidate struct {
@@ -607,6 +618,9 @@ func selectBestRecording(recordings []mbRecording, artist string) *mbRecording {
 	candidates := make([]recCandidate, 0, len(recordings))
 	for i := range recordings {
 		rec := &recordings[i]
+		if !isDurationMatch(rec.Length, localDurationMS) {
+			continue
+		}
 		score := rec.Score.Int()
 		if score < 80 {
 			continue
@@ -678,8 +692,8 @@ type releaseCandidate struct {
 	release   *mbRelease
 }
 
-func collectReleaseCandidates(recordings []mbRecording, artist string) []releaseCandidate {
-	bestRecording := selectBestRecording(recordings, artist)
+func collectReleaseCandidates(recordings []mbRecording, artist string, localDurationMS int) []releaseCandidate {
+	bestRecording := selectBestRecording(recordings, artist, localDurationMS)
 	if bestRecording == nil {
 		return nil
 	}
@@ -831,6 +845,10 @@ func collectGenres(genres, tags []mbName) string {
 }
 
 var punctuationRegex = regexp.MustCompile(`[\p{P}\p{S}]`)
+var bracketContentRegex = regexp.MustCompile(`\([^)]*\)|\[[^\]]*\]`)
+var titleKeywordRegex = regexp.MustCompile(`\b(remix|remastered|live|edit|version)\b`)
+var trailingDashRegex = regexp.MustCompile(`\s*-\s*.*$`)
+var featuringRegex = regexp.MustCompile(`\b(feat\.?|ft\.?|featuring)\b.*$`)
 
 func normalizeMBString(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
@@ -842,6 +860,51 @@ func normalizeMBString(v string) string {
 		return r
 	}, v)
 	return strings.Join(strings.Fields(v), " ")
+}
+
+func normalizeTitle(title string) string {
+	title = removeDiacritics(strings.ToLower(strings.TrimSpace(title)))
+	title = bracketContentRegex.ReplaceAllString(title, " ")
+	title = titleKeywordRegex.ReplaceAllString(title, " ")
+	title = trailingDashRegex.ReplaceAllString(title, " ")
+	title = strings.ReplaceAll(title, "'", "")
+	title = punctuationRegex.ReplaceAllString(title, " ")
+	return strings.Join(strings.Fields(title), " ")
+}
+
+func normalizeArtist(artist string) string {
+	artist = removeDiacritics(strings.ToLower(strings.TrimSpace(artist)))
+	artist = featuringRegex.ReplaceAllString(artist, " ")
+	artist = strings.ReplaceAll(artist, "&", " ")
+	artist = strings.ReplaceAll(artist, ",", " ")
+	artist = strings.Join(strings.Fields(artist), " ")
+	return strings.TrimSpace(artist)
+}
+
+func removeDiacritics(v string) string {
+	decomposed := norm.NFD.String(v)
+	out := strings.Builder{}
+	out.Grow(len(decomposed))
+	for len(decomposed) > 0 {
+		r, size := utf8.DecodeRuneInString(decomposed)
+		decomposed = decomposed[size:]
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
+func isDurationMatch(mbDurationMS, localDurationMS int) bool {
+	if mbDurationMS <= 0 || localDurationMS <= 0 {
+		return false
+	}
+	diff := mbDurationMS - localDurationMS
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= 5000
 }
 
 func yearFromDate(date string) int {
