@@ -33,7 +33,7 @@ func TestSelectBestRecording(t *testing.T) {
 		},
 	}}
 
-	rec := selectBestRecording(payload.Recordings, "the artist")
+	rec := selectBestRecording(payload.Recordings, "the artist", 0)
 	if rec == nil {
 		t.Fatal("expected a recording")
 	}
@@ -55,7 +55,7 @@ func TestCollectReleaseCandidates(t *testing.T) {
 		},
 	}}
 
-	candidates := collectReleaseCandidates(recordings, "the artist")
+	candidates := collectReleaseCandidates(recordings, "the artist", 0)
 	if len(candidates) != 1 {
 		t.Fatalf("expected 1 preferred candidate, got %d", len(candidates))
 	}
@@ -76,7 +76,7 @@ func TestCollectReleaseCandidatesFallsBackToOfficial(t *testing.T) {
 		},
 	}}
 
-	candidates := collectReleaseCandidates(recordings, "the artist")
+	candidates := collectReleaseCandidates(recordings, "the artist", 0)
 	if len(candidates) != 2 {
 		t.Fatalf("expected official fallback candidates, got %d", len(candidates))
 	}
@@ -110,5 +110,48 @@ func TestSelectBestReleaseCandidatePrefersEarliestThenUS(t *testing.T) {
 	}
 	if rel.release.ID != "c" {
 		t.Fatalf("expected earliest release when no cover exists, got %q", rel.release.ID)
+	}
+}
+
+func TestNormalizeTitle(t *testing.T) {
+	got := normalizeTitle("Baby, I'm Bad Weather (Live)")
+	if got != "baby im bad weather" {
+		t.Fatalf("unexpected normalized title: %q", got)
+	}
+}
+
+func TestNormalizeArtist(t *testing.T) {
+	got := normalizeArtist("Beyoncé, Jay-Z & Artist feat. Someone")
+	if got != "beyonce jay z artist" {
+		t.Fatalf("unexpected normalized artist: %q", got)
+	}
+}
+
+func TestSelectBestRecordingFiltersByDuration(t *testing.T) {
+	recordings := []mbRecording{
+		{
+			Score:  "99",
+			Length: 220000,
+			ArtistCredit: []struct {
+				Name string `json:"name"`
+			}{{Name: "The Artist"}},
+			Releases: []mbRelease{{Title: "Album A", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
+		},
+		{
+			Score:  "90",
+			Length: 180500,
+			ArtistCredit: []struct {
+				Name string `json:"name"`
+			}{{Name: "The Artist"}},
+			Releases: []mbRelease{{Title: "Album B", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
+		},
+	}
+
+	rec := selectBestRecording(recordings, "the artist", 180000)
+	if rec == nil {
+		t.Fatal("expected recording match")
+	}
+	if rec.Length != 180500 {
+		t.Fatalf("expected duration-matched recording, got %d", rec.Length)
 	}
 }
