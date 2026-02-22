@@ -612,7 +612,7 @@
     "retailPlayer": {
       "name": "Retail Player",
       "allDevices": "All Devices",
-      "loading": "Loading devices…",
+      "loading": "Loading devices\u2026",
       "error": "Unable to load devices",
       "empty": "No devices available"
     },
@@ -694,7 +694,9 @@
       "fetching": "Fetching",
       "fetched": "Fetched",
       "updated": "Updated",
-      "left": "Left"
+      "left": "Left",
+      "fetchPhase2": "Fetch Phase 2 Metadata",
+      "phase2Started": "Phase 2 metadata fetch started"
     }
   },
   "nowPlaying": {
@@ -707,7 +709,7 @@
     "missingTracksListTitle": "Missing Tracks",
     "missingTracksEmpty": "No missing tracks recorded",
     "missingTracksSummary": "%{smart_count} song is missing from Playlist %{playlist} |||| %{smart_count} songs are missing from Playlist %{playlist}",
-    "missingTracksImportedOn": " — imported on %{date}",
+    "missingTracksImportedOn": " \u2014 imported on %{date}",
     "missingTracksUnknownPlaylist": "Unknown playlist",
     "missingTracksUnknownTitle": "Unknown track",
     "missingTracksUnknownArtist": "Unknown artist"

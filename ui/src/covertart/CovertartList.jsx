@@ -108,6 +108,19 @@ const CovertartListActions = () => {
     return () => clearInterval(timer)
   }, [status.running, loadStatus])
 
+  const startPhase2Fetch = () => {
+    httpClient('/api/metadata/phase2', { method: 'POST' })
+      .then(({ status: code }) => {
+        if (code === 202) {
+          notify('activity.musicbrainz.phase2Started', 'info')
+        } else {
+          notify('activity.musicbrainz.alreadyRunning', 'warning')
+        }
+        loadStatus()
+      })
+      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
+  }
+
   const startFetch = () => {
     httpClient('/api/metadata/musicbrainz/fetch', { method: 'POST' })
       .then(({ status: code }) => {
@@ -133,6 +146,18 @@ const CovertartListActions = () => {
           data-testid="covertart-metadata-fetch-btn"
         >
           {translate('activity.musicbrainz.fetch')}
+        </Button>
+      )}
+      {isAdmin && (
+        <Button
+          color="primary"
+          variant="contained"
+          startIcon={<BiDownload />}
+          onClick={startPhase2Fetch}
+          disabled={status.running}
+          data-testid="covertart-metadata-phase2-fetch-btn"
+        >
+          {translate('activity.musicbrainz.fetchPhase2')}
         </Button>
       )}
       {isAdmin && (
@@ -241,6 +266,15 @@ const CovertartList = (props) => {
           render={(record) => (
             <span className={classes.mbidText}>{record?.mbzReleaseId || ''}</span>
           )}
+        />
+        <FunctionField
+          label="Metadata Phase"
+          sortable={false}
+          render={(record) => {
+            if (record?.metadataPhase === 1) return 'Phase 1'
+            if (record?.metadataPhase === 2) return 'Phase 2'
+            return '-'
+          }}
         />
         <DurationField source="duration" />
       </Datagrid>

@@ -299,7 +299,25 @@ func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, ye
 		up = up.Set("mbz_release_id", Expr("case when trim(ifnull(mbz_release_id, '')) = '' then ? else mbz_release_id end", *mbzReleaseID))
 	}
 
-	up = up.Set("updated_at", time.Now())
+	up = up.Set("metadata_phase", 1).Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
+func (r *mediaFileRepository) UpdatePhase2Metadata(id string, album *string, year *int) error {
+	if album == nil && year == nil {
+		return nil
+	}
+
+	up := Update(r.tableName).Where(Eq{"id": id})
+	if album != nil {
+		up = up.Set("album", Expr("case when trim(ifnull(album, '')) = '' or lower(trim(ifnull(album, ''))) in ('unknown album', '[unknown album]') then ? else album end", *album))
+	}
+	if year != nil {
+		up = up.Set("year", Expr("case when ifnull(year, 0) = 0 then ? else year end", *year))
+	}
+
+	up = up.Set("metadata_phase", 2).Set("updated_at", time.Now())
 	_, err := r.executeSQL(up)
 	return err
 }

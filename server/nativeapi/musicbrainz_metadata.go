@@ -136,7 +136,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		}
 		j.setFetching(c.flags, 1)
 
-		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
+		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist, false)
 		if fetchErr != nil {
 			failed++
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
@@ -494,8 +494,10 @@ type mbName struct {
 }
 
 type mbGroup struct {
-	PrimaryType   string   `json:"primary-type"`
-	SecondaryType []string `json:"secondary-types"`
+	Title            string   `json:"title"`
+	PrimaryType      string   `json:"primary-type"`
+	SecondaryType    []string `json:"secondary-types"`
+	FirstReleaseDate string   `json:"first-release-date"`
 }
 
 func valueOrNil(v string) *string {
@@ -506,7 +508,7 @@ func valueOrNil(v string) *string {
 	return &v
 }
 
-func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
+func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, lenient bool) (metadataResult, error) {
 	query := fmt.Sprintf("artist:%s AND recording:%s", artist, title)
 	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
@@ -532,7 +534,7 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 		return metadataResult{}, nil
 	}
 
-	bestCandidates := collectReleaseCandidates(payload.Recordings, artist)
+	bestCandidates := collectReleaseCandidates(payload.Recordings, artist, lenient)
 	if len(bestCandidates) == 0 {
 		return metadataResult{}, nil
 	}
@@ -546,7 +548,13 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 	}
 
 	album := strings.TrimSpace(best.release.Title)
+	if album == "" {
+		album = strings.TrimSpace(best.release.ReleaseGroup.Title)
+	}
 	year := yearFromDate(best.release.Date)
+	if year == 0 {
+		year = yearFromDate(best.release.ReleaseGroup.FirstReleaseDate)
+	}
 	if year == 0 {
 		year = yearFromDate(best.recording.FirstReleaseDate)
 	}
@@ -678,34 +686,79 @@ type releaseCandidate struct {
 	release   *mbRelease
 }
 
-func collectReleaseCandidates(recordings []mbRecording, artist string) []releaseCandidate {
+func collectReleaseCandidates(recordings []mbRecording, artist string, lenient bool) []releaseCandidate {
 	bestRecording := selectBestRecording(recordings, artist)
 	if bestRecording == nil {
 		return nil
 	}
 
-	matches := make([]releaseCandidate, 0, len(bestRecording.Releases))
-	fallback := make([]releaseCandidate, 0, len(bestRecording.Releases))
+	if !lenient {
+		matches := make([]releaseCandidate, 0, len(bestRecording.Releases))
+		fallback := make([]releaseCandidate, 0, len(bestRecording.Releases))
+		for i := range bestRecording.Releases {
+			release := &bestRecording.Releases[i]
+			if !isValidRelease(*release) {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(release.Status), "Official") {
+				continue
+			}
+
+			candidate := releaseCandidate{recording: bestRecording, release: release}
+			fallback = append(fallback, candidate)
+			if isAlbumRelease(*release) && !hasDiscouragedSecondaryType(*release) {
+				matches = append(matches, candidate)
+			}
+		}
+
+		if len(matches) > 0 {
+			return matches
+		}
+		return fallback
+	}
+
+	album := make([]releaseCandidate, 0)
+	ep := make([]releaseCandidate, 0)
+	single := make([]releaseCandidate, 0)
+	officialAny := make([]releaseCandidate, 0)
+	anyRelease := make([]releaseCandidate, 0)
+
 	for i := range bestRecording.Releases {
 		release := &bestRecording.Releases[i]
 		if !isValidRelease(*release) {
 			continue
 		}
+		candidate := releaseCandidate{recording: bestRecording, release: release}
+		anyRelease = append(anyRelease, candidate)
+
 		if !strings.EqualFold(strings.TrimSpace(release.Status), "Official") {
 			continue
 		}
+		officialAny = append(officialAny, candidate)
 
-		candidate := releaseCandidate{recording: bestRecording, release: release}
-		fallback = append(fallback, candidate)
-		if isAlbumRelease(*release) && !hasDiscouragedSecondaryType(*release) {
-			matches = append(matches, candidate)
+		switch normalizeMBString(release.ReleaseGroup.PrimaryType) {
+		case "album":
+			album = append(album, candidate)
+		case "ep":
+			ep = append(ep, candidate)
+		case "single":
+			single = append(single, candidate)
 		}
 	}
 
-	if len(matches) > 0 {
-		return matches
+	if len(album) > 0 {
+		return album
 	}
-	return fallback
+	if len(ep) > 0 {
+		return ep
+	}
+	if len(single) > 0 {
+		return single
+	}
+	if len(officialAny) > 0 {
+		return officialAny
+	}
+	return anyRelease
 }
 
 func selectBestReleaseCandidate(candidates []releaseCandidate, hasCover func(releaseID string) bool) *releaseCandidate {
@@ -760,7 +813,7 @@ func selectBestReleaseCandidate(candidates []releaseCandidate, hasCover func(rel
 }
 
 func isValidRelease(release mbRelease) bool {
-	if strings.TrimSpace(release.Title) == "" {
+	if strings.TrimSpace(release.Title) == "" && strings.TrimSpace(release.ReleaseGroup.Title) == "" {
 		return false
 	}
 	for _, t := range release.ReleaseGroup.SecondaryType {
@@ -855,6 +908,95 @@ func yearFromDate(date string) int {
 	return y
 }
 
+func (j *musicBrainzMetadataJob) runPhase2(ds model.DataStore) error {
+	ctx := context.Background()
+	candidates, err := j.collectPhase2Candidates(ctx, ds)
+	if err != nil {
+		return err
+	}
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for i, c := range candidates {
+		if i > 0 {
+			<-ticker.C
+		}
+		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist, true)
+		if fetchErr != nil {
+			log.Warn(ctx, "Could not fetch phase 2 metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
+			continue
+		}
+
+		var setAlbum *string
+		var setYear *int
+		if c.flags.album && metadata.Album != "" {
+			setAlbum = &metadata.Album
+		}
+		if c.flags.year && metadata.Year > 0 {
+			setYear = &metadata.Year
+		}
+		if setAlbum == nil && setYear == nil {
+			continue
+		}
+		if err := ds.MediaFile(ctx).UpdatePhase2Metadata(c.mf.ID, setAlbum, setYear); err != nil {
+			log.Error(ctx, "Could not update phase 2 metadata", "songId", c.mf.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (j *musicBrainzMetadataJob) collectPhase2Candidates(ctx context.Context, ds model.DataStore) ([]mbMetadataCandidate, error) {
+	cursor, err := ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]mbMetadataCandidate, 0)
+	for mf, e := range cursor {
+		if e != nil {
+			return nil, e
+		}
+		if mf.MetadataPhase == 2 || strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
+			continue
+		}
+		flags := missingFlags{album: isMissingAlbum(mf.Album), year: mf.Year == 0}
+		if !flags.album && !flags.year {
+			continue
+		}
+		res = append(res, mbMetadataCandidate{mf: mf, flags: flags})
+	}
+	return res, nil
+}
+
+func (j *musicBrainzMetadataJob) startPhase2(ds model.DataStore) bool {
+	j.mu.Lock()
+	if j.status.Running {
+		j.mu.Unlock()
+		return false
+	}
+	j.status.Running = true
+	now := time.Now()
+	j.status.StartedAt = &now
+	j.status.FinishedAt = nil
+	j.status.LastError = ""
+	j.mu.Unlock()
+
+	go func() {
+		err := j.runPhase2(ds)
+		j.mu.Lock()
+		defer j.mu.Unlock()
+		j.status.Running = false
+		now := time.Now()
+		j.status.FinishedAt = &now
+		if err != nil {
+			j.status.LastError = err.Error()
+		}
+	}()
+	return true
+}
+
 func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 	r.Route("/metadata/musicbrainz", func(r chi.Router) {
 		r.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
@@ -869,5 +1011,17 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"status":"already_running"}`))
 		})
+	})
+}
+
+func (n *Router) addMetadataPhase2Route(r chi.Router) {
+	r.Post("/metadata/phase2", func(w http.ResponseWriter, _ *http.Request) {
+		if n.metadataJob.startPhase2(n.ds) {
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"status":"started"}`))
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"status":"already_running"}`))
 	})
 }
