@@ -8,7 +8,7 @@ import {
   TextField,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
-import { DurationField } from '../common'
+import { DurationField, Pagination } from '../common'
 
 const useStyles = makeStyles({
   mbidText: {
@@ -34,6 +34,7 @@ const CovertartList = (props) => {
       exporter={false}
       bulkActionButtons={false}
       perPage={50}
+      pagination={<Pagination />}
     >
       <Datagrid rowClick={false}>
         <FunctionField
