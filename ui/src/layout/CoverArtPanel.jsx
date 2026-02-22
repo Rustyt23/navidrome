@@ -9,6 +9,8 @@ import {
   Box,
   Typography,
   Grid,
+  IconButton,
+  Tooltip,
 } from '@material-ui/core'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
 import { BiDownload } from 'react-icons/bi'
@@ -24,14 +26,10 @@ const emptyProgress = {
 }
 
 const useStyles = makeStyles((theme) => ({
-  button: {
+  iconButton: {
     marginLeft: theme.spacing(1),
-    textTransform: 'none',
-    fontWeight: 600,
-    padding: theme.spacing(0.5, 1.25),
-  },
-  buttonIcon: {
-    fontSize: '1rem',
+    color: 'inherit',
+    padding: theme.spacing(1),
   },
   card: {
     minWidth: 680,
@@ -155,16 +153,15 @@ const CoverArtPanel = () => {
 
   return (
     <>
-      <Button
-        className={classes.button}
-        color="inherit"
-        variant="outlined"
-        onClick={(event) => setAnchorEl(event.currentTarget)}
-        startIcon={<ImageOutlinedIcon className={classes.buttonIcon} />}
-        data-testid="coverart-panel-btn"
-      >
-        Coverart
-      </Button>
+      <Tooltip title="Coverart">
+        <IconButton
+          className={classes.iconButton}
+          onClick={(event) => setAnchorEl(event.currentTarget)}
+          data-testid="coverart-panel-btn"
+        >
+          <ImageOutlinedIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
       <Popover
         id="panel-coverart"
         anchorEl={anchorEl}
