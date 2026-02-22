@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
@@ -914,6 +915,7 @@ func (j *musicBrainzMetadataJob) runPhase2(ds model.DataStore) error {
 	if err != nil {
 		return err
 	}
+	log.Debug(ctx, fmt.Sprintf("Phase 2 candidates selected: %d", len(candidates)))
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -948,7 +950,13 @@ func (j *musicBrainzMetadataJob) runPhase2(ds model.DataStore) error {
 }
 
 func (j *musicBrainzMetadataJob) collectPhase2Candidates(ctx context.Context, ds model.DataStore) ([]mbMetadataCandidate, error) {
-	cursor, err := ds.MediaFile(ctx).GetCursor()
+	cursor, err := ds.MediaFile(ctx).GetCursor(model.QueryOptions{Filters: squirrel.Expr(`(
+		album is null
+		or trim(album) = ''
+		or lower(trim(album)) in ('unknown album', '[unknown album]')
+		or year is null
+		or year = 0
+	) and metadata_phase != 2`)})
 	if err != nil {
 		return nil, err
 	}
@@ -958,7 +966,7 @@ func (j *musicBrainzMetadataJob) collectPhase2Candidates(ctx context.Context, ds
 		if e != nil {
 			return nil, e
 		}
-		if mf.MetadataPhase == 2 || strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
+		if strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
 			continue
 		}
 		flags := missingFlags{album: isMissingAlbum(mf.Album), year: mf.Year == 0}
