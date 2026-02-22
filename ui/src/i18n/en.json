@@ -690,10 +690,12 @@
       "album": "Album",
       "year": "Year",
       "genre": "Genre",
+      "existing": "Already exist",
       "missing": "Missing",
       "fetching": "Fetching",
       "fetched": "Fetched",
       "updated": "Updated",
+      "missingAfterUpdate": "Missing after updates",
       "left": "Left"
     }
   },

@@ -10,10 +10,12 @@ import {
   Typography,
   Grid,
 } from '@material-ui/core'
+import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
 import { BiDownload } from 'react-icons/bi'
 import { httpClient } from '../dataProvider'
 
 const emptyProgress = {
+  existing: 0,
   missing: 0,
   fetching: 0,
   fetched: 0,
@@ -26,6 +28,10 @@ const useStyles = makeStyles((theme) => ({
     marginLeft: theme.spacing(1),
     textTransform: 'none',
     fontWeight: 600,
+    padding: theme.spacing(0.5, 1.25),
+  },
+  buttonIcon: {
+    fontSize: '1rem',
   },
   card: {
     minWidth: 680,
@@ -58,6 +64,10 @@ const ProgressCard = ({ title, progress, translate, classes }) => (
     <CardContent>
       <Typography variant="subtitle2">{title}</Typography>
       <Box className={classes.row}>
+        <span>{translate('activity.musicbrainz.existing')}</span>
+        <span>{progress.existing || 0}</span>
+      </Box>
+      <Box className={classes.row}>
         <span>{translate('activity.musicbrainz.missing')}</span>
         <span>{progress.missing || 0}</span>
       </Box>
@@ -74,7 +84,7 @@ const ProgressCard = ({ title, progress, translate, classes }) => (
         <span>{progress.updated || 0}</span>
       </Box>
       <Box className={classes.row}>
-        <span>{translate('activity.musicbrainz.left')}</span>
+        <span>{translate('activity.musicbrainz.missingAfterUpdate')}</span>
         <span>{progress.left || 0}</span>
       </Box>
     </CardContent>
@@ -150,6 +160,7 @@ const CoverArtPanel = () => {
         color="inherit"
         variant="outlined"
         onClick={(event) => setAnchorEl(event.currentTarget)}
+        startIcon={<ImageOutlinedIcon className={classes.buttonIcon} />}
         data-testid="coverart-panel-btn"
       >
         Coverart

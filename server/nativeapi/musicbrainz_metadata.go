@@ -24,6 +24,7 @@ import (
 )
 
 type metadataFieldProgress struct {
+	Existing int `json:"existing"`
 	Missing  int `json:"missing"`
 	Fetching int `json:"fetching"`
 	Fetched  int `json:"fetched"`
@@ -230,6 +231,7 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
 			coverArt:      !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == "",
 		}
+		j.incrementExisting(flags)
 		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID && !flags.coverArt {
 			continue
 		}
@@ -238,6 +240,29 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 		j.incrementMissing(flags)
 	}
 	return res, nil
+}
+
+func (j *musicBrainzMetadataJob) incrementExisting(flags missingFlags) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if !flags.album {
+		j.status.Album.Existing++
+	}
+	if !flags.year {
+		j.status.Year.Existing++
+	}
+	if !flags.genre {
+		j.status.Genre.Existing++
+	}
+	if !flags.recordingMBID {
+		j.status.RecordingMBID.Existing++
+	}
+	if !flags.releaseMBID {
+		j.status.ReleaseMBID.Existing++
+	}
+	if !flags.coverArt {
+		j.status.CoverArt.Existing++
+	}
 }
 
 func isMissingAlbum(album string) bool {
