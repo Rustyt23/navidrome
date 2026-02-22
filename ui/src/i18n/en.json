@@ -695,7 +695,8 @@
       "fetching": "Fetching",
       "fetched": "Fetched",
       "updated": "Updated",
-      "missingAfterUpdate": "Missing after updates",
+      "toBeFetch": "To be fetch",
+      "couldntFetch": "Couldn't fetched",
       "left": "Left"
     }
   },

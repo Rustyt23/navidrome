@@ -23,6 +23,7 @@ const emptyProgress = {
   fetched: 0,
   updated: 0,
   left: 0,
+  couldntFetch: 0,
 }
 
 const useStyles = makeStyles((theme) => ({
@@ -82,8 +83,12 @@ const ProgressCard = ({ title, progress, translate, classes }) => (
         <span>{progress.updated || 0}</span>
       </Box>
       <Box className={classes.row}>
-        <span>{translate('activity.musicbrainz.missingAfterUpdate')}</span>
+        <span>{translate('activity.musicbrainz.toBeFetch')}</span>
         <span>{progress.left || 0}</span>
+      </Box>
+      <Box className={classes.row}>
+        <span>{translate('activity.musicbrainz.couldntFetch')}</span>
+        <span>{progress.couldntFetch || 0}</span>
       </Box>
     </CardContent>
   </Card>
