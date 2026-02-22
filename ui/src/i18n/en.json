@@ -683,17 +683,20 @@
     "elapsedTime": "Elapsed Time",
     "musicbrainz": {
       "title": "MusicBrainz Metadata",
-      "fetch": "Fetch metadata from MusicBrainz",
+      "fetch": "Fetch metadata",
       "started": "Metadata fetch started",
       "alreadyRunning": "Metadata fetch is already running",
       "failed": "Metadata fetch failed",
       "album": "Album",
       "year": "Year",
       "genre": "Genre",
+      "existing": "Already exist",
       "missing": "Missing",
       "fetching": "Fetching",
       "fetched": "Fetched",
       "updated": "Updated",
+      "toBeFetch": "To be fetch",
+      "couldntFetch": "Couldn't fetched",
       "left": "Left"
     }
   },

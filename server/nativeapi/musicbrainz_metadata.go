@@ -24,11 +24,13 @@ import (
 )
 
 type metadataFieldProgress struct {
-	Missing  int `json:"missing"`
-	Fetching int `json:"fetching"`
-	Fetched  int `json:"fetched"`
-	Updated  int `json:"updated"`
-	Left     int `json:"left"`
+	Existing     int `json:"existing"`
+	Missing      int `json:"missing"`
+	Fetching     int `json:"fetching"`
+	Fetched      int `json:"fetched"`
+	Updated      int `json:"updated"`
+	Left         int `json:"left"`
+	CouldntFetch int `json:"couldntFetch"`
 }
 
 type musicBrainzMetadataStatus struct {
@@ -230,6 +232,7 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
 			coverArt:      !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == "",
 		}
+		j.incrementExisting(flags)
 		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID && !flags.coverArt {
 			continue
 		}
@@ -238,6 +241,29 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 		j.incrementMissing(flags)
 	}
 	return res, nil
+}
+
+func (j *musicBrainzMetadataJob) incrementExisting(flags missingFlags) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if !flags.album {
+		j.status.Album.Existing++
+	}
+	if !flags.year {
+		j.status.Year.Existing++
+	}
+	if !flags.genre {
+		j.status.Genre.Existing++
+	}
+	if !flags.recordingMBID {
+		j.status.RecordingMBID.Existing++
+	}
+	if !flags.releaseMBID {
+		j.status.ReleaseMBID.Existing++
+	}
+	if !flags.coverArt {
+		j.status.CoverArt.Existing++
+	}
 }
 
 func isMissingAlbum(album string) bool {
@@ -328,6 +354,8 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 		j.status.Album.Left--
 		if fetchedAlbum {
 			j.status.Album.Fetched++
+		} else {
+			j.status.Album.CouldntFetch++
 		}
 	}
 	if flags.year {
@@ -335,6 +363,8 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 		j.status.Year.Left--
 		if fetchedYear {
 			j.status.Year.Fetched++
+		} else {
+			j.status.Year.CouldntFetch++
 		}
 	}
 	if flags.genre {
@@ -342,6 +372,8 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 		j.status.Genre.Left--
 		if fetchedGenre {
 			j.status.Genre.Fetched++
+		} else {
+			j.status.Genre.CouldntFetch++
 		}
 	}
 	if flags.recordingMBID {
@@ -349,6 +381,8 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 		j.status.RecordingMBID.Left--
 		if fetchedRecordingMBID {
 			j.status.RecordingMBID.Fetched++
+		} else {
+			j.status.RecordingMBID.CouldntFetch++
 		}
 	}
 	if flags.releaseMBID {
@@ -356,6 +390,8 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 		j.status.ReleaseMBID.Left--
 		if fetchedReleaseMBID {
 			j.status.ReleaseMBID.Fetched++
+		} else {
+			j.status.ReleaseMBID.CouldntFetch++
 		}
 	}
 	if flags.coverArt {
@@ -363,6 +399,8 @@ func (j *musicBrainzMetadataJob) finishFetch(flags missingFlags, fetchedAlbum, f
 		j.status.CoverArt.Left--
 		if fetchedCoverArt {
 			j.status.CoverArt.Fetched++
+		} else {
+			j.status.CoverArt.CouldntFetch++
 		}
 	}
 }
