@@ -78,6 +78,7 @@ type MediaFile struct {
 	CatalogNum           string   `structs:"catalog_num" json:"catalogNum,omitempty"`
 	MbzRecordingID       string   `structs:"mbz_recording_id" json:"mbzRecordingID,omitempty"`
 	MbzReleaseID         string   `structs:"mbz_release_id" json:"mbzReleaseId,omitempty"`
+	MetadataPhase        int      `structs:"metadata_phase" json:"metadataPhase"`
 	MbzReleaseTrackID    string   `structs:"mbz_release_track_id" json:"mbzReleaseTrackId,omitempty"`
 	MbzAlbumID           string   `structs:"mbz_album_id" json:"mbzAlbumId,omitempty"`
 	MbzReleaseGroupID    string   `structs:"mbz_release_group_id" json:"mbzReleaseGroupId,omitempty"`
@@ -363,6 +364,7 @@ type MediaFileRepository interface {
 	FindByPaths(paths []string) (MediaFiles, error)
 	UpdateComment(ids []string, comment string) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
+	UpdatePhase2Metadata(id string, album *string, year *int) error
 	UpdateCoverPath(id string, coverPath string) error
 
 	// The following methods are used exclusively by the scanner:

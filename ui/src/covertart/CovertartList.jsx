@@ -74,6 +74,12 @@ const CovertartListActions = () => {
     releaseMbid: emptyProgress,
     coverArt: emptyProgress,
   })
+  const [phase2Stats, setPhase2Stats] = useState({
+    phase1Total: 0,
+    phase2Fetched: 0,
+    missing: 0,
+    stillMissing: 0,
+  })
 
   const loadStatus = useCallback(() => {
     if (!isAdmin) {
@@ -96,17 +102,53 @@ const CovertartListActions = () => {
       .catch(() => {})
   }, [isAdmin])
 
+  const loadPhase2Stats = useCallback(() => {
+    if (!isAdmin) {
+      return
+    }
+    httpClient('/api/metadata/phase2/stats')
+      .then(({ json }) => {
+        setPhase2Stats(
+          json || {
+            phase1Total: 0,
+            phase2Fetched: 0,
+            missing: 0,
+            stillMissing: 0,
+          },
+        )
+      })
+      .catch(() => {})
+  }, [isAdmin])
+
   useEffect(() => {
     loadStatus()
-  }, [loadStatus])
+    loadPhase2Stats()
+  }, [loadStatus, loadPhase2Stats])
 
   useEffect(() => {
     if (!status.running) {
       return undefined
     }
-    const timer = setInterval(() => loadStatus(), 2000)
+    const timer = setInterval(() => {
+      loadStatus()
+      loadPhase2Stats()
+    }, 2000)
     return () => clearInterval(timer)
-  }, [status.running, loadStatus])
+  }, [status.running, loadStatus, loadPhase2Stats])
+
+  const startPhase2Fetch = () => {
+    httpClient('/api/metadata/phase2', { method: 'POST' })
+      .then(({ status: code }) => {
+        if (code === 202) {
+          notify('activity.musicbrainz.phase2Started', 'info')
+        } else {
+          notify('activity.musicbrainz.alreadyRunning', 'warning')
+        }
+        loadStatus()
+        loadPhase2Stats()
+      })
+      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
+  }
 
   const startFetch = () => {
     httpClient('/api/metadata/musicbrainz/fetch', { method: 'POST' })
@@ -136,6 +178,18 @@ const CovertartListActions = () => {
         </Button>
       )}
       {isAdmin && (
+        <Button
+          color="primary"
+          variant="contained"
+          startIcon={<BiDownload />}
+          onClick={startPhase2Fetch}
+          disabled={status.running}
+          data-testid="covertart-metadata-phase2-fetch-btn"
+        >
+          {translate('activity.musicbrainz.fetchPhase2')}
+        </Button>
+      )}
+      {isAdmin && (
         <Box width="100%" mt={2}>
           <Typography variant="subtitle1">
             {translate('activity.musicbrainz.title')}
@@ -154,6 +208,29 @@ const CovertartListActions = () => {
                 progress={status.year || emptyProgress}
                 translate={translate}
               />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2">Phase 2</Typography>
+                  <Box display="flex" justifyContent="space-between" mt={1}>
+                    <span>Phase 1 Total</span>
+                    <span>{phase2Stats.phase1Total || 0}</span>
+                  </Box>
+                  <Box display="flex" justifyContent="space-between">
+                    <span>Phase 2 Fetched</span>
+                    <span>{phase2Stats.phase2Fetched || 0}</span>
+                  </Box>
+                  <Box display="flex" justifyContent="space-between">
+                    <span>Missing</span>
+                    <span>{phase2Stats.missing || 0}</span>
+                  </Box>
+                  <Box display="flex" justifyContent="space-between">
+                    <span>Still Missing</span>
+                    <span>{phase2Stats.stillMissing || 0}</span>
+                  </Box>
+                </CardContent>
+              </Card>
             </Grid>
             <Grid item xs={12} md={2}>
               <MetadataProgressCard
@@ -241,6 +318,15 @@ const CovertartList = (props) => {
           render={(record) => (
             <span className={classes.mbidText}>{record?.mbzReleaseId || ''}</span>
           )}
+        />
+        <FunctionField
+          label="Metadata Phase"
+          sortable={false}
+          render={(record) => {
+            if (record?.metadataPhase === 1) return 'Phase 1'
+            if (record?.metadataPhase === 2) return 'Phase 2'
+            return '-'
+          }}
         />
         <DurationField source="duration" />
       </Datagrid>
