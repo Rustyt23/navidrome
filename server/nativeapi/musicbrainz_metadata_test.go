@@ -12,28 +12,31 @@ func TestNormalizeMBString(t *testing.T) {
 func TestSelectBestRecording(t *testing.T) {
 	payload := mbSearchResponse{Recordings: []mbRecording{
 		{
-			Score: "95",
+			Score:  "95",
+			Length: 180000,
 			ArtistCredit: []struct {
 				Name string `json:"name"`
 			}{{Name: "Wrong Artist"}},
 			Releases: []mbRelease{{Title: "Wrong Album", Date: "2010-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
 		},
 		{
-			Score: "92",
+			Score:  "92",
+			Length: 181000,
 			ArtistCredit: []struct {
 				Name string `json:"name"`
 			}{{Name: "The Artist"}},
 			Releases: []mbRelease{{Title: "Best Album", Date: "2001-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
 		},
 		{
-			Score: "79",
+			Score:  "79",
+			Length: 181000,
 			ArtistCredit: []struct {
 				Name string `json:"name"`
 			}{{Name: "The Artist"}},
 		},
 	}}
 
-	rec := selectBestRecording(payload.Recordings, "the artist")
+	rec := selectBestRecording(payload.Recordings, "the artist", 180500)
 	if rec == nil {
 		t.Fatal("expected a recording")
 	}
@@ -44,7 +47,8 @@ func TestSelectBestRecording(t *testing.T) {
 
 func TestCollectReleaseCandidates(t *testing.T) {
 	recordings := []mbRecording{{
-		Score: "95",
+		Score:  "95",
+		Length: 180000,
 		ArtistCredit: []struct {
 			Name string `json:"name"`
 		}{{Name: "The Artist"}},
@@ -55,7 +59,7 @@ func TestCollectReleaseCandidates(t *testing.T) {
 		},
 	}}
 
-	candidates := collectReleaseCandidates(recordings, "the artist")
+	candidates := collectReleaseCandidates(recordings, "the artist", 180000)
 	if len(candidates) != 1 {
 		t.Fatalf("expected 1 preferred candidate, got %d", len(candidates))
 	}
@@ -66,7 +70,8 @@ func TestCollectReleaseCandidates(t *testing.T) {
 
 func TestCollectReleaseCandidatesFallsBackToOfficial(t *testing.T) {
 	recordings := []mbRecording{{
-		Score: "95",
+		Score:  "95",
+		Length: 180000,
 		ArtistCredit: []struct {
 			Name string `json:"name"`
 		}{{Name: "The Artist"}},
@@ -76,9 +81,39 @@ func TestCollectReleaseCandidatesFallsBackToOfficial(t *testing.T) {
 		},
 	}}
 
-	candidates := collectReleaseCandidates(recordings, "the artist")
+	candidates := collectReleaseCandidates(recordings, "the artist", 180000)
 	if len(candidates) != 2 {
 		t.Fatalf("expected official fallback candidates, got %d", len(candidates))
+	}
+}
+
+func TestNormalizeTitle(t *testing.T) {
+	got := normalizeTitle("Baby, I'm Bad Weather (Live)")
+	if got != "baby im bad weather" {
+		t.Fatalf("unexpected normalized title: %q", got)
+	}
+}
+
+func TestNormalizeArtist(t *testing.T) {
+	got := normalizeArtist("Beyoncé feat. JAY-Z & Friends, Inc")
+	if got != "beyonce" {
+		t.Fatalf("unexpected normalized artist: %q", got)
+	}
+}
+
+func TestSelectBestRecordingSkipsDurationMismatches(t *testing.T) {
+	recordings := []mbRecording{
+		{Score: "100", Length: 100000, ArtistCredit: []struct {
+			Name string `json:"name"`
+		}{{Name: "The Artist"}}},
+		{Score: "90", Length: 180000, ArtistCredit: []struct {
+			Name string `json:"name"`
+		}{{Name: "The Artist"}}, Releases: []mbRelease{{Title: "Album", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}}},
+	}
+
+	rec := selectBestRecording(recordings, "the artist", 181000)
+	if rec == nil || rec.Length != 180000 {
+		t.Fatalf("unexpected selected recording: %+v", rec)
 	}
 }
 
