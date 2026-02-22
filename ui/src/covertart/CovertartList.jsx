@@ -22,6 +22,30 @@ const useStyles = makeStyles({
     fontFamily: 'monospace',
     fontSize: '0.75rem',
   },
+  actionsContainer: {
+    width: '100%',
+    marginTop: '0.5rem',
+  },
+  actionsHeader: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '0.75rem',
+    marginBottom: '0.75rem',
+  },
+  progressCard: {
+    height: '100%',
+  },
+  progressCardContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+  },
+  progressRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
 })
 
 const CovertartFilter = (props) => (
@@ -32,35 +56,36 @@ const CovertartFilter = (props) => (
 
 const emptyProgress = { missing: 0, fetching: 0, fetched: 0, updated: 0, left: 0 }
 
-const MetadataProgressCard = ({ title, progress, translate }) => (
-  <Card>
-    <CardContent>
+const MetadataProgressCard = ({ title, progress, translate, classes }) => (
+  <Card className={classes.progressCard}>
+    <CardContent className={classes.progressCardContent}>
       <Typography variant="subtitle2">{title}</Typography>
-      <Box display="flex" justifyContent="space-between" mt={1}>
-        <span>{translate('activity.musicbrainz.missing')}</span>
-        <span>{progress.missing || 0}</span>
+      <Box className={classes.progressRow} mt={1}>
+        <Typography variant="body2">{translate('activity.musicbrainz.missing')}</Typography>
+        <Typography variant="body2">{progress.missing || 0}</Typography>
       </Box>
-      <Box display="flex" justifyContent="space-between">
-        <span>{translate('activity.musicbrainz.fetching')}</span>
-        <span>{progress.fetching || 0}</span>
+      <Box className={classes.progressRow}>
+        <Typography variant="body2">{translate('activity.musicbrainz.fetching')}</Typography>
+        <Typography variant="body2">{progress.fetching || 0}</Typography>
       </Box>
-      <Box display="flex" justifyContent="space-between">
-        <span>{translate('activity.musicbrainz.fetched')}</span>
-        <span>{progress.fetched || 0}</span>
+      <Box className={classes.progressRow}>
+        <Typography variant="body2">{translate('activity.musicbrainz.fetched')}</Typography>
+        <Typography variant="body2">{progress.fetched || 0}</Typography>
       </Box>
-      <Box display="flex" justifyContent="space-between">
-        <span>{translate('activity.musicbrainz.updated')}</span>
-        <span>{progress.updated || 0}</span>
+      <Box className={classes.progressRow}>
+        <Typography variant="body2">{translate('activity.musicbrainz.updated')}</Typography>
+        <Typography variant="body2">{progress.updated || 0}</Typography>
       </Box>
-      <Box display="flex" justifyContent="space-between">
-        <span>{translate('activity.musicbrainz.left')}</span>
-        <span>{progress.left || 0}</span>
+      <Box className={classes.progressRow}>
+        <Typography variant="body2">{translate('activity.musicbrainz.left')}</Typography>
+        <Typography variant="body2">{progress.left || 0}</Typography>
       </Box>
     </CardContent>
   </Card>
 )
 
 const CovertartListActions = () => {
+  const classes = useStyles()
   const translate = useTranslate()
   const notify = useNotify()
   const { permissions } = usePermissions()
@@ -124,63 +149,69 @@ const CovertartListActions = () => {
   return (
     <TopToolbar>
       {isAdmin && (
-        <Button
-          color="primary"
-          variant="contained"
-          startIcon={<BiDownload />}
-          onClick={startFetch}
-          disabled={status.running}
-          data-testid="covertart-metadata-fetch-btn"
-        >
-          {translate('activity.musicbrainz.fetch')}
-        </Button>
-      )}
-      {isAdmin && (
-        <Box width="100%" mt={2}>
-          <Typography variant="subtitle1">
-            {translate('activity.musicbrainz.title')}
-          </Typography>
+        <Box className={classes.actionsContainer}>
+          <Box className={classes.actionsHeader}>
+            <Button
+              color="primary"
+              variant="contained"
+              startIcon={<BiDownload />}
+              onClick={startFetch}
+              disabled={status.running}
+              data-testid="covertart-metadata-fetch-btn"
+            >
+              {translate('activity.musicbrainz.fetch')}
+            </Button>
+            <Typography variant="subtitle1">
+              {translate('activity.musicbrainz.title')}
+            </Typography>
+          </Box>
           <Grid container spacing={2}>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} sm={6} md={4} lg={2}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.album')}
                 progress={status.album || emptyProgress}
                 translate={translate}
+                classes={classes}
               />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} sm={6} md={4} lg={2}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.year')}
                 progress={status.year || emptyProgress}
                 translate={translate}
+                classes={classes}
               />
             </Grid>
-            <Grid item xs={12} md={2}>
+            <Grid item xs={12} sm={6} md={4} lg={2}>
               <MetadataProgressCard
                 title={translate('activity.musicbrainz.genre')}
                 progress={status.genre || emptyProgress}
                 translate={translate}
+                classes={classes}
               />
             </Grid>
-            <Grid item xs={12} md={2}>
+            <Grid item xs={12} sm={6} md={4} lg={2}>
               <MetadataProgressCard
                 title="Recording MBID"
                 progress={status.recordingMbid || emptyProgress}
                 translate={translate}
+                classes={classes}
               />
             </Grid>
-            <Grid item xs={12} md={2}>
+            <Grid item xs={12} sm={6} md={4} lg={2}>
               <MetadataProgressCard
                 title="Release MBID"
                 progress={status.releaseMbid || emptyProgress}
                 translate={translate}
+                classes={classes}
               />
             </Grid>
-            <Grid item xs={12} md={2}>
+            <Grid item xs={12} sm={6} md={4} lg={2}>
               <MetadataProgressCard
                 title="Cover Art"
                 progress={status.coverArt || emptyProgress}
                 translate={translate}
+                classes={classes}
               />
             </Grid>
           </Grid>
