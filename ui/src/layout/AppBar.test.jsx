@@ -22,6 +22,10 @@ vi.mock('./NowPlayingPanel', () => ({
 vi.mock('./ActivityPanel', () => ({
   default: () => <div data-testid="activity-panel" />,
 }))
+
+vi.mock('./CoverArtPanel', () => ({
+  default: () => <div data-testid="coverart-panel" />,
+}))
 vi.mock('./PersonalMenu', () => ({
   default: () => <div />,
 }))
@@ -51,6 +55,7 @@ describe('<AppBar />', () => {
       </Provider>,
     )
     expect(screen.getByTestId('now-playing-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('coverart-panel')).toBeInTheDocument()
   })
 
   it('hides NowPlayingPanel when disabled', () => {
