@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import Collapse from '@material-ui/core/Collapse'
+import IconButton from '@material-ui/core/IconButton'
+import PhotoIcon from '@material-ui/icons/Photo'
 import {
   Button,
   Datagrid,
   Filter,
   FunctionField,
   List,
+  Pagination,
   SearchInput,
   TextField,
   TopToolbar,
@@ -74,6 +78,7 @@ const CovertartActions = () => {
   const refresh = useRefresh()
   const [loading, setLoading] = useState(false)
   const [job, setJob] = useState(null)
+  const [showStats, setShowStats] = useState(false)
 
   const progress = useMemo(() => {
     const response = job?.response || {}
@@ -97,19 +102,27 @@ const CovertartActions = () => {
   }, [refresh])
 
   useEffect(() => {
-    if (!loading) return undefined
+    fetchStatus().catch(() => {})
+  }, [fetchStatus])
 
+  useEffect(() => {
+    if (!job?.running) {
+      setLoading(false)
+      return undefined
+    }
+
+    setLoading(true)
     const id = setInterval(() => {
       fetchStatus().catch(() => {})
     }, 1000)
 
     return () => clearInterval(id)
-  }, [fetchStatus, loading])
+  }, [fetchStatus, job?.running])
 
   const handleFetchSpotify = async () => {
     setLoading(true)
     try {
-      const response = await httpClient(`${REST_URL}/song/metadata/spotify?limit=50`, {
+      const response = await httpClient(`${REST_URL}/song/metadata/spotify`, {
         method: 'POST',
       })
 
@@ -128,58 +141,38 @@ const CovertartActions = () => {
   return (
     <TopToolbar style={{ display: 'block' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-        <Button
-          label="Fetch Missing Metadata (Spotify)"
-          onClick={handleFetchSpotify}
-          disabled={loading}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Button
+            label="Fetch Missing Metadata (Spotify)"
+            onClick={handleFetchSpotify}
+            disabled={loading}
+          />
+          <IconButton onClick={() => setShowStats((v) => !v)} title="Toggle Cover Art metadata panel">
+            <PhotoIcon />
+          </IconButton>
+        </div>
         <span style={{ alignSelf: 'center' }}>
           Updated: {progress.updated} / Skipped: {progress.skipped} / Failed:{' '}
           {progress.failed} / Processed: {progress.processed}
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(250px, 1fr))', gap: 12 }}>
-        {statCards.map((card) => (
-          <StatCard
-            key={card.key}
-            title={card.label}
-            stats={job?.stats?.[card.key] || defaultFieldStats}
-          />
-        ))}
-      </div>
-
-      <div style={{ marginTop: 12, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Album (Fetched)</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Year (Fetched)</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Cover Art URL (Fetched)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(job?.fetchedData || []).length === 0 ? (
-              <tr>
-                <td colSpan={3} style={{ padding: 10, opacity: 0.75 }}>
-                  No fetched Spotify values yet.
-                </td>
-              </tr>
-            ) : (
-              (job?.fetchedData || []).map((row, idx) => (
-                <tr key={`${row.albumName}-${row.year}-${idx}`}>
-                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>{row.albumName || '-'}</td>
-                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>{row.year || '-'}</td>
-                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)', wordBreak: 'break-all' }}>{row.coverUrl || '-'}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Collapse in={showStats} timeout="auto" unmountOnExit>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(250px, 1fr))', gap: 12 }}>
+          {statCards.map((card) => (
+            <StatCard
+              key={card.key}
+              title={card.label}
+              stats={job?.stats?.[card.key] || defaultFieldStats}
+            />
+          ))}
+        </div>
+      </Collapse>
     </TopToolbar>
   )
 }
+
+const CovertartPagination = (props) => <Pagination rowsPerPageOptions={[50, 100, 200, 500]} {...props} />
 
 const CovertartList = (props) => (
   <List
@@ -190,6 +183,7 @@ const CovertartList = (props) => (
     exporter={false}
     bulkActionButtons={false}
     perPage={50}
+    pagination={<CovertartPagination />}
   >
     <Datagrid rowClick={false}>
       <FunctionField

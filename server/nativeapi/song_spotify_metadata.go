@@ -27,7 +27,7 @@ import (
 
 const (
 	spotifyTrackTitleDistanceThreshold = 4
-	spotifyBatchDefaultLimit           = 50
+	spotifyBatchDefaultLimit           = 0
 )
 
 var (
@@ -134,7 +134,7 @@ func (n *Router) fetchMissingSpotifyMetadata() http.HandlerFunc {
 		ctx := r.Context()
 		limit := spotifyBatchDefaultLimit
 		if p := strings.TrimSpace(r.URL.Query().Get("limit")); p != "" {
-			if v, err := strconv.Atoi(p); err == nil && v > 0 && v <= 200 {
+			if v, err := strconv.Atoi(p); err == nil && v > 0 {
 				limit = v
 			}
 		}
@@ -329,7 +329,7 @@ func appendFetchedSpotifyData(item spotifyFetchedItem) {
 }
 
 func loadTracksMissingSpotifyMetadata(ctx context.Context, db *sql.DB, limit int) ([]spotifyMetadataTrack, error) {
-	rows, err := db.QueryContext(ctx, `
+	query := `
 		SELECT mf.id, mf.title, mf.artist, mf.album, mf.release_year, mf.album_id, a.embed_art_path
 		FROM media_file mf
 		LEFT JOIN album a ON a.id = mf.album_id
@@ -338,15 +338,26 @@ func loadTracksMissingSpotifyMetadata(ctx context.Context, db *sql.DB, limit int
 			COALESCE(mf.release_year, 0) = 0 OR
 			TRIM(COALESCE(a.embed_art_path, '')) = ''
 		)
-		ORDER BY mf.updated_at ASC
-		LIMIT ?
-	`, consts.UnknownAlbum, limit)
+		ORDER BY mf.updated_at ASC`
+
+	args := []interface{}{consts.UnknownAlbum}
+	if limit > 0 {
+		query += `
+		LIMIT ?`
+		args = append(args, limit)
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	tracks := make([]spotifyMetadataTrack, 0, limit)
+	capacity := limit
+	if capacity <= 0 {
+		capacity = 64
+	}
+	tracks := make([]spotifyMetadataTrack, 0, capacity)
 	for rows.Next() {
 		var t spotifyMetadataTrack
 		if err := rows.Scan(&t.ID, &t.Title, &t.Artist, &t.Album, &t.ReleaseYear, &t.AlbumID, &t.EmbedArt); err != nil {
