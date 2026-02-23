@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Datagrid,
@@ -22,11 +22,89 @@ const CovertartFilter = (props) => (
   </Filter>
 )
 
+const defaultFieldStats = {
+  alreadyExist: 0,
+  missing: 0,
+  fetching: 0,
+  fetched: 0,
+  updated: 0,
+  toBeFetch: 0,
+  couldntFetch: 0,
+}
+
+const statCards = [
+  { key: 'album', label: 'Album' },
+  { key: 'year', label: 'Year' },
+  { key: 'coverArt', label: 'Cover Art' },
+]
+
+const StatCard = ({ title, stats = defaultFieldStats }) => (
+  <div
+    style={{
+      border: '1px solid rgba(255,255,255,0.12)',
+      borderRadius: 6,
+      padding: 16,
+      minWidth: 250,
+      background: 'rgba(255,255,255,0.02)',
+    }}
+  >
+    <div style={{ fontSize: 24, marginBottom: 8 }}>{title}</div>
+    {[
+      ['Already exist', stats.alreadyExist],
+      ['Missing', stats.missing],
+      ['Fetching', stats.fetching],
+      ['Fetched', stats.fetched],
+      ['Updated', stats.updated],
+      ['To be fetch', stats.toBeFetch],
+      ["Couldn't fetched", stats.couldntFetch],
+    ].map(([label, value]) => (
+      <div
+        key={label}
+        style={{ display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}
+      >
+        <span>{label}</span>
+        <span>{value}</span>
+      </div>
+    ))}
+  </div>
+)
+
 const CovertartActions = () => {
   const notify = useNotify()
   const refresh = useRefresh()
   const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState({ updated: 0, skipped: 0, failed: 0 })
+  const [job, setJob] = useState(null)
+
+  const progress = useMemo(() => {
+    const response = job?.response || {}
+    return {
+      updated: response.updated || 0,
+      skipped: response.skipped || 0,
+      failed: response.failed || 0,
+      processed: response.processed || 0,
+    }
+  }, [job])
+
+  const fetchStatus = useCallback(async () => {
+    const response = await httpClient(`${REST_URL}/song/metadata/spotify/status`, {
+      method: 'GET',
+    })
+    setJob(response?.json || null)
+    if (response?.json?.running === false) {
+      setLoading(false)
+      refresh()
+    }
+  }, [refresh])
+
+  useEffect(() => {
+    if (!loading) return undefined
+
+    const id = setInterval(() => {
+      fetchStatus().catch(() => {})
+    }, 1000)
+
+    return () => clearInterval(id)
+  }, [fetchStatus, loading])
 
   const handleFetchSpotify = async () => {
     setLoading(true)
@@ -35,32 +113,41 @@ const CovertartActions = () => {
         method: 'POST',
       })
 
-      const data = response?.json || {}
-      setProgress({
-        updated: data.updated || 0,
-        skipped: data.skipped || 0,
-        failed: data.failed || 0,
-      })
-      notify('Spotify metadata batch completed', 'info')
-      refresh()
+      const data = response?.json || null
+      setJob(data)
+      if (data?.running === false) {
+        setLoading(false)
+      }
+      notify('Spotify metadata job started', 'info')
     } catch (error) {
       notify(error.message || 'Spotify metadata batch failed', 'warning')
-    } finally {
       setLoading(false)
     }
   }
 
   return (
-    <TopToolbar>
-      <Button
-        label="Fetch Missing Metadata (Spotify)"
-        onClick={handleFetchSpotify}
-        disabled={loading}
-      />
-      <span style={{ marginLeft: 12, alignSelf: 'center' }}>
-        Updated: {progress.updated} / Skipped: {progress.skipped} / Failed:{' '}
-        {progress.failed}
-      </span>
+    <TopToolbar style={{ display: 'block' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Button
+          label="Fetch Missing Metadata (Spotify)"
+          onClick={handleFetchSpotify}
+          disabled={loading}
+        />
+        <span style={{ alignSelf: 'center' }}>
+          Updated: {progress.updated} / Skipped: {progress.skipped} / Failed:{' '}
+          {progress.failed} / Processed: {progress.processed}
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(250px, 1fr))', gap: 12 }}>
+        {statCards.map((card) => (
+          <StatCard
+            key={card.key}
+            title={card.label}
+            stats={job?.stats?.[card.key] || defaultFieldStats}
+          />
+        ))}
+      </div>
     </TopToolbar>
   )
 }

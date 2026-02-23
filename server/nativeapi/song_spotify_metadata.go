@@ -31,7 +31,7 @@ const (
 )
 
 var (
-	spotifyReqLimiter = rate.NewLimiter(rate.Limit(5), 1)
+	spotifyReqLimiter = rate.NewLimiter(rate.Every(3*time.Second), 1)
 	spotifyTokenMu    sync.Mutex
 	spotifyToken      string
 	spotifyTokenExp   time.Time
@@ -87,8 +87,39 @@ type spotifyMetadataResponse struct {
 	Failed    int `json:"failed"`
 }
 
+type spotifyFieldStats struct {
+	AlreadyExist int `json:"alreadyExist"`
+	Missing      int `json:"missing"`
+	Fetching     int `json:"fetching"`
+	Fetched      int `json:"fetched"`
+	Updated      int `json:"updated"`
+	ToBeFetch    int `json:"toBeFetch"`
+	CouldntFetch int `json:"couldntFetch"`
+}
+
+type spotifyMetadataStats struct {
+	Album    spotifyFieldStats `json:"album"`
+	Year     spotifyFieldStats `json:"year"`
+	CoverArt spotifyFieldStats `json:"coverArt"`
+}
+
+type spotifyMetadataJobState struct {
+	Running   bool                    `json:"running"`
+	StartedAt time.Time               `json:"startedAt,omitempty"`
+	EndedAt   *time.Time              `json:"endedAt,omitempty"`
+	Response  spotifyMetadataResponse `json:"response"`
+	Stats     spotifyMetadataStats    `json:"stats"`
+	Error     string                  `json:"error,omitempty"`
+}
+
+var (
+	spotifyJobMu    sync.Mutex
+	spotifyJobState spotifyMetadataJobState
+)
+
 func (n *Router) addSpotifyMetadataRoute(r chi.Router) {
 	r.With(adminOnlyMiddleware).Post("/song/metadata/spotify", n.fetchMissingSpotifyMetadata())
+	r.With(adminOnlyMiddleware).Get("/song/metadata/spotify/status", n.spotifyMetadataStatus())
 }
 
 func (n *Router) fetchMissingSpotifyMetadata() http.HandlerFunc {
@@ -106,44 +137,176 @@ func (n *Router) fetchMissingSpotifyMetadata() http.HandlerFunc {
 			return
 		}
 
-		db, err := sql.Open("sqlite3", conf.Server.DbPath)
-		if err != nil {
-			log.Error(ctx, "Unable to open database for Spotify metadata enrichment", "path", conf.Server.DbPath, "err", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		spotifyJobMu.Lock()
+		if spotifyJobState.Running {
+			state := spotifyJobState
+			spotifyJobMu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(state)
 			return
 		}
-		defer db.Close()
+		spotifyJobState = spotifyMetadataJobState{Running: true, StartedAt: time.Now()}
+		state := spotifyJobState
+		spotifyJobMu.Unlock()
 
-		tracks, err := loadTracksMissingSpotifyMetadata(ctx, db, limit)
-		if err != nil {
-			log.Error(ctx, "Unable to load tracks for Spotify metadata enrichment", "err", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		resp := spotifyMetadataResponse{}
-		for _, track := range tracks {
-			resp.Processed++
-			updatedFields, status, err := processTrackSpotifyMetadata(ctx, db, track)
-			if err != nil {
-				resp.Failed++
-				log.Error(ctx, "Spotify metadata enrichment failed", "trackID", track.ID, "title", track.Title, "artist", track.Artist, "updatedFields", strings.Join(updatedFields, ","), "status", status, "err", err)
-				continue
-			}
-			switch status {
-			case "updated":
-				resp.Updated++
-			case "skipped":
-				resp.Skipped++
-			default:
-				resp.Failed++
-			}
-			log.Info(ctx, "Spotify metadata enrichment", "trackID", track.ID, "title", track.Title, "artist", track.Artist, "updatedFields", strings.Join(updatedFields, ","), "status", status)
-		}
+		go runSpotifyMetadataJob(context.Background(), limit)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(state)
+		log.Info(ctx, "Started Spotify metadata enrichment job", "limit", limit)
 	}
+}
+
+func (n *Router) spotifyMetadataStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		spotifyJobMu.Lock()
+		state := spotifyJobState
+		spotifyJobMu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(state)
+	}
+}
+
+func runSpotifyMetadataJob(ctx context.Context, limit int) {
+	db, err := sql.Open("sqlite3", conf.Server.DbPath)
+	if err != nil {
+		finishSpotifyMetadataJobWithError(fmt.Sprintf("unable to open database: %v", err))
+		return
+	}
+	defer db.Close()
+
+	tracks, err := loadTracksMissingSpotifyMetadata(ctx, db, limit)
+	if err != nil {
+		finishSpotifyMetadataJobWithError(fmt.Sprintf("unable to load tracks: %v", err))
+		return
+	}
+
+	initializeSpotifyStats(tracks)
+	for _, track := range tracks {
+		status, err := processTrackSpotifyMetadata(ctx, db, track)
+		updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+			st.Response.Processed++
+		})
+		if err != nil {
+			updateSpotifyJobState(func(st *spotifyMetadataJobState) { st.Response.Failed++ })
+			log.Error(ctx, "Spotify metadata enrichment failed", "trackID", track.ID, "title", track.Title, "artist", track.Artist, "status", status, "err", err)
+			continue
+		}
+		updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+			switch status {
+			case "updated":
+				st.Response.Updated++
+			case "failed":
+				st.Response.Failed++
+			default:
+				st.Response.Skipped++
+			}
+		})
+	}
+
+	end := time.Now()
+	updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+		st.Running = false
+		st.EndedAt = &end
+	})
+}
+
+func finishSpotifyMetadataJobWithError(msg string) {
+	end := time.Now()
+	updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+		st.Running = false
+		st.EndedAt = &end
+		st.Error = msg
+	})
+}
+
+func updateSpotifyJobState(fn func(*spotifyMetadataJobState)) {
+	spotifyJobMu.Lock()
+	defer spotifyJobMu.Unlock()
+	fn(&spotifyJobState)
+}
+
+func initializeSpotifyStats(tracks []spotifyMetadataTrack) {
+	updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+		st.Stats = spotifyMetadataStats{}
+		for _, tr := range tracks {
+			if isUnknownAlbum(tr.Album) {
+				st.Stats.Album.Missing++
+				st.Stats.Album.ToBeFetch++
+			} else {
+				st.Stats.Album.AlreadyExist++
+			}
+
+			if tr.ReleaseYear == 0 {
+				st.Stats.Year.Missing++
+				st.Stats.Year.ToBeFetch++
+			} else {
+				st.Stats.Year.AlreadyExist++
+			}
+
+			if strings.TrimSpace(tr.EmbedArt.String) == "" {
+				st.Stats.CoverArt.Missing++
+				st.Stats.CoverArt.ToBeFetch++
+			} else {
+				st.Stats.CoverArt.AlreadyExist++
+			}
+		}
+	})
+}
+
+func markTrackFetching(track spotifyMetadataTrack) {
+	updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+		if isUnknownAlbum(track.Album) {
+			st.Stats.Album.Fetching++
+		}
+		if track.ReleaseYear == 0 {
+			st.Stats.Year.Fetching++
+		}
+		if strings.TrimSpace(track.EmbedArt.String) == "" {
+			st.Stats.CoverArt.Fetching++
+		}
+	})
+}
+
+func markTrackDone(track spotifyMetadataTrack, failed bool) {
+	updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+		if isUnknownAlbum(track.Album) {
+			if st.Stats.Album.Fetching > 0 {
+				st.Stats.Album.Fetching--
+			}
+			if st.Stats.Album.ToBeFetch > 0 {
+				st.Stats.Album.ToBeFetch--
+			}
+			if failed {
+				st.Stats.Album.CouldntFetch++
+			}
+		}
+		if track.ReleaseYear == 0 {
+			if st.Stats.Year.Fetching > 0 {
+				st.Stats.Year.Fetching--
+			}
+			if st.Stats.Year.ToBeFetch > 0 {
+				st.Stats.Year.ToBeFetch--
+			}
+			if failed {
+				st.Stats.Year.CouldntFetch++
+			}
+		}
+		if strings.TrimSpace(track.EmbedArt.String) == "" {
+			if st.Stats.CoverArt.Fetching > 0 {
+				st.Stats.CoverArt.Fetching--
+			}
+			if st.Stats.CoverArt.ToBeFetch > 0 {
+				st.Stats.CoverArt.ToBeFetch--
+			}
+			if failed {
+				st.Stats.CoverArt.CouldntFetch++
+			}
+		}
+	})
 }
 
 func loadTracksMissingSpotifyMetadata(ctx context.Context, db *sql.DB, limit int) ([]spotifyMetadataTrack, error) {
@@ -175,66 +338,108 @@ func loadTracksMissingSpotifyMetadata(ctx context.Context, db *sql.DB, limit int
 	return tracks, rows.Err()
 }
 
-func processTrackSpotifyMetadata(ctx context.Context, db *sql.DB, track spotifyMetadataTrack) ([]string, string, error) {
+func processTrackSpotifyMetadata(ctx context.Context, db *sql.DB, track spotifyMetadataTrack) (string, error) {
+	markTrackFetching(track)
+
 	if strings.TrimSpace(track.Title) == "" || strings.TrimSpace(track.Artist) == "" {
-		return nil, "skipped", nil
+		markTrackDone(track, true)
+		return "skipped", nil
 	}
 
 	result, err := SearchSpotifyTrack(track.Title, track.Artist)
 	if err != nil {
-		return nil, "failed", err
+		markTrackDone(track, true)
+		return "failed", err
 	}
 	if result == nil {
-		return nil, "skipped", nil
+		markTrackDone(track, true)
+		return "skipped", nil
 	}
 
 	if !spotifyMatchValid(track.Title, track.Artist, result) {
-		return nil, "skipped", nil
+		markTrackDone(track, true)
+		return "skipped", nil
 	}
 
-	updatedFields := make([]string, 0, 3)
 	albumMissing := isUnknownAlbum(track.Album)
 	yearMissing := track.ReleaseYear == 0
 	coverMissing := strings.TrimSpace(track.EmbedArt.String) == ""
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return updatedFields, "failed", err
+		markTrackDone(track, true)
+		return "failed", err
 	}
 	defer tx.Rollback()
 
-	if albumMissing && strings.TrimSpace(result.AlbumName) != "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE media_file SET album = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, result.AlbumName, track.ID); err != nil {
-			return updatedFields, "failed", err
+	updatedAny := false
+	failed := false
+
+	if albumMissing {
+		if strings.TrimSpace(result.AlbumName) != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE media_file SET album = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, result.AlbumName, track.ID); err != nil {
+				markTrackDone(track, true)
+				return "failed", err
+			}
+			updatedAny = true
+			updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+				st.Stats.Album.Fetched++
+				st.Stats.Album.Updated++
+			})
+		} else {
+			failed = true
 		}
-		updatedFields = append(updatedFields, "album")
 	}
 
-	if yearMissing && result.Year > 0 {
-		if _, err := tx.ExecContext(ctx, `UPDATE media_file SET release_year = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, result.Year, track.ID); err != nil {
-			return updatedFields, "failed", err
+	if yearMissing {
+		if result.Year > 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE media_file SET release_year = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, result.Year, track.ID); err != nil {
+				markTrackDone(track, true)
+				return "failed", err
+			}
+			updatedAny = true
+			updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+				st.Stats.Year.Fetched++
+				st.Stats.Year.Updated++
+			})
+		} else {
+			failed = true
 		}
-		updatedFields = append(updatedFields, "release_year")
 	}
 
-	if coverMissing && strings.TrimSpace(result.CoverURL) != "" && strings.TrimSpace(track.AlbumID) != "" {
-		coverPath, err := downloadSpotifyCover(ctx, track.ID, result.CoverURL)
-		if err != nil {
-			return updatedFields, "failed", err
+	if coverMissing {
+		if strings.TrimSpace(result.CoverURL) != "" && strings.TrimSpace(track.AlbumID) != "" {
+			coverPath, err := downloadSpotifyCover(ctx, track.ID, result.CoverURL)
+			if err != nil {
+				markTrackDone(track, true)
+				return "failed", err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE album SET embed_art_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, coverPath, track.AlbumID); err != nil {
+				markTrackDone(track, true)
+				return "failed", err
+			}
+			updatedAny = true
+			updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+				st.Stats.CoverArt.Fetched++
+				st.Stats.CoverArt.Updated++
+			})
+		} else {
+			failed = true
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE album SET embed_art_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, coverPath, track.AlbumID); err != nil {
-			return updatedFields, "failed", err
-		}
-		updatedFields = append(updatedFields, "cover_art_path")
 	}
 
-	if len(updatedFields) == 0 {
-		return updatedFields, "skipped", tx.Commit()
-	}
 	if err := tx.Commit(); err != nil {
-		return updatedFields, "failed", err
+		markTrackDone(track, true)
+		return "failed", err
 	}
-	return updatedFields, "updated", nil
+
+	markTrackDone(track, failed)
+	if updatedAny {
+		log.Info(ctx, "Spotify metadata enrichment", "trackID", track.ID, "title", track.Title, "artist", track.Artist, "status", "updated")
+		return "updated", nil
+	}
+	log.Info(ctx, "Spotify metadata enrichment", "trackID", track.ID, "title", track.Title, "artist", track.Artist, "status", "skipped")
+	return "skipped", nil
 }
 
 func isUnknownAlbum(album string) bool {
