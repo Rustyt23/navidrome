@@ -207,7 +207,7 @@ const CovertartList = (props) => (
       <TextField source="title" />
       <TextField source="artist" label="Artist" />
       <TextField source="album" label="Album" />
-      <TextField source="year" label="Release Year" />
+      <TextField source="releaseYear" label="Release Year" />
       <TextField source="genre" label="Genre" />
       <DurationField source="duration" />
     </Datagrid>

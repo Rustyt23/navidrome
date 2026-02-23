@@ -82,7 +82,11 @@ func (a *albumArtworkReader) fromCoverArtPriority(ctx context.Context, ffmpeg ff
 		switch {
 		case pattern == "embedded":
 			embedArtPath := filepath.Join(a.rootFolder, a.album.EmbedArtPath)
-			ff = append(ff, fromTag(ctx, embedArtPath), fromFFmpegTag(ctx, ffmpeg, embedArtPath))
+			if isImagePath(embedArtPath) {
+				ff = append(ff, fromExternalFile(ctx, []string{embedArtPath}, "*"))
+			} else {
+				ff = append(ff, fromTag(ctx, embedArtPath), fromFFmpegTag(ctx, ffmpeg, embedArtPath))
+			}
 		case pattern == "external":
 			ff = append(ff, fromAlbumExternalSource(ctx, a.album, a.provider))
 		case len(a.imgFiles) > 0:
@@ -90,6 +94,16 @@ func (a *albumArtworkReader) fromCoverArtPriority(ctx context.Context, ffmpeg ff
 		}
 	}
 	return ff
+}
+
+func isImagePath(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp":
+		return true
+	default:
+		return false
+	}
 }
 
 func loadAlbumFoldersPaths(ctx context.Context, ds model.DataStore, albums ...model.Album) ([]string, []string, *time.Time, error) {
