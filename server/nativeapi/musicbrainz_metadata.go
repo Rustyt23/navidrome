@@ -907,5 +907,16 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"status":"already_running"}`))
 		})
+		r.Post("/save", func(w http.ResponseWriter, _ *http.Request) {
+			status := n.metadataJob.getStatus()
+			if status.Running {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"status":"still_running"}`))
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"saved"}`))
+		})
 	})
 }

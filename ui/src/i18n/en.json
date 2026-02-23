@@ -684,9 +684,12 @@
     "musicbrainz": {
       "title": "MusicBrainz Metadata",
       "fetch": "Fetch metadata",
+      "save": "Save metadata",
       "started": "Metadata fetch started",
       "alreadyRunning": "Metadata fetch is already running",
       "failed": "Metadata fetch failed",
+      "saved": "Metadata saved to songs",
+      "saveFailed": "Metadata save failed",
       "album": "Album",
       "year": "Year",
       "genre": "Genre",
