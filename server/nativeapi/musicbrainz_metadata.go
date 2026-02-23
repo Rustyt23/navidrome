@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/adapters/taglib"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -35,6 +36,7 @@ type metadataFieldProgress struct {
 
 type musicBrainzMetadataStatus struct {
 	Running       bool                  `json:"running"`
+	Saving        bool                  `json:"saving"`
 	StartedAt     *time.Time            `json:"startedAt,omitempty"`
 	FinishedAt    *time.Time            `json:"finishedAt,omitempty"`
 	LastError     string                `json:"lastError,omitempty"`
@@ -44,6 +46,7 @@ type musicBrainzMetadataStatus struct {
 	RecordingMBID metadataFieldProgress `json:"recordingMbid"`
 	ReleaseMBID   metadataFieldProgress `json:"releaseMbid"`
 	CoverArt      metadataFieldProgress `json:"coverArt"`
+	CoverArtSave  metadataFieldProgress `json:"coverArtSave"`
 }
 
 type musicBrainzMetadataJob struct {
@@ -409,6 +412,39 @@ func (j *musicBrainzMetadataJob) setError(err error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.status.LastError = err.Error()
+}
+
+func (j *musicBrainzMetadataJob) setCoverArtSaveTotal(total int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.status.CoverArtSave = metadataFieldProgress{Missing: total, Left: total}
+	j.status.Saving = total > 0
+}
+
+func (j *musicBrainzMetadataJob) beginCoverArtSave() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.status.CoverArtSave.Fetching++
+}
+
+func (j *musicBrainzMetadataJob) finishCoverArtSave(saved bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.status.CoverArtSave.Fetching > 0 {
+		j.status.CoverArtSave.Fetching--
+	}
+	if j.status.CoverArtSave.Left > 0 {
+		j.status.CoverArtSave.Left--
+	}
+	if saved {
+		j.status.CoverArtSave.Fetched++
+		j.status.CoverArtSave.Updated++
+	} else {
+		j.status.CoverArtSave.CouldntFetch++
+	}
+	if j.status.CoverArtSave.Left == 0 && j.status.CoverArtSave.Fetching == 0 {
+		j.status.Saving = false
+	}
 }
 
 func (j *musicBrainzMetadataJob) ensureReleaseCover(ctx context.Context, releaseMBID string) (string, bool) {
@@ -915,8 +951,80 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 				return
 			}
 
+			if err := n.saveFetchedMetadataToSongs(); err != nil {
+				log.Warn("Could not persist fetched metadata to song files", "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"status":"save_failed"}`))
+				return
+			}
+
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"saved"}`))
 		})
 	})
+}
+
+func (n *Router) saveFetchedMetadataToSongs() error {
+	ctx := context.Background()
+	cursor, err := n.ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		return err
+	}
+
+	totalCoverArtToSave := 0
+	for mf, e := range cursor {
+		if e != nil {
+			return e
+		}
+		if strings.HasPrefix(strings.TrimSpace(mf.CoverPath), coverCacheDirName+"/") {
+			totalCoverArtToSave++
+		}
+	}
+	n.metadataJob.setCoverArtSaveTotal(totalCoverArtToSave)
+
+	cursor, err = n.ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		return err
+	}
+
+	for mf, e := range cursor {
+		if e != nil {
+			return e
+		}
+
+		if strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
+			continue
+		}
+
+		coverFile := ""
+		if strings.HasPrefix(strings.TrimSpace(mf.CoverPath), coverCacheDirName+"/") {
+			coverFile = filepath.Join(conf.Server.DataFolder, filepath.FromSlash(mf.CoverPath))
+			n.metadataJob.beginCoverArtSave()
+		}
+
+		hasFetchedIDs := strings.TrimSpace(mf.MbzRecordingID) != "" || strings.TrimSpace(mf.MbzReleaseID) != ""
+		if !hasFetchedIDs && coverFile == "" {
+			continue
+		}
+
+		if err := taglib.WriteFetchedMetadata(mf.AbsolutePath(), taglib.FetchedMetadata{
+			Album:         mf.Album,
+			Year:          mf.Year,
+			Genre:         mf.Genre,
+			RecordingMBID: mf.MbzRecordingID,
+			ReleaseMBID:   mf.MbzReleaseID,
+			CoverPath:     coverFile,
+		}); err != nil {
+			if coverFile != "" {
+				n.metadataJob.finishCoverArtSave(false)
+			}
+			log.Warn(ctx, "Could not write fetched metadata to song", "songId", mf.ID, "path", mf.Path, "err", err)
+			continue
+		}
+		if coverFile != "" {
+			n.metadataJob.finishCoverArtSave(true)
+		}
+	}
+
+	return nil
 }

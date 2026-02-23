@@ -20,6 +20,7 @@ extern void goPutLyricLine(unsigned long id, char *lang, char *text, int time);
 int taglib_read(const FILENAME_CHAR_T *filename, unsigned long id);
 char* taglib_version();
 int taglib_write_comment(const FILENAME_CHAR_T *filename, const char *comment);
+int taglib_write_fetched_metadata(const FILENAME_CHAR_T *filename, const char *album, const char *year, const char *genre, const char *recording_mbid, const char *release_mbid, const char *cover_path);
 
 #ifdef __cplusplus
 }

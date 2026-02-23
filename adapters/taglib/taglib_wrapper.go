@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -100,6 +101,66 @@ func WriteComment(filename, comment string) (err error) {
 		return fmt.Errorf("cannot save media file after writing comment")
 	default:
 		return fmt.Errorf("unknown error writing comment: %d", int(res))
+	}
+}
+
+type FetchedMetadata struct {
+	Album         string
+	Year          int
+	Genre         string
+	RecordingMBID string
+	ReleaseMBID   string
+	CoverPath     string
+}
+
+func WriteFetchedMetadata(filename string, md FetchedMetadata) (err error) {
+	debug.SetPanicOnFault(true)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("extractor: recovered from panic when writing fetched metadata", "file", filename, "error", r)
+			err = fmt.Errorf("extractor: recovered from panic: %s", r)
+		}
+	}()
+
+	fp := getFilename(filename)
+	defer C.free(unsafe.Pointer(fp))
+
+	cAlbum := C.CString(strings.TrimSpace(md.Album))
+	defer C.free(unsafe.Pointer(cAlbum))
+
+	year := ""
+	if md.Year > 0 {
+		year = strconv.Itoa(md.Year)
+	}
+	cYear := C.CString(year)
+	defer C.free(unsafe.Pointer(cYear))
+
+	cGenre := C.CString(strings.TrimSpace(md.Genre))
+	defer C.free(unsafe.Pointer(cGenre))
+
+	cRecordingMBID := C.CString(strings.TrimSpace(md.RecordingMBID))
+	defer C.free(unsafe.Pointer(cRecordingMBID))
+
+	cReleaseMBID := C.CString(strings.TrimSpace(md.ReleaseMBID))
+	defer C.free(unsafe.Pointer(cReleaseMBID))
+
+	coverPath := strings.TrimSpace(md.CoverPath)
+	if coverPath != "" {
+		coverPath = filepath.Clean(coverPath)
+	}
+	cCoverPath := C.CString(coverPath)
+	defer C.free(unsafe.Pointer(cCoverPath))
+
+	res := C.taglib_write_fetched_metadata(fp, cAlbum, cYear, cGenre, cRecordingMBID, cReleaseMBID, cCoverPath)
+	switch res {
+	case 0:
+		return nil
+	case C.TAGLIB_ERR_PARSE:
+		return fmt.Errorf("cannot open media file for writing metadata")
+	case C.TAGLIB_ERR_SAVE:
+		return fmt.Errorf("cannot save media file after writing metadata")
+	default:
+		return fmt.Errorf("unknown error writing metadata: %d", int(res))
 	}
 }
 
