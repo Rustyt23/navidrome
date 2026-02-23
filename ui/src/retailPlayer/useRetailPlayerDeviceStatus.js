@@ -1049,7 +1049,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         device: mergedDevice,
         status: mergedDevice.status || {},
         streamMetadata: mergedStreamMetadata,
-        artwork: mergedDevice.artwork || payload.artwork,
+        artwork: payload.artwork || mergedDevice.artwork,
       }
 
       setStatusState({
