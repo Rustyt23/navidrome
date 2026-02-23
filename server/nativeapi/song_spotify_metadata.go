@@ -35,6 +35,7 @@ var (
 	spotifyTokenMu    sync.Mutex
 	spotifyToken      string
 	spotifyTokenExp   time.Time
+	errSpotify401     = errors.New("spotify search unauthorized (401)")
 )
 
 type SpotifyTrackResult struct {
@@ -322,6 +323,22 @@ func SearchSpotifyTrack(title string, artist string) (*SpotifyTrackResult, error
 		return nil, err
 	}
 
+	result, err := searchSpotifyTrackWithToken(ctx, title, artist, token)
+	if errors.Is(err, errSpotify401) {
+		invalidateSpotifyCachedToken()
+		fallbackToken, tokenErr := spotifyAccessToken(ctx)
+		if tokenErr != nil {
+			return nil, tokenErr
+		}
+		if fallbackToken != token {
+			return searchSpotifyTrackWithToken(ctx, title, artist, fallbackToken)
+		}
+	}
+	return result, err
+}
+
+func searchSpotifyTrackWithToken(ctx context.Context, title string, artist string, token string) (*SpotifyTrackResult, error) {
+
 	params := url.Values{}
 	params.Set("q", fmt.Sprintf(`track:"%s" artist:"%s"`, strings.TrimSpace(title), strings.TrimSpace(artist)))
 	params.Set("type", "track")
@@ -376,7 +393,7 @@ func handleSpotifySearchStatus(resp *http.Response) error {
 	case http.StatusOK:
 		return nil
 	case http.StatusUnauthorized:
-		return errors.New("spotify search unauthorized (401)")
+		return errSpotify401
 	case http.StatusForbidden:
 		return errors.New("spotify search forbidden (403)")
 	case http.StatusTooManyRequests:
@@ -388,6 +405,11 @@ func handleSpotifySearchStatus(resp *http.Response) error {
 }
 
 func spotifyAccessToken(ctx context.Context) (string, error) {
+	configuredToken := strings.TrimSpace(conf.Server.Spotify.Token)
+	if configuredToken != "" {
+		return configuredToken, nil
+	}
+
 	spotifyTokenMu.Lock()
 	if spotifyToken != "" && time.Now().Before(spotifyTokenExp.Add(-30*time.Second)) {
 		tok := spotifyToken
@@ -395,15 +417,6 @@ func spotifyAccessToken(ctx context.Context) (string, error) {
 		return tok, nil
 	}
 	spotifyTokenMu.Unlock()
-
-	if strings.TrimSpace(conf.Server.Spotify.Token) != "" {
-		spotifyTokenMu.Lock()
-		spotifyToken = strings.TrimSpace(conf.Server.Spotify.Token)
-		spotifyTokenExp = time.Now().Add(24 * time.Hour)
-		tok := spotifyToken
-		spotifyTokenMu.Unlock()
-		return tok, nil
-	}
 
 	id := strings.TrimSpace(conf.Server.Spotify.ID)
 	secret := strings.TrimSpace(conf.Server.Spotify.Secret)
@@ -448,6 +461,13 @@ func spotifyAccessToken(ctx context.Context) (string, error) {
 	spotifyTokenMu.Unlock()
 
 	return tok, nil
+}
+
+func invalidateSpotifyCachedToken() {
+	spotifyTokenMu.Lock()
+	spotifyToken = ""
+	spotifyTokenExp = time.Time{}
+	spotifyTokenMu.Unlock()
 }
 
 func downloadSpotifyCover(ctx context.Context, trackID string, coverURL string) (string, error) {
