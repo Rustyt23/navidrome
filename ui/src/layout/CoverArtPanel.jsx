@@ -29,7 +29,6 @@ const emptyProgress = {
 
 const useStyles = makeStyles((theme) => ({
   iconButton: {
-    marginLeft: theme.spacing(1),
     color: 'inherit',
     padding: theme.spacing(1),
   },
@@ -225,6 +224,14 @@ const CoverArtPanel = () => {
             <Grid container spacing={2}>
               <Grid item xs={12} md={4}>
                 <ProgressCard
+                  title="Cover Art"
+                  progress={status.coverArt || emptyProgress}
+                  translate={translate}
+                  classes={classes}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <ProgressCard
                   title={translate('activity.musicbrainz.album')}
                   progress={status.album || emptyProgress}
                   translate={translate}
@@ -259,14 +266,6 @@ const CoverArtPanel = () => {
                 <ProgressCard
                   title="Release MBID"
                   progress={status.releaseMbid || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title="Cover Art"
-                  progress={status.coverArt || emptyProgress}
                   translate={translate}
                   classes={classes}
                 />

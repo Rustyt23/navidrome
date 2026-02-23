@@ -107,6 +107,9 @@
         "topRated": "Top Rated"
       }
     },
+    "covertart": {
+      "name": "Cover Art |||| Cover Art"
+    },
     "artist": {
       "name": "Artist |||| Artists",
       "fields": {
