@@ -14,6 +14,7 @@ import {
 import { DurationField } from '../common'
 import subsonic from '../subsonic'
 import { REST_URL } from '../consts'
+import { httpClient } from '../dataProvider'
 
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
@@ -30,17 +31,11 @@ const CovertartActions = () => {
   const handleFetchSpotify = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`${REST_URL}/song/metadata/spotify?limit=50`, {
+      const response = await httpClient(`${REST_URL}/song/metadata/spotify?limit=50`, {
         method: 'POST',
-        credentials: 'include',
       })
 
-      if (!response.ok) {
-        const text = await response.text()
-        throw new Error(text || 'Failed to fetch Spotify metadata')
-      }
-
-      const data = await response.json()
+      const data = response?.json || {}
       setProgress({
         updated: data.updated || 0,
         skipped: data.skipped || 0,
