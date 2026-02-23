@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/adapters/taglib"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -915,8 +916,57 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 				return
 			}
 
+			saved, failed := persistMetadataToFiles(n.ds)
+			if failed > 0 {
+				w.WriteHeader(http.StatusMultiStatus)
+				_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"partial","saved":%d,"failed":%d}`, saved, failed)))
+				return
+			}
+
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"saved"}`))
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"saved","saved":%d}`, saved)))
 		})
 	})
+}
+
+func persistMetadataToFiles(ds model.DataStore) (saved int, failed int) {
+	ctx := context.Background()
+	cursor, err := ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		log.Warn(ctx, "Could not load media files to persist metadata", "err", err)
+		return 0, 1
+	}
+
+	for mf, e := range cursor {
+		if e != nil {
+			failed++
+			continue
+		}
+		if strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
+			continue
+		}
+
+		album := strings.TrimSpace(mf.Album)
+		genre := strings.TrimSpace(mf.Genre)
+		recordingMBID := strings.TrimSpace(mf.MbzRecordingID)
+		releaseMBID := strings.TrimSpace(mf.MbzReleaseID)
+		coverPath := strings.TrimSpace(mf.CoverPath)
+
+		if album == "" && mf.Year == 0 && genre == "" && recordingMBID == "" && releaseMBID == "" && coverPath == "" {
+			continue
+		}
+
+		if coverPath != "" && !filepath.IsAbs(coverPath) {
+			coverPath = filepath.Join(conf.Server.DataFolder, coverPath)
+		}
+
+		if err := taglib.WriteMetadata(mf.AbsolutePath(), album, mf.Year, genre, recordingMBID, releaseMBID, coverPath); err != nil {
+			failed++
+			log.Warn(ctx, "Could not persist metadata to media file", "songId", mf.ID, "path", mf.AbsolutePath(), "err", err)
+			continue
+		}
+		saved++
+	}
+
+	return saved, failed
 }

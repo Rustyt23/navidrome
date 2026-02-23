@@ -1,5 +1,8 @@
 #include <stdlib.h>
 #include <string.h>
+#include <fstream>
+#include <string>
+#include <vector>
 
 #define TAGLIB_STATIC
 #include <apeproperties.h>
@@ -10,6 +13,7 @@
 #include <fileref.h>
 #include <flacfile.h>
 #include <id3v2tag.h>
+#include <attachedpictureframe.h>
 #include <unsynchronizedlyricsframe.h>
 #include <synchronizedlyricsframe.h>
 #include <mp4file.h>
@@ -55,6 +59,98 @@ int taglib_write_comment(const FILENAME_CHAR_T *filename, const char *comment) {
     return TAGLIB_ERR_SAVE;
   }
 
+  return 0;
+}
+
+static void putProp(TagLib::PropertyMap &properties, const char *key, const char *value) {
+  if (value == nullptr || strlen(value) == 0) {
+    properties.erase(key);
+    return;
+  }
+  TagLib::StringList list;
+  list.append(TagLib::String(value, TagLib::String::UTF8));
+  properties.replace(key, list);
+}
+
+static void putPropInt(TagLib::PropertyMap &properties, const char *key, int value) {
+  if (value <= 0) {
+    properties.erase(key);
+    return;
+  }
+  TagLib::StringList list;
+  list.append(TagLib::String(std::to_string(value), TagLib::String::UTF8));
+  properties.replace(key, list);
+}
+
+int taglib_write_metadata(
+    const FILENAME_CHAR_T *filename,
+    const char *album,
+    int year,
+    const char *genre,
+    const char *recording_mbid,
+    const char *release_mbid,
+    const char *cover_path) {
+  TagLib::FileRef f(filename, false, TagLib::AudioProperties::Fast);
+  if (f.isNull() || f.file() == nullptr) {
+    return TAGLIB_ERR_PARSE;
+  }
+
+  if (f.tag() != nullptr) {
+    f.tag()->setAlbum(TagLib::String(album == nullptr ? "" : album, TagLib::String::UTF8));
+    f.tag()->setYear(year > 0 ? static_cast<unsigned int>(year) : 0);
+    f.tag()->setGenre(TagLib::String(genre == nullptr ? "" : genre, TagLib::String::UTF8));
+  }
+
+  TagLib::PropertyMap properties = f.file()->properties();
+  putProp(properties, "ALBUM", album);
+  putProp(properties, "album", album);
+  putProp(properties, "GENRE", genre);
+  putProp(properties, "genre", genre);
+  putPropInt(properties, "DATE", year);
+  putPropInt(properties, "date", year);
+  putPropInt(properties, "YEAR", year);
+  putPropInt(properties, "year", year);
+  putProp(properties, "MUSICBRAINZ_TRACKID", recording_mbid);
+  putProp(properties, "musicbrainz_trackid", recording_mbid);
+  putProp(properties, "MUSICBRAINZ_ALBUMID", release_mbid);
+  putProp(properties, "musicbrainz_albumid", release_mbid);
+  f.file()->setProperties(properties);
+
+  if (cover_path != nullptr && strlen(cover_path) > 0) {
+    TagLib::MPEG::File *mpegFile(dynamic_cast<TagLib::MPEG::File *>(f.file()));
+    if (mpegFile != NULL) {
+      TagLib::ID3v2::Tag *id3v2 = mpegFile->ID3v2Tag(true);
+      if (id3v2 != NULL) {
+        auto oldFrames = id3v2->frameListMap()["APIC"];
+        for (auto frame : oldFrames) {
+          id3v2->removeFrame(frame, true);
+        }
+
+        std::ifstream in(cover_path, std::ios::binary);
+        if (in.good()) {
+          std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+          if (!bytes.empty()) {
+            auto *frame = new TagLib::ID3v2::AttachedPictureFrame;
+            frame->setType(TagLib::ID3v2::AttachedPictureFrame::FrontCover);
+
+            std::string coverPathStr(cover_path);
+            if (coverPathStr.size() >= 4 && coverPathStr.substr(coverPathStr.size() - 4) == ".png") {
+              frame->setMimeType("image/png");
+            } else {
+              frame->setMimeType("image/jpeg");
+            }
+
+            frame->setPicture(TagLib::ByteVector(bytes.data(), bytes.size()));
+            id3v2->addFrame(frame);
+          }
+        }
+      }
+    }
+  }
+
+  if (!f.file()->save()) {
+    return TAGLIB_ERR_SAVE;
+  }
   return 0;
 }
 
