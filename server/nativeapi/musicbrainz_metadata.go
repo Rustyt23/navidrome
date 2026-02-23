@@ -950,7 +950,8 @@ func (n *Router) saveFetchedMetadataToSongs() error {
 			coverFile = filepath.Join(conf.Server.DataFolder, filepath.FromSlash(mf.CoverPath))
 		}
 
-		if strings.TrimSpace(mf.Album) == "" && mf.Year == 0 && strings.TrimSpace(mf.Genre) == "" && strings.TrimSpace(mf.MbzRecordingID) == "" && strings.TrimSpace(mf.MbzReleaseID) == "" && coverFile == "" {
+		hasFetchedIDs := strings.TrimSpace(mf.MbzRecordingID) != "" || strings.TrimSpace(mf.MbzReleaseID) != ""
+		if !hasFetchedIDs && coverFile == "" {
 			continue
 		}
 
