@@ -1,14 +1,19 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
+  Button,
   Datagrid,
   Filter,
   FunctionField,
   List,
   SearchInput,
   TextField,
+  TopToolbar,
+  useNotify,
+  useRefresh,
 } from 'react-admin'
 import { DurationField } from '../common'
 import subsonic from '../subsonic'
+import { REST_URL } from '../consts'
 
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
@@ -16,11 +21,61 @@ const CovertartFilter = (props) => (
   </Filter>
 )
 
+const CovertartActions = () => {
+  const notify = useNotify()
+  const refresh = useRefresh()
+  const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState({ updated: 0, skipped: 0, failed: 0 })
+
+  const handleFetchSpotify = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`${REST_URL}/song/metadata/spotify?limit=50`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(text || 'Failed to fetch Spotify metadata')
+      }
+
+      const data = await response.json()
+      setProgress({
+        updated: data.updated || 0,
+        skipped: data.skipped || 0,
+        failed: data.failed || 0,
+      })
+      notify('Spotify metadata batch completed', 'info')
+      refresh()
+    } catch (error) {
+      notify(error.message || 'Spotify metadata batch failed', 'warning')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <TopToolbar>
+      <Button
+        label="Fetch Missing Metadata (Spotify)"
+        onClick={handleFetchSpotify}
+        disabled={loading}
+      />
+      <span style={{ marginLeft: 12, alignSelf: 'center' }}>
+        Updated: {progress.updated} / Skipped: {progress.skipped} / Failed:{' '}
+        {progress.failed}
+      </span>
+    </TopToolbar>
+  )
+}
+
 const CovertartList = (props) => (
   <List
     {...props}
     sort={{ field: 'title', order: 'ASC' }}
     filters={<CovertartFilter />}
+    actions={<CovertartActions />}
     exporter={false}
     bulkActionButtons={false}
     perPage={50}
