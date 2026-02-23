@@ -11,6 +11,25 @@ import (
 )
 
 var _ = Describe("Album Artwork Reader", func() {
+	Describe("embed art path helpers", func() {
+		It("detects image paths", func() {
+			Expect(isImagePath("cover.jpg")).To(BeTrue())
+			Expect(isImagePath("cover.JPEG")).To(BeTrue())
+			Expect(isImagePath("cover.png")).To(BeTrue())
+			Expect(isImagePath("track.mp3")).To(BeFalse())
+		})
+
+		It("keeps absolute embed art paths untouched", func() {
+			abs := "/data/spotify_coverart/123.jpg"
+			Expect(resolveEmbedArtPath("/music", abs)).To(Equal(abs))
+		})
+
+		It("resolves relative embed art paths from root folder", func() {
+			resolved := resolveEmbedArtPath("/music", "Artist/Album/cover.jpg")
+			Expect(resolved).To(Equal(filepath.Join("/music", "Artist/Album/cover.jpg")))
+		})
+	})
+
 	Describe("loadAlbumFoldersPaths", func() {
 		var (
 			ctx        context.Context
