@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
@@ -52,14 +54,23 @@ func (a *mediafileArtworkReader) LastUpdated() time.Time {
 }
 
 func (a *mediafileArtworkReader) Reader(ctx context.Context) (io.ReadCloser, string, error) {
-	var ff []sourceFunc
+	ff := make([]sourceFunc, 0, 4)
+
+	if coverPath := strings.TrimSpace(a.mediafile.CoverPath); coverPath != "" {
+		if !filepath.IsAbs(coverPath) {
+			coverPath = filepath.Join(conf.Server.DataFolder, coverPath)
+		}
+		ff = append(ff, fromLocalFile(coverPath))
+	}
+
 	if a.mediafile.CoverArtID().Kind == model.KindMediaFileArtwork {
 		path := a.mediafile.AbsolutePath()
-		ff = []sourceFunc{
+		ff = append(ff,
 			fromTag(ctx, path),
 			fromFFmpegTag(ctx, a.a.ffmpeg, path),
-		}
+		)
 	}
+
 	ff = append(ff, fromAlbum(ctx, a.a, a.mediafile.AlbumCoverArtID()))
 	return selectImageReader(ctx, a.artID, ff...)
 }
