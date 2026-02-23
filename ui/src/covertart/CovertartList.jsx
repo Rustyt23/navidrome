@@ -1,7 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import Collapse from '@material-ui/core/Collapse'
-import IconButton from '@material-ui/core/IconButton'
-import PhotoIcon from '@material-ui/icons/Photo'
 import {
   Button,
   Datagrid,
@@ -26,59 +23,11 @@ const CovertartFilter = (props) => (
   </Filter>
 )
 
-const defaultFieldStats = {
-  alreadyExist: 0,
-  missing: 0,
-  fetching: 0,
-  fetched: 0,
-  updated: 0,
-  toBeFetch: 0,
-  couldntFetch: 0,
-}
-
-const statCards = [
-  { key: 'album', label: 'Album' },
-  { key: 'year', label: 'Year' },
-  { key: 'coverArt', label: 'Cover Art' },
-]
-
-const StatCard = ({ title, stats = defaultFieldStats }) => (
-  <div
-    style={{
-      border: '1px solid rgba(255,255,255,0.12)',
-      borderRadius: 6,
-      padding: 16,
-      minWidth: 250,
-      background: 'rgba(255,255,255,0.02)',
-    }}
-  >
-    <div style={{ fontSize: 24, marginBottom: 8 }}>{title}</div>
-    {[
-      ['Already exist', stats.alreadyExist],
-      ['Missing', stats.missing],
-      ['Fetching', stats.fetching],
-      ['Fetched', stats.fetched],
-      ['Updated', stats.updated],
-      ['To be fetch', stats.toBeFetch],
-      ["Couldn't fetched", stats.couldntFetch],
-    ].map(([label, value]) => (
-      <div
-        key={label}
-        style={{ display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}
-      >
-        <span>{label}</span>
-        <span>{value}</span>
-      </div>
-    ))}
-  </div>
-)
-
 const CovertartActions = () => {
   const notify = useNotify()
   const refresh = useRefresh()
   const [loading, setLoading] = useState(false)
   const [job, setJob] = useState(null)
-  const [showStats, setShowStats] = useState(false)
 
   const progress = useMemo(() => {
     const response = job?.response || {}
@@ -141,33 +90,16 @@ const CovertartActions = () => {
   return (
     <TopToolbar style={{ display: 'block' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Button
-            label="Fetch Missing Metadata (Spotify)"
-            onClick={handleFetchSpotify}
-            disabled={loading}
-          />
-          <IconButton onClick={() => setShowStats((v) => !v)} title="Toggle Cover Art metadata panel">
-            <PhotoIcon />
-          </IconButton>
-        </div>
+        <Button
+          label="Fetch Missing Metadata (Spotify)"
+          onClick={handleFetchSpotify}
+          disabled={loading}
+        />
         <span style={{ alignSelf: 'center' }}>
           Updated: {progress.updated} / Skipped: {progress.skipped} / Failed:{' '}
           {progress.failed} / Processed: {progress.processed}
         </span>
       </div>
-
-      <Collapse in={showStats} timeout="auto" unmountOnExit>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(250px, 1fr))', gap: 12 }}>
-          {statCards.map((card) => (
-            <StatCard
-              key={card.key}
-              title={card.label}
-              stats={job?.stats?.[card.key] || defaultFieldStats}
-            />
-          ))}
-        </div>
-      </Collapse>
     </TopToolbar>
   )
 }

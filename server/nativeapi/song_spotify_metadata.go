@@ -44,6 +44,7 @@ type SpotifyTrackResult struct {
 	AlbumName string
 	Year      int
 	CoverURL  string
+	Genre     string
 }
 
 type spotifySearchResponse struct {
@@ -51,6 +52,7 @@ type spotifySearchResponse struct {
 		Items []struct {
 			Name    string `json:"name"`
 			Artists []struct {
+				ID   string `json:"id"`
 				Name string `json:"name"`
 			} `json:"artists"`
 			Album struct {
@@ -70,6 +72,10 @@ type spotifyTokenResponse struct {
 	ExpiresIn   int    `json:"expires_in"`
 }
 
+type spotifyArtistResponse struct {
+	Genres []string `json:"genres"`
+}
+
 type spotifyMetadataTrack struct {
 	ID          string
 	Title       string
@@ -78,6 +84,7 @@ type spotifyMetadataTrack struct {
 	ReleaseYear int
 	AlbumID     string
 	EmbedArt    sql.NullString
+	Genre       sql.NullString
 }
 
 type spotifyMetadataResponse struct {
@@ -101,6 +108,7 @@ type spotifyMetadataStats struct {
 	Album    spotifyFieldStats `json:"album"`
 	Year     spotifyFieldStats `json:"year"`
 	CoverArt spotifyFieldStats `json:"coverArt"`
+	Genre    spotifyFieldStats `json:"genre"`
 }
 
 type spotifyFetchedItem struct {
@@ -260,6 +268,13 @@ func initializeSpotifyStats(tracks []spotifyMetadataTrack) {
 			} else {
 				st.Stats.CoverArt.AlreadyExist++
 			}
+
+			if strings.TrimSpace(tr.Genre.String) == "" {
+				st.Stats.Genre.Missing++
+				st.Stats.Genre.ToBeFetch++
+			} else {
+				st.Stats.Genre.AlreadyExist++
+			}
 		}
 	})
 }
@@ -274,6 +289,9 @@ func markTrackFetching(track spotifyMetadataTrack) {
 		}
 		if strings.TrimSpace(track.EmbedArt.String) == "" {
 			st.Stats.CoverArt.Fetching++
+		}
+		if strings.TrimSpace(track.Genre.String) == "" {
+			st.Stats.Genre.Fetching++
 		}
 	})
 }
@@ -313,6 +331,17 @@ func markTrackDone(track spotifyMetadataTrack, failed bool) {
 				st.Stats.CoverArt.CouldntFetch++
 			}
 		}
+		if strings.TrimSpace(track.Genre.String) == "" {
+			if st.Stats.Genre.Fetching > 0 {
+				st.Stats.Genre.Fetching--
+			}
+			if st.Stats.Genre.ToBeFetch > 0 {
+				st.Stats.Genre.ToBeFetch--
+			}
+			if failed {
+				st.Stats.Genre.CouldntFetch++
+			}
+		}
 	})
 }
 
@@ -330,7 +359,7 @@ func appendFetchedSpotifyData(item spotifyFetchedItem) {
 
 func loadTracksMissingSpotifyMetadata(ctx context.Context, db *sql.DB, limit int) ([]spotifyMetadataTrack, error) {
 	query := `
-		SELECT mf.id, mf.title, mf.artist, mf.album, mf.release_year, mf.album_id, a.embed_art_path
+		SELECT mf.id, mf.title, mf.artist, mf.album, mf.release_year, mf.album_id, a.embed_art_path, mf.genre
 		FROM media_file mf
 		LEFT JOIN album a ON a.id = mf.album_id
 		WHERE mf.missing = 0 AND (
@@ -360,7 +389,7 @@ func loadTracksMissingSpotifyMetadata(ctx context.Context, db *sql.DB, limit int
 	tracks := make([]spotifyMetadataTrack, 0, capacity)
 	for rows.Next() {
 		var t spotifyMetadataTrack
-		if err := rows.Scan(&t.ID, &t.Title, &t.Artist, &t.Album, &t.ReleaseYear, &t.AlbumID, &t.EmbedArt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.Artist, &t.Album, &t.ReleaseYear, &t.AlbumID, &t.EmbedArt, &t.Genre); err != nil {
 			return nil, err
 		}
 		tracks = append(tracks, t)
@@ -400,6 +429,7 @@ func processTrackSpotifyMetadata(ctx context.Context, db *sql.DB, track spotifyM
 	albumMissing := isUnknownAlbum(track.Album)
 	yearMissing := track.ReleaseYear == 0
 	coverMissing := strings.TrimSpace(track.EmbedArt.String) == ""
+	genreMissing := strings.TrimSpace(track.Genre.String) == ""
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -458,6 +488,22 @@ func processTrackSpotifyMetadata(ctx context.Context, db *sql.DB, track spotifyM
 			updateSpotifyJobState(func(st *spotifyMetadataJobState) {
 				st.Stats.CoverArt.Fetched++
 				st.Stats.CoverArt.Updated++
+			})
+		} else {
+			failed = true
+		}
+	}
+
+	if genreMissing {
+		if strings.TrimSpace(result.Genre) != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE media_file SET genre = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, result.Genre, track.ID); err != nil {
+				markTrackDone(track, true)
+				return "failed", err
+			}
+			updatedAny = true
+			updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+				st.Stats.Genre.Fetched++
+				st.Stats.Genre.Updated++
 			})
 		} else {
 			failed = true
@@ -614,6 +660,9 @@ func searchSpotifyTrackWithToken(ctx context.Context, title string, artist strin
 	}
 	if len(item.Artists) > 0 {
 		result.Artist = item.Artists[0].Name
+		if genre, err := fetchSpotifyArtistGenreWithToken(ctx, item.Artists[0].ID, token); err == nil {
+			result.Genre = genre
+		}
 	}
 	if len(item.Album.ReleaseDate) >= 4 {
 		if year, err := strconv.Atoi(item.Album.ReleaseDate[:4]); err == nil {
@@ -627,6 +676,44 @@ func searchSpotifyTrackWithToken(ctx context.Context, title string, artist strin
 		result.CoverURL = item.Album.Images[len(item.Album.Images)-1].URL
 	}
 	return result, nil
+}
+
+func fetchSpotifyArtistGenreWithToken(ctx context.Context, artistID string, token string) (string, error) {
+	if strings.TrimSpace(artistID) == "" {
+		return "", nil
+	}
+	if err := spotifyReqLimiter.Wait(ctx); err != nil {
+		return "", err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.spotify.com/v1/artists/"+url.PathEscape(strings.TrimSpace(artistID)), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized:
+		return "", errSpotify401
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("spotify artist lookup failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var payload spotifyArtistResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", err
+	}
+	for _, genre := range payload.Genres {
+		if strings.TrimSpace(genre) != "" {
+			return genre, nil
+		}
+	}
+	return "", nil
 }
 
 func handleSpotifySearchStatus(resp *http.Response) error {
