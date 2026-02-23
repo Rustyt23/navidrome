@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -109,6 +110,11 @@ func isImagePath(path string) bool {
 func resolveEmbedArtPath(rootFolder, embedArtPath string) string {
 	if filepath.IsAbs(embedArtPath) {
 		return embedArtPath
+	}
+	if embedArtPath != "" {
+		if _, err := os.Stat(embedArtPath); err == nil {
+			return embedArtPath
+		}
 	}
 	return filepath.Join(rootFolder, embedArtPath)
 }
