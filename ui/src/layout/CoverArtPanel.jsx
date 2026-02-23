@@ -99,6 +99,26 @@ const ProgressCard = ({ title, progress, translate, classes }) => (
   </Card>
 )
 
+const CoverArtSaveCard = ({ title, progress, classes }) => (
+  <Card variant="outlined" className={classes.progressCard}>
+    <CardContent>
+      <Typography variant="subtitle2">{title}</Typography>
+      <Box className={classes.row}>
+        <span>Saving</span>
+        <span>{progress.fetching || 0}</span>
+      </Box>
+      <Box className={classes.row}>
+        <span>Saved completed</span>
+        <span>{progress.updated || 0}</span>
+      </Box>
+      <Box className={classes.row}>
+        <span>Remaining</span>
+        <span>{progress.left || 0}</span>
+      </Box>
+    </CardContent>
+  </Card>
+)
+
 const CoverArtPanel = () => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -112,6 +132,7 @@ const CoverArtPanel = () => {
     recordingMbid: emptyProgress,
     releaseMbid: emptyProgress,
     coverArt: emptyProgress,
+    coverArtSave: emptyProgress,
   })
 
   const open = Boolean(anchorEl)
@@ -128,6 +149,7 @@ const CoverArtPanel = () => {
             recordingMbid: emptyProgress,
             releaseMbid: emptyProgress,
             coverArt: emptyProgress,
+            coverArtSave: emptyProgress,
           },
         )
       })
@@ -166,6 +188,7 @@ const CoverArtPanel = () => {
       .then(({ status: code }) => {
         if (code === 200) {
           notify('activity.musicbrainz.saved', 'info')
+          loadStatus()
         } else {
           notify('activity.musicbrainz.saveFailed', 'warning')
         }
@@ -204,7 +227,7 @@ const CoverArtPanel = () => {
                   variant="contained"
                   startIcon={<MdSave />}
                   onClick={saveMetadata}
-                  disabled={status.running}
+                  disabled={status.running || status.saving}
                   data-testid="coverart-metadata-save-btn"
                 >
                   {translate('activity.musicbrainz.save')}
@@ -214,7 +237,7 @@ const CoverArtPanel = () => {
                   variant="contained"
                   startIcon={<BiDownload />}
                   onClick={startFetch}
-                  disabled={status.running}
+                  disabled={status.running || status.saving}
                   data-testid="coverart-metadata-fetch-btn"
                 >
                   {translate('activity.musicbrainz.fetch')}
@@ -227,6 +250,13 @@ const CoverArtPanel = () => {
                   title="Cover Art"
                   progress={status.coverArt || emptyProgress}
                   translate={translate}
+                  classes={classes}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <CoverArtSaveCard
+                  title="Cover Art Save"
+                  progress={status.coverArtSave || emptyProgress}
                   classes={classes}
                 />
               </Grid>

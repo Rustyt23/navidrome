@@ -11,11 +11,13 @@
 #include <dsffile.h>
 #include <fileref.h>
 #include <flacfile.h>
+#include <flacpicture.h>
 #include <id3v2tag.h>
 #include <attachedpictureframe.h>
 #include <unsynchronizedlyricsframe.h>
 #include <synchronizedlyricsframe.h>
 #include <mp4file.h>
+#include <mp4coverart.h>
 #include <mpegfile.h>
 #include <opusfile.h>
 #include <tpropertymap.h>
@@ -72,6 +74,54 @@ static bool attach_cover_mp3(TagLib::MPEG::File *mp3File, const char *coverPath)
   picture->setDescription("Front cover");
   picture->setPicture(TagLib::ByteVector(data.data(), (unsigned int)data.size()));
   tag->addFrame(picture);
+  return true;
+}
+
+static bool read_cover_bytes(const char *coverPath, std::vector<char> &data) {
+  if (coverPath == nullptr || *coverPath == '\0') {
+    return false;
+  }
+  std::ifstream image(coverPath, std::ios::binary);
+  if (!image) {
+    return false;
+  }
+  data.assign(std::istreambuf_iterator<char>(image), std::istreambuf_iterator<char>());
+  return !data.empty();
+}
+
+static bool attach_cover_flac(TagLib::FLAC::File *flacFile, const char *coverPath) {
+  if (flacFile == nullptr) {
+    return false;
+  }
+
+  std::vector<char> data;
+  if (!read_cover_bytes(coverPath, data)) {
+    return false;
+  }
+
+  flacFile->removePictures();
+  auto *picture = new TagLib::FLAC::Picture;
+  picture->setType(TagLib::FLAC::Picture::FrontCover);
+  picture->setMimeType("image/jpeg");
+  picture->setDescription("Front cover");
+  picture->setData(TagLib::ByteVector(data.data(), (unsigned int)data.size()));
+  flacFile->addPicture(picture);
+  return true;
+}
+
+static bool attach_cover_mp4(TagLib::MP4::File *mp4File, const char *coverPath) {
+  if (mp4File == nullptr || mp4File->tag() == nullptr) {
+    return false;
+  }
+
+  std::vector<char> data;
+  if (!read_cover_bytes(coverPath, data)) {
+    return false;
+  }
+
+  TagLib::MP4::CoverArtList coverArtList;
+  coverArtList.append(TagLib::MP4::CoverArt(TagLib::MP4::CoverArt::JPEG, TagLib::ByteVector(data.data(), (unsigned int)data.size())));
+  mp4File->tag()->itemMap()["covr"] = coverArtList;
   return true;
 }
 
@@ -137,6 +187,10 @@ int taglib_write_fetched_metadata(const FILENAME_CHAR_T *filename, const char *a
 
   TagLib::MPEG::File *mp3File = dynamic_cast<TagLib::MPEG::File *>(f.file());
   attach_cover_mp3(mp3File, cover_path);
+  TagLib::FLAC::File *flacFile = dynamic_cast<TagLib::FLAC::File *>(f.file());
+  attach_cover_flac(flacFile, cover_path);
+  TagLib::MP4::File *mp4File = dynamic_cast<TagLib::MP4::File *>(f.file());
+  attach_cover_mp4(mp4File, cover_path);
 
   if (!f.file()->save()) {
     return TAGLIB_ERR_SAVE;
