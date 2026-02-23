@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/adapters/taglib"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -915,8 +916,55 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 				return
 			}
 
+			if err := n.saveFetchedMetadataToSongs(); err != nil {
+				log.Warn("Could not persist fetched metadata to song files", "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"status":"save_failed"}`))
+				return
+			}
+
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"saved"}`))
 		})
 	})
+}
+
+func (n *Router) saveFetchedMetadataToSongs() error {
+	ctx := context.Background()
+	cursor, err := n.ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		return err
+	}
+
+	for mf, e := range cursor {
+		if e != nil {
+			return e
+		}
+
+		if strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
+			continue
+		}
+
+		coverFile := ""
+		if strings.HasPrefix(strings.TrimSpace(mf.CoverPath), coverCacheDirName+"/") {
+			coverFile = filepath.Join(conf.Server.DataFolder, filepath.FromSlash(mf.CoverPath))
+		}
+
+		if strings.TrimSpace(mf.Album) == "" && mf.Year == 0 && strings.TrimSpace(mf.Genre) == "" && strings.TrimSpace(mf.MbzRecordingID) == "" && strings.TrimSpace(mf.MbzReleaseID) == "" && coverFile == "" {
+			continue
+		}
+
+		if err := taglib.WriteFetchedMetadata(mf.AbsolutePath(), taglib.FetchedMetadata{
+			Album:         mf.Album,
+			Year:          mf.Year,
+			Genre:         mf.Genre,
+			RecordingMBID: mf.MbzRecordingID,
+			ReleaseMBID:   mf.MbzReleaseID,
+			CoverPath:     coverFile,
+		}); err != nil {
+			log.Warn(ctx, "Could not write fetched metadata to song", "songId", mf.ID, "path", mf.Path, "err", err)
+		}
+	}
+
+	return nil
 }
