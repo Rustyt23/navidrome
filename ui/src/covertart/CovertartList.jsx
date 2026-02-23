@@ -148,6 +148,35 @@ const CovertartActions = () => {
           />
         ))}
       </div>
+
+      <div style={{ marginTop: 12, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Album (Fetched)</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Year (Fetched)</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Cover Art URL (Fetched)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(job?.fetchedData || []).length === 0 ? (
+              <tr>
+                <td colSpan={3} style={{ padding: 10, opacity: 0.75 }}>
+                  No fetched Spotify values yet.
+                </td>
+              </tr>
+            ) : (
+              (job?.fetchedData || []).map((row, idx) => (
+                <tr key={`${row.albumName}-${row.year}-${idx}`}>
+                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>{row.albumName || '-'}</td>
+                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>{row.year || '-'}</td>
+                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)', wordBreak: 'break-all' }}>{row.coverUrl || '-'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </TopToolbar>
   )
 }

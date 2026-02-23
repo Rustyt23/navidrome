@@ -103,13 +103,20 @@ type spotifyMetadataStats struct {
 	CoverArt spotifyFieldStats `json:"coverArt"`
 }
 
+type spotifyFetchedItem struct {
+	AlbumName string `json:"albumName"`
+	Year      int    `json:"year"`
+	CoverURL  string `json:"coverUrl"`
+}
+
 type spotifyMetadataJobState struct {
-	Running   bool                    `json:"running"`
-	StartedAt time.Time               `json:"startedAt,omitempty"`
-	EndedAt   *time.Time              `json:"endedAt,omitempty"`
-	Response  spotifyMetadataResponse `json:"response"`
-	Stats     spotifyMetadataStats    `json:"stats"`
-	Error     string                  `json:"error,omitempty"`
+	Running     bool                    `json:"running"`
+	StartedAt   time.Time               `json:"startedAt,omitempty"`
+	EndedAt     *time.Time              `json:"endedAt,omitempty"`
+	Response    spotifyMetadataResponse `json:"response"`
+	Stats       spotifyMetadataStats    `json:"stats"`
+	FetchedData []spotifyFetchedItem    `json:"fetchedData,omitempty"`
+	Error       string                  `json:"error,omitempty"`
 }
 
 var (
@@ -146,7 +153,7 @@ func (n *Router) fetchMissingSpotifyMetadata() http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(state)
 			return
 		}
-		spotifyJobState = spotifyMetadataJobState{Running: true, StartedAt: time.Now()}
+		spotifyJobState = spotifyMetadataJobState{Running: true, StartedAt: time.Now(), FetchedData: []spotifyFetchedItem{}}
 		state := spotifyJobState
 		spotifyJobMu.Unlock()
 
@@ -309,6 +316,18 @@ func markTrackDone(track spotifyMetadataTrack, failed bool) {
 	})
 }
 
+func appendFetchedSpotifyData(item spotifyFetchedItem) {
+	if strings.TrimSpace(item.AlbumName) == "" && item.Year == 0 && strings.TrimSpace(item.CoverURL) == "" {
+		return
+	}
+	updateSpotifyJobState(func(st *spotifyMetadataJobState) {
+		st.FetchedData = append(st.FetchedData, item)
+		if len(st.FetchedData) > 50 {
+			st.FetchedData = st.FetchedData[len(st.FetchedData)-50:]
+		}
+	})
+}
+
 func loadTracksMissingSpotifyMetadata(ctx context.Context, db *sql.DB, limit int) ([]spotifyMetadataTrack, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT mf.id, mf.title, mf.artist, mf.album, mf.release_year, mf.album_id, a.embed_art_path
@@ -360,6 +379,12 @@ func processTrackSpotifyMetadata(ctx context.Context, db *sql.DB, track spotifyM
 		markTrackDone(track, true)
 		return "skipped", nil
 	}
+
+	appendFetchedSpotifyData(spotifyFetchedItem{
+		AlbumName: result.AlbumName,
+		Year:      result.Year,
+		CoverURL:  result.CoverURL,
+	})
 
 	albumMissing := isUnknownAlbum(track.Album)
 	yearMissing := track.ReleaseYear == 0
