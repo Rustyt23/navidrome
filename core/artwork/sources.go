@@ -77,6 +77,19 @@ func fromExternalFile(ctx context.Context, files []string, pattern string) sourc
 	}
 }
 
+func fromLocalFile(path string) sourceFunc {
+	return func() (io.ReadCloser, string, error) {
+		if strings.TrimSpace(path) == "" {
+			return nil, "", nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, "", err
+		}
+		return f, path, nil
+	}
+}
+
 // These regexes are used to match the picture type in the file, in the order they are listed.
 var picTypeRegexes = []*regexp.Regexp{
 	regexp.MustCompile(`(?i).*cover.*front.*|.*front.*cover.*`),

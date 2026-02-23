@@ -14,6 +14,7 @@ import {
 } from '@material-ui/core'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
 import { BiDownload } from 'react-icons/bi'
+import { MdSave } from 'react-icons/md'
 import { httpClient } from '../dataProvider'
 
 const emptyProgress = {
@@ -47,6 +48,11 @@ const useStyles = makeStyles((theme) => ({
     alignItems: 'center',
     marginBottom: theme.spacing(2),
     gap: theme.spacing(2),
+  },
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
   },
   progressCard: {
     height: '100%',
@@ -156,6 +162,20 @@ const CoverArtPanel = () => {
       .catch(() => notify('activity.musicbrainz.failed', 'warning'))
   }
 
+  const saveMetadata = () => {
+    httpClient('/api/metadata/musicbrainz/save', { method: 'POST' })
+      .then(({ status: code }) => {
+        if (code === 200) {
+          notify('activity.musicbrainz.saved', 'info')
+        } else if (code === 207) {
+          notify('activity.musicbrainz.savePartial', 'warning')
+        } else {
+          notify('activity.musicbrainz.saveFailed', 'warning')
+        }
+      })
+      .catch(() => notify('activity.musicbrainz.saveFailed', 'warning'))
+  }
+
   return (
     <>
       <Tooltip title="Coverart">
@@ -181,16 +201,28 @@ const CoverArtPanel = () => {
               <Typography variant="h6" className={classes.title}>
                 {translate('activity.musicbrainz.title')}
               </Typography>
-              <Button
-                color="primary"
-                variant="contained"
-                startIcon={<BiDownload />}
-                onClick={startFetch}
-                disabled={status.running}
-                data-testid="coverart-metadata-fetch-btn"
-              >
-                {translate('activity.musicbrainz.fetch')}
-              </Button>
+              <Box className={classes.actions}>
+                <Button
+                  color="primary"
+                  variant="contained"
+                  startIcon={<MdSave />}
+                  onClick={saveMetadata}
+                  disabled={status.running}
+                  data-testid="coverart-metadata-save-btn"
+                >
+                  {translate('activity.musicbrainz.save')}
+                </Button>
+                <Button
+                  color="primary"
+                  variant="contained"
+                  startIcon={<BiDownload />}
+                  onClick={startFetch}
+                  disabled={status.running}
+                  data-testid="coverart-metadata-fetch-btn"
+                >
+                  {translate('activity.musicbrainz.fetch')}
+                </Button>
+              </Box>
             </Box>
             <Grid container spacing={2}>
               <Grid item xs={12} md={4}>

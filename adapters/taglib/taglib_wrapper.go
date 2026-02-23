@@ -103,6 +103,51 @@ func WriteComment(filename, comment string) (err error) {
 	}
 }
 
+func WriteMetadata(filename, album string, year int, genre, recordingMBID, releaseMBID, coverPath string) (err error) {
+	debug.SetPanicOnFault(true)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("extractor: recovered from panic when writing metadata", "file", filename, "error", r)
+			err = fmt.Errorf("extractor: recovered from panic: %s", r)
+		}
+	}()
+
+	fp := getFilename(filename)
+	defer C.free(unsafe.Pointer(fp))
+
+	cAlbum := C.CString(album)
+	defer C.free(unsafe.Pointer(cAlbum))
+	cGenre := C.CString(genre)
+	defer C.free(unsafe.Pointer(cGenre))
+	cRecordingMBID := C.CString(recordingMBID)
+	defer C.free(unsafe.Pointer(cRecordingMBID))
+	cReleaseMBID := C.CString(releaseMBID)
+	defer C.free(unsafe.Pointer(cReleaseMBID))
+	cCoverPath := C.CString(coverPath)
+	defer C.free(unsafe.Pointer(cCoverPath))
+
+	res := C.taglib_write_metadata(
+		fp,
+		cAlbum,
+		C.int(year),
+		cGenre,
+		cRecordingMBID,
+		cReleaseMBID,
+		cCoverPath,
+	)
+
+	switch res {
+	case 0:
+		return nil
+	case C.TAGLIB_ERR_PARSE:
+		return fmt.Errorf("cannot open media file for writing metadata")
+	case C.TAGLIB_ERR_SAVE:
+		return fmt.Errorf("cannot save media file after writing metadata")
+	default:
+		return fmt.Errorf("unknown error writing metadata: %d", int(res))
+	}
+}
+
 type tagMap map[string][]string
 
 var allMaps sync.Map

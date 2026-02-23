@@ -20,12 +20,14 @@ import (
 
 type albumArtworkReader struct {
 	cacheKey
-	a          *artwork
-	provider   external.Provider
-	album      model.Album
-	updatedAt  *time.Time
-	imgFiles   []string
-	rootFolder string
+	a             *artwork
+	provider      external.Provider
+	album         model.Album
+	updatedAt     *time.Time
+	imgFiles      []string
+	rootFolder    string
+	mbCoverPath   string
+	mbCoverUpdate time.Time
 }
 
 func newAlbumArtworkReader(ctx context.Context, artwork *artwork, artID model.ArtworkID, provider external.Provider) (*albumArtworkReader, error) {
@@ -37,19 +39,28 @@ func newAlbumArtworkReader(ctx context.Context, artwork *artwork, artID model.Ar
 	if err != nil {
 		return nil, err
 	}
+	mbCoverPath, mbCoverUpdate, err := loadAlbumMetadataCover(ctx, artwork.ds, al.ID)
+	if err != nil {
+		return nil, err
+	}
 	a := &albumArtworkReader{
-		a:          artwork,
-		provider:   provider,
-		album:      *al,
-		updatedAt:  imagesUpdateAt,
-		imgFiles:   imgFiles,
-		rootFolder: core.AbsolutePath(ctx, artwork.ds, al.LibraryID, ""),
+		a:             artwork,
+		provider:      provider,
+		album:         *al,
+		updatedAt:     imagesUpdateAt,
+		imgFiles:      imgFiles,
+		rootFolder:    core.AbsolutePath(ctx, artwork.ds, al.LibraryID, ""),
+		mbCoverPath:   mbCoverPath,
+		mbCoverUpdate: mbCoverUpdate,
 	}
 	a.cacheKey.artID = artID
 	if a.updatedAt != nil && a.updatedAt.After(al.UpdatedAt) {
 		a.cacheKey.lastUpdate = *a.updatedAt
 	} else {
 		a.cacheKey.lastUpdate = al.UpdatedAt
+	}
+	if a.mbCoverUpdate.After(a.cacheKey.lastUpdate) {
+		a.cacheKey.lastUpdate = a.mbCoverUpdate
 	}
 	return a, nil
 }
@@ -71,7 +82,11 @@ func (a *albumArtworkReader) LastUpdated() time.Time {
 }
 
 func (a *albumArtworkReader) Reader(ctx context.Context) (io.ReadCloser, string, error) {
-	var ff = a.fromCoverArtPriority(ctx, a.a.ffmpeg, conf.Server.CoverArtPriority)
+	var ff []sourceFunc
+	if strings.TrimSpace(a.mbCoverPath) != "" {
+		ff = append(ff, fromLocalFile(a.mbCoverPath))
+	}
+	ff = append(ff, a.fromCoverArtPriority(ctx, a.a.ffmpeg, conf.Server.CoverArtPriority)...)
 	return selectImageReader(ctx, a.artID, ff...)
 }
 
@@ -90,6 +105,30 @@ func (a *albumArtworkReader) fromCoverArtPriority(ctx context.Context, ffmpeg ff
 		}
 	}
 	return ff
+}
+
+func loadAlbumMetadataCover(ctx context.Context, ds model.DataStore, albumID string) (string, time.Time, error) {
+	mediaFiles, err := ds.MediaFile(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{"album_id": albumID}})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	var coverPath string
+	var updatedAt time.Time
+	for _, mf := range mediaFiles {
+		candidate := strings.TrimSpace(mf.CoverPath)
+		if candidate == "" {
+			continue
+		}
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(conf.Server.DataFolder, candidate)
+		}
+		if coverPath == "" || candidate < coverPath {
+			coverPath = candidate
+			updatedAt = mf.UpdatedAt
+		}
+	}
+	return coverPath, updatedAt, nil
 }
 
 func loadAlbumFoldersPaths(ctx context.Context, ds model.DataStore, albums ...model.Album) ([]string, []string, *time.Time, error) {
