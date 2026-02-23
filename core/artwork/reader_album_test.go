@@ -2,6 +2,7 @@ package artwork
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -11,6 +12,39 @@ import (
 )
 
 var _ = Describe("Album Artwork Reader", func() {
+	Describe("embed art path helpers", func() {
+		It("detects image paths", func() {
+			Expect(isImagePath("cover.jpg")).To(BeTrue())
+			Expect(isImagePath("cover.JPEG")).To(BeTrue())
+			Expect(isImagePath("cover.png")).To(BeTrue())
+			Expect(isImagePath("track.mp3")).To(BeFalse())
+		})
+
+		It("keeps absolute embed art paths untouched", func() {
+			abs := "/data/spotify_coverart/123.jpg"
+			Expect(resolveEmbedArtPath("/music", abs)).To(Equal(abs))
+		})
+
+		It("resolves relative embed art paths from root folder", func() {
+			resolved := resolveEmbedArtPath("/music", "Artist/Album/cover.jpg")
+			Expect(resolved).To(Equal(filepath.Join("/music", "Artist/Album/cover.jpg")))
+		})
+
+		It("keeps existing relative filesystem paths untouched", func() {
+			tmp := filepath.Join(GinkgoT().TempDir(), "spotify_coverart", "1.jpg")
+			Expect(os.MkdirAll(filepath.Dir(tmp), 0o755)).To(Succeed())
+			Expect(os.WriteFile(tmp, []byte("x"), 0o644)).To(Succeed())
+
+			cwd, err := os.Getwd()
+			Expect(err).ToNot(HaveOccurred())
+			rel, err := filepath.Rel(cwd, tmp)
+			Expect(err).ToNot(HaveOccurred())
+
+			resolved := resolveEmbedArtPath("/music", rel)
+			Expect(resolved).To(Equal(rel))
+		})
+	})
+
 	Describe("loadAlbumFoldersPaths", func() {
 		var (
 			ctx        context.Context

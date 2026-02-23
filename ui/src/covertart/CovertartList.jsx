@@ -1,14 +1,20 @@
-import React from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Button,
   Datagrid,
   Filter,
   FunctionField,
   List,
   SearchInput,
   TextField,
+  TopToolbar,
+  useNotify,
+  useRefresh,
 } from 'react-admin'
 import { DurationField } from '../common'
 import subsonic from '../subsonic'
+import { REST_URL } from '../consts'
+import { httpClient } from '../dataProvider'
 
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
@@ -16,11 +22,171 @@ const CovertartFilter = (props) => (
   </Filter>
 )
 
+const defaultFieldStats = {
+  alreadyExist: 0,
+  missing: 0,
+  fetching: 0,
+  fetched: 0,
+  updated: 0,
+  toBeFetch: 0,
+  couldntFetch: 0,
+}
+
+const statCards = [
+  { key: 'album', label: 'Album' },
+  { key: 'year', label: 'Year' },
+  { key: 'coverArt', label: 'Cover Art' },
+]
+
+const StatCard = ({ title, stats = defaultFieldStats }) => (
+  <div
+    style={{
+      border: '1px solid rgba(255,255,255,0.12)',
+      borderRadius: 6,
+      padding: 16,
+      minWidth: 250,
+      background: 'rgba(255,255,255,0.02)',
+    }}
+  >
+    <div style={{ fontSize: 24, marginBottom: 8 }}>{title}</div>
+    {[
+      ['Already exist', stats.alreadyExist],
+      ['Missing', stats.missing],
+      ['Fetching', stats.fetching],
+      ['Fetched', stats.fetched],
+      ['Updated', stats.updated],
+      ['To be fetch', stats.toBeFetch],
+      ["Couldn't fetched", stats.couldntFetch],
+    ].map(([label, value]) => (
+      <div
+        key={label}
+        style={{ display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}
+      >
+        <span>{label}</span>
+        <span>{value}</span>
+      </div>
+    ))}
+  </div>
+)
+
+const CovertartActions = () => {
+  const notify = useNotify()
+  const refresh = useRefresh()
+  const [loading, setLoading] = useState(false)
+  const [job, setJob] = useState(null)
+
+  const progress = useMemo(() => {
+    const response = job?.response || {}
+    return {
+      updated: response.updated || 0,
+      skipped: response.skipped || 0,
+      failed: response.failed || 0,
+      processed: response.processed || 0,
+    }
+  }, [job])
+
+  const fetchStatus = useCallback(async () => {
+    const response = await httpClient(`${REST_URL}/song/metadata/spotify/status`, {
+      method: 'GET',
+    })
+    setJob(response?.json || null)
+    if (response?.json?.running === false) {
+      setLoading(false)
+      refresh()
+    }
+  }, [refresh])
+
+  useEffect(() => {
+    if (!loading) return undefined
+
+    const id = setInterval(() => {
+      fetchStatus().catch(() => {})
+    }, 1000)
+
+    return () => clearInterval(id)
+  }, [fetchStatus, loading])
+
+  const handleFetchSpotify = async () => {
+    setLoading(true)
+    try {
+      const response = await httpClient(`${REST_URL}/song/metadata/spotify?limit=50`, {
+        method: 'POST',
+      })
+
+      const data = response?.json || null
+      setJob(data)
+      if (data?.running === false) {
+        setLoading(false)
+      }
+      notify('Spotify metadata job started', 'info')
+    } catch (error) {
+      notify(error.message || 'Spotify metadata batch failed', 'warning')
+      setLoading(false)
+    }
+  }
+
+  return (
+    <TopToolbar style={{ display: 'block' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Button
+          label="Fetch Missing Metadata (Spotify)"
+          onClick={handleFetchSpotify}
+          disabled={loading}
+        />
+        <span style={{ alignSelf: 'center' }}>
+          Updated: {progress.updated} / Skipped: {progress.skipped} / Failed:{' '}
+          {progress.failed} / Processed: {progress.processed}
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(250px, 1fr))', gap: 12 }}>
+        {statCards.map((card) => (
+          <StatCard
+            key={card.key}
+            title={card.label}
+            stats={job?.stats?.[card.key] || defaultFieldStats}
+          />
+        ))}
+      </div>
+
+      <div style={{ marginTop: 12, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Album (Fetched)</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Year (Fetched)</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>Cover Art URL (Fetched)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(job?.fetchedData || []).length === 0 ? (
+              <tr>
+                <td colSpan={3} style={{ padding: 10, opacity: 0.75 }}>
+                  No fetched Spotify values yet.
+                </td>
+              </tr>
+            ) : (
+              (job?.fetchedData || []).map((row, idx) => (
+                <tr key={`${row.albumName}-${row.year}-${idx}`}>
+                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>{row.albumName || '-'}</td>
+                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>{row.year || '-'}</td>
+                  <td style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.06)', wordBreak: 'break-all' }}>{row.coverUrl || '-'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </TopToolbar>
+  )
+}
+
 const CovertartList = (props) => (
   <List
     {...props}
     sort={{ field: 'title', order: 'ASC' }}
     filters={<CovertartFilter />}
+    actions={<CovertartActions />}
     exporter={false}
     bulkActionButtons={false}
     perPage={50}
@@ -41,7 +207,7 @@ const CovertartList = (props) => (
       <TextField source="title" />
       <TextField source="artist" label="Artist" />
       <TextField source="album" label="Album" />
-      <TextField source="year" label="Release Year" />
+      <TextField source="releaseYear" label="Release Year" />
       <TextField source="genre" label="Genre" />
       <DurationField source="duration" />
     </Datagrid>
