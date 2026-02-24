@@ -108,7 +108,11 @@
       }
     },
     "covertart": {
-      "name": "Cover Art |||| Cover Art"
+      "name": "Cover Art |||| Cover Art",
+      "fields": {
+        "fetched": "Fetched",
+        "missingCoverArt": "Missing CoverArt"
+      }
     },
     "artist": {
       "name": "Artist |||| Artists",
