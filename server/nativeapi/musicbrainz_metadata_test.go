@@ -42,74 +42,39 @@ func TestSelectBestRecording(t *testing.T) {
 	}
 }
 
-func TestCollectReleaseCandidates(t *testing.T) {
-	recordings := []mbRecording{{
-		Score: "95",
-		ArtistCredit: []struct {
-			Name string `json:"name"`
-		}{{Name: "The Artist"}},
-		Releases: []mbRelease{
-			{ID: "live", Title: "Live Cut", Date: "1990", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Live"}}},
-			{ID: "comp", Title: "Compilation", Date: "1992", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Compilation"}}},
-			{ID: "album", Title: "Studio Album", Date: "2001", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
-		},
-	}}
-
-	candidates := collectReleaseCandidates(recordings, "the artist", 0)
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 preferred candidate, got %d", len(candidates))
+func TestSelectBestReleaseFromRecording(t *testing.T) {
+	releases := []mbRelease{
+		{ID: "bootleg", Title: "Bootleg", Status: "Bootleg", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		{ID: "comp", Title: "Compilation", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Compilation"}}},
+		{ID: "remix", Title: "Remix", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Remix"}}},
+		{ID: "video", Title: "Video", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Single"}, Media: []mbMedium{{Format: "DVD-Video"}}},
+		{ID: "ep", Title: "EP", Status: "Official", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "EP"}},
+		{ID: "album", Title: "Album", Status: "Official", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		{ID: "single", Title: "Single", Status: "Official", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
 	}
-	if candidates[0].release.ID != "album" {
-		t.Fatalf("expected album candidate, got %q", candidates[0].release.ID)
+
+	best := selectBestReleaseFromRecording(releases, []string{"US", "USA"})
+	if best == nil {
+		t.Fatal("expected a release")
+	}
+	if best.ID != "single" {
+		t.Fatalf("expected single to be prioritized, got %q", best.ID)
 	}
 }
 
-func TestCollectReleaseCandidatesFallsBackToOfficial(t *testing.T) {
-	recordings := []mbRecording{{
-		Score: "95",
-		ArtistCredit: []struct {
-			Name string `json:"name"`
-		}{{Name: "The Artist"}},
-		Releases: []mbRelease{
-			{ID: "live", Title: "Live Cut", Date: "1990", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Live"}}},
-			{ID: "single", Title: "Official Single", Date: "1991", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
-		},
-	}}
-
-	candidates := collectReleaseCandidates(recordings, "the artist", 0)
-	if len(candidates) != 2 {
-		t.Fatalf("expected official fallback candidates, got %d", len(candidates))
-	}
-}
-
-func TestSelectBestReleaseCandidatePrefersCover(t *testing.T) {
-	candidates := []releaseCandidate{
-		{release: &mbRelease{ID: "a", Title: "No Cover", Date: "1980", Country: "US"}},
-		{release: &mbRelease{ID: "b", Title: "Has Cover", Date: "2001", Country: "GB"}},
+func TestSelectBestReleaseFromRecordingPrefersEarliestThenUS(t *testing.T) {
+	releases := []mbRelease{
+		{ID: "later-us", Title: "Later US", Status: "Official", Country: "US", Date: "2011-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		{ID: "earlier-gb", Title: "Earlier GB", Status: "Official", Country: "GB", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		{ID: "earlier-us", Title: "Earlier US", Status: "Official", Country: "USA", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
 	}
 
-	rel := selectBestReleaseCandidate(candidates, func(releaseID string) bool { return releaseID == "b" })
-	if rel == nil {
-		t.Fatal("expected release")
+	best := selectBestReleaseFromRecording(releases, []string{"US", "USA"})
+	if best == nil {
+		t.Fatal("expected a release")
 	}
-	if rel.release.ID != "b" {
-		t.Fatalf("expected release with cover, got %q", rel.release.ID)
-	}
-}
-
-func TestSelectBestReleaseCandidatePrefersEarliestThenUS(t *testing.T) {
-	candidates := []releaseCandidate{
-		{release: &mbRelease{ID: "a", Title: "Album A", Date: "2001", Country: "GB"}},
-		{release: &mbRelease{ID: "b", Title: "Album B", Date: "2001", Country: "US"}},
-		{release: &mbRelease{ID: "c", Title: "Album C", Date: "1999", Country: "GB"}},
-	}
-
-	rel := selectBestReleaseCandidate(candidates, func(string) bool { return false })
-	if rel == nil {
-		t.Fatal("expected release")
-	}
-	if rel.release.ID != "c" {
-		t.Fatalf("expected earliest release when no cover exists, got %q", rel.release.ID)
+	if best.ID != "earlier-us" {
+		t.Fatalf("expected earliest date then preferred country, got %q", best.ID)
 	}
 }
 

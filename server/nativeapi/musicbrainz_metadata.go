@@ -497,14 +497,19 @@ type mbRecording struct {
 }
 
 type mbRelease struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	Country      string   `json:"country"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
+	ID           string     `json:"id"`
+	Title        string     `json:"title"`
+	Date         string     `json:"date"`
+	Status       string     `json:"status"`
+	Country      string     `json:"country"`
+	ReleaseGroup mbGroup    `json:"release-group"`
+	Media        []mbMedium `json:"media"`
+	Tags         []mbName   `json:"tags"`
+	Genres       []mbName   `json:"genres"`
+}
+
+type mbMedium struct {
+	Format string `json:"format"`
 }
 
 type mbScore string
@@ -575,65 +580,63 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, localDurati
 		return metadataResult{}, nil
 	}
 
-	bestCandidates := collectReleaseCandidates(payload.Recordings, artist, localDuration)
-	if len(bestCandidates) == 0 {
+	bestRecording := selectBestRecording(payload.Recordings, artist, localDuration)
+	if bestRecording == nil {
 		return metadataResult{}, nil
 	}
 
-	coverCache := make(map[string]bool, len(bestCandidates))
-	best := selectBestReleaseCandidate(bestCandidates, func(releaseID string) bool {
-		return j.releaseHasCover(releaseID, coverCache)
-	})
-	if best == nil {
-		return metadataResult{}, nil
+	details, err := j.fetchRecordingDetails(bestRecording.ID)
+	if err != nil {
+		return metadataResult{RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
 	}
 
-	album := strings.TrimSpace(best.release.Title)
-	year := yearFromDate(best.release.Date)
+	bestRelease := selectBestReleaseFromRecording(details.Releases, []string{"US", "USA"})
+	if bestRelease == nil {
+		return metadataResult{RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
+	}
+
+	album := strings.TrimSpace(bestRelease.Title)
+	year := yearFromDate(bestRelease.Date)
 	if year == 0 {
-		year = yearFromDate(best.recording.FirstReleaseDate)
+		year = yearFromDate(bestRecording.FirstReleaseDate)
 	}
-	genre := collectGenre(*best.recording, *best.release)
+	genre := collectGenre(*bestRecording, *bestRelease)
 	return metadataResult{
 		Album:         album,
 		Year:          year,
 		Genre:         genre,
-		RecordingMBID: strings.TrimSpace(best.recording.ID),
-		ReleaseMBID:   strings.TrimSpace(best.release.ID),
+		RecordingMBID: strings.TrimSpace(bestRecording.ID),
+		ReleaseMBID:   strings.TrimSpace(bestRelease.ID),
 	}, nil
 }
 
-func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[string]bool) bool {
-	releaseID = strings.TrimSpace(releaseID)
-	if releaseID == "" {
-		return false
-	}
-	if cached, ok := cache[releaseID]; ok {
-		return cached
+func (j *musicBrainzMetadataJob) fetchRecordingDetails(recordingID string) (mbRecording, error) {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return mbRecording{}, nil
 	}
 
-	u := "https://coverartarchive.org/release/" + url.PathEscape(releaseID)
-	req, err := http.NewRequest(http.MethodHead, u, nil)
+	u := "https://musicbrainz.org/ws/2/recording/" + url.PathEscape(recordingID) + "?inc=releases+release-groups&fmt=json"
+	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
-		cache[releaseID] = false
-		return false
+		return mbRecording{}, err
 	}
 	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
 	resp, err := j.client.Do(req)
 	if err != nil {
-		cache[releaseID] = false
-		return false
+		return mbRecording{}, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return mbRecording{}, fmt.Errorf("musicbrainz status %d", resp.StatusCode)
+	}
 
-	hasCover := resp.StatusCode == http.StatusOK
-	cache[releaseID] = hasCover
-	return hasCover
+	var details mbRecording
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		return mbRecording{}, err
+	}
+	return details, nil
 }
 
 func selectBestRecording(recordings []mbRecording, artist string, localDuration float32) *mbRecording {
@@ -743,90 +746,102 @@ func artistCreditMatches(credits []struct {
 	return false
 }
 
-type releaseCandidate struct {
-	recording *mbRecording
-	release   *mbRelease
-}
-
-func collectReleaseCandidates(recordings []mbRecording, artist string, localDuration float32) []releaseCandidate {
-	bestRecording := selectBestRecording(recordings, artist, localDuration)
-	if bestRecording == nil {
-		return nil
-	}
-
-	matches := make([]releaseCandidate, 0, len(bestRecording.Releases))
-	fallback := make([]releaseCandidate, 0, len(bestRecording.Releases))
-	for i := range bestRecording.Releases {
-		release := &bestRecording.Releases[i]
+func selectBestReleaseFromRecording(releases []mbRelease, preferredCountries []string) *mbRelease {
+	filtered := make([]*mbRelease, 0, len(releases))
+	for i := range releases {
+		release := &releases[i]
 		if !isValidRelease(*release) {
 			continue
 		}
 		if !strings.EqualFold(strings.TrimSpace(release.Status), "Official") {
 			continue
 		}
-
-		candidate := releaseCandidate{recording: bestRecording, release: release}
-		fallback = append(fallback, candidate)
-		if isAlbumRelease(*release) && !hasDiscouragedSecondaryType(*release) {
-			matches = append(matches, candidate)
+		if hasExcludedSecondaryType(*release) {
+			continue
 		}
+		if hasExcludedMediaFormat(*release) {
+			continue
+		}
+		filtered = append(filtered, release)
 	}
-
-	if len(matches) > 0 {
-		return matches
-	}
-	return fallback
-}
-
-func selectBestReleaseCandidate(candidates []releaseCandidate, hasCover func(releaseID string) bool) *releaseCandidate {
-	type relCandidate struct {
-		candidate *releaseCandidate
-		hasCover  bool
-		usCountry bool
-		year      int
-	}
-
-	sortedCandidates := make([]relCandidate, 0, len(candidates))
-	for i := range candidates {
-		candidate := &candidates[i]
-		releaseID := strings.TrimSpace(candidate.release.ID)
-		sortedCandidates = append(sortedCandidates, relCandidate{
-			candidate: candidate,
-			hasCover:  hasCover(releaseID),
-			usCountry: strings.EqualFold(strings.TrimSpace(candidate.release.Country), "US"),
-			year:      yearFromDate(candidate.release.Date),
-		})
-	}
-	if len(sortedCandidates) == 0 {
+	if len(filtered) == 0 {
 		return nil
 	}
 
-	slices.SortFunc(sortedCandidates, func(a, b relCandidate) int {
-		if a.hasCover && !b.hasCover {
-			return -1
+	slices.SortFunc(filtered, func(a, b *mbRelease) int {
+		aRank := releasePrimaryTypeRank(a.ReleaseGroup.PrimaryType)
+		bRank := releasePrimaryTypeRank(b.ReleaseGroup.PrimaryType)
+		if aRank != bRank {
+			return aRank - bRank
 		}
-		if !a.hasCover && b.hasCover {
+
+		aYear := yearFromDate(a.Date)
+		bYear := yearFromDate(b.Date)
+		if aYear == 0 && bYear > 0 {
 			return 1
 		}
-		if a.year == 0 && b.year > 0 {
-			return 1
-		}
-		if b.year == 0 && a.year > 0 {
+		if bYear == 0 && aYear > 0 {
 			return -1
 		}
-		if a.year != b.year {
-			return a.year - b.year
+		if aYear != bYear {
+			return aYear - bYear
 		}
-		if a.usCountry && !b.usCountry {
+
+		aCountry := countryPreferred(a.Country, preferredCountries)
+		bCountry := countryPreferred(b.Country, preferredCountries)
+		if aCountry && !bCountry {
 			return -1
 		}
-		if !a.usCountry && b.usCountry {
+		if !aCountry && bCountry {
 			return 1
 		}
 		return 0
 	})
 
-	return sortedCandidates[0].candidate
+	return filtered[0]
+}
+
+func releasePrimaryTypeRank(primaryType string) int {
+	switch normalizeMBString(primaryType) {
+	case "single":
+		return 0
+	case "album":
+		return 1
+	case "ep":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func countryPreferred(country string, preferredCountries []string) bool {
+	country = normalizeMBString(country)
+	for _, c := range preferredCountries {
+		if country == normalizeMBString(c) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasExcludedSecondaryType(release mbRelease) bool {
+	for _, t := range release.ReleaseGroup.SecondaryType {
+		n := normalizeMBString(t)
+		if n == "compilation" || n == "remix" || n == "soundtrack" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasExcludedMediaFormat(release mbRelease) bool {
+	for _, media := range release.Media {
+		format := normalizeMBString(media.Format)
+		if strings.Contains(format, "dvd") || strings.Contains(format, "video") {
+			return true
+		}
+	}
+	return false
 }
 
 func isValidRelease(release mbRelease) bool {
@@ -840,16 +855,6 @@ func isValidRelease(release mbRelease) bool {
 		}
 	}
 	return true
-}
-
-func hasDiscouragedSecondaryType(release mbRelease) bool {
-	for _, t := range release.ReleaseGroup.SecondaryType {
-		n := normalizeMBString(t)
-		if n == "compilation" || n == "live" {
-			return true
-		}
-	}
-	return false
 }
 
 func isExcludedRecording(rec mbRecording) bool {
