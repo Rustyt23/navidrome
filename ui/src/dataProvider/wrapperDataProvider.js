@@ -94,6 +94,9 @@ const mapResource = (resource, params) => {
       params = applyLibraryFilter(resource, params)
 
       if (resource === 'covertart') {
+        if (typeof params.filter.hascoverart === 'boolean') {
+          params.filter.hascoverart = !params.filter.hascoverart
+        }
         return ['song', params]
       }
 
