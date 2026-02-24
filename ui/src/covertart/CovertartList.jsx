@@ -4,6 +4,7 @@ import {
   Filter,
   FunctionField,
   List,
+  NullableBooleanInput,
   SearchInput,
   TextField,
 } from 'react-admin'
@@ -20,6 +21,7 @@ const useStyles = makeStyles({
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
     <SearchInput source="title" alwaysOn />
+    <NullableBooleanInput source="hascoverart" />
   </Filter>
 )
 
@@ -30,7 +32,7 @@ const CovertartList = (props) => {
     <List
       {...props}
       sort={{ field: 'title', order: 'ASC' }}
-      filter={{ hascoverart: false }}
+      filterDefaultValues={{ hascoverart: false }}
       filters={<CovertartFilter />}
       exporter={false}
       bulkActionButtons={false}
