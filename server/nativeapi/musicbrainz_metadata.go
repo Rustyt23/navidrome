@@ -233,6 +233,11 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
 			coverArt:      !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == "",
 		}
+		if !flags.coverArt {
+			// Ignore tracks that already have cover art. Metadata enrichment should only
+			// run for tracks still missing cover art.
+			continue
+		}
 		j.incrementExisting(flags)
 		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID && !flags.coverArt {
 			continue
