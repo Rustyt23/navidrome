@@ -88,6 +88,11 @@ const mapResource = (resource, params) => {
     case 'artist':
     case 'tag': {
       params.filter = params.filter || {}
+
+      if (resource === 'covertart') {
+        params.filter.hascoverart = false
+      }
+
       if (!isAdmin()) {
         params.filter.missing = false
       }
