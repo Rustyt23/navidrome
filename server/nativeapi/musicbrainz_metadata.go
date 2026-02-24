@@ -66,6 +66,54 @@ func (j *musicBrainzMetadataJob) getStatus() musicBrainzMetadataStatus {
 	return j.status
 }
 
+func (j *musicBrainzMetadataJob) refreshStatusSnapshot(ctx context.Context, ds model.DataStore) musicBrainzMetadataStatus {
+	current := j.getStatus()
+	if current.Running {
+		return current
+	}
+
+	snapshot, err := j.buildStatusSnapshot(ctx, ds)
+	if err != nil {
+		log.Warn(ctx, "Could not refresh MusicBrainz metadata status snapshot", "err", err)
+		return current
+	}
+
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.status.Running {
+		return j.status
+	}
+
+	// Keep lifecycle fields from the latest run while refreshing the baseline counters.
+	snapshot.StartedAt = j.status.StartedAt
+	snapshot.FinishedAt = j.status.FinishedAt
+	snapshot.LastError = j.status.LastError
+	j.status = snapshot
+	return j.status
+}
+
+func (j *musicBrainzMetadataJob) buildStatusSnapshot(ctx context.Context, ds model.DataStore) (musicBrainzMetadataStatus, error) {
+	cursor, err := ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		return musicBrainzMetadataStatus{}, err
+	}
+
+	status := musicBrainzMetadataStatus{}
+	for mf, e := range cursor {
+		if e != nil {
+			return musicBrainzMetadataStatus{}, e
+		}
+		if strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
+			continue
+		}
+
+		flags := metadataMissingFlags(mf)
+		accumulateStatusProgress(&status, flags)
+	}
+
+	return status, nil
+}
+
 func (j *musicBrainzMetadataJob) start(ds model.DataStore) bool {
 	j.mu.Lock()
 	if j.status.Running {
@@ -87,6 +135,61 @@ type missingFlags struct {
 	recordingMBID bool
 	releaseMBID   bool
 	coverArt      bool
+}
+
+func metadataMissingFlags(mf model.MediaFile) missingFlags {
+	return missingFlags{
+		album:         isMissingAlbum(mf.Album),
+		year:          mf.Year == 0,
+		genre:         strings.TrimSpace(mf.Genre) == "",
+		recordingMBID: strings.TrimSpace(mf.MbzRecordingID) == "",
+		releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
+		coverArt:      !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == "",
+	}
+}
+
+func accumulateStatusProgress(status *musicBrainzMetadataStatus, flags missingFlags) {
+	if flags.album {
+		status.Album.Missing++
+		status.Album.Left++
+	} else {
+		status.Album.Existing++
+	}
+
+	if flags.year {
+		status.Year.Missing++
+		status.Year.Left++
+	} else {
+		status.Year.Existing++
+	}
+
+	if flags.genre {
+		status.Genre.Missing++
+		status.Genre.Left++
+	} else {
+		status.Genre.Existing++
+	}
+
+	if flags.recordingMBID {
+		status.RecordingMBID.Missing++
+		status.RecordingMBID.Left++
+	} else {
+		status.RecordingMBID.Existing++
+	}
+
+	if flags.releaseMBID {
+		status.ReleaseMBID.Missing++
+		status.ReleaseMBID.Left++
+	} else {
+		status.ReleaseMBID.Existing++
+	}
+
+	if flags.coverArt {
+		status.CoverArt.Missing++
+		status.CoverArt.Left++
+	} else {
+		status.CoverArt.Existing++
+	}
 }
 
 type mbMetadataCandidate struct {
@@ -225,14 +328,7 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 			continue
 		}
 
-		flags := missingFlags{
-			album:         isMissingAlbum(mf.Album),
-			year:          mf.Year == 0,
-			genre:         strings.TrimSpace(mf.Genre) == "",
-			recordingMBID: strings.TrimSpace(mf.MbzRecordingID) == "",
-			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
-			coverArt:      !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == "",
-		}
+		flags := metadataMissingFlags(mf)
 		j.incrementExisting(flags)
 		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID && !flags.coverArt {
 			continue
@@ -896,8 +992,9 @@ func yearFromDate(date string) int {
 
 func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 	r.Route("/metadata/musicbrainz", func(r chi.Router) {
-		r.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
-			_ = json.NewEncoder(w).Encode(n.metadataJob.getStatus())
+		r.Get("/status", func(w http.ResponseWriter, req *http.Request) {
+			status := n.metadataJob.refreshStatusSnapshot(req.Context(), n.ds)
+			_ = json.NewEncoder(w).Encode(status)
 		})
 		r.Post("/fetch", func(w http.ResponseWriter, _ *http.Request) {
 			if n.metadataJob.start(n.ds) {
