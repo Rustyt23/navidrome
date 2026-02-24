@@ -6,6 +6,7 @@ import {
   NumberField,
   ReferenceArrayInput,
   SearchInput,
+  SelectInput,
   TextField,
   useTranslate,
   NullableBooleanInput,
@@ -70,9 +71,43 @@ const SongFilter = (props) => {
   const translate = useTranslate()
   const { permissions } = usePermissions()
   const isAdmin = permissions === 'admin'
+  const coverArtFilterChoices = [
+    {
+      id: '',
+      name: translate('resources.song.filters.coverArt.noFilter'),
+    },
+    {
+      id: 'true',
+      name: translate('resources.song.filters.coverArt.existing'),
+    },
+    {
+      id: 'false',
+      name: translate('resources.song.filters.coverArt.missing'),
+    },
+  ]
+
+  const parseCoverArtFilter = (value) => {
+    if (value === 'true') return true
+    if (value === 'false') return false
+    return undefined
+  }
+
+  const formatCoverArtFilter = (value) => {
+    if (value === true) return 'true'
+    if (value === false) return 'false'
+    return ''
+  }
+
   return (
     <Filter {...props} variant={'outlined'}>
       <SearchInput source="title" alwaysOn />
+      <SelectInput
+        source="hascoverart"
+        label={translate('resources.song.fields.coverArt')}
+        choices={coverArtFilterChoices}
+        parse={parseCoverArtFilter}
+        format={formatCoverArtFilter}
+      />
       <ReferenceArrayInput
         label={translate('resources.song.fields.genre')}
         source="genre_id"

@@ -36,7 +36,15 @@
         "tags": "Additional Tags",
         "mappedTags": "Mapped tags",
         "rawTags": "Raw tags",
-        "missing": "Missing"
+        "missing": "Missing",
+        "coverArt": "Cover Art"
+      },
+      "filters": {
+        "coverArt": {
+          "noFilter": "No Filter",
+          "existing": "Existing Cover Art",
+          "missing": "Missing Cover Art"
+        }
       },
       "actions": {
         "addToQueue": "Play Later",
