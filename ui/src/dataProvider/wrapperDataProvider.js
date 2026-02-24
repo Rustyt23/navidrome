@@ -93,7 +93,7 @@ const mapResource = (resource, params) => {
       }
 
       if (resource === 'covertart') {
-        params.filter.has_cover_art = false
+        params.filter.hasCoverArt = false
       }
 
       params = applyLibraryFilter(resource, params)
