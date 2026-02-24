@@ -84,6 +84,7 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 		"artist":         "order_artist_name, order_album_name, release_date, disc_number, track_number",
 		"album_artist":   "order_album_artist_name, order_album_name, release_date, disc_number, track_number",
 		"album":          "order_album_name, album_id, disc_number, track_number, order_artist_name, title",
+		"fetched":        "(media_file.has_cover_art or media_file.cover_path <> '')",
 		"random":         "random",
 		"created_at":     "media_file.created_at",
 		"recently_added": mediaFileRecentlyAddedSort(),
@@ -102,9 +103,15 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		"genre_id":    tagIDFilter,
 		"missing":     booleanFilter,
 		"hascoverart": func(_ string, value any) Sqlizer { return booleanFilter("media_file.has_cover_art", value) },
-		"artists_id":  artistFilter,
-		"path":        containsFilter("media_file.path"),
-		"library_id":  libraryIdFilter,
+		"fetched": func(_ string, value any) Sqlizer {
+			if isTrue(value) {
+				return Or{Eq{"media_file.has_cover_art": true}, NotEq{"media_file.cover_path": ""}}
+			}
+			return And{Eq{"media_file.has_cover_art": false}, Eq{"media_file.cover_path": ""}}
+		},
+		"artists_id": artistFilter,
+		"path":       containsFilter("media_file.path"),
+		"library_id": libraryIdFilter,
 	}
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {

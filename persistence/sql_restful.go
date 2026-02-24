@@ -97,15 +97,19 @@ func containsFilter(field string) func(string, any) Sqlizer {
 }
 
 func booleanFilter(field string, value any) Sqlizer {
+	return Eq{field: isTrue(value)}
+}
+
+func isTrue(value any) bool {
 	switch v := value.(type) {
 	case bool:
-		return Eq{field: v}
+		return v
 	case string:
 		v = strings.ToLower(v)
-		return Eq{field: v == "true"}
+		return v == "true"
 	default:
 		vStr := strings.ToLower(fmt.Sprintf("%v", v))
-		return Eq{field: vStr == "true"}
+		return vStr == "true"
 	}
 }
 
