@@ -101,6 +101,7 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		"starred":          booleanFilter,
 		"genre_id":         tagIDFilter,
 		"missing":          booleanFilter,
+		"coverartmissing":  coverArtMissingFilter,
 		"coverpathmissing": coverPathMissingFilter,
 		"artists_id":       artistFilter,
 		"path":             containsFilter("media_file.path"),
@@ -122,12 +123,20 @@ func mediaFileRecentlyAddedSort() string {
 	return "media_file.created_at"
 }
 
+func coverArtMissingFilter(_ string, value any) Sqlizer {
+	v := strings.ToLower(value.(string)) == "true"
+	if v {
+		return Expr("media_file.has_cover_art = 0 and trim(ifnull(media_file.cover_path, '')) = ''")
+	}
+	return Expr("media_file.has_cover_art != 0 or trim(ifnull(media_file.cover_path, '')) <> ''")
+}
+
 func coverPathMissingFilter(_ string, value any) Sqlizer {
 	v := strings.ToLower(value.(string)) == "true"
 	if v {
-		return Expr("trim(ifnull(media_file.cover_path, '')) <> ''")
+		return Expr("trim(ifnull(media_file.cover_path, '')) = ''")
 	}
-	return Expr("trim(ifnull(media_file.cover_path, '')) = ''")
+	return Expr("trim(ifnull(media_file.cover_path, '')) <> ''")
 }
 
 func (r *mediaFileRepository) CountAll(options ...model.QueryOptions) (int64, error) {

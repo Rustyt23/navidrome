@@ -83,15 +83,6 @@ const CovertartList = (props) => {
             )
           }}
         />
-        <FunctionField
-          label="Release MBID"
-          sortable={false}
-          render={(record) => (
-            <span className={classes.mbidText}>
-              {record?.mbzReleaseId || ''}
-            </span>
-          )}
-        />
         <DurationField source="duration" />
       </Datagrid>
     </List>
