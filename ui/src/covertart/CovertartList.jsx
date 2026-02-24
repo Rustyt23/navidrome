@@ -9,45 +9,45 @@ import {
   List,
   SearchInput,
   TextField,
+  TopToolbar,
   useListContext,
   useTranslate,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import { DurationField, Pagination } from '../common'
+import subsonic from '../subsonic'
 
 const useStyles = makeStyles({
   mbidText: {
     fontFamily: 'monospace',
     fontSize: '0.75rem',
   },
-  fetchedToggle: {
-    alignSelf: 'center',
-    marginLeft: 8,
-    marginTop: 8,
-  },
 })
 
-const FetchedToggleFilter = () => {
-  const classes = useStyles()
+const FetchedToggleButton = () => {
   const translate = useTranslate()
   const { filterValues, displayedFilters, setFilters } = useListContext()
-  const fetched = Boolean(filterValues?.fetched)
+  const fetchedFilterOn = filterValues?.fetched === true || filterValues?.fetched === 'true'
 
-  const toggleFetched = () => {
-    setFilters({ ...filterValues, fetched: !fetched }, displayedFilters)
+  const toggleFetchedFilter = () => {
+    if (fetchedFilterOn) {
+      const { fetched, ...rest } = filterValues || {}
+      setFilters(rest, displayedFilters)
+      return
+    }
+    setFilters({ ...(filterValues || {}), fetched: true }, displayedFilters)
   }
 
   return (
     <Tooltip
       title={`${translate('resources.covertart.fields.fetched')}: ${
-        fetched ? 'Yes' : 'No'
+        fetchedFilterOn ? 'On' : 'Off'
       }`}
     >
       <IconButton
-        className={classes.fetchedToggle}
-        color={fetched ? 'primary' : 'default'}
+        color={fetchedFilterOn ? 'primary' : 'default'}
         aria-label={translate('resources.covertart.fields.fetched')}
-        onClick={toggleFetched}
+        onClick={toggleFetchedFilter}
       >
         <ImageOutlinedIcon />
       </IconButton>
@@ -55,10 +55,15 @@ const FetchedToggleFilter = () => {
   )
 }
 
+const CovertartListActions = (props) => (
+  <TopToolbar {...props}>
+    <FetchedToggleButton />
+  </TopToolbar>
+)
+
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
     <SearchInput source="title" alwaysOn />
-    <FetchedToggleFilter />
   </Filter>
 )
 
@@ -69,7 +74,7 @@ const CovertartList = (props) => {
     <List
       {...props}
       sort={{ field: 'title', order: 'ASC' }}
-      filterDefaultValues={{ fetched: false }}
+      actions={<CovertartListActions />}
       filters={<CovertartFilter />}
       exporter={false}
       bulkActionButtons={false}
@@ -81,9 +86,7 @@ const CovertartList = (props) => {
           label="Cover Art"
           sortable={false}
           render={(record) => {
-            const coverSrc = record?.mbzReleaseId
-              ? `/api/cover/${record.mbzReleaseId}`
-              : '/default-cover.png'
+            const coverSrc = subsonic.getCoverArtUrl(record, 50, true) || '/default-cover.png'
 
             return (
               <img
