@@ -555,32 +555,23 @@ func valueOrNil(v string) *string {
 }
 
 func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, localDuration float32) (metadataResult, error) {
-	query := fmt.Sprintf("recording:\"%s\" AND artist:\"%s\"", title, artist)
-	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&limit=100&inc=releases+release-groups"
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return metadataResult{}, err
-	}
-	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
-
-	resp, err := j.client.Do(req)
-	if err != nil {
-		return metadataResult{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return metadataResult{}, fmt.Errorf("musicbrainz status %d", resp.StatusCode)
+	queries := []string{
+		fmt.Sprintf("recording:\"%s\" AND artist:\"%s\"", title, artist),
+		fmt.Sprintf("recording:%s AND artist:%s", title, artist),
+		fmt.Sprintf("recording:\"%s\"", title),
 	}
 
-	var payload mbSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return metadataResult{}, err
+	var bestRecording *mbRecording
+	for _, query := range queries {
+		recordings, err := j.searchRecordings(query)
+		if err != nil {
+			continue
+		}
+		bestRecording = selectBestRecording(recordings, artist, localDuration)
+		if bestRecording != nil {
+			break
+		}
 	}
-	if len(payload.Recordings) == 0 {
-		return metadataResult{}, nil
-	}
-
-	bestRecording := selectBestRecording(payload.Recordings, artist, localDuration)
 	if bestRecording == nil {
 		return metadataResult{}, nil
 	}
@@ -608,6 +599,30 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, localDurati
 		RecordingMBID: strings.TrimSpace(bestRecording.ID),
 		ReleaseMBID:   strings.TrimSpace(bestRelease.ID),
 	}, nil
+}
+
+func (j *musicBrainzMetadataJob) searchRecordings(query string) ([]mbRecording, error) {
+	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&limit=100&inc=releases+release-groups"
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("musicbrainz status %d", resp.StatusCode)
+	}
+
+	var payload mbSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Recordings, nil
 }
 
 func (j *musicBrainzMetadataJob) fetchRecordingDetails(recordingID string) (mbRecording, error) {
@@ -656,10 +671,10 @@ func selectBestRecording(recordings []mbRecording, artist string, localDuration 
 	for i := range recordings {
 		rec := &recordings[i]
 		score := rec.Score.Int()
-		if score != 100 {
+		if score < 60 {
 			continue
 		}
-		if !artistCreditMatches(rec.ArtistCredit, normalizedArtist) {
+		if !artistCreditMatches(rec.ArtistCredit, normalizedArtist) && !artistCreditLooselyMatches(rec.ArtistCredit, normalizedArtist) {
 			continue
 		}
 		if isExcludedRecording(*rec) {
@@ -738,6 +753,33 @@ func artistCreditMatches(credits []struct {
 	for _, credit := range credits {
 		if normalizeMBString(credit.Name) == normalizedArtist {
 			return true
+		}
+	}
+	return false
+}
+
+func artistCreditLooselyMatches(credits []struct {
+	Name string `json:"name"`
+}, normalizedArtist string) bool {
+	if normalizedArtist == "" {
+		return false
+	}
+	artistTokens := strings.Fields(normalizedArtist)
+	if len(artistTokens) == 0 {
+		return false
+	}
+	for _, credit := range credits {
+		n := normalizeMBString(credit.Name)
+		if n == "" {
+			continue
+		}
+		if strings.Contains(n, normalizedArtist) || strings.Contains(normalizedArtist, n) {
+			return true
+		}
+		for _, tok := range artistTokens {
+			if tok != "" && strings.Contains(n, tok) {
+				return true
+			}
 		}
 	}
 	return false

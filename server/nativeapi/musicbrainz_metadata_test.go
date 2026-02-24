@@ -124,15 +124,25 @@ func TestSelectBestRecordingPrefersClosestDurationWhenProvided(t *testing.T) {
 	}
 }
 
-func TestSelectBestRecordingRequiresPerfectScore(t *testing.T) {
+func TestSelectBestRecordingRejectsVeryLowScore(t *testing.T) {
 	recordings := []mbRecording{
-		{ID: "almost", Score: "99", ArtistCredit: []struct {
+		{ID: "low", Score: "50", ArtistCredit: []struct {
 			Name string `json:"name"`
 		}{{Name: "The Artist"}}, Releases: []mbRelease{{Title: "Album", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}}},
 	}
 
 	rec := selectBestRecording(recordings, "the artist", 0)
 	if rec != nil {
-		t.Fatalf("expected no recording for non-100 score, got %q", rec.ID)
+		t.Fatalf("expected no recording for very low score, got %q", rec.ID)
+	}
+}
+
+func TestArtistCreditLooselyMatches(t *testing.T) {
+	credits := []struct {
+		Name string `json:"name"`
+	}{{Name: "Edward Sharpe & the Magnetic Zeros"}}
+
+	if !artistCreditLooselyMatches(credits, normalizeMBString("Edward Sharpe and the Magnetic Zeros")) {
+		t.Fatal("expected loose artist matching to succeed")
 	}
 }
