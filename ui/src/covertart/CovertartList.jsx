@@ -11,6 +11,55 @@ import { makeStyles } from '@material-ui/core/styles'
 import { DurationField, Pagination } from '../common'
 import subsonic from '../subsonic'
 
+const fallbackCoverSrc = '/default-cover.png'
+
+const CoverArtThumbnail = ({ record }) => {
+  const hasSongCoverArt = Boolean(
+    record?.hasCoverArt ||
+      record?.artworkId ||
+      record?.artworkUrl ||
+      record?.cover_art_url,
+  )
+  const mbzCoverSrc = record?.mbzReleaseId
+    ? `/api/cover/${record.mbzReleaseId}`
+    : fallbackCoverSrc
+  const primaryCoverSrc = hasSongCoverArt
+    ? subsonic.getCoverArtUrl(record, 50, true)
+    : mbzCoverSrc
+  const fallbackSources = [mbzCoverSrc, fallbackCoverSrc].filter(
+    (src, index, arr) => src && arr.indexOf(src) === index,
+  )
+
+  const [src, setSrc] = React.useState(primaryCoverSrc)
+  const [fallbackIndex, setFallbackIndex] = React.useState(0)
+
+  React.useEffect(() => {
+    setSrc(primaryCoverSrc)
+    setFallbackIndex(0)
+  }, [primaryCoverSrc])
+
+  const onError = React.useCallback(() => {
+    const nextFallbackSrc = fallbackSources[fallbackIndex]
+    if (!nextFallbackSrc || nextFallbackSrc === src) {
+      return
+    }
+
+    setSrc(nextFallbackSrc)
+    setFallbackIndex((index) => index + 1)
+  }, [fallbackIndex, fallbackSources, src])
+
+  return (
+    <img
+      src={src}
+      alt={record?.title || 'cover art'}
+      width="50"
+      height="50"
+      loading="lazy"
+      onError={onError}
+    />
+  )
+}
+
 const useStyles = makeStyles({
   mbidText: {
     fontFamily: 'monospace',
@@ -41,40 +90,7 @@ const CovertartList = (props) => {
         <FunctionField
           label="Cover Art"
           sortable={false}
-          render={(record) => {
-            const hasSongCoverArt = Boolean(
-              record?.hasCoverArt ||
-                record?.artworkId ||
-                record?.artworkUrl ||
-                record?.cover_art_url,
-            )
-            const mbzCoverSrc = record?.mbzReleaseId
-              ? `/api/cover/${record.mbzReleaseId}`
-              : '/default-cover.png'
-            const coverSrc = hasSongCoverArt
-              ? subsonic.getCoverArtUrl(record, 50, true)
-              : mbzCoverSrc
-
-            return (
-              <img
-                src={coverSrc}
-                alt={record.title || 'cover art'}
-                width="50"
-                height="50"
-                loading="lazy"
-                onError={(event) => {
-                  const image = event.currentTarget
-                  if (image.dataset.mbzFallbackApplied !== 'true') {
-                    image.dataset.mbzFallbackApplied = 'true'
-                    image.src = mbzCoverSrc
-                    return
-                  }
-                  image.onerror = null
-                  image.src = '/default-cover.png'
-                }}
-              />
-            )
-          }}
+          render={(record) => <CoverArtThumbnail record={record} />}
         />
         <TextField source="title" />
         <TextField source="artist" label="Artist" />
