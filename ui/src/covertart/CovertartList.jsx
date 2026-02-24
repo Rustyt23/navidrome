@@ -75,6 +75,7 @@ const CovertartList = (props) => {
     <List
       {...props}
       sort={{ field: 'title', order: 'ASC' }}
+      filter={{ hascoverart: false }}
       actions={<CovertartListActions />}
       filters={<CovertartFilter />}
       exporter={false}
