@@ -1,12 +1,16 @@
 import React from 'react'
+import IconButton from '@material-ui/core/IconButton'
+import Tooltip from '@material-ui/core/Tooltip'
+import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
 import {
   Datagrid,
   Filter,
   FunctionField,
   List,
-  NullableBooleanInput,
   SearchInput,
   TextField,
+  useListContext,
+  useTranslate,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import { DurationField, Pagination } from '../common'
@@ -16,12 +20,45 @@ const useStyles = makeStyles({
     fontFamily: 'monospace',
     fontSize: '0.75rem',
   },
+  fetchedToggle: {
+    alignSelf: 'center',
+    marginLeft: 8,
+    marginTop: 8,
+  },
 })
+
+const FetchedToggleFilter = () => {
+  const classes = useStyles()
+  const translate = useTranslate()
+  const { filterValues, displayedFilters, setFilters } = useListContext()
+  const fetched = Boolean(filterValues?.fetched)
+
+  const toggleFetched = () => {
+    setFilters({ ...filterValues, fetched: !fetched }, displayedFilters)
+  }
+
+  return (
+    <Tooltip
+      title={`${translate('resources.covertart.fields.fetched')}: ${
+        fetched ? 'Yes' : 'No'
+      }`}
+    >
+      <IconButton
+        className={classes.fetchedToggle}
+        color={fetched ? 'primary' : 'default'}
+        aria-label={translate('resources.covertart.fields.fetched')}
+        onClick={toggleFetched}
+      >
+        <ImageOutlinedIcon />
+      </IconButton>
+    </Tooltip>
+  )
+}
 
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
     <SearchInput source="title" alwaysOn />
-    <NullableBooleanInput source="fetched" />
+    <FetchedToggleFilter />
   </Filter>
 )
 
