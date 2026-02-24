@@ -91,6 +91,11 @@ const mapResource = (resource, params) => {
       if (!isAdmin()) {
         params.filter.missing = false
       }
+
+      if (resource === 'covertart') {
+        params.filter.has_cover_art = false
+      }
+
       params = applyLibraryFilter(resource, params)
 
       if (resource === 'covertart') {
