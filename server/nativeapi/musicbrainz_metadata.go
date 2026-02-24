@@ -482,6 +482,7 @@ type mbSearchResponse struct {
 
 type mbRecording struct {
 	ID               string  `json:"id"`
+	Title            string  `json:"title"`
 	Score            mbScore `json:"score"`
 	Length           int     `json:"length"`
 	Video            bool    `json:"video"`
