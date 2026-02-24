@@ -65,11 +65,24 @@ const CovertartList = (props) => {
         <FunctionField
           label="Recording MBID"
           sortable={false}
-          render={(record) => (
-            <span className={classes.mbidText}>
-              {record?.mbzRecordingID || ''}
-            </span>
-          )}
+          render={(record) => {
+            const recordingId = record?.mbzRecordingID
+
+            if (!recordingId) {
+              return <span className={classes.mbidText}></span>
+            }
+
+            return (
+              <a
+                href={`https://musicbrainz.org/recording/${recordingId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={classes.mbidText}
+              >
+                {recordingId}
+              </a>
+            )
+          }}
         />
         <FunctionField
           label="Release MBID"
