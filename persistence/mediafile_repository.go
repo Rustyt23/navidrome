@@ -96,14 +96,15 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 
 var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 	filters := map[string]filterFunc{
-		"id":         idFilter("media_file"),
-		"title":      fullTextFilter("media_file", "mbz_recording_id", "mbz_release_track_id"),
-		"starred":    booleanFilter,
-		"genre_id":   tagIDFilter,
-		"missing":    booleanFilter,
-		"artists_id": artistFilter,
-		"path":       containsFilter("media_file.path"),
-		"library_id": libraryIdFilter,
+		"id":          idFilter("media_file"),
+		"title":       fullTextFilter("media_file", "mbz_recording_id", "mbz_release_track_id"),
+		"starred":     booleanFilter,
+		"genre_id":    tagIDFilter,
+		"missing":     booleanFilter,
+		"hascoverart": coverArtFilter,
+		"artists_id":  artistFilter,
+		"path":        containsFilter("media_file.path"),
+		"library_id":  libraryIdFilter,
 	}
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {
@@ -113,6 +114,21 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 	}
 	return filters
 })
+
+func coverArtFilter(_ string, value any) Sqlizer {
+	switch v := value.(type) {
+	case string:
+		return booleanFilter("media_file.has_cover_art", v)
+	case bool:
+		if v {
+			return Eq{"media_file.has_cover_art": true}
+		}
+		return Eq{"media_file.has_cover_art": false}
+	default:
+		vStr := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", v)))
+		return Eq{"media_file.has_cover_art": vStr == "true"}
+	}
+}
 
 func mediaFileRecentlyAddedSort() string {
 	if conf.Server.RecentlyAddedByModTime {
