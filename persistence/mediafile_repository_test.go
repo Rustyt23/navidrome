@@ -76,6 +76,47 @@ var _ = Describe("MediaRepository", func() {
 		Expect(ids).ToNot(ContainElement(withCover.ID))
 	})
 
+	It("filters media files by fetched status in REST query options", func() {
+		withEmbeddedCover := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Path: "embedded-cover.mp3", HasCoverArt: true}
+		withFetchedCover := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Path: "fetched-cover.mp3", CoverPath: "covers/fetched-cover.jpg"}
+		withoutFetchedCover := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Path: "missing-cover.mp3", HasCoverArt: false, CoverPath: ""}
+		Expect(adminRepo.Put(&withEmbeddedCover)).To(Succeed())
+		Expect(adminRepo.Put(&withFetchedCover)).To(Succeed())
+		Expect(adminRepo.Put(&withoutFetchedCover)).To(Succeed())
+		DeferCleanup(func() {
+			_ = adminRepo.Delete(withEmbeddedCover.ID)
+			_ = adminRepo.Delete(withFetchedCover.ID)
+			_ = adminRepo.Delete(withoutFetchedCover.ID)
+		})
+
+		resourceRepo, ok := adminRepo.(model.ResourceRepository)
+		Expect(ok).To(BeTrue())
+
+		fetchedResult, err := resourceRepo.ReadAll(rest.QueryOptions{Filters: map[string]any{"fetched": "true"}})
+		Expect(err).ToNot(HaveOccurred())
+		fetchedFiles, ok := fetchedResult.(model.MediaFiles)
+		Expect(ok).To(BeTrue())
+		fetchedIDs := make([]string, 0, len(fetchedFiles))
+		for _, file := range fetchedFiles {
+			fetchedIDs = append(fetchedIDs, file.ID)
+		}
+		Expect(fetchedIDs).To(ContainElement(withEmbeddedCover.ID))
+		Expect(fetchedIDs).To(ContainElement(withFetchedCover.ID))
+		Expect(fetchedIDs).ToNot(ContainElement(withoutFetchedCover.ID))
+
+		notFetchedResult, err := resourceRepo.ReadAll(rest.QueryOptions{Filters: map[string]any{"fetched": "false"}})
+		Expect(err).ToNot(HaveOccurred())
+		notFetchedFiles, ok := notFetchedResult.(model.MediaFiles)
+		Expect(ok).To(BeTrue())
+		notFetchedIDs := make([]string, 0, len(notFetchedFiles))
+		for _, file := range notFetchedFiles {
+			notFetchedIDs = append(notFetchedIDs, file.ID)
+		}
+		Expect(notFetchedIDs).To(ContainElement(withoutFetchedCover.ID))
+		Expect(notFetchedIDs).ToNot(ContainElement(withEmbeddedCover.ID))
+		Expect(notFetchedIDs).ToNot(ContainElement(withFetchedCover.ID))
+	})
+
 	It("returns songs ordered by lyrics with a specific title/artist", func() {
 		// attempt to mimic filters.SongsByArtistTitleWithLyricsFirst, except we want all items
 		results, err := mr.GetAll(model.QueryOptions{

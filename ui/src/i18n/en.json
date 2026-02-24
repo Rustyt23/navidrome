@@ -110,7 +110,7 @@
     "covertart": {
       "name": "Cover Art |||| Cover Art",
       "fields": {
-        "hascoverart": "Fetched"
+        "fetched": "Fetched"
       }
     },
     "artist": {

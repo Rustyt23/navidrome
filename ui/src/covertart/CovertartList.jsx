@@ -21,7 +21,7 @@ const useStyles = makeStyles({
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
     <SearchInput source="title" alwaysOn />
-    <NullableBooleanInput source="hascoverart" />
+    <NullableBooleanInput source="fetched" />
   </Filter>
 )
 
@@ -32,7 +32,7 @@ const CovertartList = (props) => {
     <List
       {...props}
       sort={{ field: 'title', order: 'ASC' }}
-      filterDefaultValues={{ hascoverart: false }}
+      filterDefaultValues={{ fetched: false }}
       filters={<CovertartFilter />}
       exporter={false}
       bulkActionButtons={false}
@@ -64,6 +64,13 @@ const CovertartList = (props) => {
         <TextField source="album" label="Album" />
         <TextField source="year" label="Release Year" />
         <TextField source="genre" label="Genre" />
+        <FunctionField
+          label="Fetched"
+          sortBy="fetched"
+          render={(record) =>
+            record?.hasCoverArt || Boolean(record?.coverPath) ? 'Yes' : 'No'
+          }
+        />
         <FunctionField
           label="Recording MBID"
           sortable={false}
