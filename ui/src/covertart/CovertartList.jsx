@@ -9,6 +9,7 @@ import {
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import { DurationField, Pagination } from '../common'
+import subsonic from '../subsonic'
 
 const useStyles = makeStyles({
   mbidText: {
@@ -41,12 +42,18 @@ const CovertartList = (props) => {
           label="Cover Art"
           sortable={false}
           render={(record) => {
-            const coverSrc =
-              record?.artworkUrl ||
-              record?.cover_art_url ||
-              (record?.mbzReleaseId
-                ? `/api/cover/${record.mbzReleaseId}`
-                : '/default-cover.png')
+            const hasSongCoverArt = Boolean(
+              record?.hasCoverArt ||
+                record?.artworkId ||
+                record?.artworkUrl ||
+                record?.cover_art_url,
+            )
+            const mbzCoverSrc = record?.mbzReleaseId
+              ? `/api/cover/${record.mbzReleaseId}`
+              : '/default-cover.png'
+            const coverSrc = hasSongCoverArt
+              ? subsonic.getCoverArtUrl(record, 50, true)
+              : mbzCoverSrc
 
             return (
               <img
@@ -55,6 +62,16 @@ const CovertartList = (props) => {
                 width="50"
                 height="50"
                 loading="lazy"
+                onError={(event) => {
+                  const image = event.currentTarget
+                  if (image.dataset.mbzFallbackApplied !== 'true') {
+                    image.dataset.mbzFallbackApplied = 'true'
+                    image.src = mbzCoverSrc
+                    return
+                  }
+                  image.onerror = null
+                  image.src = '/default-cover.png'
+                }}
               />
             )
           }}
