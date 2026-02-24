@@ -30,6 +30,7 @@ const CovertartList = (props) => {
     <List
       {...props}
       sort={{ field: 'title', order: 'ASC' }}
+      filter={{ hascoverart: false }}
       filters={<CovertartFilter />}
       exporter={false}
       bulkActionButtons={false}
