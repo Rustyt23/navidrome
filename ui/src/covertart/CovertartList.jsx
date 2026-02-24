@@ -41,9 +41,12 @@ const CovertartList = (props) => {
           label="Cover Art"
           sortable={false}
           render={(record) => {
-            const coverSrc = record?.mbzReleaseId
-              ? `/api/cover/${record.mbzReleaseId}`
-              : '/default-cover.png'
+            const coverSrc =
+              record?.artworkUrl ||
+              record?.cover_art_url ||
+              (record?.mbzReleaseId
+                ? `/api/cover/${record.mbzReleaseId}`
+                : '/default-cover.png')
 
             return (
               <img
