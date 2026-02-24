@@ -53,7 +53,7 @@ func TestSelectBestReleaseFromRecording(t *testing.T) {
 		{ID: "single", Title: "Single", Status: "Official", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
 	}
 
-	best := selectBestReleaseFromRecording(releases)
+	best := selectBestReleaseFromRecording(releases, func(id string) bool { return id != "album" })
 	if best == nil {
 		t.Fatal("expected a release")
 	}
@@ -68,7 +68,7 @@ func TestSelectBestReleaseFromRecordingPrefersEarliestDate(t *testing.T) {
 		{ID: "earlier", Title: "Earlier", Status: "Official", Country: "GB", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
 	}
 
-	best := selectBestReleaseFromRecording(releases)
+	best := selectBestReleaseFromRecording(releases, func(string) bool { return true })
 	if best == nil {
 		t.Fatal("expected a release")
 	}
@@ -144,5 +144,20 @@ func TestArtistCreditLooselyMatches(t *testing.T) {
 
 	if !artistCreditLooselyMatches(credits, normalizeMBString("Edward Sharpe and the Magnetic Zeros")) {
 		t.Fatal("expected loose artist matching to succeed")
+	}
+}
+
+func TestSelectBestReleaseFromRecordingSkipsNoCover(t *testing.T) {
+	releases := []mbRelease{
+		{ID: "single-no-cover", Title: "Single", Status: "Official", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
+		{ID: "album-cover", Title: "Album", Status: "Official", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+	}
+
+	best := selectBestReleaseFromRecording(releases, func(id string) bool { return id == "album-cover" })
+	if best == nil {
+		t.Fatal("expected a release")
+	}
+	if best.ID != "album-cover" {
+		t.Fatalf("expected first release with cover, got %q", best.ID)
 	}
 }

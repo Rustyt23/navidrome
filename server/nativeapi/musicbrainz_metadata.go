@@ -581,7 +581,10 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, localDurati
 		return metadataResult{RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
 	}
 
-	bestRelease := selectBestReleaseFromRecording(details.Releases)
+	coverCache := make(map[string]bool)
+	bestRelease := selectBestReleaseFromRecording(details.Releases, func(releaseID string) bool {
+		return j.releaseHasCover(releaseID, coverCache)
+	})
 	if bestRelease == nil {
 		return metadataResult{RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
 	}
@@ -623,6 +626,36 @@ func (j *musicBrainzMetadataJob) searchRecordings(query string) ([]mbRecording, 
 		return nil, err
 	}
 	return payload.Recordings, nil
+}
+
+func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[string]bool) bool {
+	releaseID = strings.TrimSpace(releaseID)
+	if releaseID == "" {
+		return false
+	}
+	if v, ok := cache[releaseID]; ok {
+		return v
+	}
+
+	req, err := http.NewRequest(http.MethodHead, "https://coverartarchive.org/release/"+url.PathEscape(releaseID), nil)
+	if err != nil {
+		cache[releaseID] = false
+		return false
+	}
+	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	resp, err := j.client.Do(req.WithContext(ctx))
+	if err != nil {
+		cache[releaseID] = false
+		return false
+	}
+	defer resp.Body.Close()
+
+	hasCover := resp.StatusCode == http.StatusOK
+	cache[releaseID] = hasCover
+	return hasCover
 }
 
 func (j *musicBrainzMetadataJob) fetchRecordingDetails(recordingID string) (mbRecording, error) {
@@ -785,7 +818,25 @@ func artistCreditLooselyMatches(credits []struct {
 	return false
 }
 
-func selectBestReleaseFromRecording(releases []mbRelease) *mbRelease {
+func selectBestReleaseFromRecording(releases []mbRelease, hasCover func(releaseID string) bool) *mbRelease {
+	ordered := rankReleases(releases, false)
+	for _, release := range ordered {
+		if hasCover == nil || hasCover(release.ID) {
+			return release
+		}
+	}
+
+	fallbackOrdered := rankReleases(releases, true)
+	for _, release := range fallbackOrdered {
+		if hasCover == nil || hasCover(release.ID) {
+			return release
+		}
+	}
+
+	return nil
+}
+
+func rankReleases(releases []mbRelease, includeExcluded bool) []*mbRelease {
 	filtered := make([]*mbRelease, 0, len(releases))
 	for i := range releases {
 		release := &releases[i]
@@ -795,11 +846,13 @@ func selectBestReleaseFromRecording(releases []mbRelease) *mbRelease {
 		if !strings.EqualFold(strings.TrimSpace(release.Status), "Official") {
 			continue
 		}
-		if hasExcludedSecondaryType(*release) {
-			continue
-		}
-		if hasExcludedMediaFormat(*release) {
-			continue
+		if !includeExcluded {
+			if hasExcludedSecondaryType(*release) {
+				continue
+			}
+			if hasExcludedMediaFormat(*release) {
+				continue
+			}
 		}
 		filtered = append(filtered, release)
 	}
@@ -825,11 +878,10 @@ func selectBestReleaseFromRecording(releases []mbRelease) *mbRelease {
 		if aYear != bYear {
 			return aYear - bYear
 		}
-
 		return 0
 	})
 
-	return filtered[0]
+	return filtered
 }
 
 func releasePrimaryTypeRank(primaryType string) int {
