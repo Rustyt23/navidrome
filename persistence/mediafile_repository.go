@@ -96,14 +96,15 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 
 var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 	filters := map[string]filterFunc{
-		"id":         idFilter("media_file"),
-		"title":      fullTextFilter("media_file", "mbz_recording_id", "mbz_release_track_id"),
-		"starred":    booleanFilter,
-		"genre_id":   tagIDFilter,
-		"missing":    booleanFilter,
-		"artists_id": artistFilter,
-		"path":       containsFilter("media_file.path"),
-		"library_id": libraryIdFilter,
+		"id":          idFilter("media_file"),
+		"title":       fullTextFilter("media_file", "mbz_recording_id", "mbz_release_track_id"),
+		"starred":     booleanFilter,
+		"genre_id":    tagIDFilter,
+		"missing":     booleanFilter,
+		"hascoverart": func(_ string, value any) Sqlizer { return booleanFilter("media_file.has_cover_art", value) },
+		"artists_id":  artistFilter,
+		"path":        containsFilter("media_file.path"),
+		"library_id":  libraryIdFilter,
 	}
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {
