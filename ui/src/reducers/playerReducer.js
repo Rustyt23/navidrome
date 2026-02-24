@@ -21,6 +21,9 @@ const initialState = {
   savedPlayIndex: 0,
 }
 
+const normalizeQueueKey = (value) =>
+  typeof value === 'string' ? value.replace(/^_+/, '') : value
+
 const pad = (value) => {
   const str = value.toString()
   if (str.length === 1) {
@@ -93,7 +96,7 @@ const reduceClearQueue = () => ({ ...initialState, clear: true })
 const reducePlayTracks = (state, { data, id }) => {
   let playIndex = 0
   const queue = Object.keys(data).map((key, idx) => {
-    if (key === id) {
+    if (normalizeQueueKey(key) === normalizeQueueKey(id)) {
       playIndex = idx
     }
     return mapToAudioLists(data[key])

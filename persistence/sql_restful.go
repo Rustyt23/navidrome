@@ -97,8 +97,20 @@ func containsFilter(field string) func(string, any) Sqlizer {
 }
 
 func booleanFilter(field string, value any) Sqlizer {
-	v := strings.ToLower(value.(string))
-	return Eq{field: v == "true"}
+	return Eq{field: isTrue(value)}
+}
+
+func isTrue(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		v = strings.ToLower(v)
+		return v == "true"
+	default:
+		vStr := strings.ToLower(fmt.Sprintf("%v", v))
+		return vStr == "true"
+	}
 }
 
 func fullTextFilter(tableName string, mbidFields ...string) func(string, any) Sqlizer {

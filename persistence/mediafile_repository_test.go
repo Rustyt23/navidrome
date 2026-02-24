@@ -50,6 +50,73 @@ var _ = Describe("MediaRepository", func() {
 		Expect(mr.CountAll()).To(Equal(int64(6)))
 	})
 
+	It("filters media files by hascoverart in REST query options", func() {
+		withCover := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Path: "with-cover.mp3", HasCoverArt: true}
+		withoutCover := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Path: "without-cover.mp3", HasCoverArt: false}
+		Expect(adminRepo.Put(&withCover)).To(Succeed())
+		Expect(adminRepo.Put(&withoutCover)).To(Succeed())
+		DeferCleanup(func() {
+			_ = adminRepo.Delete(withCover.ID)
+			_ = adminRepo.Delete(withoutCover.ID)
+		})
+
+		resourceRepo, ok := adminRepo.(model.ResourceRepository)
+		Expect(ok).To(BeTrue())
+
+		result, err := resourceRepo.ReadAll(rest.QueryOptions{Filters: map[string]any{"hascoverart": "false"}})
+		Expect(err).ToNot(HaveOccurred())
+
+		files, ok := result.(model.MediaFiles)
+		Expect(ok).To(BeTrue())
+		ids := make([]string, 0, len(files))
+		for _, file := range files {
+			ids = append(ids, file.ID)
+		}
+		Expect(ids).To(ContainElement(withoutCover.ID))
+		Expect(ids).ToNot(ContainElement(withCover.ID))
+	})
+
+	It("filters media files by fetched status in REST query options", func() {
+		withEmbeddedCover := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Path: "embedded-cover.mp3", HasCoverArt: true}
+		withFetchedCover := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Path: "fetched-cover.mp3", CoverPath: "covers/fetched-cover.jpg"}
+		withoutFetchedCover := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Path: "missing-cover.mp3", HasCoverArt: false, CoverPath: ""}
+		Expect(adminRepo.Put(&withEmbeddedCover)).To(Succeed())
+		Expect(adminRepo.Put(&withFetchedCover)).To(Succeed())
+		Expect(adminRepo.Put(&withoutFetchedCover)).To(Succeed())
+		DeferCleanup(func() {
+			_ = adminRepo.Delete(withEmbeddedCover.ID)
+			_ = adminRepo.Delete(withFetchedCover.ID)
+			_ = adminRepo.Delete(withoutFetchedCover.ID)
+		})
+
+		resourceRepo, ok := adminRepo.(model.ResourceRepository)
+		Expect(ok).To(BeTrue())
+
+		fetchedResult, err := resourceRepo.ReadAll(rest.QueryOptions{Filters: map[string]any{"fetched": "true"}})
+		Expect(err).ToNot(HaveOccurred())
+		fetchedFiles, ok := fetchedResult.(model.MediaFiles)
+		Expect(ok).To(BeTrue())
+		fetchedIDs := make([]string, 0, len(fetchedFiles))
+		for _, file := range fetchedFiles {
+			fetchedIDs = append(fetchedIDs, file.ID)
+		}
+		Expect(fetchedIDs).To(ContainElement(withEmbeddedCover.ID))
+		Expect(fetchedIDs).To(ContainElement(withFetchedCover.ID))
+		Expect(fetchedIDs).ToNot(ContainElement(withoutFetchedCover.ID))
+
+		notFetchedResult, err := resourceRepo.ReadAll(rest.QueryOptions{Filters: map[string]any{"fetched": "false"}})
+		Expect(err).ToNot(HaveOccurred())
+		notFetchedFiles, ok := notFetchedResult.(model.MediaFiles)
+		Expect(ok).To(BeTrue())
+		notFetchedIDs := make([]string, 0, len(notFetchedFiles))
+		for _, file := range notFetchedFiles {
+			notFetchedIDs = append(notFetchedIDs, file.ID)
+		}
+		Expect(notFetchedIDs).To(ContainElement(withoutFetchedCover.ID))
+		Expect(notFetchedIDs).ToNot(ContainElement(withEmbeddedCover.ID))
+		Expect(notFetchedIDs).ToNot(ContainElement(withFetchedCover.ID))
+	})
+
 	It("returns songs ordered by lyrics with a specific title/artist", func() {
 		// attempt to mimic filters.SongsByArtistTitleWithLyricsFirst, except we want all items
 		results, err := mr.GetAll(model.QueryOptions{
@@ -459,4 +526,22 @@ var _ = Describe("MediaRepository", func() {
 			})
 		})
 	})
+	Context("UpdateMissingMetadata", func() {
+		It("updates album when current value is [Unknown Album]", func() {
+			mf := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Title: "Song", Album: "[Unknown Album]", Year: 0, Genre: ""}
+			Expect(mr.Put(&mf)).To(Succeed())
+
+			album := "Real Album"
+			year := 2014
+			genre := "Rock"
+			Expect(mr.UpdateMissingMetadata(mf.ID, &album, &year, &genre, nil, nil)).To(Succeed())
+
+			updated, err := mr.Get(mf.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.Album).To(Equal("Real Album"))
+			Expect(updated.Year).To(Equal(2014))
+			Expect(updated.Genre).To(Equal("Rock"))
+		})
+	})
+
 })

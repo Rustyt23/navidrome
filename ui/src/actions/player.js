@@ -21,7 +21,10 @@ export const filterSongs = (data, ids) => {
     ? filteredData
     : ids.reduce((acc, id) => {
         if (filteredData[id]) {
-          return { ...acc, [id]: filteredData[id] }
+          // Prefix keys so JS preserves insertion order even for numeric-like ids.
+          // Object keys like "1", "2" are always iterated numerically, which can
+          // break the queue order when users sort playlists by another column.
+          return { ...acc, [`_${id}`]: filteredData[id] }
         }
         return acc
       }, {})
