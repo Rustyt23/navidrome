@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/adapters/taglib"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -575,10 +576,7 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 		return metadataResult{}, nil
 	}
 
-	coverCache := make(map[string]bool, len(bestCandidates))
-	best := selectBestReleaseCandidate(bestCandidates, func(releaseID string) bool {
-		return j.releaseHasCover(releaseID, coverCache)
-	})
+	best := selectBestReleaseCandidate(bestCandidates)
 	if best == nil {
 		return metadataResult{}, nil
 	}
@@ -596,39 +594,6 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 		RecordingMBID: strings.TrimSpace(best.recording.ID),
 		ReleaseMBID:   strings.TrimSpace(best.release.ID),
 	}, nil
-}
-
-func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[string]bool) bool {
-	releaseID = strings.TrimSpace(releaseID)
-	if releaseID == "" {
-		return false
-	}
-	if cached, ok := cache[releaseID]; ok {
-		return cached
-	}
-
-	u := "https://coverartarchive.org/release/" + url.PathEscape(releaseID)
-	req, err := http.NewRequest(http.MethodHead, u, nil)
-	if err != nil {
-		cache[releaseID] = false
-		return false
-	}
-	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := j.client.Do(req)
-	if err != nil {
-		cache[releaseID] = false
-		return false
-	}
-	defer resp.Body.Close()
-
-	hasCover := resp.StatusCode == http.StatusOK
-	cache[releaseID] = hasCover
-	return hasCover
 }
 
 func selectBestRecording(recordings []mbRecording, artist string) *mbRecording {
@@ -746,10 +711,9 @@ func collectReleaseCandidates(recordings []mbRecording, artist string) []release
 	return fallback
 }
 
-func selectBestReleaseCandidate(candidates []releaseCandidate, hasCover func(releaseID string) bool) *releaseCandidate {
+func selectBestReleaseCandidate(candidates []releaseCandidate) *releaseCandidate {
 	type relCandidate struct {
 		candidate *releaseCandidate
-		hasCover  bool
 		usCountry bool
 		year      int
 	}
@@ -757,10 +721,8 @@ func selectBestReleaseCandidate(candidates []releaseCandidate, hasCover func(rel
 	sortedCandidates := make([]relCandidate, 0, len(candidates))
 	for i := range candidates {
 		candidate := &candidates[i]
-		releaseID := strings.TrimSpace(candidate.release.ID)
 		sortedCandidates = append(sortedCandidates, relCandidate{
 			candidate: candidate,
-			hasCover:  hasCover(releaseID),
 			usCountry: strings.EqualFold(strings.TrimSpace(candidate.release.Country), "US"),
 			year:      yearFromDate(candidate.release.Date),
 		})
@@ -770,12 +732,6 @@ func selectBestReleaseCandidate(candidates []releaseCandidate, hasCover func(rel
 	}
 
 	slices.SortFunc(sortedCandidates, func(a, b relCandidate) int {
-		if a.hasCover && !b.hasCover {
-			return -1
-		}
-		if !a.hasCover && b.hasCover {
-			return 1
-		}
 		if a.year == 0 && b.year > 0 {
 			return 1
 		}
@@ -915,8 +871,57 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 				return
 			}
 
+			saved, failed := persistMetadataToFiles(n.ds)
+			if failed > 0 {
+				w.WriteHeader(http.StatusMultiStatus)
+				_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"partial","saved":%d,"failed":%d}`, saved, failed)))
+				return
+			}
+
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"saved"}`))
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"saved","saved":%d}`, saved)))
 		})
 	})
+}
+
+func persistMetadataToFiles(ds model.DataStore) (saved int, failed int) {
+	ctx := context.Background()
+	cursor, err := ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		log.Warn(ctx, "Could not load media files to persist metadata", "err", err)
+		return 0, 1
+	}
+
+	for mf, e := range cursor {
+		if e != nil {
+			failed++
+			continue
+		}
+		if strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
+			continue
+		}
+
+		album := strings.TrimSpace(mf.Album)
+		genre := strings.TrimSpace(mf.Genre)
+		recordingMBID := strings.TrimSpace(mf.MbzRecordingID)
+		releaseMBID := strings.TrimSpace(mf.MbzReleaseID)
+		coverPath := strings.TrimSpace(mf.CoverPath)
+
+		if album == "" && mf.Year == 0 && genre == "" && recordingMBID == "" && releaseMBID == "" && coverPath == "" {
+			continue
+		}
+
+		if coverPath != "" && !filepath.IsAbs(coverPath) {
+			coverPath = filepath.Join(conf.Server.DataFolder, coverPath)
+		}
+
+		if err := taglib.WriteMetadata(mf.AbsolutePath(), album, mf.Year, genre, recordingMBID, releaseMBID, coverPath); err != nil {
+			failed++
+			log.Warn(ctx, "Could not persist metadata to media file", "songId", mf.ID, "path", mf.AbsolutePath(), "err", err)
+			continue
+		}
+		saved++
+	}
+
+	return saved, failed
 }

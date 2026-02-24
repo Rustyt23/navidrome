@@ -166,6 +166,8 @@ const CoverArtPanel = () => {
       .then(({ status: code }) => {
         if (code === 200) {
           notify('activity.musicbrainz.saved', 'info')
+        } else if (code === 207) {
+          notify('activity.musicbrainz.savePartial', 'warning')
         } else {
           notify('activity.musicbrainz.saveFailed', 'warning')
         }
