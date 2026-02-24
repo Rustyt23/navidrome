@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,14 +96,15 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 
 var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 	filters := map[string]filterFunc{
-		"id":         idFilter("media_file"),
-		"title":      fullTextFilter("media_file", "mbz_recording_id", "mbz_release_track_id"),
-		"starred":    booleanFilter,
-		"genre_id":   tagIDFilter,
-		"missing":    booleanFilter,
-		"artists_id": artistFilter,
-		"path":       containsFilter("media_file.path"),
-		"library_id": libraryIdFilter,
+		"id":          idFilter("media_file"),
+		"title":       fullTextFilter("media_file", "mbz_recording_id", "mbz_release_track_id"),
+		"starred":     booleanFilter,
+		"genre_id":    tagIDFilter,
+		"missing":     booleanFilter,
+		"hascoverart": func(_ string, value any) Sqlizer { return booleanFilter("media_file.has_cover_art", value) },
+		"artists_id":  artistFilter,
+		"path":        containsFilter("media_file.path"),
+		"library_id":  libraryIdFilter,
 	}
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {
@@ -273,6 +275,48 @@ func (r *mediaFileRepository) UpdateComment(ids []string, comment string) error 
 	}
 
 	return nil
+}
+
+func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error {
+	if album == nil && year == nil && genre == nil && mbzRecordingID == nil && mbzReleaseID == nil {
+		return nil
+	}
+
+	up := Update(r.tableName).Where(Eq{"id": id})
+
+	if album != nil {
+		up = up.Set("album", Expr("case when trim(ifnull(album, '')) = '' or lower(trim(ifnull(album, ''))) in ('unknown album', '[unknown album]') then ? else album end", *album))
+	}
+	if year != nil {
+		up = up.Set("year", Expr("case when ifnull(year, 0) = 0 then ? else year end", *year))
+	}
+	if genre != nil {
+		up = up.Set("genre", Expr("case when trim(ifnull(genre, '')) = '' then ? else genre end", *genre))
+	}
+	if mbzRecordingID != nil {
+		up = up.Set("mbz_recording_id", Expr("case when trim(ifnull(mbz_recording_id, '')) = '' then ? else mbz_recording_id end", *mbzRecordingID))
+	}
+	if mbzReleaseID != nil {
+		up = up.Set("mbz_release_id", Expr("case when trim(ifnull(mbz_release_id, '')) = '' then ? else mbz_release_id end", *mbzReleaseID))
+	}
+
+	up = up.Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
+func (r *mediaFileRepository) UpdateCoverPath(id string, coverPath string) error {
+	coverPath = strings.TrimSpace(coverPath)
+	if id == "" || coverPath == "" {
+		return nil
+	}
+
+	up := Update(r.tableName).
+		Set("cover_path", Expr("case when trim(ifnull(cover_path, '')) = '' then ? else cover_path end", coverPath)).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(up)
+	return err
 }
 
 func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile) error {

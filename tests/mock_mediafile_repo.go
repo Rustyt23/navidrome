@@ -132,6 +132,18 @@ func (m *MockMediaFileRepo) UpdateComment(ids []string, comment string) error {
 	return nil
 }
 
+func (m *MockMediaFileRepo) UpdateCoverPath(id string, coverPath string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		if mf.CoverPath == "" {
+			mf.CoverPath = coverPath
+		}
+	}
+	return nil
+}
+
 func (m *MockMediaFileRepo) IncPlayCount(id string, timestamp time.Time) error {
 	if m.Err {
 		return errors.New("error")
