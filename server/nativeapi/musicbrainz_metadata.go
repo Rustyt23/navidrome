@@ -480,6 +480,12 @@ type mbSearchResponse struct {
 	Recordings []mbRecording `json:"recordings"`
 }
 
+type mbReleaseSearchResponse struct {
+	Count    int         `json:"count"`
+	Offset   int         `json:"offset"`
+	Releases []mbRelease `json:"releases"`
+}
+
 type mbRecording struct {
 	ID               string  `json:"id"`
 	Title            string  `json:"title"`
@@ -581,8 +587,13 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, localDurati
 		return metadataResult{RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
 	}
 
+	allReleases := details.Releases
+	if extraReleases, err := j.searchReleasesByRecording(bestRecording.ID); err == nil {
+		allReleases = mergeUniqueReleases(allReleases, extraReleases)
+	}
+
 	coverCache := make(map[string]bool)
-	bestRelease := selectBestReleaseFromRecording(details.Releases, func(releaseID string) bool {
+	bestRelease := selectBestReleaseFromRecording(allReleases, func(releaseID string) bool {
 		return j.releaseHasCover(releaseID, coverCache)
 	})
 	if bestRelease == nil {
@@ -628,6 +639,67 @@ func (j *musicBrainzMetadataJob) searchRecordings(query string) ([]mbRecording, 
 	return payload.Recordings, nil
 }
 
+func (j *musicBrainzMetadataJob) searchReleasesByRecording(recordingID string) ([]mbRelease, error) {
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return nil, nil
+	}
+
+	all := make([]mbRelease, 0, 32)
+	for offset := 0; ; offset += 100 {
+		u := "https://musicbrainz.org/ws/2/release/?recording=" + url.QueryEscape(recordingID) + "&fmt=json&limit=100&offset=" + strconv.Itoa(offset) + "&inc=release-groups+media"
+		req, err := http.NewRequest(http.MethodGet, u, nil)
+		if err != nil {
+			return all, err
+		}
+		req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+
+		resp, err := j.client.Do(req)
+		if err != nil {
+			return all, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			resp.Body.Close()
+			return all, fmt.Errorf("musicbrainz status %d", resp.StatusCode)
+		}
+
+		var payload mbReleaseSearchResponse
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		resp.Body.Close()
+		if err != nil {
+			return all, err
+		}
+
+		all = append(all, payload.Releases...)
+		if len(payload.Releases) == 0 || len(all) >= payload.Count {
+			break
+		}
+	}
+	return all, nil
+}
+
+func mergeUniqueReleases(base, extra []mbRelease) []mbRelease {
+	seen := make(map[string]bool, len(base)+len(extra))
+	out := make([]mbRelease, 0, len(base)+len(extra))
+	for _, rel := range base {
+		id := strings.TrimSpace(rel.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, rel)
+	}
+	for _, rel := range extra {
+		id := strings.TrimSpace(rel.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, rel)
+	}
+	return out
+}
+
 func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[string]bool) bool {
 	releaseID = strings.TrimSpace(releaseID)
 	if releaseID == "" {
@@ -637,25 +709,39 @@ func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[str
 		return v
 	}
 
-	req, err := http.NewRequest(http.MethodHead, "https://coverartarchive.org/release/"+url.PathEscape(releaseID), nil)
-	if err != nil {
-		cache[releaseID] = false
-		return false
+	check := func(method, urlStr string) (bool, bool) {
+		req, err := http.NewRequest(method, urlStr, nil)
+		if err != nil {
+			return false, false
+		}
+		req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		resp, err := j.client.Do(req.WithContext(ctx))
+		if err != nil {
+			return false, false
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return true, true
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			return false, true
+		}
+		return false, false
 	}
-	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	resp, err := j.client.Do(req.WithContext(ctx))
-	if err != nil {
-		cache[releaseID] = false
-		return false
+	apiURL := "https://coverartarchive.org/release/" + url.PathEscape(releaseID)
+	if has, done := check(http.MethodHead, apiURL); done {
+		cache[releaseID] = has
+		return has
 	}
-	defer resp.Body.Close()
-
-	hasCover := resp.StatusCode == http.StatusOK
-	cache[releaseID] = hasCover
-	return hasCover
+	if has, done := check(http.MethodGet, apiURL); done {
+		cache[releaseID] = has
+		return has
+	}
+	cache[releaseID] = false
+	return false
 }
 
 func (j *musicBrainzMetadataJob) fetchRecordingDetails(recordingID string) (mbRecording, error) {

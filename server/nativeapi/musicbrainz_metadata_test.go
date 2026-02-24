@@ -161,3 +161,30 @@ func TestSelectBestReleaseFromRecordingSkipsNoCover(t *testing.T) {
 		t.Fatalf("expected first release with cover, got %q", best.ID)
 	}
 }
+
+func TestMergeUniqueReleases(t *testing.T) {
+	base := []mbRelease{{ID: "a", Title: "A"}, {ID: "b", Title: "B"}}
+	extra := []mbRelease{{ID: "b", Title: "B2"}, {ID: "c", Title: "C"}}
+	merged := mergeUniqueReleases(base, extra)
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 unique releases, got %d", len(merged))
+	}
+	if merged[0].ID != "a" || merged[1].ID != "b" || merged[2].ID != "c" {
+		t.Fatalf("unexpected merge order: %#v", merged)
+	}
+}
+
+func TestSelectBestReleaseFromRecordingFallsBackToBroaderSetForCover(t *testing.T) {
+	releases := []mbRelease{
+		{ID: "single-no-cover", Title: "Single", Status: "Official", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
+		{ID: "comp-cover", Title: "Comp", Status: "Official", Date: "2009-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album", SecondaryType: []string{"Compilation"}}},
+	}
+
+	best := selectBestReleaseFromRecording(releases, func(id string) bool { return id == "comp-cover" })
+	if best == nil {
+		t.Fatal("expected a release")
+	}
+	if best.ID != "comp-cover" {
+		t.Fatalf("expected broader fallback to pick covered release, got %q", best.ID)
+	}
+}
