@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -142,7 +143,7 @@ func (e *provider) populateAlbumInfo(ctx context.Context, album auxAlbum) (auxAl
 		album.Description = info.Description
 	}
 
-	images, err := e.ag.GetAlbumImages(ctx, album.Name, album.AlbumArtist, album.MbzAlbumID)
+	images, err := e.getAlbumImagesWithFallback(ctx, album)
 	if err == nil && len(images) > 0 {
 		sort.Slice(images, func(i, j int) bool {
 			return images[i].Size > images[j].Size
@@ -344,7 +345,7 @@ func (e *provider) AlbumImage(ctx context.Context, id string) (*url.URL, error) 
 		return nil, err
 	}
 
-	images, err := e.ag.GetAlbumImages(ctx, album.Name, album.AlbumArtist, album.MbzAlbumID)
+	images, err := e.getAlbumImagesWithFallback(ctx, album)
 	if err != nil {
 		switch {
 		case errors.Is(err, agents.ErrNotFound):
@@ -374,6 +375,63 @@ func (e *provider) AlbumImage(ctx context.Context, id string) (*url.URL, error) 
 		return nil, model.ErrNotFound
 	}
 	return url.Parse(img.URL)
+}
+
+func (e *provider) getAlbumImagesWithFallback(ctx context.Context, album auxAlbum) ([]agents.ExternalImage, error) {
+	mbids := e.albumMBIDCandidates(ctx, album)
+	for _, mbid := range mbids {
+		images, err := e.ag.GetAlbumImages(ctx, album.Name, album.AlbumArtist, mbid)
+		if err != nil {
+			if errors.Is(err, agents.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		if len(images) > 0 {
+			if mbid != album.MbzAlbumID {
+				log.Debug(ctx, "Using fallback release MBID for album images", "albumID", album.ID, "mbid", mbid)
+			}
+			return images, nil
+		}
+	}
+
+	return nil, agents.ErrNotFound
+}
+
+func (e *provider) albumMBIDCandidates(ctx context.Context, album auxAlbum) []string {
+	counts := map[string]int{album.MbzAlbumID: 1}
+
+	mediaFiles, err := e.ds.MediaFile(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{"album_id": album.ID}})
+	if err != nil {
+		return []string{album.MbzAlbumID}
+	}
+
+	for _, mf := range mediaFiles {
+		if mf.MbzAlbumID == "" {
+			continue
+		}
+		counts[mf.MbzAlbumID]++
+	}
+
+	mbids := make([]string, 0, len(counts))
+	for mbid := range counts {
+		mbids = append(mbids, mbid)
+	}
+
+	slices.SortFunc(mbids, func(a, b string) int {
+		if counts[a] != counts[b] {
+			return counts[b] - counts[a]
+		}
+		if a < b {
+			return -1
+		}
+		if a > b {
+			return 1
+		}
+		return 0
+	})
+
+	return mbids
 }
 
 func (e *provider) TopSongs(ctx context.Context, artistName string, count int) (model.MediaFiles, error) {
