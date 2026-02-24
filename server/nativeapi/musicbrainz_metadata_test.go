@@ -19,7 +19,7 @@ func TestSelectBestRecording(t *testing.T) {
 			Releases: []mbRelease{{Title: "Wrong Album", Date: "2010-01-01", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}},
 		},
 		{
-			Score: "92",
+			Score: "100",
 			ArtistCredit: []struct {
 				Name string `json:"name"`
 			}{{Name: "The Artist"}},
@@ -53,7 +53,7 @@ func TestSelectBestReleaseFromRecording(t *testing.T) {
 		{ID: "single", Title: "Single", Status: "Official", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Single"}},
 	}
 
-	best := selectBestReleaseFromRecording(releases, []string{"US", "USA"})
+	best := selectBestReleaseFromRecording(releases)
 	if best == nil {
 		t.Fatal("expected a release")
 	}
@@ -62,19 +62,18 @@ func TestSelectBestReleaseFromRecording(t *testing.T) {
 	}
 }
 
-func TestSelectBestReleaseFromRecordingPrefersEarliestThenUS(t *testing.T) {
+func TestSelectBestReleaseFromRecordingPrefersEarliestDate(t *testing.T) {
 	releases := []mbRelease{
-		{ID: "later-us", Title: "Later US", Status: "Official", Country: "US", Date: "2011-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
-		{ID: "earlier-gb", Title: "Earlier GB", Status: "Official", Country: "GB", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
-		{ID: "earlier-us", Title: "Earlier US", Status: "Official", Country: "USA", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		{ID: "later", Title: "Later", Status: "Official", Country: "US", Date: "2011-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
+		{ID: "earlier", Title: "Earlier", Status: "Official", Country: "GB", Date: "2010-01-01", ReleaseGroup: mbGroup{PrimaryType: "Album"}},
 	}
 
-	best := selectBestReleaseFromRecording(releases, []string{"US", "USA"})
+	best := selectBestReleaseFromRecording(releases)
 	if best == nil {
 		t.Fatal("expected a release")
 	}
-	if best.ID != "earlier-us" {
-		t.Fatalf("expected earliest date then preferred country, got %q", best.ID)
+	if best.ID != "earlier" {
+		t.Fatalf("expected earliest date to be preferred, got %q", best.ID)
 	}
 }
 
@@ -92,7 +91,7 @@ func TestSelectBestRecordingFiltersExcludedAndPrefersOfficial(t *testing.T) {
 		{ID: "non-official", Score: "100", ArtistCredit: []struct {
 			Name string `json:"name"`
 		}{{Name: "The Artist"}}, Releases: []mbRelease{{Title: "Unofficial", Status: "Bootleg", ReleaseGroup: mbGroup{PrimaryType: "Album"}}}},
-		{ID: "official", Score: "99", ArtistCredit: []struct {
+		{ID: "official", Score: "100", ArtistCredit: []struct {
 			Name string `json:"name"`
 		}{{Name: "The Artist"}}, Releases: []mbRelease{{Title: "Official", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}}},
 	}
@@ -106,7 +105,7 @@ func TestSelectBestRecordingFiltersExcludedAndPrefersOfficial(t *testing.T) {
 	}
 }
 
-func TestSelectBestRecordingPrefersClosestDurationWithinWindow(t *testing.T) {
+func TestSelectBestRecordingPrefersClosestDurationWhenProvided(t *testing.T) {
 	recordings := []mbRecording{
 		{ID: "far", Score: "100", Length: 211000, ArtistCredit: []struct {
 			Name string `json:"name"`
@@ -122,5 +121,18 @@ func TestSelectBestRecordingPrefersClosestDurationWithinWindow(t *testing.T) {
 	}
 	if rec.ID != "close" {
 		t.Fatalf("expected closest duration recording, got %q", rec.ID)
+	}
+}
+
+func TestSelectBestRecordingRequiresPerfectScore(t *testing.T) {
+	recordings := []mbRecording{
+		{ID: "almost", Score: "99", ArtistCredit: []struct {
+			Name string `json:"name"`
+		}{{Name: "The Artist"}}, Releases: []mbRelease{{Title: "Album", Status: "Official", ReleaseGroup: mbGroup{PrimaryType: "Album"}}}},
+	}
+
+	rec := selectBestRecording(recordings, "the artist", 0)
+	if rec != nil {
+		t.Fatalf("expected no recording for non-100 score, got %q", rec.ID)
 	}
 }

@@ -556,7 +556,7 @@ func valueOrNil(v string) *string {
 
 func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, localDuration float32) (metadataResult, error) {
 	query := fmt.Sprintf("recording:\"%s\" AND artist:\"%s\"", title, artist)
-	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups"
+	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&limit=100&inc=releases+release-groups"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return metadataResult{}, err
@@ -590,7 +590,7 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string, localDurati
 		return metadataResult{RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
 	}
 
-	bestRelease := selectBestReleaseFromRecording(details.Releases, []string{"US", "USA"})
+	bestRelease := selectBestReleaseFromRecording(details.Releases)
 	if bestRelease == nil {
 		return metadataResult{RecordingMBID: strings.TrimSpace(bestRecording.ID)}, nil
 	}
@@ -643,21 +643,20 @@ func selectBestRecording(recordings []mbRecording, artist string, localDuration 
 	normalizedArtist := normalizeMBString(artist)
 
 	type recCandidate struct {
-		rec              *mbRecording
-		score            int
-		releases         int
-		hasAlbum         bool
-		hasOfficial      bool
-		earliest         int
-		durationDeltaMS  int
-		durationInWindow bool
+		rec             *mbRecording
+		score           int
+		releases        int
+		hasAlbum        bool
+		hasOfficial     bool
+		earliest        int
+		durationDeltaMS int
 	}
 
 	candidates := make([]recCandidate, 0, len(recordings))
 	for i := range recordings {
 		rec := &recordings[i]
 		score := rec.Score.Int()
-		if score < 80 {
+		if score != 100 {
 			continue
 		}
 		if !artistCreditMatches(rec.ArtistCredit, normalizedArtist) {
@@ -686,13 +685,11 @@ func selectBestRecording(recordings []mbRecording, artist string, localDuration 
 		}
 
 		delta := int(^uint(0) >> 1)
-		durationInWindow := false
 		if localDuration > 0 && rec.Length > 0 {
 			delta = absInt(rec.Length - int(localDuration*1000))
-			durationInWindow = delta <= 3000
 		}
 
-		candidates = append(candidates, recCandidate{rec: rec, score: score, releases: len(rec.Releases), hasAlbum: hasAlbum, hasOfficial: hasOfficial, earliest: earliest, durationDeltaMS: delta, durationInWindow: durationInWindow})
+		candidates = append(candidates, recCandidate{rec: rec, score: score, releases: len(rec.Releases), hasAlbum: hasAlbum, hasOfficial: hasOfficial, earliest: earliest, durationDeltaMS: delta})
 	}
 	if len(candidates) == 0 {
 		return nil
@@ -714,7 +711,7 @@ func selectBestRecording(recordings []mbRecording, artist string, localDuration 
 		if a.score != b.score {
 			return b.score - a.score
 		}
-		if a.durationInWindow && b.durationInWindow && a.durationDeltaMS != b.durationDeltaMS {
+		if localDuration > 0 && a.durationDeltaMS != b.durationDeltaMS {
 			return a.durationDeltaMS - b.durationDeltaMS
 		}
 		if a.hasAlbum && !b.hasAlbum {
@@ -746,7 +743,7 @@ func artistCreditMatches(credits []struct {
 	return false
 }
 
-func selectBestReleaseFromRecording(releases []mbRelease, preferredCountries []string) *mbRelease {
+func selectBestReleaseFromRecording(releases []mbRelease) *mbRelease {
 	filtered := make([]*mbRelease, 0, len(releases))
 	for i := range releases {
 		release := &releases[i]
@@ -787,14 +784,6 @@ func selectBestReleaseFromRecording(releases []mbRelease, preferredCountries []s
 			return aYear - bYear
 		}
 
-		aCountry := countryPreferred(a.Country, preferredCountries)
-		bCountry := countryPreferred(b.Country, preferredCountries)
-		if aCountry && !bCountry {
-			return -1
-		}
-		if !aCountry && bCountry {
-			return 1
-		}
 		return 0
 	})
 
@@ -812,16 +801,6 @@ func releasePrimaryTypeRank(primaryType string) int {
 	default:
 		return 3
 	}
-}
-
-func countryPreferred(country string, preferredCountries []string) bool {
-	country = normalizeMBString(country)
-	for _, c := range preferredCountries {
-		if country == normalizeMBString(c) {
-			return true
-		}
-	}
-	return false
 }
 
 func hasExcludedSecondaryType(release mbRelease) bool {
