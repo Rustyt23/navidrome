@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import IconButton from '@material-ui/core/IconButton'
 import Tooltip from '@material-ui/core/Tooltip'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
@@ -72,9 +72,8 @@ const CovertartFilter = (props) => (
 
 const CovertartList = (props) => {
   const classes = useStyles()
-  const columns = useSelectedFields({
-    resource: 'covertart',
-    columns: {
+  const toggleableFields = useMemo(
+    () => ({
       title: <TextField source="title" sortBy="title" />,
       artist: <TextField source="artist" label="Artist" sortBy="artist" />,
       album: <TextField source="album" label="Album" sortBy="album" />,
@@ -146,7 +145,13 @@ const CovertartList = (props) => {
         />
       ),
       duration: <DurationField source="duration" sortBy="duration" />,
-    },
+    }),
+    [classes.mbidText],
+  )
+
+  const columns = useSelectedFields({
+    resource: 'covertart',
+    columns: toggleableFields,
   })
 
   return (
