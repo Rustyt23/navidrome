@@ -110,7 +110,16 @@
     "covertart": {
       "name": "Cover Art |||| Cover Art",
       "fields": {
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
+        "year": "Release Year",
+        "createdAt": "Date added",
+        "genre": "Genre",
         "fetched": "Fetched",
+        "mbzRecordingID": "Recording MBID",
+        "mbzReleaseId": "Release MBID",
+        "duration": "Duration",
         "missingCoverArt": "Missing CoverArt"
       }
     },
