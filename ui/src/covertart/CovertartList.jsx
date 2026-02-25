@@ -1,9 +1,10 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import IconButton from '@material-ui/core/IconButton'
 import Tooltip from '@material-ui/core/Tooltip'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
 import {
   Datagrid,
+  DateField,
   Filter,
   FunctionField,
   List,
@@ -14,7 +15,7 @@ import {
   useTranslate,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
-import { DurationField, Pagination } from '../common'
+import { DurationField, Pagination, ToggleFieldsMenu, useSelectedFields } from '../common'
 import subsonic from '../subsonic'
 
 const useStyles = makeStyles({
@@ -59,6 +60,7 @@ const FetchedToggleButton = () => {
 const CovertartListActions = (props) => (
   <TopToolbar {...props}>
     <FetchedToggleButton />
+    <ToggleFieldsMenu resource="covertart" />
   </TopToolbar>
 )
 
@@ -70,6 +72,87 @@ const CovertartFilter = (props) => (
 
 const CovertartList = (props) => {
   const classes = useStyles()
+  const toggleableFields = useMemo(
+    () => ({
+      title: <TextField source="title" sortBy="title" />,
+      artist: <TextField source="artist" label="Artist" sortBy="artist" />,
+      album: <TextField source="album" label="Album" sortBy="album" />,
+      year: <TextField source="year" label="Release Year" sortBy="year" />,
+      createdAt: (
+        <DateField
+          source="createdAt"
+          label="Date added"
+          sortBy="recently_added"
+          showTime
+        />
+      ),
+      genre: <TextField source="genre" label="Genre" sortBy="genre" />,
+      fetched: (
+        <FunctionField
+          label="Fetched"
+          sortBy="fetched"
+          render={(record) =>
+            record?.hasCoverArt || Boolean(record?.coverPath) ? 'Yes' : 'No'
+          }
+        />
+      ),
+      mbzRecordingID: (
+        <FunctionField
+          label="Recording MBID"
+          sortBy="mbz_recording_id"
+          render={(record) => {
+            const recordingId = record?.mbzRecordingID
+
+            if (!recordingId) {
+              return <span className={classes.mbidText}></span>
+            }
+
+            return (
+              <a
+                href={`https://musicbrainz.org/recording/${recordingId}/tags`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={classes.mbidText}
+              >
+                {recordingId}
+              </a>
+            )
+          }}
+        />
+      ),
+      mbzReleaseId: (
+        <FunctionField
+          label="Release MBID"
+          sortBy="mbz_release_id"
+          render={(record) => {
+            const releaseId = record?.mbzReleaseId
+
+            if (!releaseId) {
+              return <span className={classes.mbidText}></span>
+            }
+
+            return (
+              <a
+                href={`https://coverartarchive.org/release/${releaseId}/front`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={classes.mbidText}
+              >
+                {releaseId}
+              </a>
+            )
+          }}
+        />
+      ),
+      duration: <DurationField source="duration" sortBy="duration" />,
+    }),
+    [classes.mbidText],
+  )
+
+  const columns = useSelectedFields({
+    resource: 'covertart',
+    columns: toggleableFields,
+  })
 
   return (
     <List
@@ -101,63 +184,7 @@ const CovertartList = (props) => {
             )
           }}
         />
-        <TextField source="title" />
-        <TextField source="artist" label="Artist" />
-        <TextField source="album" label="Album" />
-        <TextField source="year" label="Release Year" />
-        <TextField source="genre" label="Genre" />
-        <FunctionField
-          label="Fetched"
-          sortBy="fetched"
-          render={(record) =>
-            record?.hasCoverArt || Boolean(record?.coverPath) ? 'Yes' : 'No'
-          }
-        />
-        <FunctionField
-          label="Recording MBID"
-          sortable={false}
-          render={(record) => {
-            const recordingId = record?.mbzRecordingID
-
-            if (!recordingId) {
-              return <span className={classes.mbidText}></span>
-            }
-
-            return (
-              <a
-                href={`https://musicbrainz.org/recording/${recordingId}/tags`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={classes.mbidText}
-              >
-                {recordingId}
-              </a>
-            )
-          }}
-        />
-        <FunctionField
-          label="Release MBID"
-          sortable={false}
-          render={(record) => {
-            const releaseId = record?.mbzReleaseId
-
-              if (!releaseId) {
-              return <span className={classes.mbidText}></span>
-            }
-
-            return (
-              <a
-                href={`https://coverartarchive.org/release/${releaseId}/front`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={classes.mbidText}
-              >
-                {releaseId}
-              </a>
-            )
-          }}
-          />
-        <DurationField source="duration" />
+        {columns}
       </Datagrid>
     </List>
   )
