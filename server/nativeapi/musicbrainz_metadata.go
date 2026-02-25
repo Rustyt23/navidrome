@@ -66,7 +66,7 @@ func (j *musicBrainzMetadataJob) getStatus() musicBrainzMetadataStatus {
 	return j.status
 }
 
-func (j *musicBrainzMetadataJob) start(ds model.DataStore) bool {
+func (j *musicBrainzMetadataJob) start(ds model.DataStore, songIDs []string) bool {
 	j.mu.Lock()
 	if j.status.Running {
 		j.mu.Unlock()
@@ -76,8 +76,29 @@ func (j *musicBrainzMetadataJob) start(ds model.DataStore) bool {
 	j.status = musicBrainzMetadataStatus{Running: true, StartedAt: &now}
 	j.mu.Unlock()
 
-	go j.run(ds)
+	go j.run(ds, makeSongIDSet(songIDs))
 	return true
+}
+
+func makeSongIDSet(songIDs []string) map[string]struct{} {
+	if len(songIDs) == 0 {
+		return nil
+	}
+
+	res := make(map[string]struct{}, len(songIDs))
+	for _, id := range songIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			continue
+		}
+		res[trimmed] = struct{}{}
+	}
+
+	if len(res) == 0 {
+		return nil
+	}
+
+	return res
 }
 
 type missingFlags struct {
@@ -102,7 +123,7 @@ type metadataResult struct {
 	ReleaseMBID   string
 }
 
-func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
+func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDSet map[string]struct{}) {
 	ctx := context.Background()
 	defer func() {
 		j.mu.Lock()
@@ -112,7 +133,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		j.mu.Unlock()
 	}()
 
-	candidates, err := j.collectCandidates(ctx, ds)
+	candidates, err := j.collectCandidates(ctx, ds, songIDSet)
 	if err != nil {
 		j.setError(err)
 		return
@@ -210,7 +231,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 	)
 }
 
-func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model.DataStore) ([]mbMetadataCandidate, error) {
+func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model.DataStore, songIDSet map[string]struct{}) ([]mbMetadataCandidate, error) {
 	cursor, err := ds.MediaFile(ctx).GetCursor()
 	if err != nil {
 		return nil, err
@@ -221,6 +242,12 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 		if e != nil {
 			return nil, e
 		}
+		if len(songIDSet) > 0 {
+			if _, ok := songIDSet[mf.ID]; !ok {
+				continue
+			}
+		}
+
 		if strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
 			continue
 		}
@@ -899,8 +926,24 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 		r.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(n.metadataJob.getStatus())
 		})
-		r.Post("/fetch", func(w http.ResponseWriter, _ *http.Request) {
-			if n.metadataJob.start(n.ds) {
+		type fetchMusicBrainzRequest struct {
+			SongIDs []string `json:"songIds"`
+		}
+
+		r.Post("/fetch", func(w http.ResponseWriter, req *http.Request) {
+			var payload fetchMusicBrainzRequest
+			if req.Body != nil {
+				defer req.Body.Close()
+				if body, err := io.ReadAll(req.Body); err == nil && len(strings.TrimSpace(string(body))) > 0 {
+					if err := json.Unmarshal(body, &payload); err != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = w.Write([]byte(`{"status":"invalid_request"}`))
+						return
+					}
+				}
+			}
+
+			if n.metadataJob.start(n.ds, payload.SongIDs) {
 				w.WriteHeader(http.StatusAccepted)
 				_, _ = w.Write([]byte(`{"status":"started"}`))
 				return
