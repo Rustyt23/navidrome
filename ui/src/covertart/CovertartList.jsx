@@ -143,6 +143,11 @@ const CovertartList = (props) => {
           }}
         />
         <FunctionField
+          label="Matched"
+          sortable={false}
+          render={(record) => confidenceBySong.get(record.id)?.matchedName || ''}
+        />
+        <FunctionField
           label="Recording MBID"
           sortable={false}
           render={(record) => {

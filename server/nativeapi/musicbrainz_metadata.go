@@ -114,13 +114,14 @@ type spotifyMetadataStatus struct {
 }
 
 type spotifyConfidenceEntry struct {
-	SongID     string  `json:"songId"`
-	Title      string  `json:"title"`
-	Artist     string  `json:"artist"`
-	Confidence float64 `json:"confidence"`
-	Album      string  `json:"album"`
-	CoverURL   string  `json:"coverUrl,omitempty"`
-	Downloaded bool    `json:"downloaded"`
+	SongID      string  `json:"songId"`
+	Title       string  `json:"title"`
+	Artist      string  `json:"artist"`
+	MatchedName string  `json:"matchedName"`
+	Confidence  float64 `json:"confidence"`
+	Album       string  `json:"album"`
+	CoverURL    string  `json:"coverUrl,omitempty"`
+	Downloaded  bool    `json:"downloaded"`
 }
 
 type spotifyMetadataJob struct {
@@ -1074,13 +1075,14 @@ func (j *spotifyMetadataJob) run(ds model.DataStore) {
 		}
 
 		j.storeEntry(spotifyConfidenceEntry{
-			SongID:     mf.ID,
-			Title:      mf.Title,
-			Artist:     mf.Artist,
-			Confidence: confidence,
-			Album:      albumName,
-			CoverURL:   coverURL,
-			Downloaded: downloaded,
+			SongID:      mf.ID,
+			Title:       mf.Title,
+			Artist:      mf.Artist,
+			MatchedName: strings.TrimSpace(track.Name),
+			Confidence:  confidence,
+			Album:       albumName,
+			CoverURL:    coverURL,
+			Downloaded:  downloaded,
 		})
 
 		j.finishFetch(downloaded || coverURL != "", isMissingAlbum(mf.Album), setAlbum || albumName != "", downloaded)
