@@ -1056,6 +1056,7 @@ func (j *spotifyMetadataJob) run(ds model.DataStore) {
 		if time.Since(tokenFetchedAt) >= time.Duration(spotifyTokenRefreshSeconds)*time.Second {
 			refreshedToken, tokenErr := j.getToken(ctx)
 			if tokenErr != nil {
+				j.setError(tokenErr)
 				j.finishFetch(true, isMissingAlbum(mf.Album), false, false)
 				continue
 			}
@@ -1072,6 +1073,8 @@ func (j *spotifyMetadataJob) run(ds model.DataStore) {
 					token = refreshedToken
 					tokenFetchedAt = time.Now()
 					track, confidence, searchErr = j.searchBestTrack(ctx, token, mf)
+				} else {
+					j.setError(tokenErr)
 				}
 			}
 		}
@@ -1176,45 +1179,48 @@ func (j *spotifyMetadataJob) storeEntry(entry spotifyConfidenceEntry) {
 }
 
 func (j *spotifyMetadataJob) getToken(ctx context.Context) (string, error) {
+	clientID := strings.TrimSpace(conf.Server.Spotify.ID)
+	clientSecret := strings.TrimSpace(conf.Server.Spotify.Secret)
+	if clientID != "" && clientSecret != "" {
+		form := url.Values{}
+		form.Set("grant_type", "client_credentials")
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
+		if err != nil {
+			return "", err
+		}
+		basic := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
+		req.Header.Set("Authorization", "Basic "+basic)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		resp, err := j.client.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return "", spotifyHTTPError{status: resp.StatusCode, op: "token"}
+		}
+		var payload struct {
+			AccessToken string `json:"access_token"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return "", err
+		}
+		if payload.AccessToken == "" {
+			return "", fmt.Errorf("spotify access token is empty")
+		}
+		return payload.AccessToken, nil
+	}
+
 	manualToken := strings.TrimSpace(conf.Server.Spotify.APIToken)
+	manualToken = strings.TrimPrefix(manualToken, "Bearer ")
+	manualToken = strings.TrimPrefix(manualToken, "bearer ")
+	manualToken = strings.TrimSpace(manualToken)
 	if manualToken != "" {
 		return manualToken, nil
 	}
 
-	clientID := strings.TrimSpace(conf.Server.Spotify.ID)
-	clientSecret := strings.TrimSpace(conf.Server.Spotify.Secret)
-	if clientID == "" || clientSecret == "" {
-		return "", fmt.Errorf("spotify credentials are not configured")
-	}
-
-	form := url.Values{}
-	form.Set("grant_type", "client_credentials")
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
-	if err != nil {
-		return "", err
-	}
-	basic := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
-	req.Header.Set("Authorization", "Basic "+basic)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := j.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", spotifyHTTPError{status: resp.StatusCode, op: "token"}
-	}
-	var payload struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", err
-	}
-	if payload.AccessToken == "" {
-		return "", fmt.Errorf("spotify access token is empty")
-	}
-	return payload.AccessToken, nil
+	return "", fmt.Errorf("spotify credentials are not configured (set Spotify.ID + Spotify.Secret or Spotify.APIToken)")
 }
 
 type spotifySearchResponse struct {
