@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -140,10 +141,20 @@ func newSpotifyMetadataJob() *spotifyMetadataJob {
 }
 
 const (
-	spotifyClientID     = "887b8e46cce74eb3ad69f00c6fdf668e"
-	spotifyClientSecret = "faa6959477ff44bbbc8c71eb97210c98"
-	spotifyMinScore     = 0.69
+	spotifyClientID            = "887b8e46cce74eb3ad69f00c6fdf668e"
+	spotifyClientSecret        = "faa6959477ff44bbbc8c71eb97210c98"
+	spotifyMinScore            = 0.69
+	spotifyTokenRefreshSeconds = 3500
 )
+
+type spotifyHTTPError struct {
+	status int
+	op     string
+}
+
+func (e spotifyHTTPError) Error() string {
+	return fmt.Sprintf("spotify %s status: %d", e.op, e.status)
+}
 
 func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 	ctx := context.Background()
@@ -999,6 +1010,7 @@ func (j *spotifyMetadataJob) run(ds model.DataStore) {
 		j.setError(err)
 		return
 	}
+	tokenFetchedAt := time.Now()
 
 	cursor, err := ds.MediaFile(ctx).GetCursor()
 	if err != nil {
@@ -1043,7 +1055,28 @@ func (j *spotifyMetadataJob) run(ds model.DataStore) {
 		}
 		j.setFetching(true, isMissingAlbum(mf.Album), 1)
 
+		if time.Since(tokenFetchedAt) >= time.Duration(spotifyTokenRefreshSeconds)*time.Second {
+			refreshedToken, tokenErr := j.getToken(ctx)
+			if tokenErr != nil {
+				j.finishFetch(true, isMissingAlbum(mf.Album), false, false)
+				continue
+			}
+			token = refreshedToken
+			tokenFetchedAt = time.Now()
+		}
+
 		track, confidence, searchErr := j.searchBestTrack(ctx, token, mf)
+		if searchErr != nil {
+			var httpErr spotifyHTTPError
+			if errors.As(searchErr, &httpErr) && httpErr.status == http.StatusUnauthorized {
+				refreshedToken, tokenErr := j.getToken(ctx)
+				if tokenErr == nil {
+					token = refreshedToken
+					tokenFetchedAt = time.Now()
+					track, confidence, searchErr = j.searchBestTrack(ctx, token, mf)
+				}
+			}
+		}
 		if searchErr != nil || track == nil {
 			j.finishFetch(true, isMissingAlbum(mf.Album), false, false)
 			continue
@@ -1161,7 +1194,7 @@ func (j *spotifyMetadataJob) getToken(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("spotify token status: %d", resp.StatusCode)
+		return "", spotifyHTTPError{status: resp.StatusCode, op: "token"}
 	}
 	var payload struct {
 		AccessToken string `json:"access_token"`
@@ -1221,7 +1254,7 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, 0, fmt.Errorf("spotify search status: %d", resp.StatusCode)
+		return nil, 0, spotifyHTTPError{status: resp.StatusCode, op: "search"}
 	}
 	var payload spotifySearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
