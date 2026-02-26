@@ -141,8 +141,6 @@ func newSpotifyMetadataJob() *spotifyMetadataJob {
 }
 
 const (
-	spotifyClientID            = "887b8e46cce74eb3ad69f00c6fdf668e"
-	spotifyClientSecret        = "faa6959477ff44bbbc8c71eb97210c98"
 	spotifyMinScore            = 0.69
 	spotifyTokenRefreshSeconds = 3500
 )
@@ -1178,13 +1176,24 @@ func (j *spotifyMetadataJob) storeEntry(entry spotifyConfidenceEntry) {
 }
 
 func (j *spotifyMetadataJob) getToken(ctx context.Context) (string, error) {
+	manualToken := strings.TrimSpace(conf.Server.Spotify.APIToken)
+	if manualToken != "" {
+		return manualToken, nil
+	}
+
+	clientID := strings.TrimSpace(conf.Server.Spotify.ID)
+	clientSecret := strings.TrimSpace(conf.Server.Spotify.Secret)
+	if clientID == "" || clientSecret == "" {
+		return "", fmt.Errorf("spotify credentials are not configured")
+	}
+
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
-	basic := base64.StdEncoding.EncodeToString([]byte(spotifyClientID + ":" + spotifyClientSecret))
+	basic := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
 	req.Header.Set("Authorization", "Basic "+basic)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 

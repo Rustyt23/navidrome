@@ -175,8 +175,9 @@ type lastfmOptions struct {
 }
 
 type spotifyOptions struct {
-	ID     string
-	Secret string
+	ID       string
+	Secret   string
+	APIToken string
 }
 
 type deezerOptions struct {
@@ -441,6 +442,7 @@ func disableExternalServices() {
 	Server.EnableInsightsCollector = false
 	Server.LastFM.Enabled = false
 	Server.Spotify.ID = ""
+	Server.Spotify.APIToken = ""
 	Server.Deezer.Enabled = false
 	Server.ListenBrainz.Enabled = false
 	Server.Agents = ""
@@ -625,6 +627,7 @@ func setViperDefaults() {
 	viper.SetDefault("lastfm.scrobblefirstartistonly", false)
 	viper.SetDefault("spotify.id", "")
 	viper.SetDefault("spotify.secret", "")
+	viper.SetDefault("spotify.apitoken", "")
 	viper.SetDefault("deezer.enabled", true)
 	viper.SetDefault("listenbrainz.enabled", true)
 	viper.SetDefault("listenbrainz.baseurl", "https://api.listenbrainz.org/1/")
