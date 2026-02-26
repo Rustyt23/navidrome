@@ -53,6 +53,7 @@ type Router struct {
 	libs        core.Library
 	devices     *retailPlayerDeviceResolver
 	metadataJob *musicBrainzMetadataJob
+	spotifyJob  *spotifyMetadataJob
 }
 
 func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library) *Router {
@@ -64,6 +65,7 @@ func New(ds model.DataStore, share core.Share, playlists core.Playlists, insight
 		libs:        libraryService,
 		devices:     newRetailPlayerDeviceResolver(),
 		metadataJob: newMusicBrainzMetadataJob(),
+		spotifyJob:  newSpotifyMetadataJob(),
 	}
 	r.ensureCoverCacheDir()
 	r.preloadRetailPlayerDeviceMappings()

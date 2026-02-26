@@ -53,6 +53,13 @@ const useStyles = makeStyles((theme) => ({
     alignItems: 'center',
     gap: theme.spacing(1),
   },
+  spotifyButton: {
+    backgroundColor: '#1DB954',
+    color: theme.palette.common.white,
+    '&:hover': {
+      backgroundColor: '#1aa34a',
+    },
+  },
   progressCard: {
     height: '100%',
   },
@@ -113,6 +120,11 @@ const CoverArtPanel = () => {
     releaseMbid: emptyProgress,
     coverArt: emptyProgress,
   })
+  const [spotifyStatus, setSpotifyStatus] = useState({
+    running: false,
+    album: emptyProgress,
+    coverArt: emptyProgress,
+  })
 
   const open = Boolean(anchorEl)
 
@@ -132,6 +144,18 @@ const CoverArtPanel = () => {
         )
       })
       .catch(() => {})
+
+    httpClient('/api/metadata/musicbrainz/spotify/status')
+      .then(({ json }) => {
+        setSpotifyStatus(
+          json || {
+            running: false,
+            album: emptyProgress,
+            coverArt: emptyProgress,
+          },
+        )
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -143,10 +167,10 @@ const CoverArtPanel = () => {
       () => {
         loadStatus()
       },
-      status.running ? 2000 : 5000,
+      status.running || spotifyStatus.running ? 2000 : 5000,
     )
     return () => clearInterval(interval)
-  }, [open, status.running, loadStatus])
+  }, [open, status.running, spotifyStatus.running, loadStatus])
 
   const startFetch = () => {
     httpClient('/api/metadata/musicbrainz/fetch', { method: 'POST' })
@@ -171,6 +195,19 @@ const CoverArtPanel = () => {
         }
       })
       .catch(() => notify('activity.musicbrainz.saveFailed', 'warning'))
+  }
+
+  const startSpotifyFetch = () => {
+    httpClient('/api/metadata/musicbrainz/spotify/fetch', { method: 'POST' })
+      .then(({ status: code }) => {
+        if (code === 202) {
+          notify('activity.musicbrainz.spotifyStarted', 'info')
+        } else {
+          notify('activity.musicbrainz.alreadyRunning', 'warning')
+        }
+        loadStatus()
+      })
+      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
   }
 
   return (
@@ -200,11 +237,21 @@ const CoverArtPanel = () => {
               </Typography>
               <Box className={classes.actions}>
                 <Button
+                  variant="contained"
+                  className={classes.spotifyButton}
+                  startIcon={<BiDownload />}
+                  onClick={startSpotifyFetch}
+                  disabled={status.running || spotifyStatus.running}
+                  data-testid="coverart-metadata-fetch-spotify-btn"
+                >
+                  {translate('activity.musicbrainz.fetchSpotify')}
+                </Button>
+                <Button
                   color="primary"
                   variant="contained"
                   startIcon={<MdSave />}
                   onClick={saveMetadata}
-                  disabled={status.running}
+                  disabled={status.running || spotifyStatus.running}
                   data-testid="coverart-metadata-save-btn"
                 >
                   {translate('activity.musicbrainz.save')}
@@ -214,7 +261,7 @@ const CoverArtPanel = () => {
                   variant="contained"
                   startIcon={<BiDownload />}
                   onClick={startFetch}
-                  disabled={status.running}
+                  disabled={status.running || spotifyStatus.running}
                   data-testid="coverart-metadata-fetch-btn"
                 >
                   {translate('activity.musicbrainz.fetch')}
@@ -224,7 +271,7 @@ const CoverArtPanel = () => {
             <Grid container spacing={2}>
               <Grid item xs={12} md={4}>
                 <ProgressCard
-                  title="Cover Art"
+                  title="Cover Art (MusicBrainz)"
                   progress={status.coverArt || emptyProgress}
                   translate={translate}
                   classes={classes}
@@ -266,6 +313,22 @@ const CoverArtPanel = () => {
                 <ProgressCard
                   title="Release MBID"
                   progress={status.releaseMbid || emptyProgress}
+                  translate={translate}
+                  classes={classes}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <ProgressCard
+                  title="Cover Art (Spotify)"
+                  progress={spotifyStatus.coverArt || emptyProgress}
+                  translate={translate}
+                  classes={classes}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <ProgressCard
+                  title="Album (Spotify)"
+                  progress={spotifyStatus.album || emptyProgress}
                   translate={translate}
                   classes={classes}
                 />

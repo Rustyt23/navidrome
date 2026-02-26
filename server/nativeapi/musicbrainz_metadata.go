@@ -2,7 +2,9 @@ package nativeapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +24,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/pmezard/go-difflib/difflib"
 )
 
 type metadataFieldProgress struct {
@@ -100,6 +103,55 @@ type metadataResult struct {
 	Genre         string
 	RecordingMBID string
 	ReleaseMBID   string
+}
+
+type spotifyMetadataStatus struct {
+	Running    bool                  `json:"running"`
+	StartedAt  *time.Time            `json:"startedAt,omitempty"`
+	FinishedAt *time.Time            `json:"finishedAt,omitempty"`
+	LastError  string                `json:"lastError,omitempty"`
+	Album      metadataFieldProgress `json:"album"`
+	CoverArt   metadataFieldProgress `json:"coverArt"`
+}
+
+type spotifyConfidenceEntry struct {
+	SongID      string  `json:"songId"`
+	Title       string  `json:"title"`
+	Artist      string  `json:"artist"`
+	MatchedName string  `json:"matchedName"`
+	Confidence  float64 `json:"confidence"`
+	Album       string  `json:"album"`
+	CoverURL    string  `json:"coverUrl,omitempty"`
+	Downloaded  bool    `json:"downloaded"`
+}
+
+type spotifyMetadataJob struct {
+	mu          sync.RWMutex
+	status      spotifyMetadataStatus
+	client      *http.Client
+	entries     map[string]spotifyConfidenceEntry
+	coverMisses sync.Map
+}
+
+func newSpotifyMetadataJob() *spotifyMetadataJob {
+	return &spotifyMetadataJob{
+		client:  &http.Client{Timeout: 15 * time.Second},
+		entries: map[string]spotifyConfidenceEntry{},
+	}
+}
+
+const (
+	spotifyMinScore            = 0.69
+	spotifyTokenRefreshSeconds = 3500
+)
+
+type spotifyHTTPError struct {
+	status int
+	op     string
+}
+
+func (e spotifyHTTPError) Error() string {
+	return fmt.Sprintf("spotify %s status: %d", e.op, e.status)
 }
 
 func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
@@ -870,6 +922,10 @@ func collectGenres(genres, tags []mbName) string {
 }
 
 var punctuationRegex = regexp.MustCompile(`[\p{P}\p{S}]`)
+var spotifyParenRegex = regexp.MustCompile(`\(.*?\)`)
+var spotifyBracketRegex = regexp.MustCompile(`\[.*?\]`)
+var spotifyFeatRegex = regexp.MustCompile(`feat\.?|ft\.?`)
+var spotifyNonAlphaNumSpaceRegex = regexp.MustCompile(`[^a-z0-9 ]`)
 
 func normalizeMBString(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
@@ -883,6 +939,15 @@ func normalizeMBString(v string) string {
 	return strings.Join(strings.Fields(v), " ")
 }
 
+func normalizeSpotifyString(v string) string {
+	v = strings.ToLower(v)
+	v = spotifyParenRegex.ReplaceAllString(v, "")
+	v = spotifyBracketRegex.ReplaceAllString(v, "")
+	v = spotifyFeatRegex.ReplaceAllString(v, "")
+	v = spotifyNonAlphaNumSpaceRegex.ReplaceAllString(v, "")
+	return strings.TrimSpace(v)
+}
+
 func yearFromDate(date string) int {
 	if len(date) < 4 {
 		return 0
@@ -892,6 +957,426 @@ func yearFromDate(date string) int {
 		return 0
 	}
 	return y
+}
+
+func (j *spotifyMetadataJob) getStatus() spotifyMetadataStatus {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.status
+}
+
+func (j *spotifyMetadataJob) getConfidenceEntries() []spotifyConfidenceEntry {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	res := make([]spotifyConfidenceEntry, 0, len(j.entries))
+	for _, v := range j.entries {
+		res = append(res, v)
+	}
+	slices.SortFunc(res, func(a, b spotifyConfidenceEntry) int {
+		return strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
+	})
+	return res
+}
+
+func (j *spotifyMetadataJob) start(ds model.DataStore) bool {
+	j.mu.Lock()
+	if j.status.Running {
+		j.mu.Unlock()
+		return false
+	}
+	now := time.Now()
+	j.status = spotifyMetadataStatus{Running: true, StartedAt: &now}
+	j.entries = map[string]spotifyConfidenceEntry{}
+	j.mu.Unlock()
+
+	go j.run(ds)
+	return true
+}
+
+func (j *spotifyMetadataJob) run(ds model.DataStore) {
+	ctx := context.Background()
+	defer func() {
+		j.mu.Lock()
+		j.status.Running = false
+		now := time.Now()
+		j.status.FinishedAt = &now
+		j.mu.Unlock()
+	}()
+
+	token, err := j.getToken(ctx)
+	if err != nil {
+		j.setError(err)
+		return
+	}
+	tokenFetchedAt := time.Now()
+
+	cursor, err := ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		j.setError(err)
+		return
+	}
+
+	candidates := make([]model.MediaFile, 0)
+	for mf, e := range cursor {
+		if e != nil {
+			j.setError(e)
+			return
+		}
+		if strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
+			continue
+		}
+		missingCover := !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == ""
+		if !missingCover {
+			j.mu.Lock()
+			j.status.CoverArt.Existing++
+			j.mu.Unlock()
+			continue
+		}
+		j.mu.Lock()
+		j.status.CoverArt.Missing++
+		j.status.CoverArt.Left++
+		if isMissingAlbum(mf.Album) {
+			j.status.Album.Missing++
+			j.status.Album.Left++
+		} else {
+			j.status.Album.Existing++
+		}
+		j.mu.Unlock()
+		candidates = append(candidates, mf)
+	}
+
+	ticker := time.NewTicker(1400 * time.Millisecond)
+	defer ticker.Stop()
+	for i, mf := range candidates {
+		if i > 0 {
+			<-ticker.C
+		}
+		j.setFetching(true, isMissingAlbum(mf.Album), 1)
+
+		if time.Since(tokenFetchedAt) >= time.Duration(spotifyTokenRefreshSeconds)*time.Second {
+			refreshedToken, tokenErr := j.getToken(ctx)
+			if tokenErr != nil {
+				j.setError(tokenErr)
+				j.finishFetch(true, isMissingAlbum(mf.Album), false, false)
+				continue
+			}
+			token = refreshedToken
+			tokenFetchedAt = time.Now()
+		}
+
+		track, confidence, searchErr := j.searchBestTrack(ctx, token, mf)
+		if searchErr != nil {
+			var httpErr spotifyHTTPError
+			if errors.As(searchErr, &httpErr) && httpErr.status == http.StatusUnauthorized {
+				refreshedToken, tokenErr := j.getToken(ctx)
+				if tokenErr == nil {
+					token = refreshedToken
+					tokenFetchedAt = time.Now()
+					track, confidence, searchErr = j.searchBestTrack(ctx, token, mf)
+				} else {
+					j.setError(tokenErr)
+				}
+			}
+		}
+		if searchErr != nil || track == nil {
+			j.finishFetch(true, isMissingAlbum(mf.Album), false, false)
+			continue
+		}
+
+		albumName := strings.TrimSpace(track.Album.Name)
+		coverURL := ""
+		if len(track.Album.Images) > 0 {
+			coverURL = strings.TrimSpace(track.Album.Images[0].URL)
+		}
+
+		setAlbum := isMissingAlbum(mf.Album) && albumName != ""
+		if setAlbum {
+			if err := ds.MediaFile(ctx).UpdateMissingMetadata(mf.ID, &albumName, nil, nil, nil, nil); err == nil {
+				j.setUpdated(true, false)
+			} else {
+				setAlbum = false
+			}
+		}
+
+		downloaded := false
+		if confidence > spotifyMinScore && coverURL != "" {
+			if relPath, ok := j.ensureSpotifyCover(ctx, track.ID, coverURL); ok {
+				if err := ds.MediaFile(ctx).UpdateCoverPath(mf.ID, relPath); err == nil {
+					downloaded = true
+					j.setUpdated(false, true)
+				}
+			}
+		}
+
+		j.storeEntry(spotifyConfidenceEntry{
+			SongID:      mf.ID,
+			Title:       mf.Title,
+			Artist:      mf.Artist,
+			MatchedName: strings.TrimSpace(track.Name),
+			Confidence:  confidence,
+			Album:       albumName,
+			CoverURL:    coverURL,
+			Downloaded:  downloaded,
+		})
+
+		j.finishFetch(downloaded || coverURL != "", isMissingAlbum(mf.Album), setAlbum || albumName != "", downloaded)
+	}
+}
+
+func (j *spotifyMetadataJob) setError(err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.status.LastError = err.Error()
+}
+
+func (j *spotifyMetadataJob) setFetching(cover, album bool, delta int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if cover {
+		j.status.CoverArt.Fetching += delta
+	}
+	if album {
+		j.status.Album.Fetching += delta
+	}
+}
+
+func (j *spotifyMetadataJob) setUpdated(album, cover bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if album {
+		j.status.Album.Updated++
+	}
+	if cover {
+		j.status.CoverArt.Updated++
+	}
+}
+
+func (j *spotifyMetadataJob) finishFetch(coverProcessed, albumMissing, albumFetched, coverFetched bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.status.CoverArt.Fetching--
+	j.status.CoverArt.Left--
+	if coverFetched {
+		j.status.CoverArt.Fetched++
+	} else if coverProcessed {
+		j.status.CoverArt.CouldntFetch++
+	}
+	if albumMissing {
+		j.status.Album.Fetching--
+		j.status.Album.Left--
+		if albumFetched {
+			j.status.Album.Fetched++
+		} else {
+			j.status.Album.CouldntFetch++
+		}
+	}
+}
+
+func (j *spotifyMetadataJob) storeEntry(entry spotifyConfidenceEntry) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.entries[entry.SongID] = entry
+}
+
+func (j *spotifyMetadataJob) getToken(ctx context.Context) (string, error) {
+	clientID := strings.TrimSpace(conf.Server.Spotify.ID)
+	clientSecret := strings.TrimSpace(conf.Server.Spotify.Secret)
+	if clientID != "" && clientSecret != "" {
+		form := url.Values{}
+		form.Set("grant_type", "client_credentials")
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
+		if err != nil {
+			return "", err
+		}
+		basic := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
+		req.Header.Set("Authorization", "Basic "+basic)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		resp, err := j.client.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return "", spotifyHTTPError{status: resp.StatusCode, op: "token"}
+		}
+		var payload struct {
+			AccessToken string `json:"access_token"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return "", err
+		}
+		if payload.AccessToken == "" {
+			return "", fmt.Errorf("spotify access token is empty")
+		}
+		return payload.AccessToken, nil
+	}
+
+	manualToken := strings.TrimSpace(conf.Server.Spotify.APIToken)
+	manualToken = strings.TrimPrefix(manualToken, "Bearer ")
+	manualToken = strings.TrimPrefix(manualToken, "bearer ")
+	manualToken = strings.TrimSpace(manualToken)
+	if manualToken != "" {
+		return manualToken, nil
+	}
+
+	return "", fmt.Errorf("spotify credentials are not configured (set Spotify.ID + Spotify.Secret or Spotify.APIToken)")
+}
+
+type spotifySearchResponse struct {
+	Tracks struct {
+		Items []spotifyTrack `json:"items"`
+	} `json:"tracks"`
+}
+
+type spotifyTrack struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	DurationMS int    `json:"duration_ms"`
+	Artists    []struct {
+		Name string `json:"name"`
+	} `json:"artists"`
+	Album struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Images []struct {
+			URL string `json:"url"`
+		} `json:"images"`
+	} `json:"album"`
+}
+
+func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, mf model.MediaFile) (*spotifyTrack, float64, error) {
+	q := strings.TrimSpace(mf.Title + " " + mf.Artist)
+	if q == "" {
+		return nil, 0, nil
+	}
+	endpoint, _ := url.Parse("https://api.spotify.com/v1/search")
+	params := endpoint.Query()
+	params.Set("q", q)
+	params.Set("type", "track")
+	params.Set("limit", "5")
+	endpoint.RawQuery = params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, spotifyHTTPError{status: resp.StatusCode, op: "search"}
+	}
+	var payload spotifySearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, 0, err
+	}
+	if len(payload.Tracks.Items) == 0 {
+		return nil, 0, nil
+	}
+
+	localTitle := normalizeSpotifyString(mf.Title)
+	localArtist := normalizeSpotifyString(mf.Artist)
+	localDuration := int(mf.Duration)
+
+	var best *spotifyTrack
+	bestScore := 0.0
+	for i := range payload.Tracks.Items {
+		candidate := &payload.Tracks.Items[i]
+		if len(candidate.Artists) == 0 {
+			continue
+		}
+		titleScore := stringSimilarity(localTitle, normalizeSpotifyString(candidate.Name))
+		artistScore := stringSimilarity(localArtist, normalizeSpotifyString(candidate.Artists[0].Name))
+		durationScore := 0.0
+		if localDuration > 0 {
+			diff := localDuration - (candidate.DurationMS / 1000)
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff <= 10 {
+				durationScore = 1
+			}
+		}
+		finalScore := (titleScore * 0.5) + (artistScore * 0.45) + (durationScore * 0.05)
+		if finalScore > bestScore {
+			bestScore = finalScore
+			best = candidate
+		}
+	}
+	return best, bestScore, nil
+}
+
+func stringSimilarity(a, b string) float64 {
+	if a == "" || b == "" {
+		return 0
+	}
+	matcher := difflib.NewMatcher(toRuneStrings(a), toRuneStrings(b))
+	return matcher.Ratio()
+}
+
+func toRuneStrings(s string) []string {
+	chars := make([]string, 0, len(s))
+	for _, r := range s {
+		chars = append(chars, string(r))
+	}
+	return chars
+}
+
+func (j *spotifyMetadataJob) ensureSpotifyCover(ctx context.Context, trackID, coverURL string) (string, bool) {
+	if trackID == "" || coverURL == "" {
+		return "", false
+	}
+	if _, missed := j.coverMisses.Load(trackID); missed {
+		return "", false
+	}
+	if err := os.MkdirAll(filepath.Join(conf.Server.DataFolder, coverCacheDirName), 0o755); err != nil {
+		log.Warn(ctx, "Could not create cover cache directory", "err", err)
+		return "", false
+	}
+
+	fileName := "spotify-" + trackID + ".jpg"
+	coverPath := filepath.Join(conf.Server.DataFolder, coverCacheDirName, fileName)
+	if _, err := os.Stat(coverPath); err == nil {
+		return filepath.ToSlash(filepath.Join(coverCacheDirName, fileName)), true
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, coverURL, nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		j.coverMisses.Store(trackID, true)
+		return "", false
+	}
+	tmpPath := coverPath + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return "", false
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return "", false
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", false
+	}
+	if err := os.Rename(tmpPath, coverPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", false
+	}
+	return filepath.ToSlash(filepath.Join(coverCacheDirName, fileName)), true
 }
 
 func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
@@ -908,9 +1393,24 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"status":"already_running"}`))
 		})
+		r.Get("/spotify/status", func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(n.spotifyJob.getStatus())
+		})
+		r.Get("/spotify/confidence", func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": n.spotifyJob.getConfidenceEntries()})
+		})
+		r.Post("/spotify/fetch", func(w http.ResponseWriter, _ *http.Request) {
+			if n.spotifyJob.start(n.ds) {
+				w.WriteHeader(http.StatusAccepted)
+				_, _ = w.Write([]byte(`{"status":"started"}`))
+				return
+			}
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"status":"already_running"}`))
+		})
 		r.Post("/save", func(w http.ResponseWriter, _ *http.Request) {
 			status := n.metadataJob.getStatus()
-			if status.Running {
+			if status.Running || n.spotifyJob.getStatus().Running {
 				w.WriteHeader(http.StatusConflict)
 				_, _ = w.Write([]byte(`{"status":"still_running"}`))
 				return

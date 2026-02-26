@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import IconButton from '@material-ui/core/IconButton'
 import Tooltip from '@material-ui/core/Tooltip'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
@@ -15,6 +15,7 @@ import {
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import { DurationField, Pagination } from '../common'
+import { httpClient } from '../dataProvider'
 import subsonic from '../subsonic'
 
 const useStyles = makeStyles({
@@ -70,6 +71,23 @@ const CovertartFilter = (props) => (
 
 const CovertartList = (props) => {
   const classes = useStyles()
+  const [confidenceEntries, setConfidenceEntries] = useState([])
+
+  useEffect(() => {
+    httpClient('/api/metadata/musicbrainz/spotify/confidence')
+      .then(({ json }) => setConfidenceEntries(json?.items || []))
+      .catch(() => setConfidenceEntries([]))
+  }, [])
+
+  const confidenceBySong = useMemo(() => {
+    const map = new Map()
+    confidenceEntries.forEach((entry) => {
+      if (entry?.songId) {
+        map.set(entry.songId, entry)
+      }
+    })
+    return map
+  }, [confidenceEntries])
 
   return (
     <List
@@ -114,6 +132,22 @@ const CovertartList = (props) => {
           }
         />
         <FunctionField
+          label="Confidence"
+          sortable={false}
+          render={(record) => {
+            const value = confidenceBySong.get(record.id)?.confidence
+            if (typeof value !== 'number') {
+              return ''
+            }
+            return value.toFixed(3)
+          }}
+        />
+        <FunctionField
+          label="Matched"
+          sortable={false}
+          render={(record) => confidenceBySong.get(record.id)?.matchedName || ''}
+        />
+        <FunctionField
           label="Recording MBID"
           sortable={false}
           render={(record) => {
@@ -141,7 +175,7 @@ const CovertartList = (props) => {
           render={(record) => {
             const releaseId = record?.mbzReleaseId
 
-              if (!releaseId) {
+            if (!releaseId) {
               return <span className={classes.mbidText}></span>
             }
 
@@ -156,7 +190,7 @@ const CovertartList = (props) => {
               </a>
             )
           }}
-          />
+        />
         <DurationField source="duration" />
       </Datagrid>
     </List>

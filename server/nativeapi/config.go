@@ -22,6 +22,7 @@ var sensitiveFieldsPartialMask = []string{
 	"Prometheus.MetricsPath",
 	"Spotify.ID",
 	"Spotify.Secret",
+	"Spotify.APIToken",
 	"DevAutoLoginUsername",
 }
 
