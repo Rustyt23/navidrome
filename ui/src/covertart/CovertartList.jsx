@@ -143,6 +143,20 @@ const CovertartList = (props) => {
           }}
         />
         <FunctionField
+          label="Spotify Match"
+          sortable={false}
+          render={(record) => {
+            const entry = confidenceBySong.get(record.id)
+            if (!entry?.spotifyMatch) {
+              return ''
+            }
+            if (!entry?.spotifyArtist) {
+              return entry.spotifyMatch
+            }
+            return `${entry.spotifyMatch} - ${entry.spotifyArtist}`
+          }}
+        />
+        <FunctionField
           label="Recording MBID"
           sortable={false}
           render={(record) => {

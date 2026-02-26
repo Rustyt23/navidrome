@@ -114,13 +114,15 @@ type spotifyMetadataStatus struct {
 }
 
 type spotifyConfidenceEntry struct {
-	SongID     string  `json:"songId"`
-	Title      string  `json:"title"`
-	Artist     string  `json:"artist"`
-	Confidence float64 `json:"confidence"`
-	Album      string  `json:"album"`
-	CoverURL   string  `json:"coverUrl,omitempty"`
-	Downloaded bool    `json:"downloaded"`
+	SongID        string  `json:"songId"`
+	Title         string  `json:"title"`
+	Artist        string  `json:"artist"`
+	Confidence    float64 `json:"confidence"`
+	Album         string  `json:"album"`
+	SpotifyMatch  string  `json:"spotifyMatch,omitempty"`
+	SpotifyArtist string  `json:"spotifyArtist,omitempty"`
+	CoverURL      string  `json:"coverUrl,omitempty"`
+	Downloaded    bool    `json:"downloaded"`
 }
 
 type spotifyMetadataJob struct {
@@ -138,11 +140,7 @@ func newSpotifyMetadataJob() *spotifyMetadataJob {
 	}
 }
 
-const (
-	spotifyClientID     = "887b8e46cce74eb3ad69f00c6fdf668e"
-	spotifyClientSecret = "faa6959477ff44bbbc8c71eb97210c98"
-	spotifyMinScore     = 0.69
-)
+const spotifyMinScore = 0.69
 
 func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 	ctx := context.Background()
@@ -938,6 +936,21 @@ func normalizeSpotifyString(v string) string {
 	return strings.TrimSpace(v)
 }
 
+func parseSpotifyFilename(filePath string) (artist, title string) {
+	name := strings.TrimSpace(filepath.Base(filePath))
+	if strings.HasSuffix(strings.ToLower(name), ".mp3") {
+		name = name[:len(name)-4]
+	}
+	if !strings.Contains(name, " - ") {
+		return "", ""
+	}
+	parts := strings.SplitN(name, " - ", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+}
+
 func yearFromDate(date string) int {
 	if len(date) < 4 {
 		return 0
@@ -1074,13 +1087,15 @@ func (j *spotifyMetadataJob) run(ds model.DataStore) {
 		}
 
 		j.storeEntry(spotifyConfidenceEntry{
-			SongID:     mf.ID,
-			Title:      mf.Title,
-			Artist:     mf.Artist,
-			Confidence: confidence,
-			Album:      albumName,
-			CoverURL:   coverURL,
-			Downloaded: downloaded,
+			SongID:        mf.ID,
+			Title:         mf.Title,
+			Artist:        mf.Artist,
+			Confidence:    confidence,
+			Album:         albumName,
+			SpotifyMatch:  strings.TrimSpace(track.Name),
+			SpotifyArtist: strings.TrimSpace(track.Artists[0].Name),
+			CoverURL:      coverURL,
+			Downloaded:    downloaded,
 		})
 
 		j.finishFetch(downloaded || coverURL != "", isMissingAlbum(mf.Album), setAlbum || albumName != "", downloaded)
@@ -1143,13 +1158,18 @@ func (j *spotifyMetadataJob) storeEntry(entry spotifyConfidenceEntry) {
 }
 
 func (j *spotifyMetadataJob) getToken(ctx context.Context) (string, error) {
+	token := strings.TrimSpace(conf.Server.Spotify.Token)
+	if token != "" {
+		return token, nil
+	}
+
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
-	basic := base64.StdEncoding.EncodeToString([]byte(spotifyClientID + ":" + spotifyClientSecret))
+	basic := base64.StdEncoding.EncodeToString([]byte(conf.Server.Spotify.ID + ":" + conf.Server.Spotify.Secret))
 	req.Header.Set("Authorization", "Basic "+basic)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -1196,7 +1216,12 @@ type spotifyTrack struct {
 }
 
 func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, mf model.MediaFile) (*spotifyTrack, float64, error) {
-	q := strings.TrimSpace(mf.Title + " " + mf.Artist)
+	localArtist, localTitle := parseSpotifyFilename(mf.Path)
+	if localArtist == "" || localTitle == "" {
+		return nil, 0, nil
+	}
+
+	q := strings.TrimSpace(localTitle + " " + localArtist)
 	if q == "" {
 		return nil, 0, nil
 	}
@@ -1229,8 +1254,8 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 		return nil, 0, nil
 	}
 
-	localTitle := normalizeSpotifyString(mf.Title)
-	localArtist := normalizeSpotifyString(mf.Artist)
+	localTitleNorm := normalizeSpotifyString(localTitle)
+	localArtistNorm := normalizeSpotifyString(localArtist)
 	localDuration := int(mf.Duration)
 
 	var best *spotifyTrack
@@ -1240,8 +1265,8 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 		if len(candidate.Artists) == 0 {
 			continue
 		}
-		titleScore := stringSimilarity(localTitle, normalizeSpotifyString(candidate.Name))
-		artistScore := stringSimilarity(localArtist, normalizeSpotifyString(candidate.Artists[0].Name))
+		titleScore := stringSimilarity(localTitleNorm, normalizeSpotifyString(candidate.Name))
+		artistScore := stringSimilarity(localArtistNorm, normalizeSpotifyString(candidate.Artists[0].Name))
 		durationScore := 0.0
 		if localDuration > 0 {
 			diff := localDuration - (candidate.DurationMS / 1000)
