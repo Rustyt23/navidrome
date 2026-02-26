@@ -691,6 +691,8 @@
     "musicbrainz": {
       "title": "MusicBrainz Metadata",
       "fetch": "Fetch metadata",
+      "fetchSpotify": "Fetch Spotify metadata",
+      "spotifyStarted": "Spotify metadata fetch started",
       "save": "Save metadata",
       "started": "Metadata fetch started",
       "alreadyRunning": "Metadata fetch is already running",
