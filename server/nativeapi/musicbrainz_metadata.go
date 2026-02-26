@@ -23,6 +23,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/pmezard/go-difflib/difflib"
 )
 
 type metadataFieldProgress struct {
@@ -911,6 +912,10 @@ func collectGenres(genres, tags []mbName) string {
 }
 
 var punctuationRegex = regexp.MustCompile(`[\p{P}\p{S}]`)
+var spotifyParenRegex = regexp.MustCompile(`\(.*?\)`)
+var spotifyBracketRegex = regexp.MustCompile(`\[.*?\]`)
+var spotifyFeatRegex = regexp.MustCompile(`feat\.?|ft\.?`)
+var spotifyNonAlphaNumSpaceRegex = regexp.MustCompile(`[^a-z0-9 ]`)
 
 func normalizeMBString(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
@@ -922,6 +927,15 @@ func normalizeMBString(v string) string {
 		return r
 	}, v)
 	return strings.Join(strings.Fields(v), " ")
+}
+
+func normalizeSpotifyString(v string) string {
+	v = strings.ToLower(v)
+	v = spotifyParenRegex.ReplaceAllString(v, "")
+	v = spotifyBracketRegex.ReplaceAllString(v, "")
+	v = spotifyFeatRegex.ReplaceAllString(v, "")
+	v = spotifyNonAlphaNumSpaceRegex.ReplaceAllString(v, "")
+	return strings.TrimSpace(v)
 }
 
 func yearFromDate(date string) int {
@@ -1215,8 +1229,8 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 		return nil, 0, nil
 	}
 
-	localTitle := normalizeMBString(mf.Title)
-	localArtist := normalizeMBString(mf.Artist)
+	localTitle := normalizeSpotifyString(mf.Title)
+	localArtist := normalizeSpotifyString(mf.Artist)
 	localDuration := int(mf.Duration)
 
 	var best *spotifyTrack
@@ -1226,8 +1240,8 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 		if len(candidate.Artists) == 0 {
 			continue
 		}
-		titleScore := stringSimilarity(localTitle, normalizeMBString(candidate.Name))
-		artistScore := stringSimilarity(localArtist, normalizeMBString(candidate.Artists[0].Name))
+		titleScore := stringSimilarity(localTitle, normalizeSpotifyString(candidate.Name))
+		artistScore := stringSimilarity(localArtist, normalizeSpotifyString(candidate.Artists[0].Name))
 		durationScore := 0.0
 		if localDuration > 0 {
 			diff := localDuration - (candidate.DurationMS / 1000)
@@ -1251,31 +1265,16 @@ func stringSimilarity(a, b string) float64 {
 	if a == "" || b == "" {
 		return 0
 	}
-	if a == b {
-		return 1
+	matcher := difflib.NewMatcher(toRuneStrings(a), toRuneStrings(b))
+	return matcher.Ratio()
+}
+
+func toRuneStrings(s string) []string {
+	chars := make([]string, 0, len(s))
+	for _, r := range s {
+		chars = append(chars, string(r))
 	}
-	aSet := map[string]bool{}
-	for _, v := range strings.Fields(a) {
-		aSet[v] = true
-	}
-	bSet := map[string]bool{}
-	for _, v := range strings.Fields(b) {
-		bSet[v] = true
-	}
-	if len(aSet) == 0 || len(bSet) == 0 {
-		return 0
-	}
-	common := 0
-	for word := range aSet {
-		if bSet[word] {
-			common++
-		}
-	}
-	denominator := len(aSet)
-	if len(bSet) > denominator {
-		denominator = len(bSet)
-	}
-	return float64(common) / float64(denominator)
+	return chars
 }
 
 func (j *spotifyMetadataJob) ensureSpotifyCover(ctx context.Context, trackID, coverURL string) (string, bool) {
