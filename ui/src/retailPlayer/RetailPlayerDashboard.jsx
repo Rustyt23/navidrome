@@ -977,6 +977,36 @@ const RetailPlayerDashboard = () => {
   const isBusy = retailLoading || statusLoading
   const combinedError = integrationError || statusError || devicesError
 
+  useEffect(() => {
+    const metaDescription = document.querySelector('meta[name="description"]')
+    if (!metaDescription) {
+      return undefined
+    }
+
+    const defaultDescription =
+      metaDescription.getAttribute('content') || 'MusicMatters Music Server'
+    const deviceName = normalizeValue(device?.name)
+    const organization = normalizeValue(device?.organization)
+
+    if (!deviceName) {
+      metaDescription.setAttribute('content', defaultDescription)
+      return () => {
+        metaDescription.setAttribute('content', defaultDescription)
+      }
+    }
+
+    const organizationText = organization || 'Retail Player'
+    metaDescription.setAttribute(
+      'content',
+      `MusicMatters
+Device: ${deviceName} • Property: ${organizationText}`,
+    )
+
+    return () => {
+      metaDescription.setAttribute('content', defaultDescription)
+    }
+  }, [device?.name, device?.organization])
+
   const deviceTrackKey = useMemo(() => {
     if (!device) {
       return ''
