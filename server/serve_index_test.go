@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -300,6 +302,39 @@ var _ = Describe("addShareData", func() {
 	})
 })
 
+var _ = Describe("addRetailPlayerMetaData", func() {
+	It("keeps default description when path is not retail player", func() {
+		data := map[string]interface{}{"MetaDescription": "default"}
+		r := httptest.NewRequest("GET", "/song", nil)
+		ds := &tests.MockDataStore{MockedUser: &mockedUserRepo{}}
+
+		addRetailPlayerMetaData(context.Background(), ds, r, data)
+
+		Expect(data["MetaDescription"]).To(Equal("default"))
+	})
+
+	It("sets retail player meta description from mapping and folder assignment", func() {
+		ds := &tests.MockDataStore{
+			MockedUser: &mockedUserRepo{},
+			MockedRetailPlayerDeviceMapping: &mockedRetailPlayerDeviceMappingRepo{mapping: &model.RetailPlayerDeviceMapping{
+				DeviceID:     "device-1",
+				DeviceName:   "27 North",
+				Organization: "Fallback Org",
+			}},
+			MockedRetailPlayerFolder: &mockedRetailPlayerFolderRepo{
+				folders:     []model.RetailPlayerFolder{{ID: "folder-1", Name: "Arandas"}},
+				assignments: []model.RetailPlayerDeviceFolder{{DeviceID: "device-1", FolderID: "folder-1"}},
+			},
+		}
+		data := map[string]interface{}{"MetaDescription": "default"}
+		r := httptest.NewRequest("GET", "/retailplayer/27%20North", nil)
+
+		addRetailPlayerMetaData(context.Background(), ds, r, data)
+
+		Expect(data["MetaDescription"]).To(Equal("MusicMatters\nDevice: 27 North • Property: Arandas"))
+	})
+})
+
 var appConfigRegex = regexp.MustCompile(`(?m)window.__APP_CONFIG__=(.*);</script>`)
 
 func extractAppConfig(body string) map[string]any {
@@ -321,6 +356,43 @@ func extractAppConfig(body string) map[string]any {
 type mockedUserRepo struct {
 	model.UserRepository
 	empty bool
+}
+
+type mockedRetailPlayerDeviceMappingRepo struct {
+	model.RetailPlayerDeviceMappingRepository
+	mapping *model.RetailPlayerDeviceMapping
+	err     error
+}
+
+func (m *mockedRetailPlayerDeviceMappingRepo) FindByIdentifier(ctx context.Context, identifier string) (*model.RetailPlayerDeviceMapping, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.mapping == nil {
+		return nil, errors.New("not found")
+	}
+	return m.mapping, nil
+}
+
+type mockedRetailPlayerFolderRepo struct {
+	model.RetailPlayerFolderRepository
+	folders     []model.RetailPlayerFolder
+	assignments []model.RetailPlayerDeviceFolder
+	err         error
+}
+
+func (m *mockedRetailPlayerFolderRepo) List(ctx context.Context) ([]model.RetailPlayerFolder, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.folders, nil
+}
+
+func (m *mockedRetailPlayerFolderRepo) Assignments(ctx context.Context) ([]model.RetailPlayerDeviceFolder, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.assignments, nil
 }
 
 func (u *mockedUserRepo) CountAll(...model.QueryOptions) (int64, error) {

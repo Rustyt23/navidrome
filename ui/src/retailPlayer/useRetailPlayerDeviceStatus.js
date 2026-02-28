@@ -128,6 +128,50 @@ const getBasename = (value) => {
   return normalizeValue(normalized)
 }
 
+const getDeviceOrganizationFromFolder = (device, folders, deviceFolders) => {
+  if (!device) {
+    return ''
+  }
+
+  const deviceID = normalizeValue(device.apiId || device.id)
+  if (!deviceID || !Array.isArray(folders) || !Array.isArray(deviceFolders)) {
+    return ''
+  }
+
+  const folderNameByID = new Map(
+    folders
+      .map((folder) => {
+        const id = normalizeValue(folder?.id)
+        const name = normalizeValue(folder?.name)
+        if (!id || !name) {
+          return null
+        }
+        return [id, name]
+      })
+      .filter(Boolean),
+  )
+
+  for (let index = 0; index < deviceFolders.length; index += 1) {
+    const mapping = deviceFolders[index]
+    const mappingDeviceID = normalizeValue(mapping?.deviceId)
+    if (!mappingDeviceID || mappingDeviceID !== deviceID) {
+      continue
+    }
+
+    const folderID = normalizeValue(mapping?.folderId)
+    if (!folderID) {
+      continue
+    }
+
+    const folderName = folderNameByID.get(folderID)
+    if (folderName) {
+      return folderName
+    }
+  }
+
+  return ''
+}
+
 const mapChannelListResponse = (payload, previousChannels = []) => {
   const previousById = new Map(
     ensureArray(previousChannels)
@@ -721,6 +765,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
 
   const {
     devices,
+    folders,
+    deviceFolders,
     error: deviceListError,
     isApiEnabled,
     isLoading: deviceListLoading,
@@ -746,27 +792,54 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return candidateKey === normalizedSlugKey ? device : null
     }
 
+    const resolveDeviceOrganization = (device) => {
+      const folderOrganization = getDeviceOrganizationFromFolder(
+        device,
+        folders,
+        deviceFolders,
+      )
+      if (!folderOrganization) {
+        return device
+      }
+      return {
+        ...device,
+        organization: folderOrganization,
+      }
+    }
+
     const mappedDevice = ensureMatchingDevice(deviceState.data)
     if (mappedDevice) {
-      return mappedDevice
+      return resolveDeviceOrganization(mappedDevice)
     }
 
     const payloadDevice = statusState.data?.device
     if (payloadDevice) {
-      return ensureMatchingDevice(mapRetailPlayerDevice(payloadDevice))
+      const matchedPayloadDevice = ensureMatchingDevice(
+        mapRetailPlayerDevice(payloadDevice),
+      )
+      if (matchedPayloadDevice) {
+        return resolveDeviceOrganization(matchedPayloadDevice)
+      }
     }
 
     if (Array.isArray(devices)) {
       for (let index = 0; index < devices.length; index += 1) {
         const match = ensureMatchingDevice(devices[index])
         if (match) {
-          return match
+          return resolveDeviceOrganization(match)
         }
       }
     }
 
     return null
-  }, [deviceState.data, devices, normalizedSlugKey, statusState.data])
+  }, [
+    deviceFolders,
+    deviceState.data,
+    devices,
+    folders,
+    normalizedSlugKey,
+    statusState.data,
+  ])
 
   useEffect(() => {
     if (typeof baseDevice?.isLocked === 'boolean') {

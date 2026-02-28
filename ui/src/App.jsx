@@ -1,6 +1,6 @@
 import ReactGA from 'react-ga'
 import { Provider } from 'react-redux'
-import { createHashHistory } from 'history'
+import { createBrowserHistory } from 'history'
 import { Admin as RAAdmin, Resource } from 'react-admin'
 import { HotKeys } from 'react-hotkeys'
 import dataProvider from './dataProvider'
@@ -51,7 +51,9 @@ import PlaylistEdit from './playlist/PlaylistEdit'
 import RetailPlayerDeviceStoreProvider from './retailPlayer/RetailPlayerDeviceStoreContext'
 import RetailPlayerDragPreview from './retailPlayer/RetailPlayerDragPreview'
 
-const history = createHashHistory()
+const history = createBrowserHistory({
+  basename: config.baseURL || undefined,
+})
 if (!shareInfo && history.location.pathname === '/') history.replace('/song')
 if (config.gaTrackingId) {
   ReactGA.initialize(config.gaTrackingId)
