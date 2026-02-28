@@ -1,11 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"html/template"
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -40,41 +42,41 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			return
 		}
 		appConfig := map[string]interface{}{
-			"version":                    consts.Version,
-			"firstTime":                  firstTime,
-			"variousArtistsId":           consts.VariousArtistsID,
-			"baseURL":                    str.SanitizeText(strings.TrimSuffix(conf.Server.BasePath, "/")),
-			"loginBackgroundURL":         str.SanitizeText(conf.Server.UILoginBackgroundURL),
-			"welcomeMessage":             str.SanitizeText(conf.Server.UIWelcomeMessage),
-			"maxSidebarPlaylists":        conf.Server.MaxSidebarPlaylists,
-			"enableTranscodingConfig":    conf.Server.EnableTranscodingConfig,
-			"enableDownloads":            conf.Server.EnableDownloads,
-			"enableFavourites":           conf.Server.EnableFavourites,
-			"enableStarRating":           conf.Server.EnableStarRating,
-			"defaultTheme":               conf.Server.DefaultTheme,
-			"defaultLanguage":            conf.Server.DefaultLanguage,
-			"defaultUIVolume":            conf.Server.DefaultUIVolume,
-			"enableCoverAnimation":       conf.Server.EnableCoverAnimation,
-			"enableNowPlaying":           conf.Server.EnableNowPlaying,
-			"gaTrackingId":               conf.Server.GATrackingID,
-			"losslessFormats":            strings.ToUpper(strings.Join(mime.LosslessFormats, ",")),
-			"devActivityPanel":           conf.Server.DevActivityPanel,
-			"enableUserEditing":          conf.Server.EnableUserEditing,
-			"enableSharing":              conf.Server.EnableSharing,
-			"shareURL":                   conf.Server.ShareURL,
-			"defaultDownloadableShare":   conf.Server.DefaultDownloadableShare,
-			"devSidebarPlaylists":        conf.Server.DevSidebarPlaylists,
-			"lastFMEnabled":              conf.Server.LastFM.Enabled,
-			"devShowArtistPage":          conf.Server.DevShowArtistPage,
-			"devUIShowConfig":            conf.Server.DevUIShowConfig,
-			"devNewEventStream":          conf.Server.DevNewEventStream,
-			"listenBrainzEnabled":        conf.Server.ListenBrainz.Enabled,
-			"enableExternalServices":     conf.Server.EnableExternalServices,
-			"enableReplayGain":           conf.Server.EnableReplayGain,
-			"defaultDownsamplingFormat":  conf.Server.DefaultDownsamplingFormat,
-			"separator":                  string(os.PathSeparator),
-			"enableInspect":              conf.Server.Inspect.Enabled,
-			"retailPlayerDevicesEnabled": conf.Server.RetailPlayer.Enabled,
+			"version":                        consts.Version,
+			"firstTime":                      firstTime,
+			"variousArtistsId":               consts.VariousArtistsID,
+			"baseURL":                        str.SanitizeText(strings.TrimSuffix(conf.Server.BasePath, "/")),
+			"loginBackgroundURL":             str.SanitizeText(conf.Server.UILoginBackgroundURL),
+			"welcomeMessage":                 str.SanitizeText(conf.Server.UIWelcomeMessage),
+			"maxSidebarPlaylists":            conf.Server.MaxSidebarPlaylists,
+			"enableTranscodingConfig":        conf.Server.EnableTranscodingConfig,
+			"enableDownloads":                conf.Server.EnableDownloads,
+			"enableFavourites":               conf.Server.EnableFavourites,
+			"enableStarRating":               conf.Server.EnableStarRating,
+			"defaultTheme":                   conf.Server.DefaultTheme,
+			"defaultLanguage":                conf.Server.DefaultLanguage,
+			"defaultUIVolume":                conf.Server.DefaultUIVolume,
+			"enableCoverAnimation":           conf.Server.EnableCoverAnimation,
+			"enableNowPlaying":               conf.Server.EnableNowPlaying,
+			"gaTrackingId":                   conf.Server.GATrackingID,
+			"losslessFormats":                strings.ToUpper(strings.Join(mime.LosslessFormats, ",")),
+			"devActivityPanel":               conf.Server.DevActivityPanel,
+			"enableUserEditing":              conf.Server.EnableUserEditing,
+			"enableSharing":                  conf.Server.EnableSharing,
+			"shareURL":                       conf.Server.ShareURL,
+			"defaultDownloadableShare":       conf.Server.DefaultDownloadableShare,
+			"devSidebarPlaylists":            conf.Server.DevSidebarPlaylists,
+			"lastFMEnabled":                  conf.Server.LastFM.Enabled,
+			"devShowArtistPage":              conf.Server.DevShowArtistPage,
+			"devUIShowConfig":                conf.Server.DevUIShowConfig,
+			"devNewEventStream":              conf.Server.DevNewEventStream,
+			"listenBrainzEnabled":            conf.Server.ListenBrainz.Enabled,
+			"enableExternalServices":         conf.Server.EnableExternalServices,
+			"enableReplayGain":               conf.Server.EnableReplayGain,
+			"defaultDownsamplingFormat":      conf.Server.DefaultDownsamplingFormat,
+			"separator":                      string(os.PathSeparator),
+			"enableInspect":                  conf.Server.Inspect.Enabled,
+			"retailPlayerDevicesEnabled":     conf.Server.RetailPlayer.Enabled,
 			"retailPlayerDeviceLockPassword": str.SanitizeText(conf.Server.RetailPlayer.DeviceLockPassword),
 		}
 		if strings.HasPrefix(conf.Server.UILoginBackgroundURL, "/") {
@@ -97,9 +99,11 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			version = "v" + version
 		}
 		data := map[string]interface{}{
-			"AppConfig": string(appConfigJson),
-			"Version":   version,
+			"AppConfig":       string(appConfigJson),
+			"Version":         version,
+			"MetaDescription": "MusicMatters Music Server - " + version,
 		}
+		addRetailPlayerMetaData(r.Context(), ds, r, data)
 		addShareData(r, data, shareInfo)
 
 		w.Header().Set("Content-Type", "text/html")
@@ -108,6 +112,90 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			log.Error(r, "Could not execute `index.html` template", err)
 		}
 	}
+}
+
+func addRetailPlayerMetaData(ctx context.Context, ds model.DataStore, r *http.Request, data map[string]interface{}) {
+	if ds == nil {
+		return
+	}
+
+	basePath := strings.TrimSuffix(conf.Server.BasePath, "/")
+	requestPath := r.URL.Path
+	if basePath != "" && basePath != "/" && strings.HasPrefix(requestPath, basePath) {
+		requestPath = strings.TrimPrefix(requestPath, basePath)
+	}
+
+	requestPath = "/" + strings.TrimPrefix(requestPath, "/")
+	if !strings.HasPrefix(requestPath, "/retailplayer/") && !strings.HasPrefix(requestPath, "/musicmatters/") {
+		return
+	}
+
+	slug := strings.TrimPrefix(strings.TrimPrefix(requestPath, "/retailplayer/"), "/musicmatters/")
+	if i := strings.IndexRune(slug, '/'); i >= 0 {
+		slug = slug[:i]
+	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return
+	}
+
+	decodedSlug, err := url.PathUnescape(slug)
+	if err != nil {
+		decodedSlug = slug
+	}
+
+	mappingRepo := ds.RetailPlayerDeviceMapping(ctx)
+	if mappingRepo == nil {
+		return
+	}
+
+	mapping, err := mappingRepo.FindByIdentifier(ctx, decodedSlug)
+	if err != nil || mapping == nil {
+		return
+	}
+
+	deviceName := strings.TrimSpace(mapping.DeviceName)
+	if deviceName == "" {
+		deviceName = strings.TrimSpace(decodedSlug)
+	}
+	if deviceName == "" {
+		return
+	}
+
+	organization := strings.TrimSpace(mapping.Organization)
+	folderRepo := ds.RetailPlayerFolder(ctx)
+	if folderRepo != nil {
+		assignments, err := folderRepo.Assignments(ctx)
+		if err == nil && len(assignments) > 0 {
+			folders, ferr := folderRepo.List(ctx)
+			if ferr == nil {
+				folderNames := make(map[string]string, len(folders))
+				for _, folder := range folders {
+					id := strings.TrimSpace(folder.ID)
+					name := strings.TrimSpace(folder.Name)
+					if id != "" && name != "" {
+						folderNames[id] = name
+					}
+				}
+
+				for _, assignment := range assignments {
+					if strings.TrimSpace(assignment.DeviceID) != strings.TrimSpace(mapping.DeviceID) {
+						continue
+					}
+					if folderName := folderNames[strings.TrimSpace(assignment.FolderID)]; folderName != "" {
+						organization = folderName
+						break
+					}
+				}
+			}
+		}
+	}
+
+	if organization == "" {
+		organization = "Retail Player"
+	}
+
+	data["MetaDescription"] = "MusicMatters\nDevice: " + deviceName + " • Property: " + organization
 }
 
 func getIndexTemplate(r *http.Request, fs fs.FS) (*template.Template, error) {
