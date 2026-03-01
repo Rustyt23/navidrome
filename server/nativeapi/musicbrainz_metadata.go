@@ -311,8 +311,13 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 			genre:         strings.TrimSpace(mf.Genre) == "",
 			recordingMBID: strings.TrimSpace(mf.MbzRecordingID) == "",
 			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
-			coverArt:      !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == "",
+			coverArt:      hasMissingCoverArt(mf),
 		}
+
+		if !flags.coverArt {
+			continue
+		}
+
 		j.incrementExisting(flags)
 		if !flags.album && !flags.year && !flags.genre && !flags.recordingMBID && !flags.releaseMBID && !flags.coverArt {
 			continue
@@ -322,6 +327,10 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 		j.incrementMissing(flags)
 	}
 	return res, nil
+}
+
+func hasMissingCoverArt(mf model.MediaFile) bool {
+	return !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == ""
 }
 
 func (j *musicBrainzMetadataJob) incrementExisting(flags missingFlags) {

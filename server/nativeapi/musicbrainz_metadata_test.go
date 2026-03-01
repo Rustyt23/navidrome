@@ -1,6 +1,10 @@
 package nativeapi
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/navidrome/navidrome/model"
+)
 
 func TestNormalizeMBString(t *testing.T) {
 	got := normalizeMBString("  AC/DC - Live!  ")
@@ -110,5 +114,41 @@ func TestSelectBestReleaseCandidatePrefersEarliestThenUS(t *testing.T) {
 	}
 	if rel.release.ID != "c" {
 		t.Fatalf("expected earliest release when no cover exists, got %q", rel.release.ID)
+	}
+}
+
+func TestHasMissingCoverArt(t *testing.T) {
+	tests := []struct {
+		name string
+		mf   model.MediaFile
+		want bool
+	}{
+		{
+			name: "missing when embedded and external cover are absent",
+			mf:   model.MediaFile{},
+			want: true,
+		},
+		{
+			name: "not missing when embedded cover exists",
+			mf: model.MediaFile{
+				HasCoverArt: true,
+			},
+			want: false,
+		},
+		{
+			name: "not missing when external cover path exists",
+			mf: model.MediaFile{
+				CoverPath: "covers/release.jpg",
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasMissingCoverArt(tt.mf); got != tt.want {
+				t.Fatalf("hasMissingCoverArt() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
