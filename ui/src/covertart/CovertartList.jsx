@@ -1,20 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { cloneElement, useEffect, useMemo, useState } from 'react'
+import { makeStyles, useMediaQuery } from '@material-ui/core'
 import IconButton from '@material-ui/core/IconButton'
 import Tooltip from '@material-ui/core/Tooltip'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
 import {
   Datagrid,
+  DateField,
   Filter,
   FunctionField,
   List,
+  sanitizeListRestProps,
   SearchInput,
   TextField,
   TopToolbar,
   useListContext,
   useTranslate,
 } from 'react-admin'
-import { makeStyles } from '@material-ui/core/styles'
-import { DurationField, Pagination } from '../common'
+import {
+  DurationField,
+  Pagination,
+  ToggleFieldsMenu,
+  useSelectedFields,
+} from '../common'
 import { httpClient } from '../dataProvider'
 import subsonic from '../subsonic'
 import CovertartSongBulkActions from './CovertartSongBulkActions'
@@ -58,11 +65,32 @@ const FetchedToggleButton = () => {
   )
 }
 
-const CovertartListActions = (props) => (
-  <TopToolbar {...props}>
-    <FetchedToggleButton />
-  </TopToolbar>
-)
+const CovertartListActions = ({
+  className,
+  filters,
+  resource,
+  showFilter,
+  displayedFilters,
+  filterValues,
+  ...rest
+}) => {
+  const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
+
+  return (
+    <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
+      <FetchedToggleButton />
+      {filters &&
+        cloneElement(filters, {
+          resource,
+          showFilter,
+          displayedFilters,
+          filterValues,
+          context: 'button',
+        })}
+      {isNotSmall && <ToggleFieldsMenu resource="covertart" />}
+    </TopToolbar>
+  )
+}
 
 const CovertartFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
@@ -90,23 +118,17 @@ const CovertartList = (props) => {
     return map
   }, [confidenceEntries])
 
-  return (
-    <List
-      {...props}
-      sort={{ field: 'title', order: 'ASC' }}
-      filter={{ hascoverart: false }}
-      actions={<CovertartListActions />}
-      filters={<CovertartFilter />}
-      exporter={false}
-      perPage={50}
-      pagination={<Pagination />}
-    >
-      <Datagrid rowClick={false} bulkActionButtons={<CovertartSongBulkActions />}>
+  const toggleableFields = useMemo(
+    () => ({
+      coverArt: (
         <FunctionField
+          key="coverArt"
+          source="coverArt"
           label="Cover Art"
           sortable={false}
           render={(record) => {
-            const coverSrc = subsonic.getCoverArtUrl(record, 50, true) || '/default-cover.png'
+            const coverSrc =
+              subsonic.getCoverArtUrl(record, 50, true) || '/default-cover.png'
 
             return (
               <img
@@ -119,21 +141,56 @@ const CovertartList = (props) => {
             )
           }}
         />
-        <TextField source="title" />
-        <TextField source="artist" label="Artist" />
-        <TextField source="album" label="Album" />
-        <TextField source="year" label="Release Year" />
-        <TextField source="genre" label="Genre" />
+      ),
+      title: <TextField key="title" source="title" sortByOrder={'ASC'} />,
+      artist: (
+        <TextField
+          key="artist"
+          source="artist"
+          label="Artist"
+          sortBy="artist"
+        />
+      ),
+      album: (
+        <TextField key="album" source="album" label="Album" sortBy="album" />
+      ),
+      year: (
+        <TextField
+          key="year"
+          source="year"
+          label="Release Year"
+          sortByOrder={'DESC'}
+        />
+      ),
+      genre: (
+        <TextField key="genre" source="genre" label="Genre" sortBy="genre" />
+      ),
+      createdAt: (
+        <DateField
+          key="createdAt"
+          source="createdAt"
+          label="Date Added"
+          sortBy="recently_added"
+          showTime
+        />
+      ),
+      fetched: (
         <FunctionField
+          key="fetched"
+          source="fetched"
           label="Fetched"
           sortBy="fetched"
           render={(record) =>
             record?.hasCoverArt || Boolean(record?.coverPath) ? 'Yes' : 'No'
           }
         />
+      ),
+      confidence: (
         <FunctionField
+          key="confidence"
+          source="confidence"
           label="Confidence"
-          sortable={false}
+          sortBy="confidence"
           render={(record) => {
             const value = confidenceBySong.get(record.id)?.confidence
             if (typeof value !== 'number') {
@@ -142,9 +199,13 @@ const CovertartList = (props) => {
             return value.toFixed(3)
           }}
         />
+      ),
+      spotifyMatch: (
         <FunctionField
+          key="spotifyMatch"
+          source="spotifyMatch"
           label="Spotify Match"
-          sortable={false}
+          sortBy="spotify_match"
           render={(record) => {
             const entry = confidenceBySong.get(record.id)
             if (!entry?.spotifyMatch) {
@@ -156,9 +217,13 @@ const CovertartList = (props) => {
             return `${entry.spotifyMatch} - ${entry.spotifyArtist}`
           }}
         />
+      ),
+      mbzRecordingID: (
         <FunctionField
+          key="mbzRecordingID"
+          source="mbzRecordingID"
           label="Recording MBID"
-          sortable={false}
+          sortBy="mbzRecordingID"
           render={(record) => {
             const recordingId = record?.mbzRecordingID
 
@@ -178,9 +243,13 @@ const CovertartList = (props) => {
             )
           }}
         />
+      ),
+      mbzReleaseId: (
         <FunctionField
+          key="mbzReleaseId"
+          source="mbzReleaseId"
           label="Release MBID"
-          sortable={false}
+          sortBy="mbzReleaseId"
           render={(record) => {
             const releaseId = record?.mbzReleaseId
 
@@ -200,7 +269,41 @@ const CovertartList = (props) => {
             )
           }}
         />
-        <DurationField source="duration" />
+      ),
+      duration: (
+        <DurationField key="duration" source="duration" sortByOrder={'DESC'} />
+      ),
+    }),
+    [classes.mbidText, confidenceBySong],
+  )
+
+  const columns = useSelectedFields({
+    resource: 'covertart',
+    columns: toggleableFields,
+    defaultOff: [
+      'confidence',
+      'spotifyMatch',
+      'mbzRecordingID',
+      'mbzReleaseId',
+    ],
+  })
+
+  return (
+    <List
+      {...props}
+      sort={{ field: 'title', order: 'ASC' }}
+      filter={{ hascoverart: false }}
+      actions={<CovertartListActions />}
+      filters={<CovertartFilter />}
+      exporter={false}
+      perPage={50}
+      pagination={<Pagination />}
+    >
+      <Datagrid
+        rowClick={false}
+        bulkActionButtons={<CovertartSongBulkActions />}
+      >
+        {columns}
       </Datagrid>
     </List>
   )
