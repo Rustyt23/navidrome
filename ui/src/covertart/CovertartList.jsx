@@ -219,7 +219,6 @@ const CovertartList = (props) => {
   const columns = useSelectedFields({
     resource: 'covertart',
     columns: toggleableFields,
-    defaultOff: ['confidence', 'spotifyMatch', 'mbzRecordingID', 'mbzReleaseId'],
   })
 
   return (
