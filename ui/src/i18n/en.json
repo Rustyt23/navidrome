@@ -110,8 +110,19 @@
     "covertart": {
       "name": "Cover Art |||| Cover Art",
       "fields": {
+        "coverArt": "Cover Art",
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
         "createdAt": "Date added",
+        "year": "Release Year",
+        "genre": "Genre",
         "fetched": "Fetched",
+        "confidence": "Confidence",
+        "spotifyMatch": "Spotify Match",
+        "recordingMbid": "Recording MBID",
+        "releaseMbid": "Release MBID",
+        "duration": "Time",
         "missingCoverArt": "Missing CoverArt"
       }
     },
