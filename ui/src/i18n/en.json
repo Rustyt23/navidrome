@@ -110,8 +110,20 @@
     "covertart": {
       "name": "Cover Art |||| Cover Art",
       "fields": {
+        "coverArt": "Cover Art",
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
+        "year": "Release Year",
+        "genre": "Genre",
+        "createdAt": "Date added",
         "fetched": "Fetched",
-        "missingCoverArt": "Missing CoverArt"
+        "missingCoverArt": "Missing CoverArt",
+        "confidence": "Confidence",
+        "spotifyMatch": "Spotify Match",
+        "mbzRecordingID": "Recording MBID",
+        "mbzReleaseId": "Release MBID",
+        "duration": "Duration"
       }
     },
     "artist": {
@@ -619,7 +631,7 @@
     "retailPlayer": {
       "name": "Retail Player",
       "allDevices": "All Devices",
-      "loading": "Loading devices…",
+      "loading": "Loading devices\u2026",
       "error": "Unable to load devices",
       "empty": "No devices available"
     },
@@ -726,7 +738,7 @@
     "missingTracksListTitle": "Missing Tracks",
     "missingTracksEmpty": "No missing tracks recorded",
     "missingTracksSummary": "%{smart_count} song is missing from Playlist %{playlist} |||| %{smart_count} songs are missing from Playlist %{playlist}",
-    "missingTracksImportedOn": " — imported on %{date}",
+    "missingTracksImportedOn": " \u2014 imported on %{date}",
     "missingTracksUnknownPlaylist": "Unknown playlist",
     "missingTracksUnknownTitle": "Unknown track",
     "missingTracksUnknownArtist": "Unknown artist"
