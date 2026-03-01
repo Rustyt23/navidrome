@@ -246,6 +246,19 @@ const CoverArtPanel = () => {
     )
   }
 
+  const stopFetch = () => {
+    httpClient('/api/metadata/musicbrainz/stop', { method: 'POST' })
+      .then(({ status: code }) => {
+        if (code === 202) {
+          notify('activity.musicbrainz.stopping', 'info')
+        } else {
+          notify('activity.musicbrainz.notRunning', 'warning')
+        }
+        loadStatus()
+      })
+      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
+  }
+
   return (
     <>
       <Tooltip title="Coverart">
@@ -301,6 +314,15 @@ const CoverArtPanel = () => {
                   data-testid="coverart-metadata-fetch-btn"
                 >
                   {translate('activity.musicbrainz.fetch')}
+                </Button>
+                <Button
+                  color="secondary"
+                  variant="contained"
+                  onClick={stopFetch}
+                  disabled={!status.running && !spotifyStatus.running}
+                  data-testid="coverart-metadata-stop-btn"
+                >
+                  {translate('activity.musicbrainz.stop')}
                 </Button>
               </Box>
             </Box>
