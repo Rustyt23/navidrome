@@ -17,6 +17,7 @@ import { makeStyles } from '@material-ui/core/styles'
 import { DurationField, Pagination } from '../common'
 import { httpClient } from '../dataProvider'
 import subsonic from '../subsonic'
+import CovertartSongBulkActions from './CovertartSongBulkActions'
 
 const useStyles = makeStyles({
   mbidText: {
@@ -97,11 +98,10 @@ const CovertartList = (props) => {
       actions={<CovertartListActions />}
       filters={<CovertartFilter />}
       exporter={false}
-      bulkActionButtons={false}
       perPage={50}
       pagination={<Pagination />}
     >
-      <Datagrid rowClick={false}>
+      <Datagrid rowClick={false} bulkActionButtons={<CovertartSongBulkActions />}>
         <FunctionField
           label="Cover Art"
           sortable={false}

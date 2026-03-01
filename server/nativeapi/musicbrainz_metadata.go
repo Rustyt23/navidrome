@@ -68,7 +68,7 @@ func (j *musicBrainzMetadataJob) getStatus() musicBrainzMetadataStatus {
 	return j.status
 }
 
-func (j *musicBrainzMetadataJob) start(ds model.DataStore) bool {
+func (j *musicBrainzMetadataJob) start(ds model.DataStore, songIDs []string) bool {
 	j.mu.Lock()
 	if j.status.Running {
 		j.mu.Unlock()
@@ -78,7 +78,7 @@ func (j *musicBrainzMetadataJob) start(ds model.DataStore) bool {
 	j.status = musicBrainzMetadataStatus{Running: true, StartedAt: &now}
 	j.mu.Unlock()
 
-	go j.run(ds)
+	go j.run(ds, songIDs)
 	return true
 }
 
@@ -133,6 +133,26 @@ type spotifyMetadataJob struct {
 	coverMisses sync.Map
 }
 
+type selectedSongsPayload struct {
+	SongIDs []string `json:"songIds"`
+}
+
+func decodeSelectedSongIDs(r *http.Request) ([]string, error) {
+	if r == nil || r.Body == nil {
+		return nil, nil
+	}
+
+	payload := selectedSongsPayload{}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		if err == io.EOF {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return payload.SongIDs, nil
+}
+
 func newSpotifyMetadataJob() *spotifyMetadataJob {
 	return &spotifyMetadataJob{
 		client:  &http.Client{Timeout: 15 * time.Second},
@@ -142,7 +162,7 @@ func newSpotifyMetadataJob() *spotifyMetadataJob {
 
 const spotifyMinScore = 0.69
 
-func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
+func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 	ctx := context.Background()
 	defer func() {
 		j.mu.Lock()
@@ -152,7 +172,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 		j.mu.Unlock()
 	}()
 
-	candidates, err := j.collectCandidates(ctx, ds)
+	candidates, err := j.collectCandidates(ctx, ds, songIDs)
 	if err != nil {
 		j.setError(err)
 		return
@@ -250,11 +270,20 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore) {
 	)
 }
 
-func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model.DataStore) ([]mbMetadataCandidate, error) {
+func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model.DataStore, songIDs []string) ([]mbMetadataCandidate, error) {
 	cursor, err := ds.MediaFile(ctx).GetCursor()
 	if err != nil {
 		return nil, err
 	}
+
+	allowedSongs := make(map[string]struct{}, len(songIDs))
+	for _, id := range songIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" {
+			allowedSongs[trimmed] = struct{}{}
+		}
+	}
+	filterBySongIDs := len(allowedSongs) > 0
 
 	res := make([]mbMetadataCandidate, 0)
 	for mf, e := range cursor {
@@ -263,6 +292,11 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 		}
 		if strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
 			continue
+		}
+		if filterBySongIDs {
+			if _, ok := allowedSongs[mf.ID]; !ok {
+				continue
+			}
 		}
 
 		flags := missingFlags{
@@ -981,7 +1015,7 @@ func (j *spotifyMetadataJob) getConfidenceEntries() []spotifyConfidenceEntry {
 	return res
 }
 
-func (j *spotifyMetadataJob) start(ds model.DataStore) bool {
+func (j *spotifyMetadataJob) start(ds model.DataStore, songIDs []string) bool {
 	j.mu.Lock()
 	if j.status.Running {
 		j.mu.Unlock()
@@ -992,11 +1026,11 @@ func (j *spotifyMetadataJob) start(ds model.DataStore) bool {
 	j.entries = map[string]spotifyConfidenceEntry{}
 	j.mu.Unlock()
 
-	go j.run(ds)
+	go j.run(ds, songIDs)
 	return true
 }
 
-func (j *spotifyMetadataJob) run(ds model.DataStore) {
+func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
 	ctx := context.Background()
 	defer func() {
 		j.mu.Lock()
@@ -1018,6 +1052,15 @@ func (j *spotifyMetadataJob) run(ds model.DataStore) {
 		return
 	}
 
+	allowedSongs := make(map[string]struct{}, len(songIDs))
+	for _, id := range songIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" {
+			allowedSongs[trimmed] = struct{}{}
+		}
+	}
+	filterBySongIDs := len(allowedSongs) > 0
+
 	candidates := make([]model.MediaFile, 0)
 	for mf, e := range cursor {
 		if e != nil {
@@ -1026,6 +1069,11 @@ func (j *spotifyMetadataJob) run(ds model.DataStore) {
 		}
 		if strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
 			continue
+		}
+		if filterBySongIDs {
+			if _, ok := allowedSongs[mf.ID]; !ok {
+				continue
+			}
 		}
 		missingCover := !mf.HasCoverArt && strings.TrimSpace(mf.CoverPath) == ""
 		if !missingCover {
@@ -1359,8 +1407,15 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 		r.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(n.metadataJob.getStatus())
 		})
-		r.Post("/fetch", func(w http.ResponseWriter, _ *http.Request) {
-			if n.metadataJob.start(n.ds) {
+		r.Post("/fetch", func(w http.ResponseWriter, r *http.Request) {
+			songIDs, err := decodeSelectedSongIDs(r)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"status":"invalid_payload"}`))
+				return
+			}
+
+			if n.metadataJob.start(n.ds, songIDs) {
 				w.WriteHeader(http.StatusAccepted)
 				_, _ = w.Write([]byte(`{"status":"started"}`))
 				return
@@ -1374,8 +1429,15 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 		r.Get("/spotify/confidence", func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": n.spotifyJob.getConfidenceEntries()})
 		})
-		r.Post("/spotify/fetch", func(w http.ResponseWriter, _ *http.Request) {
-			if n.spotifyJob.start(n.ds) {
+		r.Post("/spotify/fetch", func(w http.ResponseWriter, r *http.Request) {
+			songIDs, err := decodeSelectedSongIDs(r)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"status":"invalid_payload"}`))
+				return
+			}
+
+			if n.spotifyJob.start(n.ds, songIDs) {
 				w.WriteHeader(http.StatusAccepted)
 				_, _ = w.Write([]byte(`{"status":"started"}`))
 				return
