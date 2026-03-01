@@ -636,7 +636,7 @@ func valueOrNil(v string) *string {
 
 func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
 	query := fmt.Sprintf("artist:%s AND recording:%s", artist, title)
-	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups"
+	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups+genres+tags"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return metadataResult{}, err

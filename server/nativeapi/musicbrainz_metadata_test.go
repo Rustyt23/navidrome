@@ -1,6 +1,9 @@
 package nativeapi
 
 import (
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/navidrome/navidrome/model"
@@ -150,5 +153,35 @@ func TestHasMissingCoverArt(t *testing.T) {
 				t.Fatalf("hasMissingCoverArt() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestFetchMetadataRequestIncludesGenresAndTags(t *testing.T) {
+	job := newMusicBrainzMetadataJob()
+	job.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Query().Get("inc"); got != "releases release-groups genres tags" {
+			t.Fatalf("unexpected inc parameter: %q", got)
+		}
+
+		body := `{"recordings":[{"id":"rec-id","score":"100","artist-credit":[{"name":"The Artist"}],"genres":[{"name":"rock"}],"releases":[{"id":"rel-id","title":"Album","date":"2000-01-01","status":"Official","country":"US","release-group":{"primary-type":"Album","secondary-types":[]},"genres":[{"name":"alternative rock"}]}]}]}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	metadata, err := job.fetchMetadata("Song", "The Artist")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if metadata.Genre == "" {
+		t.Fatal("expected genre to be populated from MusicBrainz genres/tags response")
 	}
 }
