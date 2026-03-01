@@ -105,7 +105,7 @@ const CovertartList = (props) => {
       <Datagrid rowClick={false} bulkActionButtons={<CovertartSongBulkActions />}>
         <FunctionField
           label="Cover Art"
-          sortable={false}
+          sortBy="title"
           render={(record) => {
             const coverSrc = subsonic.getCoverArtUrl(record, 50, true) || '/default-cover.png'
 
@@ -123,7 +123,7 @@ const CovertartList = (props) => {
         <TextField source="title" />
         <TextField source="artist" label="Artist" />
         <TextField source="album" label="Album" />
-        <DateField source="createdAt" showTime />
+        <DateField source="createdAt" sortBy="recently_added" showTime />
         <TextField source="year" label="Release Year" />
         <TextField source="genre" label="Genre" />
         <FunctionField
@@ -135,7 +135,7 @@ const CovertartList = (props) => {
         />
         <FunctionField
           label="Confidence"
-          sortable={false}
+          sortBy="title"
           render={(record) => {
             const value = confidenceBySong.get(record.id)?.confidence
             if (typeof value !== 'number') {
@@ -146,7 +146,7 @@ const CovertartList = (props) => {
         />
         <FunctionField
           label="Spotify Match"
-          sortable={false}
+          sortBy="title"
           render={(record) => {
             const entry = confidenceBySong.get(record.id)
             if (!entry?.spotifyMatch) {
@@ -160,7 +160,7 @@ const CovertartList = (props) => {
         />
         <FunctionField
           label="Recording MBID"
-          sortable={false}
+          sortBy="mbzRecordingID"
           render={(record) => {
             const recordingId = record?.mbzRecordingID
 
@@ -182,7 +182,7 @@ const CovertartList = (props) => {
         />
         <FunctionField
           label="Release MBID"
-          sortable={false}
+          sortBy="mbzReleaseId"
           render={(record) => {
             const releaseId = record?.mbzReleaseId
 
