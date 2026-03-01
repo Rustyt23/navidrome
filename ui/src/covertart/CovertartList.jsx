@@ -4,6 +4,7 @@ import Tooltip from '@material-ui/core/Tooltip'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
 import {
   Datagrid,
+  DateField,
   Filter,
   FunctionField,
   List,
@@ -122,6 +123,7 @@ const CovertartList = (props) => {
         <TextField source="title" />
         <TextField source="artist" label="Artist" />
         <TextField source="album" label="Album" />
+        <DateField source="createdAt" showTime />
         <TextField source="year" label="Release Year" />
         <TextField source="genre" label="Genre" />
         <FunctionField

@@ -110,6 +110,7 @@
     "covertart": {
       "name": "Cover Art |||| Cover Art",
       "fields": {
+        "createdAt": "Date added",
         "fetched": "Fetched",
         "missingCoverArt": "Missing CoverArt"
       }
