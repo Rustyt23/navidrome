@@ -217,7 +217,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 
 		var setAlbum *string
 		var setYear *int
-		var setGenre *string
+		var setMBGenre *string
 
 		if c.flags.album && metadata.Album != "" {
 			setAlbum = &metadata.Album
@@ -226,16 +226,16 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 			setYear = &metadata.Year
 		}
 		if c.flags.genre && metadata.Genre != "" {
-			setGenre = &metadata.Genre
+			setMBGenre = &metadata.Genre
 		}
 
-		if setAlbum != nil || setYear != nil || setGenre != nil || metadata.RecordingMBID != "" || metadata.ReleaseMBID != "" {
-			if err := ds.MediaFile(ctx).UpdateMissingMetadata(c.mf.ID, setAlbum, setYear, setGenre, valueOrNil(metadata.RecordingMBID), valueOrNil(metadata.ReleaseMBID)); err != nil {
+		if setAlbum != nil || setYear != nil || setMBGenre != nil || metadata.RecordingMBID != "" || metadata.ReleaseMBID != "" {
+			if err := ds.MediaFile(ctx).UpdateMissingMetadata(c.mf.ID, setAlbum, setYear, nil, setMBGenre, valueOrNil(metadata.RecordingMBID), valueOrNil(metadata.ReleaseMBID)); err != nil {
 				failed++
 				log.Error(ctx, "Could not update fetched MusicBrainz metadata", "songId", c.mf.ID, err)
 			} else {
 				updated++
-				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil, c.flags.recordingMBID && metadata.RecordingMBID != "", c.flags.releaseMBID && metadata.ReleaseMBID != "", false)
+				j.setUpdated(setAlbum != nil, setYear != nil, setMBGenre != nil, c.flags.recordingMBID && metadata.RecordingMBID != "", c.flags.releaseMBID && metadata.ReleaseMBID != "", false)
 			}
 		} else {
 			skipped++
@@ -308,7 +308,7 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 		flags := missingFlags{
 			album:         isMissingAlbum(mf.Album),
 			year:          mf.Year == 0,
-			genre:         strings.TrimSpace(mf.Genre) == "",
+			genre:         hasMissingCoverArt(mf),
 			recordingMBID: strings.TrimSpace(mf.MbzRecordingID) == "",
 			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
 			coverArt:      hasMissingCoverArt(mf),
@@ -1132,7 +1132,7 @@ func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
 
 		setAlbum := isMissingAlbum(mf.Album) && albumName != ""
 		if setAlbum {
-			if err := ds.MediaFile(ctx).UpdateMissingMetadata(mf.ID, &albumName, nil, nil, nil, nil); err == nil {
+			if err := ds.MediaFile(ctx).UpdateMissingMetadata(mf.ID, &albumName, nil, nil, nil, nil, nil); err == nil {
 				j.setUpdated(true, false)
 			} else {
 				setAlbum = false
