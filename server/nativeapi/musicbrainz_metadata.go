@@ -133,6 +133,12 @@ type spotifyMetadataJob struct {
 	coverMisses sync.Map
 }
 
+type metadataSaveSummary struct {
+	Saved     int `json:"saved"`
+	Remaining int `json:"remaining"`
+	Saving    int `json:"saving"`
+}
+
 type selectedSongsPayload struct {
 	SongIDs []string `json:"songIds"`
 }
@@ -1453,7 +1459,8 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 				return
 			}
 
-			if err := n.saveFetchedMetadataToSongs(); err != nil {
+			summary, err := n.saveFetchedMetadataToSongs()
+			if err != nil {
 				log.Warn("Could not persist fetched metadata to song files", "err", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = w.Write([]byte(`{"status":"save_failed"}`))
@@ -1461,21 +1468,27 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 			}
 
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"saved"}`))
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":    "saved",
+				"saved":     summary.Saved,
+				"remaining": summary.Remaining,
+				"saving":    summary.Saving,
+			})
 		})
 	})
 }
 
-func (n *Router) saveFetchedMetadataToSongs() error {
+func (n *Router) saveFetchedMetadataToSongs() (metadataSaveSummary, error) {
 	ctx := context.Background()
+	summary := metadataSaveSummary{}
 	cursor, err := n.ds.MediaFile(ctx).GetCursor()
 	if err != nil {
-		return err
+		return summary, err
 	}
 
 	for mf, e := range cursor {
 		if e != nil {
-			return e
+			return summary, e
 		}
 
 		if strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
@@ -1492,6 +1505,8 @@ func (n *Router) saveFetchedMetadataToSongs() error {
 			continue
 		}
 
+		summary.Remaining++
+
 		if err := taglib.WriteFetchedMetadata(mf.AbsolutePath(), taglib.FetchedMetadata{
 			Album:         mf.Album,
 			Year:          mf.Year,
@@ -1501,8 +1516,12 @@ func (n *Router) saveFetchedMetadataToSongs() error {
 			CoverPath:     coverFile,
 		}); err != nil {
 			log.Warn(ctx, "Could not write fetched metadata to song", "songId", mf.ID, "path", mf.Path, "err", err)
+			continue
 		}
+
+		summary.Saved++
+		summary.Remaining--
 	}
 
-	return nil
+	return summary, nil
 }

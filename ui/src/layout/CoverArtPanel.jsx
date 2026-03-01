@@ -28,6 +28,12 @@ const emptyProgress = {
   couldntFetch: 0,
 }
 
+const emptySaveSummary = {
+  saved: 0,
+  remaining: 0,
+  saving: 0,
+}
+
 const useStyles = makeStyles((theme) => ({
   iconButton: {
     color: 'inherit',
@@ -126,6 +132,7 @@ const CoverArtPanel = () => {
     album: emptyProgress,
     coverArt: emptyProgress,
   })
+  const [saveSummary, setSaveSummary] = useState(emptySaveSummary)
 
   const unselectAll = useUnselectAll()
   const selectedCoverArtIds = useSelector(
@@ -210,15 +217,26 @@ const CoverArtPanel = () => {
   }
 
   const saveMetadata = () => {
+    setSaveSummary((current) => ({ ...current, saving: 1 }))
+
     httpClient('/api/metadata/musicbrainz/save', { method: 'POST' })
-      .then(({ status: code }) => {
+      .then(({ status: code, json }) => {
         if (code === 200) {
           notify('activity.musicbrainz.saved', 'info')
+          setSaveSummary({
+            saved: json?.saved || 0,
+            remaining: json?.remaining || 0,
+            saving: json?.saving || 0,
+          })
         } else {
           notify('activity.musicbrainz.saveFailed', 'warning')
+          setSaveSummary((current) => ({ ...current, saving: 0 }))
         }
       })
-      .catch(() => notify('activity.musicbrainz.saveFailed', 'warning'))
+      .catch(() => {
+        notify('activity.musicbrainz.saveFailed', 'warning')
+        setSaveSummary((current) => ({ ...current, saving: 0 }))
+      })
   }
 
   const startSpotifyFetch = () => {
@@ -287,6 +305,27 @@ const CoverArtPanel = () => {
               </Box>
             </Box>
             <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <Card variant="outlined" className={classes.progressCard}>
+                  <CardContent>
+                    <Typography variant="subtitle2">
+                      {translate('activity.musicbrainz.saveProgressTitle')}
+                    </Typography>
+                    <Box className={classes.row}>
+                      <span>{translate('activity.musicbrainz.savedCount')}</span>
+                      <span>{saveSummary.saved || 0}</span>
+                    </Box>
+                    <Box className={classes.row}>
+                      <span>{translate('activity.musicbrainz.remainingCount')}</span>
+                      <span>{saveSummary.remaining || 0}</span>
+                    </Box>
+                    <Box className={classes.row}>
+                      <span>{translate('activity.musicbrainz.savingCount')}</span>
+                      <span>{saveSummary.saving || 0}</span>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
               <Grid item xs={12} md={4}>
                 <ProgressCard
                   title="Cover Art (MusicBrainz)"
