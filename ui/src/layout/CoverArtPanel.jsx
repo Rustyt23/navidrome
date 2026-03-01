@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react'
-import { useNotify, useTranslate } from 'react-admin'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNotify, useTranslate, useUnselectAll } from 'react-admin'
 import {
   Popover,
   Button,
@@ -15,6 +15,7 @@ import {
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
 import { BiDownload } from 'react-icons/bi'
 import { MdSave } from 'react-icons/md'
+import { useSelector } from 'react-redux'
 import { httpClient } from '../dataProvider'
 
 const emptyProgress = {
@@ -126,6 +127,15 @@ const CoverArtPanel = () => {
     coverArt: emptyProgress,
   })
 
+  const unselectAll = useUnselectAll()
+  const selectedCoverArtIds = useSelector(
+    (state) => state?.admin?.resources?.covertart?.list?.selectedIds || [],
+  )
+  const selectedSongIDs = useMemo(
+    () => selectedCoverArtIds.map((id) => String(id)),
+    [selectedCoverArtIds],
+  )
+
   const open = Boolean(anchorEl)
 
   const loadStatus = useCallback(() => {
@@ -172,17 +182,31 @@ const CoverArtPanel = () => {
     return () => clearInterval(interval)
   }, [open, status.running, spotifyStatus.running, loadStatus])
 
-  const startFetch = () => {
-    httpClient('/api/metadata/musicbrainz/fetch', { method: 'POST' })
+  const postFetch = (url, startedMessage) => {
+    const options = { method: 'POST' }
+
+    if (selectedSongIDs.length > 0) {
+      options.body = JSON.stringify({ songIds: selectedSongIDs })
+      options.headers = new Headers({ 'Content-Type': 'application/json' })
+    }
+
+    httpClient(url, options)
       .then(({ status: code }) => {
         if (code === 202) {
-          notify('activity.musicbrainz.started', 'info')
+          notify(startedMessage, 'info')
+          if (selectedSongIDs.length > 0) {
+            unselectAll('covertart')
+          }
         } else {
           notify('activity.musicbrainz.alreadyRunning', 'warning')
         }
         loadStatus()
       })
       .catch(() => notify('activity.musicbrainz.failed', 'warning'))
+  }
+
+  const startFetch = () => {
+    postFetch('/api/metadata/musicbrainz/fetch', 'activity.musicbrainz.started')
   }
 
   const saveMetadata = () => {
@@ -198,16 +222,10 @@ const CoverArtPanel = () => {
   }
 
   const startSpotifyFetch = () => {
-    httpClient('/api/metadata/musicbrainz/spotify/fetch', { method: 'POST' })
-      .then(({ status: code }) => {
-        if (code === 202) {
-          notify('activity.musicbrainz.spotifyStarted', 'info')
-        } else {
-          notify('activity.musicbrainz.alreadyRunning', 'warning')
-        }
-        loadStatus()
-      })
-      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
+    postFetch(
+      '/api/metadata/musicbrainz/spotify/fetch',
+      'activity.musicbrainz.spotifyStarted',
+    )
   }
 
   return (
