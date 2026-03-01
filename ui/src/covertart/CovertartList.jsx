@@ -126,7 +126,7 @@ const CovertartList = (props) => {
         <DateField source="createdAt" sortBy="recently_added" showTime />
         <TextField source="year" label="Release Year" />
         <TextField source="genre" label="Genre" />
-        <TextField source="mbGenre" label="MB-Genre" />
+        <TextField source="newMbGenre" label="New MB-Genre" sortable={false} />
         <FunctionField
           label="Fetched"
           sortBy="fetched"

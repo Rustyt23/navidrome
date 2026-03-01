@@ -304,6 +304,7 @@ const ReorderableSongList = (props) => {
         ),
       bpm: isDesktop ? <NumberField source="bpm" /> : null,
       genre: <TextField source="genre" sortBy="genre" />,
+      newMbGenre: <TextField source="newMbGenre" sortable={false} label="New MB-Genre" />,
       mood: isDesktop ? (
         <FunctionField
           source="mood"

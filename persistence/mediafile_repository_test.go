@@ -543,17 +543,17 @@ var _ = Describe("MediaRepository", func() {
 			Expect(updated.Genre).To(Equal("Rock"))
 		})
 
-		It("updates MB genre without touching regular genre", func() {
+		It("updates new MB genre without touching regular genre", func() {
 			mf := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Title: "Song", Album: "Album", Year: 2001, Genre: "Electronic"}
 			Expect(mr.Put(&mf)).To(Succeed())
 
-			mbGenre := "House"
-			Expect(mr.UpdateMissingMetadata(mf.ID, nil, nil, nil, &mbGenre, nil, nil)).To(Succeed())
+			newMBGenre := "House"
+			Expect(mr.UpdateMissingMetadata(mf.ID, nil, nil, nil, &newMBGenre, nil, nil)).To(Succeed())
 
 			updated, err := mr.Get(mf.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updated.Genre).To(Equal("Electronic"))
-			Expect(updated.MBGenre).To(Equal("House"))
+			Expect(updated.NewMBGenre).To(Equal("House"))
 		})
 	})
 

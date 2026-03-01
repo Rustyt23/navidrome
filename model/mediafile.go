@@ -61,7 +61,7 @@ type MediaFile struct {
 	BitDepth             int      `structs:"bit_depth" json:"bitDepth"`
 	Channels             int      `structs:"channels" json:"channels"`
 	Genre                string   `structs:"genre" json:"genre"`
-	MBGenre              string   `structs:"mb_genre" json:"mbGenre,omitempty"`
+	NewMBGenre           string   `structs:"new_mb_genre" json:"newMbGenre,omitempty"`
 	Genres               Genres   `structs:"-" json:"genres,omitempty"`
 	SortTitle            string   `structs:"sort_title" json:"sortTitle,omitempty"`
 	SortAlbumName        string   `structs:"sort_album_name" json:"sortAlbumName,omitempty"`
@@ -363,7 +363,7 @@ type MediaFileRepository interface {
 	DeleteAllMissing() (int64, error)
 	FindByPaths(paths []string) (MediaFiles, error)
 	UpdateComment(ids []string, comment string) error
-	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbGenre *string, mbzRecordingID *string, mbzReleaseID *string) error
+	UpdateMissingMetadata(id string, album *string, year *int, genre *string, newMBGenre *string, mbzRecordingID *string, mbzReleaseID *string) error
 	UpdateCoverPath(id string, coverPath string) error
 
 	// The following methods are used exclusively by the scanner:

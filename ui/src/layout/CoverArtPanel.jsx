@@ -122,7 +122,7 @@ const CoverArtPanel = () => {
     running: false,
     album: emptyProgress,
     year: emptyProgress,
-    genre: emptyProgress,
+    newMbGenre: emptyProgress,
     recordingMbid: emptyProgress,
     releaseMbid: emptyProgress,
     coverArt: emptyProgress,
@@ -153,7 +153,7 @@ const CoverArtPanel = () => {
             running: false,
             album: emptyProgress,
             year: emptyProgress,
-            genre: emptyProgress,
+            newMbGenre: emptyProgress,
             recordingMbid: emptyProgress,
             releaseMbid: emptyProgress,
             coverArt: emptyProgress,
@@ -352,8 +352,8 @@ const CoverArtPanel = () => {
               </Grid>
               <Grid item xs={12} md={4}>
                 <ProgressCard
-                  title={translate('activity.musicbrainz.genre')}
-                  progress={status.genre || emptyProgress}
+                  title="New MB-Genre"
+                  progress={status.newMbGenre || emptyProgress}
                   translate={translate}
                   classes={classes}
                 />
