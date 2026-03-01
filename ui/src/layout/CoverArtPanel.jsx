@@ -13,6 +13,7 @@ import {
   Tooltip,
 } from '@material-ui/core'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
+import StopIcon from '@material-ui/icons/Stop'
 import { BiDownload } from 'react-icons/bi'
 import { MdSave } from 'react-icons/md'
 import { useSelector } from 'react-redux'
@@ -246,6 +247,19 @@ const CoverArtPanel = () => {
     )
   }
 
+  const stopFetch = () => {
+    httpClient('/api/metadata/musicbrainz/stop', { method: 'POST' })
+      .then(({ status: code }) => {
+        if (code === 202) {
+          notify('activity.musicbrainz.stopping', 'info')
+        } else {
+          notify('activity.musicbrainz.stopFailed', 'warning')
+        }
+        loadStatus()
+      })
+      .catch(() => notify('activity.musicbrainz.stopFailed', 'warning'))
+  }
+
   return (
     <>
       <Tooltip title="Coverart">
@@ -281,6 +295,16 @@ const CoverArtPanel = () => {
                   data-testid="coverart-metadata-fetch-spotify-btn"
                 >
                   {translate('activity.musicbrainz.fetchSpotify')}
+                </Button>
+                <Button
+                  color="secondary"
+                  variant="contained"
+                  startIcon={<StopIcon />}
+                  onClick={stopFetch}
+                  disabled={!status.running && !spotifyStatus.running}
+                  data-testid="coverart-metadata-stop-btn"
+                >
+                  {translate('activity.musicbrainz.stop')}
                 </Button>
                 <Button
                   color="primary"

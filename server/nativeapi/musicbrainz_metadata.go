@@ -54,6 +54,7 @@ type musicBrainzMetadataJob struct {
 	status      musicBrainzMetadataStatus
 	client      *http.Client
 	coverMisses sync.Map
+	cancel      context.CancelFunc
 }
 
 func newMusicBrainzMetadataJob() *musicBrainzMetadataJob {
@@ -74,11 +75,23 @@ func (j *musicBrainzMetadataJob) start(ds model.DataStore, songIDs []string) boo
 		j.mu.Unlock()
 		return false
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	now := time.Now()
 	j.status = musicBrainzMetadataStatus{Running: true, StartedAt: &now}
+	j.cancel = cancel
 	j.mu.Unlock()
 
-	go j.run(ds, songIDs)
+	go j.run(ctx, ds, songIDs)
+	return true
+}
+
+func (j *musicBrainzMetadataJob) stop() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if !j.status.Running || j.cancel == nil {
+		return false
+	}
+	j.cancel()
 	return true
 }
 
@@ -131,6 +144,7 @@ type spotifyMetadataJob struct {
 	client      *http.Client
 	entries     map[string]spotifyConfidenceEntry
 	coverMisses sync.Map
+	cancel      context.CancelFunc
 }
 
 type metadataSaveSummary struct {
@@ -168,13 +182,13 @@ func newSpotifyMetadataJob() *spotifyMetadataJob {
 
 const spotifyMinScore = 0.69
 
-func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
-	ctx := context.Background()
+func (j *musicBrainzMetadataJob) run(ctx context.Context, ds model.DataStore, songIDs []string) {
 	defer func() {
 		j.mu.Lock()
 		j.status.Running = false
 		now := time.Now()
 		j.status.FinishedAt = &now
+		j.cancel = nil
 		j.mu.Unlock()
 	}()
 
@@ -200,13 +214,24 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 	}
 
 	for i, c := range candidates {
+		if ctx.Err() != nil {
+			return
+		}
 		if i > 0 {
-			<-ticker.C
+			select {
+			case <-ticker.C:
+			case <-ctx.Done():
+				return
+			}
 		}
 		j.setFetching(c.flags, 1)
 
-		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
+		metadata, fetchErr := j.fetchMetadata(ctx, c.mf.Title, c.mf.Artist)
 		if fetchErr != nil {
+			if ctx.Err() != nil {
+				j.setFetching(c.flags, -1)
+				return
+			}
 			failed++
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
 			j.finishFetch(c.flags, false, false, false, false, false, false)
@@ -634,10 +659,10 @@ func valueOrNil(v string) *string {
 	return &v
 }
 
-func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
+func (j *musicBrainzMetadataJob) fetchMetadata(ctx context.Context, title, artist string) (metadataResult, error) {
 	query := fmt.Sprintf("artist:%s AND recording:%s", artist, title)
 	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups"
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return metadataResult{}, err
 	}
@@ -667,7 +692,7 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 
 	coverCache := make(map[string]bool, len(bestCandidates))
 	best := selectBestReleaseCandidate(bestCandidates, func(releaseID string) bool {
-		return j.releaseHasCover(releaseID, coverCache)
+		return j.releaseHasCover(ctx, releaseID, coverCache)
 	})
 	if best == nil {
 		return metadataResult{}, nil
@@ -688,7 +713,7 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 	}, nil
 }
 
-func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[string]bool) bool {
+func (j *musicBrainzMetadataJob) releaseHasCover(ctx context.Context, releaseID string, cache map[string]bool) bool {
 	releaseID = strings.TrimSpace(releaseID)
 	if releaseID == "" {
 		return false
@@ -705,7 +730,7 @@ func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[str
 	}
 	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
@@ -1036,22 +1061,34 @@ func (j *spotifyMetadataJob) start(ds model.DataStore, songIDs []string) bool {
 		j.mu.Unlock()
 		return false
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	now := time.Now()
 	j.status = spotifyMetadataStatus{Running: true, StartedAt: &now}
 	j.entries = map[string]spotifyConfidenceEntry{}
+	j.cancel = cancel
 	j.mu.Unlock()
 
-	go j.run(ds, songIDs)
+	go j.run(ctx, ds, songIDs)
 	return true
 }
 
-func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
-	ctx := context.Background()
+func (j *spotifyMetadataJob) stop() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if !j.status.Running || j.cancel == nil {
+		return false
+	}
+	j.cancel()
+	return true
+}
+
+func (j *spotifyMetadataJob) run(ctx context.Context, ds model.DataStore, songIDs []string) {
 	defer func() {
 		j.mu.Lock()
 		j.status.Running = false
 		now := time.Now()
 		j.status.FinishedAt = &now
+		j.cancel = nil
 		j.mu.Unlock()
 	}()
 
@@ -1113,13 +1150,24 @@ func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
 	ticker := time.NewTicker(1400 * time.Millisecond)
 	defer ticker.Stop()
 	for i, mf := range candidates {
+		if ctx.Err() != nil {
+			return
+		}
 		if i > 0 {
-			<-ticker.C
+			select {
+			case <-ticker.C:
+			case <-ctx.Done():
+				return
+			}
 		}
 		j.setFetching(true, isMissingAlbum(mf.Album), 1)
 
 		track, confidence, searchErr := j.searchBestTrack(ctx, token, mf)
 		if searchErr != nil || track == nil {
+			if ctx.Err() != nil {
+				j.setFetching(true, isMissingAlbum(mf.Album), -1)
+				return
+			}
 			j.finishFetch(true, isMissingAlbum(mf.Album), false, false)
 			continue
 		}
@@ -1443,6 +1491,17 @@ func (n *Router) addMusicBrainzMetadataRoute(r chi.Router) {
 		})
 		r.Get("/spotify/confidence", func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": n.spotifyJob.getConfidenceEntries()})
+		})
+		r.Post("/stop", func(w http.ResponseWriter, _ *http.Request) {
+			mbStopped := n.metadataJob.stop()
+			spotifyStopped := n.spotifyJob.stop()
+			if mbStopped || spotifyStopped {
+				w.WriteHeader(http.StatusAccepted)
+				_, _ = w.Write([]byte(`{"status":"stopping"}`))
+				return
+			}
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"status":"not_running"}`))
 		})
 		r.Post("/spotify/fetch", func(w http.ResponseWriter, r *http.Request) {
 			songIDs, err := decodeSelectedSongIDs(r)
