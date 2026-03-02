@@ -121,6 +121,7 @@ type spotifyConfidenceEntry struct {
 	Album         string  `json:"album"`
 	SpotifyMatch  string  `json:"spotifyMatch,omitempty"`
 	SpotifyArtist string  `json:"spotifyArtist,omitempty"`
+	SpotifyURL    string  `json:"spotifyUrl,omitempty"`
 	CoverURL      string  `json:"coverUrl,omitempty"`
 	Downloaded    bool    `json:"downloaded"`
 }
@@ -1157,6 +1158,7 @@ func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
 			Album:         albumName,
 			SpotifyMatch:  strings.TrimSpace(track.Name),
 			SpotifyArtist: strings.TrimSpace(track.Artists[0].Name),
+			SpotifyURL:    "https://open.spotify.com/track/" + strings.TrimSpace(track.ID),
 			CoverURL:      coverURL,
 			Downloaded:    downloaded,
 		})

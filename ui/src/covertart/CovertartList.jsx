@@ -151,10 +151,19 @@ const CovertartList = (props) => {
             if (!entry?.spotifyMatch) {
               return ''
             }
-            if (!entry?.spotifyArtist) {
-              return entry.spotifyMatch
+            const label = entry?.spotifyArtist
+              ? `${entry.spotifyMatch} - ${entry.spotifyArtist}`
+              : entry.spotifyMatch
+
+            if (!entry?.spotifyUrl) {
+              return label
             }
-            return `${entry.spotifyMatch} - ${entry.spotifyArtist}`
+
+            return (
+              <a href={entry.spotifyUrl} target="_blank" rel="noopener noreferrer">
+                {label}
+              </a>
+            )
           }}
         />
       ),
