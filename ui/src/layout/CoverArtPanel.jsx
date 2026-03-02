@@ -318,22 +318,6 @@ const CoverArtPanel = () => {
                 />
               </Grid>
               <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title="Cover Art (Spotify)"
-                  progress={spotifyStatus.coverArt || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title="Album (Spotify)"
-                  progress={spotifyStatus.album || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
                 <Card variant="outlined" className={classes.progressCard}>
                   <CardContent>
                     <Typography variant="subtitle2">
@@ -353,6 +337,22 @@ const CoverArtPanel = () => {
                     </Box>
                   </CardContent>
                 </Card>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <ProgressCard
+                  title="Cover Art (Spotify)"
+                  progress={spotifyStatus.coverArt || emptyProgress}
+                  translate={translate}
+                  classes={classes}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <ProgressCard
+                  title="Album (Spotify)"
+                  progress={spotifyStatus.album || emptyProgress}
+                  translate={translate}
+                  classes={classes}
+                />
               </Grid>
             </Grid>
           </CardContent>
