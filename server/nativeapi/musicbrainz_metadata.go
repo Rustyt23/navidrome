@@ -920,14 +920,62 @@ func collectRecordingGenre(rec mbRecording) string {
 }
 
 func collectGenre(rec mbRecording, release mbRelease) string {
-	genre := collectGenres(release.Genres, release.Tags)
-	if genre != "" {
-		return genre
-	}
-	return collectRecordingGenre(rec)
+	return collectBestGenre(release, rec)
 }
 
 func collectGenres(genres, tags []mbName) string {
+	best := collectBestGenreName(genres, tags)
+	if best == "" {
+		return ""
+	}
+	return best
+}
+
+func collectBestGenre(release mbRelease, rec mbRecording) string {
+	candidates := make(map[string]int)
+	labels := make(map[string]string)
+
+	add := func(name string, weight int) {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			return
+		}
+		key := strings.ToLower(trimmed)
+		candidates[key] += weight
+		if _, ok := labels[key]; !ok {
+			labels[key] = trimmed
+		}
+	}
+
+	for _, g := range release.Genres {
+		add(g.Name, 6)
+	}
+	for _, t := range release.Tags {
+		add(t.Name, 4)
+	}
+	for _, g := range rec.Genres {
+		add(g.Name, 3)
+	}
+	for _, t := range rec.Tags {
+		add(t.Name, 2)
+	}
+
+	bestKey := ""
+	bestScore := 0
+	for key, score := range candidates {
+		if score > bestScore || (score == bestScore && key < bestKey) {
+			bestKey = key
+			bestScore = score
+		}
+	}
+
+	if bestKey == "" {
+		return ""
+	}
+	return labels[bestKey]
+}
+
+func collectBestGenreName(genres, tags []mbName) string {
 	unique := map[string]bool{}
 	ordered := make([]string, 0, 4)
 	appendName := func(v string) {
@@ -952,10 +1000,7 @@ func collectGenres(genres, tags []mbName) string {
 	if len(ordered) == 0 {
 		return ""
 	}
-	if len(ordered) > 5 {
-		ordered = ordered[:5]
-	}
-	return strings.Join(ordered, ", ")
+	return ordered[0]
 }
 
 var punctuationRegex = regexp.MustCompile(`[\p{P}\p{S}]`)
