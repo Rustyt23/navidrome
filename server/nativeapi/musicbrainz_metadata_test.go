@@ -181,3 +181,19 @@ func TestCollectGenre_FallsBackToRecordingWhenReleaseHasNoTags(t *testing.T) {
 		t.Fatalf("expected Synthpop, got %q", got)
 	}
 }
+
+func TestCollectTag_PrefersMusicBrainzTagsOverGenreValue(t *testing.T) {
+	rec := mbRecording{
+		Genres: []mbName{{Name: "Rock"}},
+		Tags:   []mbName{{Name: "Indie"}},
+	}
+	release := mbRelease{
+		Genres: []mbName{{Name: "Rock"}},
+		Tags:   []mbName{{Name: "Alternative"}},
+	}
+
+	got := collectTag(rec, release)
+	if got != "Alternative" {
+		t.Fatalf("expected Alternative, got %q", got)
+	}
+}

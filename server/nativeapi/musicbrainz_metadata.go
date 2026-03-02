@@ -102,6 +102,7 @@ type metadataResult struct {
 	Album         string
 	Year          int
 	Genre         string
+	Tag           string
 	RecordingMBID string
 	ReleaseMBID   string
 }
@@ -220,6 +221,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 		var setAlbum *string
 		var setYear *int
 		var setGenre *string
+		var setTag *string
 
 		if c.flags.album && metadata.Album != "" {
 			setAlbum = &metadata.Album
@@ -227,17 +229,20 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 		if c.flags.year && metadata.Year > 0 {
 			setYear = &metadata.Year
 		}
-		if (c.flags.genre || c.flags.tag) && metadata.Genre != "" {
+		if c.flags.genre && metadata.Genre != "" {
 			setGenre = &metadata.Genre
 		}
+		if c.flags.tag && metadata.Tag != "" {
+			setTag = &metadata.Tag
+		}
 
-		if setAlbum != nil || setYear != nil || setGenre != nil || metadata.RecordingMBID != "" || metadata.ReleaseMBID != "" {
-			if err := ds.MediaFile(ctx).UpdateMissingMetadata(c.mf.ID, setAlbum, setYear, setGenre, valueOrNil(metadata.RecordingMBID), valueOrNil(metadata.ReleaseMBID)); err != nil {
+		if setAlbum != nil || setYear != nil || setGenre != nil || setTag != nil || metadata.RecordingMBID != "" || metadata.ReleaseMBID != "" {
+			if err := ds.MediaFile(ctx).UpdateMissingMetadata(c.mf.ID, setAlbum, setYear, setGenre, setTag, valueOrNil(metadata.RecordingMBID), valueOrNil(metadata.ReleaseMBID)); err != nil {
 				failed++
 				log.Error(ctx, "Could not update fetched MusicBrainz metadata", "songId", c.mf.ID, err)
 			} else {
 				updated++
-				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil, c.flags.tag && metadata.Genre != "", c.flags.recordingMBID && metadata.RecordingMBID != "", c.flags.releaseMBID && metadata.ReleaseMBID != "", false)
+				j.setUpdated(setAlbum != nil, setYear != nil, setGenre != nil, setTag != nil, c.flags.recordingMBID && metadata.RecordingMBID != "", c.flags.releaseMBID && metadata.ReleaseMBID != "", false)
 			}
 		} else {
 			skipped++
@@ -266,7 +271,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 		if coverUpdated {
 			j.setUpdated(false, false, false, false, false, false, true)
 		}
-		j.finishFetch(c.flags, metadata.Album != "", metadata.Year > 0, metadata.Genre != "", metadata.Genre != "", metadata.RecordingMBID != "", metadata.ReleaseMBID != "", coverFetched)
+		j.finishFetch(c.flags, metadata.Album != "", metadata.Year > 0, metadata.Genre != "", metadata.Tag != "", metadata.RecordingMBID != "", metadata.ReleaseMBID != "", coverFetched)
 	}
 
 	log.Info(ctx, "MusicBrainz metadata fetch completed",
@@ -311,7 +316,7 @@ func (j *musicBrainzMetadataJob) collectCandidates(ctx context.Context, ds model
 			album:         isMissingAlbum(mf.Album),
 			year:          mf.Year == 0,
 			genre:         strings.TrimSpace(mf.Genre) == "",
-			tag:           true,
+			tag:           strings.TrimSpace(mf.MbzAlbumComment) == "",
 			recordingMBID: strings.TrimSpace(mf.MbzRecordingID) == "",
 			releaseMBID:   strings.TrimSpace(mf.MbzReleaseID) == "",
 			coverArt:      hasMissingCoverArt(mf),
@@ -704,10 +709,12 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 		year = yearFromDate(best.recording.FirstReleaseDate)
 	}
 	genre := collectGenre(*best.recording, *best.release)
+	tag := collectTag(*best.recording, *best.release)
 	return metadataResult{
 		Album:         album,
 		Year:          year,
 		Genre:         genre,
+		Tag:           tag,
 		RecordingMBID: strings.TrimSpace(best.recording.ID),
 		ReleaseMBID:   strings.TrimSpace(best.release.ID),
 	}, nil
@@ -945,6 +952,14 @@ func collectRecordingGenre(rec mbRecording) string {
 }
 
 func collectGenre(rec mbRecording, release mbRelease) string {
+	return collectBestGenre(release, rec)
+}
+
+func collectTag(rec mbRecording, release mbRelease) string {
+	best := collectBestGenreName(release.Tags, rec.Tags)
+	if best != "" {
+		return best
+	}
 	return collectBestGenre(release, rec)
 }
 
@@ -1202,7 +1217,7 @@ func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
 
 		setAlbum := isMissingAlbum(mf.Album) && albumName != ""
 		if setAlbum {
-			if err := ds.MediaFile(ctx).UpdateMissingMetadata(mf.ID, &albumName, nil, nil, nil, nil); err == nil {
+			if err := ds.MediaFile(ctx).UpdateMissingMetadata(mf.ID, &albumName, nil, nil, nil, nil, nil); err == nil {
 				j.setUpdated(true, false)
 			} else {
 				setAlbum = false
