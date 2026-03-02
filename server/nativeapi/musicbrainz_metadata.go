@@ -166,7 +166,7 @@ func newSpotifyMetadataJob() *spotifyMetadataJob {
 	}
 }
 
-const spotifyMinScore = 0.69
+const spotifyMinScore = 0.60
 
 func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 	ctx := context.Background()
