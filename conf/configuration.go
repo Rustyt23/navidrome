@@ -175,9 +175,13 @@ type lastfmOptions struct {
 }
 
 type spotifyOptions struct {
-	ID     string
-	Secret string
-	Token  string
+	ID                  string
+	Secret              string
+	Token               string
+	MinScore            float64
+	TitleScoreWeight    float64
+	ArtistScoreWeight   float64
+	DurationScoreWeight float64
 }
 
 type deezerOptions struct {
@@ -628,6 +632,10 @@ func setViperDefaults() {
 	viper.SetDefault("spotify.id", "")
 	viper.SetDefault("spotify.secret", "")
 	viper.SetDefault("spotify.token", "")
+	viper.SetDefault("spotify.minscore", 0.6)
+	viper.SetDefault("spotify.titlescoreweight", 0.5)
+	viper.SetDefault("spotify.artistscoreweight", 0.4)
+	viper.SetDefault("spotify.durationscoreweight", 0.1)
 	viper.SetDefault("deezer.enabled", true)
 	viper.SetDefault("listenbrainz.enabled", true)
 	viper.SetDefault("listenbrainz.baseurl", "https://api.listenbrainz.org/1/")

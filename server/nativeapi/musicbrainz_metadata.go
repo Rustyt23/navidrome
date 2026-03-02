@@ -166,8 +166,6 @@ func newSpotifyMetadataJob() *spotifyMetadataJob {
 	}
 }
 
-const spotifyMinScore = 0.60
-
 func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 	ctx := context.Background()
 	defer func() {
@@ -1140,7 +1138,7 @@ func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
 		}
 
 		downloaded := false
-		if confidence > spotifyMinScore && coverURL != "" {
+		if confidence > conf.Server.Spotify.MinScore && coverURL != "" {
 			if relPath, ok := j.ensureSpotifyCover(ctx, track.ID, coverURL); ok {
 				if err := ds.MediaFile(ctx).UpdateCoverPath(mf.ID, relPath); err == nil {
 					downloaded = true
@@ -1340,7 +1338,9 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 				durationScore = 1
 			}
 		}
-		finalScore := (titleScore * 0.5) + (artistScore * 0.45) + (durationScore * 0.05)
+		finalScore := (titleScore * conf.Server.Spotify.TitleScoreWeight) +
+			(artistScore * conf.Server.Spotify.ArtistScoreWeight) +
+			(durationScore * conf.Server.Spotify.DurationScoreWeight)
 		if finalScore > bestScore {
 			bestScore = finalScore
 			best = candidate
