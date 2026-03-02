@@ -98,10 +98,6 @@ const ProgressCard = ({ title, progress, translate, classes }) => (
         <span>{progress.fetched || 0}</span>
       </Box>
       <Box className={classes.row}>
-        <span>{translate('activity.musicbrainz.updated')}</span>
-        <span>{progress.updated || 0}</span>
-      </Box>
-      <Box className={classes.row}>
         <span>{translate('activity.musicbrainz.toBeFetch')}</span>
         <span>{progress.left || 0}</span>
       </Box>
@@ -306,27 +302,6 @@ const CoverArtPanel = () => {
             </Box>
             <Grid container spacing={2}>
               <Grid item xs={12} md={4}>
-                <Card variant="outlined" className={classes.progressCard}>
-                  <CardContent>
-                    <Typography variant="subtitle2">
-                      {translate('activity.musicbrainz.saveProgressTitle')}
-                    </Typography>
-                    <Box className={classes.row}>
-                      <span>{translate('activity.musicbrainz.savedCount')}</span>
-                      <span>{saveSummary.saved || 0}</span>
-                    </Box>
-                    <Box className={classes.row}>
-                      <span>{translate('activity.musicbrainz.remainingCount')}</span>
-                      <span>{saveSummary.remaining || 0}</span>
-                    </Box>
-                    <Box className={classes.row}>
-                      <span>{translate('activity.musicbrainz.savingCount')}</span>
-                      <span>{saveSummary.saving || 0}</span>
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} md={4}>
                 <ProgressCard
                   title="Cover Art (MusicBrainz)"
                   progress={status.coverArt || emptyProgress}
@@ -336,40 +311,8 @@ const CoverArtPanel = () => {
               </Grid>
               <Grid item xs={12} md={4}>
                 <ProgressCard
-                  title={translate('activity.musicbrainz.album')}
+                  title={`${translate('activity.musicbrainz.album')} (MusicBrainz)`}
                   progress={status.album || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title={translate('activity.musicbrainz.year')}
-                  progress={status.year || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title={translate('activity.musicbrainz.genre')}
-                  progress={status.genre || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title="Recording MBID"
-                  progress={status.recordingMbid || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title="Release MBID"
-                  progress={status.releaseMbid || emptyProgress}
                   translate={translate}
                   classes={classes}
                 />
@@ -389,6 +332,27 @@ const CoverArtPanel = () => {
                   translate={translate}
                   classes={classes}
                 />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Card variant="outlined" className={classes.progressCard}>
+                  <CardContent>
+                    <Typography variant="subtitle2">
+                      {translate('activity.musicbrainz.saveProgressTitle')}
+                    </Typography>
+                    <Box className={classes.row}>
+                      <span>{translate('activity.musicbrainz.savedCount')}</span>
+                      <span>{saveSummary.saved || 0}</span>
+                    </Box>
+                    <Box className={classes.row}>
+                      <span>{translate('activity.musicbrainz.remainingCount')}</span>
+                      <span>{saveSummary.remaining || 0}</span>
+                    </Box>
+                    <Box className={classes.row}>
+                      <span>{translate('activity.musicbrainz.savingCount')}</span>
+                      <span>{saveSummary.saving || 0}</span>
+                    </Box>
+                  </CardContent>
+                </Card>
               </Grid>
             </Grid>
           </CardContent>
