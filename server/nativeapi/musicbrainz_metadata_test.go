@@ -152,3 +152,48 @@ func TestHasMissingCoverArt(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectGenre_PrefersMostRepeatedAndSpecificSource(t *testing.T) {
+	rec := mbRecording{
+		Genres: []mbName{{Name: "Rock"}},
+		Tags:   []mbName{{Name: "Rock"}, {Name: "Indie"}},
+	}
+	release := mbRelease{
+		Genres: []mbName{{Name: "Alternative Rock"}},
+		Tags:   []mbName{{Name: "Rock"}, {Name: "Alternative Rock"}},
+	}
+
+	got := collectGenre(rec, release)
+	if got != "Alternative Rock" {
+		t.Fatalf("expected Alternative Rock, got %q", got)
+	}
+}
+
+func TestCollectGenre_FallsBackToRecordingWhenReleaseHasNoTags(t *testing.T) {
+	rec := mbRecording{
+		Genres: []mbName{{Name: "Synthpop"}},
+		Tags:   []mbName{{Name: "Synthpop"}, {Name: "Electronic"}},
+	}
+	release := mbRelease{}
+
+	got := collectGenre(rec, release)
+	if got != "Synthpop" {
+		t.Fatalf("expected Synthpop, got %q", got)
+	}
+}
+
+func TestCollectTag_PrefersMusicBrainzTagsOverGenreValue(t *testing.T) {
+	rec := mbRecording{
+		Genres: []mbName{{Name: "Rock"}},
+		Tags:   []mbName{{Name: "Indie"}},
+	}
+	release := mbRelease{
+		Genres: []mbName{{Name: "Rock"}},
+		Tags:   []mbName{{Name: "Alternative"}},
+	}
+
+	got := collectTag(rec, release)
+	if got != "Alternative" {
+		t.Fatalf("expected Alternative, got %q", got)
+	}
+}

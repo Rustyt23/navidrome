@@ -123,6 +123,7 @@ const CoverArtPanel = () => {
     album: emptyProgress,
     year: emptyProgress,
     genre: emptyProgress,
+    tag: emptyProgress,
     recordingMbid: emptyProgress,
     releaseMbid: emptyProgress,
     coverArt: emptyProgress,
@@ -148,17 +149,19 @@ const CoverArtPanel = () => {
   const loadStatus = useCallback(() => {
     httpClient('/api/metadata/musicbrainz/status')
       .then(({ json }) => {
-        setStatus(
+        const payload =
           json || {
             running: false,
             album: emptyProgress,
             year: emptyProgress,
             genre: emptyProgress,
+            tag: emptyProgress,
             recordingMbid: emptyProgress,
             releaseMbid: emptyProgress,
             coverArt: emptyProgress,
-          },
-        )
+          }
+
+        setStatus(payload)
       })
       .catch(() => {})
 
@@ -354,6 +357,14 @@ const CoverArtPanel = () => {
                 <ProgressCard
                   title={translate('activity.musicbrainz.genre')}
                   progress={status.genre || emptyProgress}
+                  translate={translate}
+                  classes={classes}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <ProgressCard
+                  title={translate('activity.musicbrainz.tag')}
+                  progress={status.tag || emptyProgress}
                   translate={translate}
                   classes={classes}
                 />

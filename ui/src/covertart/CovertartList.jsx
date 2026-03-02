@@ -120,6 +120,7 @@ const CovertartList = (props) => {
       createdAt: <DateField source="createdAt" sortBy="recently_added" showTime />,
       year: <TextField source="year" label="Release Year" />,
       genre: <TextField source="genre" label="Genre" />,
+      tag: <TextField source="mbzAlbumComment" label="Tag" />,
       fetched: (
         <FunctionField
           label="Fetched"

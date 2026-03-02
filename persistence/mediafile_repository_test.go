@@ -534,7 +534,7 @@ var _ = Describe("MediaRepository", func() {
 			album := "Real Album"
 			year := 2014
 			genre := "Rock"
-			Expect(mr.UpdateMissingMetadata(mf.ID, &album, &year, &genre, nil, nil)).To(Succeed())
+			Expect(mr.UpdateMissingMetadata(mf.ID, &album, &year, &genre, nil, nil, nil)).To(Succeed())
 
 			updated, err := mr.Get(mf.ID)
 			Expect(err).ToNot(HaveOccurred())

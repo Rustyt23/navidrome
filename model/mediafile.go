@@ -362,7 +362,7 @@ type MediaFileRepository interface {
 	DeleteAllMissing() (int64, error)
 	FindByPaths(paths []string) (MediaFiles, error)
 	UpdateComment(ids []string, comment string) error
-	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
+	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzAlbumComment *string, mbzRecordingID *string, mbzReleaseID *string) error
 	UpdateCoverPath(id string, coverPath string) error
 
 	// The following methods are used exclusively by the scanner:
