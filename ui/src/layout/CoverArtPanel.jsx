@@ -155,15 +155,13 @@ const CoverArtPanel = () => {
             album: emptyProgress,
             year: emptyProgress,
             genre: emptyProgress,
+            tag: emptyProgress,
             recordingMbid: emptyProgress,
             releaseMbid: emptyProgress,
             coverArt: emptyProgress,
           }
 
-        setStatus({
-          ...payload,
-          tag: payload.tag || payload.genre || emptyProgress,
-        })
+        setStatus(payload)
       })
       .catch(() => {})
 
@@ -366,7 +364,7 @@ const CoverArtPanel = () => {
               <Grid item xs={12} md={4}>
                 <ProgressCard
                   title={translate('activity.musicbrainz.tag')}
-                  progress={status.tag || status.genre || emptyProgress}
+                  progress={status.tag || emptyProgress}
                   translate={translate}
                   classes={classes}
                 />
