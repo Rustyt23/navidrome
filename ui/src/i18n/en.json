@@ -702,10 +702,10 @@
     "elapsedTime": "Elapsed Time",
     "musicbrainz": {
       "title": "MusicBrainz Metadata",
-      "fetch": "Fetch metadata",
-      "fetchSpotify": "Fetch Spotify metadata",
+      "fetch": "MusicBrainz",
+      "fetchSpotify": "Spotify",
       "spotifyStarted": "Spotify metadata fetch started",
-      "save": "Save metadata",
+      "save": "Save",
       "started": "Metadata fetch started",
       "alreadyRunning": "Metadata fetch is already running",
       "failed": "Metadata fetch failed",
