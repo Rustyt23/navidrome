@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import IconButton from '@material-ui/core/IconButton'
 import Tooltip from '@material-ui/core/Tooltip'
 import ImageOutlinedIcon from '@material-ui/icons/ImageOutlined'
@@ -76,11 +76,17 @@ const CovertartList = (props) => {
   const classes = useStyles()
   const [confidenceEntries, setConfidenceEntries] = useState([])
 
-  useEffect(() => {
+  const loadConfidenceEntries = useCallback(() => {
     httpClient('/api/metadata/musicbrainz/spotify/confidence')
       .then(({ json }) => setConfidenceEntries(json?.items || []))
       .catch(() => setConfidenceEntries([]))
   }, [])
+
+  useEffect(() => {
+    loadConfidenceEntries()
+    const intervalId = window.setInterval(loadConfidenceEntries, 5000)
+    return () => window.clearInterval(intervalId)
+  }, [loadConfidenceEntries])
 
   const confidenceBySong = useMemo(() => {
     const map = new Map()
@@ -235,8 +241,11 @@ const CovertartList = (props) => {
       exporter={false}
       perPage={50}
       pagination={<Pagination />}
+      bulkActionButtons={
+        <CovertartSongBulkActions onSpotifyCoverUpdated={loadConfidenceEntries} />
+      }
     >
-      <Datagrid rowClick={false} bulkActionButtons={<CovertartSongBulkActions />}>
+      <Datagrid rowClick={false}>
         {columns}
       </Datagrid>
     </List>
