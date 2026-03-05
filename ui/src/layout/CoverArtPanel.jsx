@@ -34,6 +34,14 @@ const emptySaveSummary = {
   saving: 0,
 }
 
+
+const isFetchAbortError = (error) =>
+  error?.name === 'AbortError' ||
+  error?.message?.toLowerCase?.().includes('aborted')
+
+const isAlreadyRunningError = (error) =>
+  error?.status === 409 || error?.body?.status === 'already_running'
+
 const useStyles = makeStyles((theme) => ({
   iconButton: {
     color: 'inherit',
@@ -206,7 +214,10 @@ const CoverArtPanel = () => {
         loadStatus()
       })
       .catch((error) => {
-        if (error?.status === 409) {
+        if (isFetchAbortError(error)) {
+          return
+        }
+        if (isAlreadyRunningError(error)) {
           notify('activity.musicbrainz.alreadyRunning', 'warning')
           return
         }
