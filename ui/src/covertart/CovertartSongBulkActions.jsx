@@ -33,20 +33,21 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
       headers: new Headers({ 'Content-Type': 'application/json' }),
     })
       .then(({ status }) => {
-        if (status === 202) {
+        if (status >= 200 && status < 300) {
           notify(successKey, 'info')
-          onUnselectItems()
+          onUnselectItems?.()
           return
         }
 
-        if (status === 409) {
+      })
+      .catch((error) => {
+        if (error?.status === 409) {
           notify('activity.musicbrainz.alreadyRunning', 'warning')
           return
         }
 
         notify('activity.musicbrainz.failed', 'warning')
       })
-      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
       .finally(() => setLoading(false))
   }
 

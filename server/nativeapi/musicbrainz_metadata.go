@@ -1163,17 +1163,24 @@ func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
 		}
 
 		albumName := strings.TrimSpace(track.Album.Name)
+		releaseYear := spotifyReleaseYear(track.Album.ReleaseDate)
 		coverURL := ""
 		if len(track.Album.Images) > 0 {
 			coverURL = strings.TrimSpace(track.Album.Images[0].URL)
 		}
 
 		setAlbum := isMissingAlbum(mf.Album) && albumName != ""
-		if setAlbum {
-			if err := ds.MediaFile(ctx).UpdateMissingMetadata(mf.ID, &albumName, nil, nil, nil, nil); err == nil {
-				j.setUpdated(true, false)
+		setYear := mf.Year == 0 && releaseYear > 0
+		if setAlbum || setYear {
+			var year *int
+			if setYear {
+				year = &releaseYear
+			}
+			if err := ds.MediaFile(ctx).UpdateMissingMetadata(mf.ID, valueOrNil(albumName), year, nil, nil, nil); err == nil {
+				j.setUpdated(setAlbum, false)
 			} else {
 				setAlbum = false
+				setYear = false
 			}
 		}
 
@@ -1345,12 +1352,25 @@ type spotifyTrack struct {
 		Name string `json:"name"`
 	} `json:"artists"`
 	Album struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Images []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		ReleaseDate string `json:"release_date"`
+		Images      []struct {
 			URL string `json:"url"`
 		} `json:"images"`
 	} `json:"album"`
+}
+
+func spotifyReleaseYear(releaseDate string) int {
+	releaseDate = strings.TrimSpace(releaseDate)
+	if len(releaseDate) < 4 {
+		return 0
+	}
+	year, err := strconv.Atoi(releaseDate[:4])
+	if err != nil || year <= 0 {
+		return 0
+	}
+	return year
 }
 
 func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, mf model.MediaFile) (*spotifyTrack, float64, error) {
@@ -1360,7 +1380,7 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 		return nil, 0, nil
 	}
 
-	q := strings.TrimSpace("track:" + localTitle + " artist:" + localArtist)
+	q := strings.TrimSpace(localTitle + " " + localArtist)
 	if q == "" {
 		return nil, 0, nil
 	}
@@ -1473,26 +1493,41 @@ func (j *spotifyMetadataJob) fetchAndSetCoverFromURL(ctx context.Context, ds mod
 		return spotifyConfidenceEntry{}, err
 	}
 
+	mf, err := ds.MediaFile(ctx).Get(songID)
+	if err != nil {
+		return spotifyConfidenceEntry{}, err
+	}
+
+	albumName := strings.TrimSpace(track.Album.Name)
+	releaseYear := spotifyReleaseYear(track.Album.ReleaseDate)
+	if (isMissingAlbum(mf.Album) && albumName != "") || (mf.Year == 0 && releaseYear > 0) {
+		var year *int
+		if mf.Year == 0 && releaseYear > 0 {
+			year = &releaseYear
+		}
+		if err := ds.MediaFile(ctx).UpdateMissingMetadata(songID, valueOrNil(albumName), year, nil, nil, nil); err != nil {
+			return spotifyConfidenceEntry{}, err
+		}
+	}
+
 	spotifyMatch := strings.TrimSpace(track.Name)
 	spotifyArtist := spotifyPrimaryArtist(track)
-	spotifyURL := "https://open.spotify.com/track/" + strings.TrimSpace(track.ID)
+	spotifyURL = "https://open.spotify.com/track/" + strings.TrimSpace(track.ID)
 	if err := ds.MediaFile(ctx).UpdateSpotifyMetadata(songID, nil, valueOrNil(spotifyMatch), valueOrNil(spotifyArtist), valueOrNil(spotifyURL)); err != nil {
 		return spotifyConfidenceEntry{}, err
 	}
 
 	entry := spotifyConfidenceEntry{
 		SongID:        songID,
-		Album:         strings.TrimSpace(track.Album.Name),
+		Album:         albumName,
 		SpotifyMatch:  spotifyMatch,
 		SpotifyArtist: spotifyArtist,
 		SpotifyURL:    spotifyURL,
 		CoverURL:      coverURL,
 		Downloaded:    true,
 	}
-	if mf, err := ds.MediaFile(ctx).Get(songID); err == nil {
-		entry.Title = mf.Title
-		entry.Artist = mf.Artist
-	}
+	entry.Title = mf.Title
+	entry.Artist = mf.Artist
 	j.storeEntry(entry)
 
 	return entry, nil
