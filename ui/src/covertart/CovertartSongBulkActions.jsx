@@ -46,7 +46,13 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
 
         notify('activity.musicbrainz.failed', 'warning')
       })
-      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
+      .catch((error) => {
+        if (error?.status === 409) {
+          notify('activity.musicbrainz.alreadyRunning', 'warning')
+          return
+        }
+        notify('activity.musicbrainz.failed', 'warning')
+      })
       .finally(() => setLoading(false))
   }
 
