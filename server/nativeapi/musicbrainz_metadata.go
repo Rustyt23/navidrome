@@ -1360,7 +1360,7 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 		return nil, 0, nil
 	}
 
-	q := strings.TrimSpace("track:" + localTitle + " artist:" + localArtist)
+	q := strings.TrimSpace(localTitle + " " + localArtist)
 	if q == "" {
 		return nil, 0, nil
 	}
@@ -1475,7 +1475,7 @@ func (j *spotifyMetadataJob) fetchAndSetCoverFromURL(ctx context.Context, ds mod
 
 	spotifyMatch := strings.TrimSpace(track.Name)
 	spotifyArtist := spotifyPrimaryArtist(track)
-	spotifyURL := "https://open.spotify.com/track/" + strings.TrimSpace(track.ID)
+	spotifyURL = "https://open.spotify.com/track/" + strings.TrimSpace(track.ID)
 	if err := ds.MediaFile(ctx).UpdateSpotifyMetadata(songID, nil, valueOrNil(spotifyMatch), valueOrNil(spotifyArtist), valueOrNil(spotifyURL)); err != nil {
 		return spotifyConfidenceEntry{}, err
 	}
