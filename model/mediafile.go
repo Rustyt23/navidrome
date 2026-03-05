@@ -85,6 +85,10 @@ type MediaFile struct {
 	MbzAlbumArtistID     string   `structs:"mbz_album_artist_id" json:"mbzAlbumArtistId,omitempty"` // Deprecated: Use Participants instead
 	MbzAlbumType         string   `structs:"mbz_album_type" json:"mbzAlbumType,omitempty"`
 	MbzAlbumComment      string   `structs:"mbz_album_comment" json:"mbzAlbumComment,omitempty"`
+	SpotifyConfidence    float64  `structs:"spotify_confidence" json:"spotifyConfidence,omitempty"`
+	SpotifyMatch         string   `structs:"spotify_match" json:"spotifyMatch,omitempty"`
+	SpotifyArtist        string   `structs:"spotify_artist" json:"spotifyArtist,omitempty"`
+	SpotifyURL           string   `structs:"spotify_url" json:"spotifyUrl,omitempty"`
 	RGAlbumGain          *float64 `structs:"rg_album_gain" json:"rgAlbumGain"`
 	RGAlbumPeak          *float64 `structs:"rg_album_peak" json:"rgAlbumPeak"`
 	RGTrackGain          *float64 `structs:"rg_track_gain" json:"rgTrackGain"`
@@ -364,6 +368,7 @@ type MediaFileRepository interface {
 	UpdateComment(ids []string, comment string) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
 	UpdateCoverPath(id string, coverPath string) error
+	UpdateSpotifyMetadata(id string, confidence *float64, match *string, artist *string, spotifyURL *string) error
 
 	// The following methods are used exclusively by the scanner:
 	MarkMissing(bool, ...*MediaFile) error

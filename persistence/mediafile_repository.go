@@ -319,9 +319,36 @@ func (r *mediaFileRepository) UpdateCoverPath(id string, coverPath string) error
 	}
 
 	up := Update(r.tableName).
-		Set("cover_path", Expr("case when trim(ifnull(cover_path, '')) = '' then ? else cover_path end", coverPath)).
+		Set("cover_path", coverPath).
 		Set("updated_at", time.Now()).
 		Where(Eq{"id": id})
+	_, err := r.executeSQL(up)
+	return err
+}
+
+func (r *mediaFileRepository) UpdateSpotifyMetadata(id string, confidence *float64, match *string, artist *string, spotifyURL *string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	if confidence == nil && match == nil && artist == nil && spotifyURL == nil {
+		return nil
+	}
+
+	up := Update(r.tableName).Where(Eq{"id": id})
+	if confidence != nil {
+		up = up.Set("spotify_confidence", *confidence)
+	}
+	if match != nil {
+		up = up.Set("spotify_match", strings.TrimSpace(*match))
+	}
+	if artist != nil {
+		up = up.Set("spotify_artist", strings.TrimSpace(*artist))
+	}
+	if spotifyURL != nil {
+		up = up.Set("spotify_url", strings.TrimSpace(*spotifyURL))
+	}
+	up = up.Set("updated_at", time.Now())
 	_, err := r.executeSQL(up)
 	return err
 }
