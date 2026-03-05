@@ -6,6 +6,14 @@ import { useListContext, useNotify, useTranslate } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import { httpClient } from '../dataProvider'
 
+
+const isFetchAbortError = (error) =>
+  error?.name === 'AbortError' ||
+  error?.message?.toLowerCase?.().includes('aborted')
+
+const isAlreadyRunningError = (error) =>
+  error?.status === 409 || error?.body?.status === 'already_running'
+
 const useStyles = makeStyles((theme) => ({
   button: {
     color: theme.palette.type === 'dark' ? 'white' : undefined,
@@ -46,7 +54,16 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
 
         notify('activity.musicbrainz.failed', 'warning')
       })
-      .catch(() => notify('activity.musicbrainz.failed', 'warning'))
+      .catch((error) => {
+        if (isFetchAbortError(error)) {
+          return
+        }
+        if (isAlreadyRunningError(error)) {
+          notify('activity.musicbrainz.alreadyRunning', 'warning')
+          return
+        }
+        notify('activity.musicbrainz.failed', 'warning')
+      })
       .finally(() => setLoading(false))
   }
 

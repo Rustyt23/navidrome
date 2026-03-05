@@ -13,6 +13,28 @@ func TestNormalizeMBString(t *testing.T) {
 	}
 }
 
+func TestSpotifyReleaseYear(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{name: "full date", input: "1999-09-21", want: 1999},
+		{name: "year only", input: "2005", want: 2005},
+		{name: "month precision", input: "2012-08", want: 2012},
+		{name: "invalid", input: "unknown", want: 0},
+		{name: "empty", input: "", want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := spotifyReleaseYear(tt.input); got != tt.want {
+				t.Fatalf("spotifyReleaseYear(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSelectBestRecording(t *testing.T) {
 	payload := mbSearchResponse{Recordings: []mbRecording{
 		{
