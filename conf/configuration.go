@@ -179,6 +179,7 @@ type spotifyOptions struct {
 	Secret              string
 	Token               string
 	MinScore            float64
+	CoverRetryMinScore  float64
 	TitleScoreWeight    float64
 	ArtistScoreWeight   float64
 	DurationScoreWeight float64
@@ -633,6 +634,7 @@ func setViperDefaults() {
 	viper.SetDefault("spotify.secret", "")
 	viper.SetDefault("spotify.token", "")
 	viper.SetDefault("spotify.minscore", 0.6)
+	viper.SetDefault("spotify.coverretryminscore", 0.6)
 	viper.SetDefault("spotify.titlescoreweight", 0.5)
 	viper.SetDefault("spotify.artistscoreweight", 0.4)
 	viper.SetDefault("spotify.durationscoreweight", 0.1)
