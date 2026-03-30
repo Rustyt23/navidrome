@@ -2402,6 +2402,7 @@ func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (str
 	if deviceKey == "" {
 		return "", errors.New("retail player device id is empty")
 	}
+	deviceSlug := retailPlayerDeviceSlugKey(deviceKey)
 
 	config, err := fetchRetailPlayerDeviceConfig(ctx, deviceKey)
 	if err != nil {
@@ -2424,6 +2425,7 @@ func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (str
 		return "", err
 	}
 
+	configNameSlug := retailPlayerDeviceSlugKey(config.Name)
 	for _, remoteControl := range dependents.RemoteControls {
 		trimmedID := strings.TrimSpace(remoteControl.ID)
 		if trimmedID == "" {
@@ -2434,16 +2436,34 @@ func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (str
 		if strings.EqualFold(trimmedID, deviceKey) || strings.EqualFold(trimmedName, deviceKey) {
 			return trimmedID, nil
 		}
+
+		if deviceSlug != "" {
+			if retailPlayerDeviceSlugKey(trimmedID) == deviceSlug ||
+				retailPlayerDeviceSlugKey(trimmedName) == deviceSlug {
+				return trimmedID, nil
+			}
+		}
 	}
 
 	for _, remoteControl := range dependents.RemoteControls {
 		trimmedID := strings.TrimSpace(remoteControl.ID)
-		if trimmedID != "" {
+		if trimmedID == "" {
+			continue
+		}
+
+		trimmedName := strings.TrimSpace(remoteControl.Name)
+		if strings.EqualFold(trimmedID, config.Name) || strings.EqualFold(trimmedName, config.Name) {
+			return trimmedID, nil
+		}
+
+		if configNameSlug != "" &&
+			(retailPlayerDeviceSlugKey(trimmedID) == configNameSlug ||
+				retailPlayerDeviceSlugKey(trimmedName) == configNameSlug) {
 			return trimmedID, nil
 		}
 	}
 
-	return "", errors.New("retail player remote control id not found")
+	return "", fmt.Errorf("retail player remote control id not found for device %q", deviceKey)
 }
 
 func fetchRetailPlayerDependents(ctx context.Context, orgID string) (retailPlayerDependentsResponse, error) {
