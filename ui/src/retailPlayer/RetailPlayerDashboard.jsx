@@ -1212,7 +1212,12 @@ const RetailPlayerDashboard = () => {
     return (
       normalizeValue(trigger.id) ||
       normalizeValue(trigger.ID) ||
+      normalizeValue(trigger.triggerId) ||
+      normalizeValue(trigger.triggerID) ||
+      normalizeValue(trigger.value) ||
+      normalizeValue(trigger.key) ||
       normalizeValue(trigger.name) ||
+      normalizeValue(trigger.Name) ||
       ''
     )
   }, [])
@@ -1223,10 +1228,45 @@ const RetailPlayerDashboard = () => {
     }
 
     const rawOrdinal =
-      trigger.ordinal ?? trigger.Ordinal ?? trigger.button ?? trigger.buttonNumber
+      trigger.ordinal ??
+      trigger.Ordinal ??
+      trigger.button ??
+      trigger.buttonNumber ??
+      trigger.value
     const parsedOrdinal = Number(rawOrdinal)
     return Number.isFinite(parsedOrdinal) ? parsedOrdinal : null
   }, [])
+
+  const getTriggerActionValue = useCallback(
+    (trigger) => {
+      if (!trigger || typeof trigger !== 'object') {
+        return ''
+      }
+
+      const explicitValue =
+        normalizeValue(trigger.value) ||
+        normalizeValue(trigger.triggerId) ||
+        normalizeValue(trigger.triggerID) ||
+        normalizeValue(trigger.id) ||
+        normalizeValue(trigger.ID) ||
+        normalizeValue(trigger.key)
+      if (explicitValue) {
+        return explicitValue
+      }
+
+      const ordinal = getTriggerOrdinal(trigger)
+      if (Number.isFinite(ordinal)) {
+        return String(ordinal)
+      }
+
+      return (
+        normalizeValue(trigger.name) ||
+        normalizeValue(trigger.Name) ||
+        ''
+      )
+    },
+    [getTriggerOrdinal],
+  )
 
   const sortedCueTriggers = useMemo(() => {
     if (!cueTriggers || !cueTriggers.length) {
@@ -1356,13 +1396,14 @@ const RetailPlayerDashboard = () => {
     (trigger) => {
       const triggerId = getTriggerIdentifier(trigger)
       const triggerOrdinal = getTriggerOrdinal(trigger)
+      const triggerActionValue = getTriggerActionValue(trigger)
 
       const resolvedOrdinal = Number.isFinite(triggerOrdinal) ? triggerOrdinal : null
       if (triggerId || Number.isFinite(resolvedOrdinal)) {
         persistActiveCueState(triggerId || '', resolvedOrdinal)
       }
 
-      if (!deviceApiId || !triggerId) {
+      if (!deviceApiId || !triggerActionValue) {
         return
       }
 
@@ -1371,14 +1412,20 @@ const RetailPlayerDashboard = () => {
       httpClient(`/api/retailplayer/devices/${encodeURIComponent(deviceApiId)}/triggers`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ action: 'PLAY', value: triggerId }),
+        body: JSON.stringify({ action: 'PLAY', value: triggerActionValue }),
       }).catch((err) => {
         if (err?.name !== 'AbortError') {
           setCueError(err)
         }
       })
     },
-    [deviceApiId, getTriggerIdentifier, getTriggerOrdinal, persistActiveCueState],
+    [
+      deviceApiId,
+      getTriggerActionValue,
+      getTriggerIdentifier,
+      getTriggerOrdinal,
+      persistActiveCueState,
+    ],
   )
 
   const stopCuePlayback = useCallback(() => {
@@ -2742,7 +2789,8 @@ const RetailPlayerDashboard = () => {
           ) : sortedCueTriggers.length ? (
             <List disablePadding>
               {sortedCueTriggers.map((trigger) => {
-                const primaryText = trigger?.name || trigger?.id || 'Unnamed trigger'
+                const primaryText =
+                  trigger?.name || trigger?.Name || trigger?.id || trigger?.ID || 'Unnamed trigger'
                 const secondaryParts = []
                 if (trigger?.asset?.name) {
                   secondaryParts.push(trigger.asset.name)
@@ -2758,7 +2806,7 @@ const RetailPlayerDashboard = () => {
 
                 return (
                   <ListItem
-                    key={trigger?.id || primaryText}
+                    key={trigger?.id || trigger?.ID || trigger?.value || primaryText}
                     className={combineClasses(
                       classes.cueListItem,
                       isTriggerActive ? classes.cueListItemActive : null,

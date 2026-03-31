@@ -1082,7 +1082,14 @@ func (n *Router) handleRetailPlayerDeviceTriggers() http.HandlerFunc {
 
 		log.Info(ctx, "Fetching retail player device triggers", "deviceID", deviceID)
 
-		triggers, err := fetchRetailPlayerDeviceTriggers(ctx, deviceID)
+		remoteControlID, err := n.resolveRetailPlayerRemoteControlID(ctx, deviceID)
+		if err != nil {
+			log.Error(ctx, "Unable to resolve retail player remote control id", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to resolve retail player remote control id", http.StatusBadGateway)
+			return
+		}
+
+		triggers, err := fetchRetailPlayerDeviceTriggersWithRemoteControlID(ctx, deviceID, remoteControlID)
 		if err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
 				http.Error(w, "Retail player device not found", http.StatusNotFound)
@@ -1136,7 +1143,14 @@ func (n *Router) handleRetailPlayerDeviceTriggerAction() http.HandlerFunc {
 
 		log.Info(ctx, "Sending retail player trigger action", "deviceID", deviceID, "action", action, "value", value)
 
-		if err := sendRetailPlayerTriggerAction(ctx, deviceID, action, value); err != nil {
+		remoteControlID, err := n.resolveRetailPlayerRemoteControlID(ctx, deviceID)
+		if err != nil {
+			log.Error(ctx, "Unable to resolve retail player remote control id", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to resolve retail player remote control id", http.StatusBadGateway)
+			return
+		}
+
+		if err := sendRetailPlayerTriggerActionWithRemoteControlID(ctx, deviceID, remoteControlID, action, value); err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
 				http.Error(w, "Retail player device not found", http.StatusNotFound)
 				return
@@ -1153,6 +1167,24 @@ func (n *Router) handleRetailPlayerDeviceTriggerAction() http.HandlerFunc {
 			"value":   value,
 		})
 	}
+}
+
+func (n *Router) resolveRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (string, error) {
+	normalized := normalizeRetailPlayerIdentifier(deviceID)
+	if normalized == "" {
+		return "", errors.New("retail player device id is empty")
+	}
+
+	if mappedDevice, err := n.findRetailPlayerDeviceMapping(ctx, normalized); err == nil {
+		mappedRemoteControlID := strings.TrimSpace(mappedDevice.RemoteControlID)
+		if mappedRemoteControlID != "" {
+			return mappedRemoteControlID, nil
+		}
+	} else if err != nil && !errors.Is(err, errRetailPlayerDeviceNotFound) {
+		return "", err
+	}
+
+	return fetchRetailPlayerRemoteControlID(ctx, normalized)
 }
 
 func (n *Router) handleRetailPlayerDeviceConfig() http.HandlerFunc {
@@ -2165,6 +2197,15 @@ func fetchRetailPlayerDeviceConfig(ctx context.Context, deviceID string) (retail
 }
 
 func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]retailPlayerTrigger, error) {
+	remoteControlID, err := fetchRetailPlayerRemoteControlID(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return fetchRetailPlayerDeviceTriggersWithRemoteControlID(ctx, deviceID, remoteControlID)
+}
+
+func fetchRetailPlayerDeviceTriggersWithRemoteControlID(ctx context.Context, deviceID string, remoteControlID string) ([]retailPlayerTrigger, error) {
 	cfg := conf.Server.RetailPlayer
 	baseURL := strings.TrimSpace(cfg.RemoteControlBaseURL)
 	if baseURL == "" {
@@ -2190,9 +2231,9 @@ func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]re
 		return nil, errors.New("retail player device id is empty")
 	}
 
-	remoteControlID, err := fetchRetailPlayerRemoteControlID(ctx, trimmedID)
-	if err != nil {
-		return nil, err
+	remoteControlKey := strings.TrimSpace(remoteControlID)
+	if remoteControlKey == "" {
+		return nil, errors.New("retail player remote control id is empty")
 	}
 
 	requestConfig := retailPlayerRemoteControlConfig{
@@ -2202,7 +2243,7 @@ func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]re
 		AdditionalHeaders: cfg.AdditionalHeaders,
 	}
 
-	req, err := buildRetailPlayerRemoteControlRequest(ctx, requestConfig, remoteControlID, "triggers")
+	req, err := buildRetailPlayerRemoteControlRequest(ctx, requestConfig, remoteControlKey, "triggers")
 	if err != nil {
 		return nil, err
 	}
@@ -2260,6 +2301,15 @@ func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]re
 }
 
 func sendRetailPlayerTriggerAction(ctx context.Context, deviceID, action, value string) error {
+	remoteControlID, err := fetchRetailPlayerRemoteControlID(ctx, deviceID)
+	if err != nil {
+		return err
+	}
+
+	return sendRetailPlayerTriggerActionWithRemoteControlID(ctx, deviceID, remoteControlID, action, value)
+}
+
+func sendRetailPlayerTriggerActionWithRemoteControlID(ctx context.Context, deviceID, remoteControlID, action, value string) error {
 	cfg := conf.Server.RetailPlayer
 	baseURL := strings.TrimSpace(cfg.RemoteControlBaseURL)
 	if baseURL == "" {
@@ -2285,9 +2335,9 @@ func sendRetailPlayerTriggerAction(ctx context.Context, deviceID, action, value 
 		return errors.New("retail player device id is empty")
 	}
 
-	remoteControlID, err := fetchRetailPlayerRemoteControlID(ctx, trimmedID)
-	if err != nil {
-		return err
+	remoteControlKey := strings.TrimSpace(remoteControlID)
+	if remoteControlKey == "" {
+		return errors.New("retail player remote control id is empty")
 	}
 
 	requestConfig := retailPlayerRemoteControlConfig{
@@ -2305,7 +2355,7 @@ func sendRetailPlayerTriggerAction(ctx context.Context, deviceID, action, value 
 	req, err := buildRetailPlayerRemoteControlRequestWithMethod(
 		ctx,
 		requestConfig,
-		remoteControlID,
+		remoteControlKey,
 		http.MethodPost,
 		bytes.NewReader(body),
 		"triggers",
@@ -2402,6 +2452,7 @@ func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (str
 	if deviceKey == "" {
 		return "", errors.New("retail player device id is empty")
 	}
+	deviceSlug := retailPlayerDeviceSlugKey(deviceKey)
 
 	config, err := fetchRetailPlayerDeviceConfig(ctx, deviceKey)
 	if err != nil {
@@ -2424,6 +2475,7 @@ func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (str
 		return "", err
 	}
 
+	configNameSlug := retailPlayerDeviceSlugKey(config.Name)
 	for _, remoteControl := range dependents.RemoteControls {
 		trimmedID := strings.TrimSpace(remoteControl.ID)
 		if trimmedID == "" {
@@ -2434,16 +2486,34 @@ func fetchRetailPlayerRemoteControlID(ctx context.Context, deviceID string) (str
 		if strings.EqualFold(trimmedID, deviceKey) || strings.EqualFold(trimmedName, deviceKey) {
 			return trimmedID, nil
 		}
+
+		if deviceSlug != "" {
+			if retailPlayerDeviceSlugKey(trimmedID) == deviceSlug ||
+				retailPlayerDeviceSlugKey(trimmedName) == deviceSlug {
+				return trimmedID, nil
+			}
+		}
 	}
 
 	for _, remoteControl := range dependents.RemoteControls {
 		trimmedID := strings.TrimSpace(remoteControl.ID)
-		if trimmedID != "" {
+		if trimmedID == "" {
+			continue
+		}
+
+		trimmedName := strings.TrimSpace(remoteControl.Name)
+		if strings.EqualFold(trimmedID, config.Name) || strings.EqualFold(trimmedName, config.Name) {
+			return trimmedID, nil
+		}
+
+		if configNameSlug != "" &&
+			(retailPlayerDeviceSlugKey(trimmedID) == configNameSlug ||
+				retailPlayerDeviceSlugKey(trimmedName) == configNameSlug) {
 			return trimmedID, nil
 		}
 	}
 
-	return "", errors.New("retail player remote control id not found")
+	return "", fmt.Errorf("retail player remote control id not found for device %q", deviceKey)
 }
 
 func fetchRetailPlayerDependents(ctx context.Context, orgID string) (retailPlayerDependentsResponse, error) {
