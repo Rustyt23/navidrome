@@ -1209,12 +1209,7 @@ const RetailPlayerDashboard = () => {
       return ''
     }
 
-    return (
-      normalizeValue(trigger.id) ||
-      normalizeValue(trigger.ID) ||
-      normalizeValue(trigger.name) ||
-      ''
-    )
+    return normalizeValue(trigger.value) || normalizeValue(trigger.id) || `${trigger.ordinal ?? ''}`.trim()
   }, [])
 
   const getTriggerOrdinal = useCallback((trigger) => {
@@ -1252,54 +1247,21 @@ const RetailPlayerDashboard = () => {
   }, [device])
 
   const detectedCuePlayback = useMemo(() => {
-    const triggerIdCandidates = nowPlayingCueMetadata
-      ? [
-          nowPlayingCueMetadata.triggerId,
-          nowPlayingCueMetadata.trigger_id,
-          nowPlayingCueMetadata.triggerID,
-          nowPlayingCueMetadata.cueId,
-          nowPlayingCueMetadata.cue_id,
-          nowPlayingCueMetadata.cueID,
-          nowPlayingCueMetadata.trigger,
-          nowPlayingCueMetadata.cueTriggerId,
-          nowPlayingCueMetadata.cueTrigger_id,
-        ]
-      : []
-
-    const metadataTriggerId = triggerIdCandidates.map(normalizeValue).find(Boolean) || ''
-    const metadataOrdinalCandidate = nowPlayingCueMetadata
-      ?
-          nowPlayingCueMetadata.triggerOrdinal ??
-          nowPlayingCueMetadata.trigger_ordinal ??
-          nowPlayingCueMetadata.ordinal ??
-          nowPlayingCueMetadata.button ??
-          nowPlayingCueMetadata.buttonNumber
-      : null
-    const parsedMetadataOrdinal = Number(metadataOrdinalCandidate)
-    const resolvedMetadataOrdinal = Number.isFinite(parsedMetadataOrdinal)
-      ? parsedMetadataOrdinal
-      : null
-
-    let matchedTriggerId = metadataTriggerId
-    let matchedTriggerOrdinal = resolvedMetadataOrdinal
-
-    if (!matchedTriggerId && resolvedMetadataOrdinal !== null) {
-      const matchedTrigger = sortedCueTriggers.find((trigger) => {
-        const triggerOrdinal = getTriggerOrdinal(trigger)
-        return triggerOrdinal !== null && triggerOrdinal === resolvedMetadataOrdinal
-      })
-
-      if (matchedTrigger) {
-        matchedTriggerId = getTriggerIdentifier(matchedTrigger)
-        matchedTriggerOrdinal = resolvedMetadataOrdinal
-      }
-    }
+    const metadataTriggerId =
+      normalizeValue(nowPlayingCueMetadata?.triggerId) ||
+      normalizeValue(nowPlayingCueMetadata?.id) ||
+      normalizeValue(nowPlayingCueMetadata?.ordinal)
+    const matchedTrigger = sortedCueTriggers.find(
+      (trigger) => getTriggerIdentifier(trigger) === metadataTriggerId,
+    )
+    const matchedTriggerId = matchedTrigger ? getTriggerIdentifier(matchedTrigger) : metadataTriggerId
+    const matchedTriggerOrdinal = matchedTrigger ? getTriggerOrdinal(matchedTrigger) : null
 
     if (matchedTriggerId) {
       return { triggerId: matchedTriggerId, triggerOrdinal: matchedTriggerOrdinal }
     }
 
-    return { triggerId: '', triggerOrdinal: matchedTriggerOrdinal }
+    return { triggerId: '', triggerOrdinal: null }
   }, [getTriggerIdentifier, getTriggerOrdinal, nowPlayingCueMetadata, sortedCueTriggers])
 
   useEffect(() => {
