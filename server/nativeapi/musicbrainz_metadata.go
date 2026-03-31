@@ -1378,9 +1378,27 @@ func sanitizeSpotifyRetryTitle(title string) string {
 	if title == "" {
 		return ""
 	}
-	stripped := strings.TrimSpace(spotifyParenRegex.ReplaceAllString(title, ""))
-	stripped = strings.TrimSpace(spotifyBracketRegex.ReplaceAllString(stripped, ""))
+
+	trailingParen := regexp.MustCompile(`\s*\([^)]*\)\s*$`)
+	trailingBracket := regexp.MustCompile(`\s*\[[^\]]*\]\s*$`)
+
+	stripped := title
+
+	// Keep removing trailing tags (handles multiple like "(Live) (Remix)")
+	for {
+		newStr := trailingParen.ReplaceAllString(stripped, "")
+		newStr = trailingBracket.ReplaceAllString(newStr, "")
+
+		newStr = strings.TrimSpace(newStr)
+
+		if newStr == stripped {
+			break
+		}
+		stripped = newStr
+	}
+
 	stripped = strings.Join(strings.Fields(stripped), " ")
+
 	if stripped == "" {
 		return title
 	}

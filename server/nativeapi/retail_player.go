@@ -1100,8 +1100,9 @@ func (n *Router) handleRetailPlayerDeviceTriggers() http.HandlerFunc {
 
 func (n *Router) handleRetailPlayerDeviceTriggerAction() http.HandlerFunc {
 	type triggerActionRequest struct {
-		Action string `json:"action"`
-		Value  string `json:"value"`
+		Action          string `json:"action"`
+		Value           string `json:"value"`
+		ButtonTriggerID string `json:"buttonTriggerId"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1127,16 +1128,44 @@ func (n *Router) handleRetailPlayerDeviceTriggerAction() http.HandlerFunc {
 			return
 		}
 
-		action := strings.TrimSpace(payload.Action)
+		action := strings.ToUpper(strings.TrimSpace(payload.Action))
 		value := strings.TrimSpace(payload.Value)
-		if action == "" || value == "" {
-			http.Error(w, "Trigger action and value are required", http.StatusBadRequest)
+		buttonTriggerID := strings.TrimSpace(payload.ButtonTriggerID)
+
+		triggerID := buttonTriggerID
+		if triggerID == "" && action == "PLAY" {
+			triggerID = value
+		}
+
+		if triggerID == "" && action != "STOP" {
+			http.Error(w, "Button trigger id is required", http.StatusBadRequest)
 			return
 		}
 
-		log.Info(ctx, "Sending retail player trigger action", "deviceID", deviceID, "action", action, "value", value)
+		if action == "STOP" {
+			log.Info(ctx, "Sending retail player cue stop command", "deviceID", deviceID, "value", value)
+			if err := sendRetailPlayerCueStopAction(ctx, deviceID); err != nil {
+				if errors.Is(err, errRetailPlayerDeviceNotFound) {
+					http.Error(w, "Retail player device not found", http.StatusNotFound)
+					return
+				}
 
-		if err := sendRetailPlayerTriggerAction(ctx, deviceID, action, value); err != nil {
+				log.Error(ctx, "Unable to send retail player cue stop action", "deviceID", deviceID, "err", err)
+				http.Error(w, "Unable to send trigger action", http.StatusBadGateway)
+				return
+			}
+
+			writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
+				"success": true,
+				"action":  "STOP",
+				"value":   value,
+			})
+			return
+		}
+
+		log.Info(ctx, "Sending retail player button trigger command", "deviceID", deviceID, "buttonTriggerID", triggerID)
+
+		if err := sendRetailPlayerTriggerAction(ctx, deviceID, triggerID); err != nil {
 			if errors.Is(err, errRetailPlayerDeviceNotFound) {
 				http.Error(w, "Retail player device not found", http.StatusNotFound)
 				return
@@ -1149,8 +1178,8 @@ func (n *Router) handleRetailPlayerDeviceTriggerAction() http.HandlerFunc {
 
 		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{
 			"success": true,
-			"action":  action,
-			"value":   value,
+			"action":  "PLAY",
+			"value":   triggerID,
 		})
 	}
 }
@@ -2259,83 +2288,53 @@ func fetchRetailPlayerDeviceTriggers(ctx context.Context, deviceID string) ([]re
 	return triggers, nil
 }
 
-func sendRetailPlayerTriggerAction(ctx context.Context, deviceID, action, value string) error {
-	cfg := conf.Server.RetailPlayer
-	baseURL := strings.TrimSpace(cfg.RemoteControlBaseURL)
-	if baseURL == "" {
-		baseURL = cfg.BaseURL
-	}
-
-	apiKey := strings.TrimSpace(cfg.RemoteControlAPIKey)
-	if apiKey == "" {
-		apiKey = cfg.APIKey
-	}
-
-	apiKeyHeader := strings.TrimSpace(cfg.RemoteControlAPIKeyHeader)
-	if apiKeyHeader == "" {
-		apiKeyHeader = retailPlayerRemoteControlDefaultKeyHeader
-	}
-
-	if baseURL == "" {
-		return errors.New("retail player remote control API not configured")
-	}
-
+func sendRetailPlayerTriggerAction(ctx context.Context, deviceID, triggerID string) error {
 	trimmedID := strings.TrimSpace(deviceID)
 	if trimmedID == "" {
 		return errors.New("retail player device id is empty")
 	}
 
-	remoteControlID, err := fetchRetailPlayerRemoteControlID(ctx, trimmedID)
+	trimmedTriggerID := strings.TrimSpace(triggerID)
+	if trimmedTriggerID == "" {
+		return errors.New("retail player trigger id is empty")
+	}
+
+	command := retailPlayerCommandRequest{
+		Type: "button_trigger",
+		Payload: map[string]string{
+			"buttonTriggerId": trimmedTriggerID,
+		},
+	}
+
+	_, err := (&Router{}).sendRetailPlayerDeviceCommand(ctx, trimmedID, command)
 	if err != nil {
+		if strings.Contains(err.Error(), "status 404") || strings.Contains(err.Error(), "status 400") {
+			return errRetailPlayerDeviceNotFound
+		}
 		return err
 	}
 
-	requestConfig := retailPlayerRemoteControlConfig{
-		BaseURL:           baseURL,
-		APIKey:            apiKey,
-		APIKeyHeader:      apiKeyHeader,
-		AdditionalHeaders: cfg.AdditionalHeaders,
+	return nil
+}
+
+func sendRetailPlayerCueStopAction(ctx context.Context, deviceID string) error {
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return errors.New("retail player device id is empty")
 	}
 
-	body, err := json.Marshal(map[string]string{"action": action, "value": value})
+	command := retailPlayerCommandRequest{
+		Type:    "FLUSH_EVENTS",
+		Payload: map[string]any{},
+	}
+
+	_, err := (&Router{}).sendRetailPlayerDeviceCommand(ctx, trimmedID, command)
 	if err != nil {
+		if strings.Contains(err.Error(), "status 404") || strings.Contains(err.Error(), "status 400") {
+			return errRetailPlayerDeviceNotFound
+		}
 		return err
 	}
-
-	req, err := buildRetailPlayerRemoteControlRequestWithMethod(
-		ctx,
-		requestConfig,
-		remoteControlID,
-		http.MethodPost,
-		bytes.NewReader(body),
-		"triggers",
-	)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := retailPlayerHTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest {
-		return errRetailPlayerDeviceNotFound
-	}
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf(
-			"retail player trigger action failed with status %d: %s",
-			resp.StatusCode,
-			strings.TrimSpace(string(bodyBytes)),
-		)
-	}
-
-	io.Copy(io.Discard, resp.Body)
 
 	return nil
 }
