@@ -81,6 +81,12 @@ const mapRetailPlayerDevice = (device) => {
       : typeof device.isOnline === 'boolean'
         ? device.isOnline
         : undefined
+  const volumeChangeEnabled =
+    typeof device.volumeChangeEnabled === 'boolean'
+      ? device.volumeChangeEnabled
+      : typeof device.volume_change_enabled === 'boolean'
+        ? device.volume_change_enabled
+        : undefined
 
   return {
     id: fallbackId,
@@ -100,6 +106,9 @@ const mapRetailPlayerDevice = (device) => {
     folderIds,
     remoteControlId,
     ...(typeof isLocked === 'boolean' ? { isLocked } : {}),
+    ...(typeof volumeChangeEnabled === 'boolean'
+      ? { volumeChangeEnabled }
+      : {}),
     ...(typeof isOnline === 'boolean' ? { online: isOnline } : {}),
   }
 }

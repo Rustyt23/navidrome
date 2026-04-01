@@ -119,6 +119,12 @@ const baseDeviceShape = (device, existing) => {
       : typeof existing?.online === 'boolean'
         ? existing.online
         : undefined
+  const normalizedVolumeChangeEnabled =
+    typeof device?.volumeChangeEnabled === 'boolean'
+      ? device.volumeChangeEnabled
+      : typeof existing?.volumeChangeEnabled === 'boolean'
+        ? existing.volumeChangeEnabled
+        : true
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -147,6 +153,7 @@ const baseDeviceShape = (device, existing) => {
     timeZone: normalizedTimeZone || '',
     remoteControlId: normalizedRemoteControlId || '',
     isLocked: normalizedIsLocked,
+    volumeChangeEnabled: normalizedVolumeChangeEnabled,
     ...(typeof normalizedIsOnline === 'boolean' ? { online: normalizedIsOnline } : {}),
     folderIds,
     folderId: primaryFolderId,
@@ -684,6 +691,10 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         basePayload,
         'isLocked',
       )
+      const hasVolumeChangeEnabled = Object.prototype.hasOwnProperty.call(
+        basePayload,
+        'volumeChangeEnabled',
+      )
 
       if (hasRemoteControlId) {
         const remoteControlId = normalizeValue(basePayload.remoteControlId)
@@ -726,6 +737,29 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
               typeof json?.data?.isLocked === 'boolean'
                 ? json.data.isLocked
                 : isLocked,
+          },
+        })
+      }
+
+      if (hasVolumeChangeEnabled) {
+        const enabled = Boolean(basePayload.volumeChangeEnabled)
+        const { json } = await httpClient(
+          `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/volume-control`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled }),
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+          },
+        )
+
+        dispatch({
+          type: 'UPDATE_DEVICE',
+          payload: {
+            id: deviceId,
+            volumeChangeEnabled:
+              typeof json?.data?.volumeChangeEnabled === 'boolean'
+                ? json.data.volumeChangeEnabled
+                : enabled,
           },
         })
       }
