@@ -7,22 +7,24 @@ import (
 )
 
 type RetailPlayerDeviceMapping struct {
-	DeviceID     string    `db:"device_id" json:"deviceId"`
-	DeviceName   string    `db:"device_name" json:"deviceName"`
-	DeviceSlug   string    `db:"device_slug" json:"deviceSlug"`
-	IsLocked     bool      `db:"is_locked" json:"isLocked"`
-	Channel      string    `db:"channel" json:"channel"`
-	ChannelList  string    `db:"channel_list" json:"channelList"`
-	Organization string    `db:"organization" json:"organization"`
-	TimeZone     string    `db:"time_zone" json:"timeZone"`
-	RemoteCtrlID string    `db:"remote_control_id" json:"remoteControlId"`
-	UpdatedAt    time.Time `db:"updated_at" json:"updatedAt"`
+	DeviceID            string    `db:"device_id" json:"deviceId"`
+	DeviceName          string    `db:"device_name" json:"deviceName"`
+	DeviceSlug          string    `db:"device_slug" json:"deviceSlug"`
+	IsLocked            bool      `db:"is_locked" json:"isLocked"`
+	VolumeChangeEnabled bool      `db:"volume_change_enabled" json:"volumeChangeEnabled"`
+	Channel             string    `db:"channel" json:"channel"`
+	ChannelList         string    `db:"channel_list" json:"channelList"`
+	Organization        string    `db:"organization" json:"organization"`
+	TimeZone            string    `db:"time_zone" json:"timeZone"`
+	RemoteCtrlID        string    `db:"remote_control_id" json:"remoteControlId"`
+	UpdatedAt           time.Time `db:"updated_at" json:"updatedAt"`
 }
 
 type RetailPlayerDeviceMappingRepository interface {
 	Put(ctx context.Context, mapping RetailPlayerDeviceMapping) error
 	PutMany(ctx context.Context, mappings []RetailPlayerDeviceMapping) error
 	SetLocked(ctx context.Context, deviceID string, isLocked bool) error
+	SetVolumeChangeEnabled(ctx context.Context, deviceID string, enabled bool) error
 	FindByIdentifier(ctx context.Context, identifier string) (*RetailPlayerDeviceMapping, error)
 	All(ctx context.Context) ([]RetailPlayerDeviceMapping, error)
 }
