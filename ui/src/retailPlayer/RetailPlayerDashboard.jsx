@@ -719,6 +719,7 @@ const useStyles = makeStyles((theme) => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
+      gap: theme.spacing(0.75),
       color: theme.palette.text.secondary,
       textTransform: 'lowercase',
       opacity: 0,
@@ -756,6 +757,9 @@ const useStyles = makeStyles((theme) => {
       textAlign: 'right',
       fontVariantNumeric: 'tabular-nums',
       fontWeight: theme.typography.fontWeightMedium,
+    },
+    volumeToggleIconDisabled: {
+      color: theme.palette.action.disabled,
     },
     dislikeMessage: {
       marginTop: theme.spacing(1),
@@ -1795,6 +1799,9 @@ const RetailPlayerDashboard = () => {
   const isDeviceOnline = hasRealtimeOnlineState ? device.online : hasStatusValue
   const isOfflineUi = !isDeviceOnline
   const areNowPlayingControlsDisabled = !canControlDevice || isOfflineUi
+  const isVolumeControlEnabled = device?.isVolumeControlEnabled !== false
+  const areVolumeControlsDisabled =
+    areNowPlayingControlsDisabled || !isVolumeControlEnabled
   const formattedUpTime = useMemo(() => {
     if (statusUpTimeSeconds !== null) {
       const totalSeconds = statusUpTimeSeconds
@@ -2026,7 +2033,7 @@ const RetailPlayerDashboard = () => {
   )
 
   const handleToggleMute = useCallback(() => {
-    if (areNowPlayingControlsDisabled) {
+    if (areVolumeControlsDisabled) {
       return
     }
 
@@ -2062,10 +2069,10 @@ const RetailPlayerDashboard = () => {
       }
       return 0
     })
-  }, [areNowPlayingControlsDisabled, isMuted, sendRemoteControlCommand, updateVolume])
+  }, [areVolumeControlsDisabled, isMuted, sendRemoteControlCommand, updateVolume])
 
   const handleVolumeChange = useCallback((_, newValue) => {
-    if (areNowPlayingControlsDisabled) {
+    if (areVolumeControlsDisabled) {
       return
     }
 
@@ -2074,7 +2081,7 @@ const RetailPlayerDashboard = () => {
       return
     }
     updateVolume(resolvedValue)
-  }, [areNowPlayingControlsDisabled, updateVolume])
+  }, [areVolumeControlsDisabled, updateVolume])
 
   const handleRefresh = useCallback(() => {
     refreshStatus()
@@ -2083,9 +2090,12 @@ const RetailPlayerDashboard = () => {
 
   const handleAdjustVolume = useCallback(
     (delta) => {
+      if (areVolumeControlsDisabled) {
+        return
+      }
       updateVolume((prev) => prev + delta)
     },
-    [updateVolume],
+    [areVolumeControlsDisabled, updateVolume],
   )
 
   const handleBack = useCallback(() => {
@@ -2553,11 +2563,15 @@ const RetailPlayerDashboard = () => {
               <section
                 className={combineClasses(
                   classes.volumeSection,
-                  areNowPlayingControlsDisabled ? classes.volumeSectionDisabled : null,
+                  areVolumeControlsDisabled ? classes.volumeSectionDisabled : null,
                 )}
                 aria-label="Volume"
               >
                 <div className={classes.volumeLabelRow}>
+                  <VolumeUpIcon
+                    fontSize="small"
+                    className={!isVolumeControlEnabled ? classes.volumeToggleIconDisabled : null}
+                  />
                   <Typography component="span">volume</Typography>
                   <Typography className={classes.volumeValue} aria-live="polite">
                     {typeof displayVolume === 'number' && !Number.isNaN(displayVolume)
@@ -2569,7 +2583,7 @@ const RetailPlayerDashboard = () => {
                   classes={{
                     root: combineClasses(
                       classes.slider,
-                      areNowPlayingControlsDisabled ? classes.sliderDisabled : null,
+                      areVolumeControlsDisabled ? classes.sliderDisabled : null,
                     ),
                     track: classes.sliderTrack,
                     thumb: classes.sliderThumb,
@@ -2582,7 +2596,7 @@ const RetailPlayerDashboard = () => {
                   max={100}
                   aria-label="Volume"
                   onChange={handleVolumeChange}
-                  disabled={areNowPlayingControlsDisabled}
+                  disabled={areVolumeControlsDisabled}
                 />
               </section>
             </div>
