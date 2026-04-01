@@ -119,6 +119,14 @@ const baseDeviceShape = (device, existing) => {
       : typeof existing?.online === 'boolean'
         ? existing.online
         : undefined
+  const normalizedVolumeEnabled =
+    typeof device?.isVolumeControlEnabled === 'boolean'
+      ? device.isVolumeControlEnabled
+      : typeof device?.volumeChangeEnabled === 'boolean'
+        ? device.volumeChangeEnabled
+        : typeof existing?.isVolumeControlEnabled === 'boolean'
+          ? existing.isVolumeControlEnabled
+          : true
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -147,6 +155,7 @@ const baseDeviceShape = (device, existing) => {
     timeZone: normalizedTimeZone || '',
     remoteControlId: normalizedRemoteControlId || '',
     isLocked: normalizedIsLocked,
+    isVolumeControlEnabled: normalizedVolumeEnabled,
     ...(typeof normalizedIsOnline === 'boolean' ? { online: normalizedIsOnline } : {}),
     folderIds,
     folderId: primaryFolderId,
@@ -302,6 +311,7 @@ const reducer = (state, action) => {
         folderId,
         remoteControlId,
         isLocked,
+        isVolumeControlEnabled,
       } = action.payload || {}
       if (!id) {
         return state
@@ -334,6 +344,10 @@ const reducer = (state, action) => {
               : device.remoteControlId,
           isLocked:
             typeof isLocked === 'boolean' ? isLocked : device.isLocked,
+          isVolumeControlEnabled:
+            typeof isVolumeControlEnabled === 'boolean'
+              ? isVolumeControlEnabled
+              : device.isVolumeControlEnabled,
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }

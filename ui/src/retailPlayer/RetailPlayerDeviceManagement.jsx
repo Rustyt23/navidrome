@@ -32,6 +32,7 @@ import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
 import DeleteOutlineIcon from '@material-ui/icons/DeleteOutline'
+import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import Breadcrumbs from '@material-ui/core/Breadcrumbs'
 import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
@@ -305,6 +306,12 @@ const useStyles = makeStyles((theme) => {
     justifyContent: 'flex-end',
   },
   lockIconActive: {
+    color: theme.palette.secondary.main,
+  },
+  volumeIconEnabled: {
+    color: theme.palette.action.disabled,
+  },
+  volumeIconDisabled: {
     color: theme.palette.secondary.main,
   },
   breadcrumbBar: {
@@ -655,7 +662,9 @@ const RetailPlayerDeviceRow = memo(
     onKeyDown,
     onEdit,
     onToggleLock,
+    onToggleVolume,
     isLocked,
+    isVolumeControlEnabled,
     isOnline,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
@@ -712,6 +721,25 @@ const RetailPlayerDeviceRow = memo(
           {node.remoteControlId ? node.remoteControlId : '—'}
         </div>
         <div className={classes.actionsCell}>
+          <Tooltip title={isVolumeControlEnabled ? 'Disable volume control' : 'Enable volume control'}>
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleVolume(node)
+              }}
+              aria-label={`${isVolumeControlEnabled ? 'Disable' : 'Enable'} volume control for device ${node.name}`}
+            >
+              <VolumeUpIcon
+                style={{ fontSize: 15 }}
+                className={
+                  isVolumeControlEnabled
+                    ? classes.volumeIconEnabled
+                    : classes.volumeIconDisabled
+                }
+              />
+            </IconButton>
+          </Tooltip>
           <Tooltip title={isLocked ? 'Unlock device' : 'Lock device'}>
             <IconButton
               size="small"
@@ -760,12 +788,15 @@ RetailPlayerDeviceRow.propTypes = {
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
   onToggleLock: PropTypes.func.isRequired,
+  onToggleVolume: PropTypes.func.isRequired,
   isLocked: PropTypes.bool,
+  isVolumeControlEnabled: PropTypes.bool,
   isOnline: PropTypes.bool,
 }
 
 RetailPlayerDeviceRow.defaultProps = {
   isLocked: false,
+  isVolumeControlEnabled: true,
   isOnline: null,
 }
 
@@ -1318,6 +1349,22 @@ const RetailPlayerDeviceManagement = () => {
     }
   }, [updateDevice])
 
+  const handleToggleDeviceVolume = useCallback(async (device) => {
+    if (!device) {
+      return
+    }
+
+    try {
+      await updateDevice({
+        id: device.id,
+        isVolumeControlEnabled: device.isVolumeControlEnabled === false,
+      })
+      setSelectedIds((previous) => new Set(previous))
+    } catch (err) {
+      console.error('Failed to update retail player volume control state', err)
+    }
+  }, [updateDevice])
+
   const handleNavigateToDevice = useCallback(
     (device) => {
       if (!device) {
@@ -1481,7 +1528,9 @@ const RetailPlayerDeviceManagement = () => {
           onKeyDown={handleRowKeyDown}
           onEdit={handleEditDevice}
           onToggleLock={handleToggleDeviceLock}
+          onToggleVolume={handleToggleDeviceVolume}
           isLocked={isDeviceLocked(node)}
+          isVolumeControlEnabled={node.isVolumeControlEnabled !== false}
           isOnline={isOnline}
         />
       )
