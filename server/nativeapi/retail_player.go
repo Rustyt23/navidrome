@@ -210,6 +210,7 @@ type retailPlayerDevice struct {
 	ID              string   `json:"id"`
 	Name            string   `json:"name"`
 	IsLocked        bool     `json:"isLocked"`
+	IsVolumeEnabled *bool    `json:"isVolumeEnabled,omitempty"`
 	OrganizationID  string   `json:"organizationId,omitempty"`
 	OrganisationID  string   `json:"organisationid,omitempty"`
 	Channel         string   `json:"channel"`
@@ -366,6 +367,7 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
 	r.Get("/retailplayer/devices", n.handleRetailPlayerDevices())
 	r.Patch("/retailplayer/devices/{deviceID}/lock", n.handleUpdateRetailPlayerDeviceLock())
+	r.Patch("/retailplayer/devices/{deviceID}/volume-control", n.handleUpdateRetailPlayerDeviceVolumeControl())
 	r.Post("/retailplayer/folders", n.handleCreateRetailPlayerFolder())
 	r.Patch("/retailplayer/folders/{folderID}", n.handleUpdateRetailPlayerFolder())
 	r.Post("/retailplayer/folders/delete", n.handleDeleteRetailPlayerFolders())
@@ -414,6 +416,54 @@ func (n *Router) handleUpdateRetailPlayerDeviceLock() http.HandlerFunc {
 		mapping, err := repo.FindByIdentifier(ctx, deviceID)
 		if err != nil {
 			log.Error(ctx, "Unable to load retail player device mapping after lock update", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to load retail player device", http.StatusInternalServerError)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"data": mapRetailPlayerMappingToDevice(*mapping)})
+	}
+}
+
+func (n *Router) handleUpdateRetailPlayerDeviceVolumeControl() http.HandlerFunc {
+	type volumeControlUpdatePayload struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
+		if deviceID == "" {
+			http.Error(w, "Retail player device id is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload volumeControlUpdatePayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid retail player volume control payload", http.StatusBadRequest)
+			return
+		}
+
+		repo := n.ds.RetailPlayerDeviceMapping(ctx)
+		if repo == nil {
+			http.Error(w, "Retail player device mapping repository not available", http.StatusInternalServerError)
+			return
+		}
+
+		if err := repo.SetVolumeEnabled(ctx, deviceID, payload.Enabled); err != nil {
+			log.Error(ctx, "Unable to update retail player device volume controls", "deviceID", deviceID, "err", err)
+			http.Error(w, "Unable to update retail player device volume controls", http.StatusInternalServerError)
+			return
+		}
+
+		mapping, err := repo.FindByIdentifier(ctx, deviceID)
+		if err != nil {
+			log.Error(ctx, "Unable to load retail player device mapping after volume control update", "deviceID", deviceID, "err", err)
 			http.Error(w, "Unable to load retail player device", http.StatusInternalServerError)
 			return
 		}
@@ -493,12 +543,14 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 
 			if len(mappings) > 0 {
 				remoteControlByID := make(map[string]string, len(mappings))
+				volumeEnabledByID := make(map[string]bool, len(mappings))
 				for _, mapping := range mappings {
 					id := strings.TrimSpace(mapping.DeviceID)
 					remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
 					if id == "" {
 						continue
 					}
+					volumeEnabledByID[id] = mapping.IsVolumeEnabled
 					if remoteControlID != "" {
 						remoteControlByID[id] = remoteControlID
 					}
@@ -519,6 +571,16 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 						if remoteControlID, ok := remoteControlByID[id]; ok {
 							response.Data[index].RemoteControlID = remoteControlID
 						}
+					}
+				}
+				for index := range response.Data {
+					id := strings.TrimSpace(response.Data[index].ID)
+					if id == "" {
+						continue
+					}
+					if volumeEnabled, ok := volumeEnabledByID[id]; ok {
+						enabled := volumeEnabled
+						response.Data[index].IsVolumeEnabled = &enabled
 					}
 				}
 			}
@@ -637,12 +699,14 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 
 			if len(mappings) > 0 {
 				remoteControlByID := make(map[string]string, len(mappings))
+				volumeEnabledByID := make(map[string]bool, len(mappings))
 				for _, mapping := range mappings {
 					id := strings.TrimSpace(mapping.DeviceID)
 					remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
 					if id == "" {
 						continue
 					}
+					volumeEnabledByID[id] = mapping.IsVolumeEnabled
 					if remoteControlID != "" {
 						remoteControlByID[id] = remoteControlID
 					}
@@ -663,6 +727,16 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 						if remoteControlID, ok := remoteControlByID[id]; ok {
 							filtered.Data[index].RemoteControlID = remoteControlID
 						}
+					}
+				}
+				for index := range filtered.Data {
+					id := strings.TrimSpace(filtered.Data[index].ID)
+					if id == "" {
+						continue
+					}
+					if volumeEnabled, ok := volumeEnabledByID[id]; ok {
+						enabled := volumeEnabled
+						filtered.Data[index].IsVolumeEnabled = &enabled
 					}
 				}
 			}
@@ -1535,24 +1609,32 @@ func mapRetailPlayerDeviceToMapping(device retailPlayerDevice) (model.RetailPlay
 		slug = model.RetailPlayerDeviceSlug(id)
 	}
 
+	isVolumeEnabled := true
+	if device.IsVolumeEnabled != nil {
+		isVolumeEnabled = *device.IsVolumeEnabled
+	}
+
 	return model.RetailPlayerDeviceMapping{
-		DeviceID:     id,
-		DeviceName:   name,
-		DeviceSlug:   slug,
-		IsLocked:     device.IsLocked,
-		Channel:      strings.TrimSpace(device.Channel),
-		ChannelList:  strings.TrimSpace(device.ChannelList),
-		Organization: strings.TrimSpace(device.Organization),
-		TimeZone:     strings.TrimSpace(device.TimeZone),
-		RemoteCtrlID: strings.TrimSpace(device.RemoteControlID),
+		DeviceID:        id,
+		DeviceName:      name,
+		DeviceSlug:      slug,
+		IsLocked:        device.IsLocked,
+		IsVolumeEnabled: isVolumeEnabled,
+		Channel:         strings.TrimSpace(device.Channel),
+		ChannelList:     strings.TrimSpace(device.ChannelList),
+		Organization:    strings.TrimSpace(device.Organization),
+		TimeZone:        strings.TrimSpace(device.TimeZone),
+		RemoteCtrlID:    strings.TrimSpace(device.RemoteControlID),
 	}, true
 }
 
 func mapRetailPlayerMappingToDevice(mapping model.RetailPlayerDeviceMapping) retailPlayerDevice {
+	isVolumeEnabled := mapping.IsVolumeEnabled
 	return retailPlayerDevice{
 		ID:              strings.TrimSpace(mapping.DeviceID),
 		Name:            strings.TrimSpace(mapping.DeviceName),
 		IsLocked:        mapping.IsLocked,
+		IsVolumeEnabled: &isVolumeEnabled,
 		Channel:         strings.TrimSpace(mapping.Channel),
 		ChannelList:     strings.TrimSpace(mapping.ChannelList),
 		Organization:    strings.TrimSpace(mapping.Organization),

@@ -119,6 +119,12 @@ const baseDeviceShape = (device, existing) => {
       : typeof existing?.online === 'boolean'
         ? existing.online
         : undefined
+  const normalizedIsVolumeEnabled =
+    typeof device?.isVolumeEnabled === 'boolean'
+      ? device.isVolumeEnabled
+      : typeof existing?.isVolumeEnabled === 'boolean'
+        ? existing.isVolumeEnabled
+        : true
 
   const existingFolderIds = normalizeFolderIds(
     existing?.folderIds ?? existing?.folderId,
@@ -147,6 +153,7 @@ const baseDeviceShape = (device, existing) => {
     timeZone: normalizedTimeZone || '',
     remoteControlId: normalizedRemoteControlId || '',
     isLocked: normalizedIsLocked,
+    isVolumeEnabled: normalizedIsVolumeEnabled,
     ...(typeof normalizedIsOnline === 'boolean' ? { online: normalizedIsOnline } : {}),
     folderIds,
     folderId: primaryFolderId,
@@ -302,6 +309,7 @@ const reducer = (state, action) => {
         folderId,
         remoteControlId,
         isLocked,
+        isVolumeEnabled,
       } = action.payload || {}
       if (!id) {
         return state
@@ -334,6 +342,10 @@ const reducer = (state, action) => {
               : device.remoteControlId,
           isLocked:
             typeof isLocked === 'boolean' ? isLocked : device.isLocked,
+          isVolumeEnabled:
+            typeof isVolumeEnabled === 'boolean'
+              ? isVolumeEnabled
+              : device.isVolumeEnabled,
         }
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
@@ -684,6 +696,10 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         basePayload,
         'isLocked',
       )
+      const hasIsVolumeEnabled = Object.prototype.hasOwnProperty.call(
+        basePayload,
+        'isVolumeEnabled',
+      )
 
       if (hasRemoteControlId) {
         const remoteControlId = normalizeValue(basePayload.remoteControlId)
@@ -726,6 +742,29 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
               typeof json?.data?.isLocked === 'boolean'
                 ? json.data.isLocked
                 : isLocked,
+          },
+        })
+      }
+
+      if (hasIsVolumeEnabled) {
+        const isVolumeEnabled = Boolean(basePayload.isVolumeEnabled)
+        const { json } = await httpClient(
+          `/api/retailplayer/devices/${encodeURIComponent(deviceId)}/volume-control`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: isVolumeEnabled }),
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+          },
+        )
+
+        dispatch({
+          type: 'UPDATE_DEVICE',
+          payload: {
+            id: deviceId,
+            isVolumeEnabled:
+              typeof json?.data?.isVolumeEnabled === 'boolean'
+                ? json.data.isVolumeEnabled
+                : isVolumeEnabled,
           },
         })
       }

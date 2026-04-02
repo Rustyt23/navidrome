@@ -1795,6 +1795,7 @@ const RetailPlayerDashboard = () => {
   const isDeviceOnline = hasRealtimeOnlineState ? device.online : hasStatusValue
   const isOfflineUi = !isDeviceOnline
   const areNowPlayingControlsDisabled = !canControlDevice || isOfflineUi
+  const areVolumeControlsDisabled = areNowPlayingControlsDisabled || device?.isVolumeEnabled === false
   const formattedUpTime = useMemo(() => {
     if (statusUpTimeSeconds !== null) {
       const totalSeconds = statusUpTimeSeconds
@@ -2026,7 +2027,7 @@ const RetailPlayerDashboard = () => {
   )
 
   const handleToggleMute = useCallback(() => {
-    if (areNowPlayingControlsDisabled) {
+    if (areVolumeControlsDisabled) {
       return
     }
 
@@ -2062,10 +2063,17 @@ const RetailPlayerDashboard = () => {
       }
       return 0
     })
-  }, [areNowPlayingControlsDisabled, isMuted, sendRemoteControlCommand, updateVolume])
+  }, [
+    areVolumeControlsDisabled,
+    displayVolume,
+    isMuted,
+    sendRemoteControlCommand,
+    updateVolume,
+    volume,
+  ])
 
   const handleVolumeChange = useCallback((_, newValue) => {
-    if (areNowPlayingControlsDisabled) {
+    if (areVolumeControlsDisabled) {
       return
     }
 
@@ -2074,7 +2082,7 @@ const RetailPlayerDashboard = () => {
       return
     }
     updateVolume(resolvedValue)
-  }, [areNowPlayingControlsDisabled, updateVolume])
+  }, [areVolumeControlsDisabled, updateVolume])
 
   const handleRefresh = useCallback(() => {
     refreshStatus()
@@ -2083,9 +2091,12 @@ const RetailPlayerDashboard = () => {
 
   const handleAdjustVolume = useCallback(
     (delta) => {
+      if (areVolumeControlsDisabled) {
+        return
+      }
       updateVolume((prev) => prev + delta)
     },
-    [updateVolume],
+    [areVolumeControlsDisabled, updateVolume],
   )
 
   const handleBack = useCallback(() => {
@@ -2506,7 +2517,7 @@ const RetailPlayerDashboard = () => {
                   aria-label="Mute/Unmute"
                   onClick={handleToggleMute}
                   focusRipple
-                  disabled={areNowPlayingControlsDisabled}
+                  disabled={areVolumeControlsDisabled}
                 >
                   <span className={classes.controlIcon} role="img" aria-hidden="true">
                     {isMuted ? <VolumeOffIcon fontSize="inherit" /> : <VolumeUpIcon fontSize="inherit" />}
@@ -2553,7 +2564,7 @@ const RetailPlayerDashboard = () => {
               <section
                 className={combineClasses(
                   classes.volumeSection,
-                  areNowPlayingControlsDisabled ? classes.volumeSectionDisabled : null,
+                  areVolumeControlsDisabled ? classes.volumeSectionDisabled : null,
                 )}
                 aria-label="Volume"
               >
@@ -2569,7 +2580,7 @@ const RetailPlayerDashboard = () => {
                   classes={{
                     root: combineClasses(
                       classes.slider,
-                      areNowPlayingControlsDisabled ? classes.sliderDisabled : null,
+                      areVolumeControlsDisabled ? classes.sliderDisabled : null,
                     ),
                     track: classes.sliderTrack,
                     thumb: classes.sliderThumb,
@@ -2582,7 +2593,7 @@ const RetailPlayerDashboard = () => {
                   max={100}
                   aria-label="Volume"
                   onChange={handleVolumeChange}
-                  disabled={areNowPlayingControlsDisabled}
+                  disabled={areVolumeControlsDisabled}
                 />
               </section>
             </div>
