@@ -262,7 +262,8 @@
         "compareSelectTwoPlaylists": "Select exactly two playlists to compare.",
         "compareDuplicatesFound": "Found %{smart_count} duplicate song in both playlists. |||| Found %{smart_count} duplicate songs in both playlists.",
         "compareNoDuplicates": "No duplicate songs were found between the selected playlists.",
-        "compareRemovePrompt": "Remove duplicates from which playlist?"
+        "compareRemovePrompt": "Remove duplicates from which playlist?",
+        "compareDeletedFromPlaylist": "%{smart_count} song deleted from playlist \"%{name}\". |||| %{smart_count} songs deleted from playlist \"%{name}\"."
       },
       "dialog": {
         "setPositionTitle": "Set song position",

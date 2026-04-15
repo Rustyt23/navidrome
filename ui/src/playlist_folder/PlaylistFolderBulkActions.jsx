@@ -269,9 +269,12 @@ const ComparePlaylistsButton = ({ resource }) => {
         )
 
         const removedCount = Array.isArray(result?.data) ? result.data.length : 0
-        notify('ra.notification.deleted', {
+        const playlistName =
+          playlists.find((playlist) => playlist.id === playlistId)?.name || playlistId
+
+        notify('resources.playlist.message.compareDeletedFromPlaylist', {
           type: removedCount > 0 ? 'info' : 'warning',
-          messageArgs: { smart_count: removedCount },
+          messageArgs: { smart_count: removedCount, name: playlistName },
         })
         closeDialog()
         unselectAll(resource)
@@ -282,7 +285,7 @@ const ComparePlaylistsButton = ({ resource }) => {
         setLoading(false)
       }
     },
-    [duplicates.length, duplicateTrackIdsByPlaylist, dataProvider, notify, closeDialog, unselectAll, resource, refresh]
+    [duplicates.length, duplicateTrackIdsByPlaylist, dataProvider, notify, playlists, closeDialog, unselectAll, resource, refresh]
   )
 
   return (
