@@ -27,7 +27,7 @@ import List from '@material-ui/core/List'
 import ListItem from '@material-ui/core/ListItem'
 import ListItemText from '@material-ui/core/ListItemText'
 import Divider from '@material-ui/core/Divider'
-import { buildDuplicateInfo } from './playlistComparison'
+import { buildDuplicateInfo, buildDuplicateTrackIdsByPlaylist } from './playlistComparison'
 
 const useStyles = makeStyles((theme) => ({
   button: {
@@ -186,12 +186,14 @@ const ComparePlaylistsButton = ({ resource }) => {
   const [open, setOpen] = useState(false)
   const [duplicates, setDuplicates] = useState([])
   const [playlists, setPlaylists] = useState([])
+  const [duplicateTrackIdsByPlaylist, setDuplicateTrackIdsByPlaylist] = useState({})
   const [loading, setLoading] = useState(false)
 
   const closeDialog = useCallback(() => {
     setOpen(false)
     setDuplicates([])
     setPlaylists([])
+    setDuplicateTrackIdsByPlaylist({})
   }, [])
 
   const selectedPlaylists = useMemo(
@@ -227,12 +229,20 @@ const ComparePlaylistsButton = ({ resource }) => {
         }),
       ])
 
-      const matches = buildDuplicateInfo(leftResult?.data || [], rightResult?.data || [])
+      const leftTracks = leftResult?.data || []
+      const rightTracks = rightResult?.data || []
+      const matches = buildDuplicateInfo(leftTracks, rightTracks)
+      const duplicateTrackIds = buildDuplicateTrackIdsByPlaylist(leftTracks, rightTracks)
+
       setDuplicates(matches)
       setPlaylists([
         { id: left.id, name: left.name || left.id },
         { id: right.id, name: right.name || right.id },
       ])
+      setDuplicateTrackIdsByPlaylist({
+        [left.id]: duplicateTrackIds.left,
+        [right.id]: duplicateTrackIds.right,
+      })
       setOpen(true)
     } catch (e) {
       notify('ra.notification.http_error', { type: 'warning' })
@@ -246,11 +256,16 @@ const ComparePlaylistsButton = ({ resource }) => {
       if (!duplicates.length || !playlistId) return
       setLoading(true)
       try {
-        const duplicateMediaIds = duplicates.map((duplicate) => duplicate.mediaFileId)
+        const trackIdsToDelete = duplicateTrackIdsByPlaylist[playlistId] || []
+        if (!trackIdsToDelete.length) {
+          notify('resources.playlist.message.compareNoDuplicates', { type: 'warning' })
+          return
+        }
+
         const result = await safeDeleteMany(
           dataProvider,
           `playlist/${playlistId}/tracks`,
-          duplicateMediaIds
+          trackIdsToDelete
         )
 
         const removedCount = Array.isArray(result?.data) ? result.data.length : 0
@@ -267,7 +282,7 @@ const ComparePlaylistsButton = ({ resource }) => {
         setLoading(false)
       }
     },
-    [duplicates, dataProvider, notify, closeDialog, unselectAll, resource, refresh]
+    [duplicates.length, duplicateTrackIdsByPlaylist, dataProvider, notify, closeDialog, unselectAll, resource, refresh]
   )
 
   return (

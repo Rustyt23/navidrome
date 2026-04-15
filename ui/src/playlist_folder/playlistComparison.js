@@ -35,3 +35,17 @@ export const buildDuplicateInfo = (tracksA = [], tracksB = []) => {
     `${a.title} ${a.artist}`.localeCompare(`${b.title} ${b.artist}`)
   )
 }
+
+export const buildDuplicateTrackIdsByPlaylist = (tracksA = [], tracksB = []) => {
+  const duplicateMediaIds = new Set(buildDuplicateInfo(tracksA, tracksB).map((t) => t.mediaFileId))
+
+  const getTrackIds = (tracks) =>
+    tracks
+      .filter((track) => track?.id && duplicateMediaIds.has(track?.mediaFileId))
+      .map((track) => track.id)
+
+  return {
+    left: getTrackIds(tracksA),
+    right: getTrackIds(tracksB),
+  }
+}
