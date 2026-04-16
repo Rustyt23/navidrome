@@ -1373,9 +1373,41 @@ func spotifyReleaseYear(releaseDate string) int {
 	return year
 }
 
-func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, mf model.MediaFile) (*spotifyTrack, float64, error) {
+func sanitizeSpotifyRetryTitle(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return ""
+	}
+
+	trailingParen := regexp.MustCompile(`\s*\([^)]*\)\s*$`)
+	trailingBracket := regexp.MustCompile(`\s*\[[^\]]*\]\s*$`)
+
+	stripped := title
+
+	// Keep removing trailing tags (handles multiple like "(Live) (Remix)")
+	for {
+		newStr := trailingParen.ReplaceAllString(stripped, "")
+		newStr = trailingBracket.ReplaceAllString(newStr, "")
+
+		newStr = strings.TrimSpace(newStr)
+
+		if newStr == stripped {
+			break
+		}
+		stripped = newStr
+	}
+
+	stripped = strings.Join(strings.Fields(stripped), " ")
+
+	if stripped == "" {
+		return title
+	}
+	return stripped
+}
+
+func (j *spotifyMetadataJob) searchSpotifyTrack(ctx context.Context, token string, mf model.MediaFile, title string) (*spotifyTrack, float64, error) {
 	localArtist := strings.TrimSpace(mf.Artist)
-	localTitle := strings.TrimSpace(mf.Title)
+	localTitle := strings.TrimSpace(title)
 	if localArtist == "" || localTitle == "" {
 		return nil, 0, nil
 	}
@@ -1390,7 +1422,7 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 	params.Set("type", "track")
 	params.Set("limit", "1")
 	endpoint.RawQuery = params.Encode()
-	log.Debug(ctx, "Spotify metadata search request", "songId", mf.ID, "title", mf.Title, "artist", mf.Artist, "url", endpoint.String())
+	log.Debug(ctx, "Spotify metadata search request", "songId", mf.ID, "title", localTitle, "artist", mf.Artist, "url", endpoint.String())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
@@ -1451,6 +1483,31 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 		}
 	}
 	return best, bestScore, nil
+}
+
+func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, mf model.MediaFile) (*spotifyTrack, float64, error) {
+	track, confidence, err := j.searchSpotifyTrack(ctx, token, mf, mf.Title)
+	if err != nil || track == nil {
+		return track, confidence, err
+	}
+
+	if confidence >= conf.Server.Spotify.CoverRetryMinScore {
+		return track, confidence, nil
+	}
+
+	retryTitle := sanitizeSpotifyRetryTitle(mf.Title)
+	if retryTitle == "" || strings.EqualFold(strings.TrimSpace(mf.Title), retryTitle) {
+		return track, confidence, nil
+	}
+
+	retryTrack, retryConfidence, retryErr := j.searchSpotifyTrack(ctx, token, mf, retryTitle)
+	if retryErr != nil {
+		return nil, 0, retryErr
+	}
+	if retryTrack == nil {
+		return track, confidence, nil
+	}
+	return retryTrack, retryConfidence, nil
 }
 
 func (j *spotifyMetadataJob) fetchAndSetCoverFromURL(ctx context.Context, ds model.DataStore, songID, spotifyURL string) (spotifyConfidenceEntry, error) {

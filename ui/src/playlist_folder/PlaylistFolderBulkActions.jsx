@@ -9,12 +9,42 @@ import {
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import DeleteIcon from '@material-ui/icons/Delete'
-import { LockOpen, Lock } from '@material-ui/icons'
+import CompareArrowsIcon from '@material-ui/icons/CompareArrows'
+import {
+  LockOpen,
+  Lock,
+  Close as CloseIcon,
+  DeleteSweep as DeleteSweepIcon,
+} from '@material-ui/icons'
 import Button from '@material-ui/core/Button'
+import Dialog from '@material-ui/core/Dialog'
+import DialogActions from '@material-ui/core/DialogActions'
+import DialogContent from '@material-ui/core/DialogContent'
+import DialogTitle from '@material-ui/core/DialogTitle'
+import IconButton from '@material-ui/core/IconButton'
+import Typography from '@material-ui/core/Typography'
+import List from '@material-ui/core/List'
+import ListItem from '@material-ui/core/ListItem'
+import ListItemText from '@material-ui/core/ListItemText'
+import Divider from '@material-ui/core/Divider'
+import { buildDuplicateInfo, buildDuplicateTrackIdsByPlaylist } from './playlistComparison'
 
 const useStyles = makeStyles((theme) => ({
   button: {
     color: theme.palette.type === 'dark' ? 'white' : undefined,
+  },
+  closeButton: {
+    position: 'absolute',
+    right: theme.spacing(1),
+    top: theme.spacing(1),
+  },
+  duplicateList: {
+    maxHeight: 360,
+    overflow: 'auto',
+    marginBottom: theme.spacing(1),
+  },
+  hint: {
+    marginBottom: theme.spacing(1),
   },
 }))
 
@@ -144,6 +174,194 @@ const CustomBulkDeleteButton = ({ resource }) => {
   )
 }
 
+const ComparePlaylistsButton = ({ resource }) => {
+  const classes = useStyles()
+  const translate = useTranslate()
+  const { selectedIds = [], data } = useListContext()
+  const dataProvider = useDataProvider()
+  const notify = useNotify()
+  const unselectAll = useUnselectAll()
+  const refresh = useRefresh()
+
+  const [open, setOpen] = useState(false)
+  const [duplicates, setDuplicates] = useState([])
+  const [playlists, setPlaylists] = useState([])
+  const [duplicateTrackIdsByPlaylist, setDuplicateTrackIdsByPlaylist] = useState({})
+  const [loading, setLoading] = useState(false)
+
+  const closeDialog = useCallback(() => {
+    setOpen(false)
+    setDuplicates([])
+    setPlaylists([])
+    setDuplicateTrackIdsByPlaylist({})
+  }, [])
+
+  const selectedPlaylists = useMemo(
+    () =>
+      selectedIds
+        .map((id) => getRecord(data, id))
+        .filter((record) => record?.type === 'playlist'),
+    [selectedIds, data]
+  )
+
+  const handleCompare = useCallback(async () => {
+    if (loading) return
+
+    if (selectedIds.length !== 2 || selectedPlaylists.length !== 2) {
+      notify('resources.playlist.message.compareSelectTwoPlaylists', { type: 'warning' })
+      return
+    }
+
+    setLoading(true)
+    try {
+      const [left, right] = selectedPlaylists
+
+      const [leftResult, rightResult] = await Promise.all([
+        dataProvider.getList('playlistTrack', {
+          filter: { playlist_id: left.id },
+          pagination: { page: 1, perPage: 0 },
+          sort: { field: 'id', order: 'ASC' },
+        }),
+        dataProvider.getList('playlistTrack', {
+          filter: { playlist_id: right.id },
+          pagination: { page: 1, perPage: 0 },
+          sort: { field: 'id', order: 'ASC' },
+        }),
+      ])
+
+      const leftTracks = leftResult?.data || []
+      const rightTracks = rightResult?.data || []
+      const matches = buildDuplicateInfo(leftTracks, rightTracks)
+      const duplicateTrackIds = buildDuplicateTrackIdsByPlaylist(leftTracks, rightTracks)
+
+      setDuplicates(matches)
+      setPlaylists([
+        { id: left.id, name: left.name || left.id },
+        { id: right.id, name: right.name || right.id },
+      ])
+      setDuplicateTrackIdsByPlaylist({
+        [left.id]: duplicateTrackIds.left,
+        [right.id]: duplicateTrackIds.right,
+      })
+      setOpen(true)
+    } catch (e) {
+      notify('ra.notification.http_error', { type: 'warning' })
+    } finally {
+      setLoading(false)
+    }
+  }, [loading, selectedIds, selectedPlaylists, dataProvider, notify])
+
+  const handleRemoveDuplicates = useCallback(
+    async (playlistId) => {
+      if (!duplicates.length || !playlistId) return
+      setLoading(true)
+      try {
+        const trackIdsToDelete = duplicateTrackIdsByPlaylist[playlistId] || []
+        if (!trackIdsToDelete.length) {
+          notify('resources.playlist.message.compareNoDuplicates', { type: 'warning' })
+          return
+        }
+
+        const result = await safeDeleteMany(
+          dataProvider,
+          `playlist/${playlistId}/tracks`,
+          trackIdsToDelete
+        )
+
+        const removedCount = Array.isArray(result?.data) ? result.data.length : 0
+        const playlistName =
+          playlists.find((playlist) => playlist.id === playlistId)?.name || playlistId
+
+        notify('resources.playlist.message.compareDeletedFromPlaylist', {
+          type: removedCount > 0 ? 'info' : 'warning',
+          messageArgs: { smart_count: removedCount, name: playlistName },
+        })
+        closeDialog()
+        unselectAll(resource)
+        refresh({ hard: true })
+      } catch (e) {
+        notify('ra.notification.http_error', { type: 'warning' })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [duplicates.length, duplicateTrackIdsByPlaylist, dataProvider, notify, playlists, closeDialog, unselectAll, resource, refresh]
+  )
+
+  return (
+    <>
+      <Button
+        onClick={handleCompare}
+        startIcon={<CompareArrowsIcon />}
+        className={classes.button}
+        aria-label={translate('resources.playlist.actions.compare')}
+        disabled={loading}
+      >
+        {translate('resources.playlist.actions.compare')}
+      </Button>
+
+      <Dialog open={open} onClose={closeDialog} fullWidth maxWidth="sm">
+        <DialogTitle disableTypography>
+          <Typography variant="h6">{translate('resources.playlist.actions.compare')}</Typography>
+          <IconButton
+            aria-label={translate('ra.action.close')}
+            className={classes.closeButton}
+            onClick={closeDialog}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {duplicates.length > 0 ? (
+            <>
+              <Typography variant="body2" className={classes.hint}>
+                {translate('resources.playlist.message.compareDuplicatesFound', {
+                  smart_count: duplicates.length,
+                })}
+              </Typography>
+              <List className={classes.duplicateList} dense>
+                {duplicates.map((duplicate) => (
+                  <ListItem key={duplicate.mediaFileId}>
+                    <ListItemText
+                      primary={duplicate.title || duplicate.mediaFileId}
+                      secondary={duplicate.artist || undefined}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+              <Divider />
+              <Typography variant="body2" className={classes.hint}>
+                {translate('resources.playlist.message.compareRemovePrompt')}
+              </Typography>
+            </>
+          ) : (
+            <Typography variant="body2">
+              {translate('resources.playlist.message.compareNoDuplicates')}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {duplicates.length > 0 &&
+            playlists.map((playlist) => (
+              <Button
+                key={playlist.id}
+                startIcon={<DeleteSweepIcon />}
+                onClick={() => handleRemoveDuplicates(playlist.id)}
+                color="secondary"
+                disabled={loading}
+              >
+                {translate('resources.playlist.actions.removeDuplicatesFrom', {
+                  name: playlist.name,
+                })}
+              </Button>
+            ))}
+          <Button onClick={closeDialog}>{translate('ra.action.cancel')}</Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  )
+}
+
 const ChangePublicStatusButton = ({ resource, makePublic }) => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -167,6 +385,7 @@ const ChangePublicStatusButton = ({ resource, makePublic }) => {
 
 const PlaylistFolderBulkActions = (props) => (
   <Fragment>
+    <ComparePlaylistsButton {...props} />
     <ChangePublicStatusButton makePublic={true} {...props} />
     <ChangePublicStatusButton makePublic={false} {...props} />
     <CustomBulkDeleteButton {...props} />

@@ -28,6 +28,8 @@ import AddIcon from '@material-ui/icons/Add'
 import EditIcon from '@material-ui/icons/Edit'
 import LockIcon from '@material-ui/icons/Lock'
 import LockOpenIcon from '@material-ui/icons/LockOpen'
+import VolumeOffIcon from '@material-ui/icons/VolumeOff'
+import VolumeUpIcon from '@material-ui/icons/VolumeUp'
 import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
@@ -524,7 +526,9 @@ const RetailPlayerFolderRow = memo(
     onKeyDown,
     onEdit,
     onToggleLock,
+    onToggleVolumeControl,
     isLocked,
+    isVolumeEnabled,
     onDeviceDrop,
   }) => {
     const { dropRef, isOver, canDrop } = useRetailPlayerFolderDrop({
@@ -591,6 +595,22 @@ const RetailPlayerFolderRow = memo(
               )}
             </IconButton>
           </Tooltip>
+          <Tooltip title={isVolumeEnabled ? 'Disable folder volume controls' : 'Enable folder volume controls'}>
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleVolumeControl(node)
+              }}
+              aria-label={`${isVolumeEnabled ? 'Disable' : 'Enable'} volume controls for folder ${node.name}`}
+            >
+              {isVolumeEnabled ? (
+                <VolumeUpIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+              ) : (
+                <VolumeOffIcon style={{ fontSize: 15 }} />
+              )}
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Edit folder">
             <IconButton
               size="small"
@@ -622,12 +642,15 @@ RetailPlayerFolderRow.propTypes = {
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
   onToggleLock: PropTypes.func.isRequired,
+  onToggleVolumeControl: PropTypes.func.isRequired,
   isLocked: PropTypes.bool,
+  isVolumeEnabled: PropTypes.bool,
   onDeviceDrop: PropTypes.func.isRequired,
 }
 
 RetailPlayerFolderRow.defaultProps = {
   isLocked: false,
+  isVolumeEnabled: true,
 }
 
 RetailPlayerFolderRow.displayName = 'RetailPlayerFolderRow'
@@ -655,7 +678,9 @@ const RetailPlayerDeviceRow = memo(
     onKeyDown,
     onEdit,
     onToggleLock,
+    onToggleVolumeControl,
     isLocked,
+    isVolumeEnabled,
     isOnline,
   }) => {
     const { dragRef, isDragging } = useRetailPlayerDeviceDrag({
@@ -728,6 +753,22 @@ const RetailPlayerDeviceRow = memo(
               )}
             </IconButton>
           </Tooltip>
+          <Tooltip title={isVolumeEnabled ? 'Disable volume controls' : 'Enable volume controls'}>
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleVolumeControl(node)
+              }}
+              aria-label={`${isVolumeEnabled ? 'Disable' : 'Enable'} volume controls for device ${node.name}`}
+            >
+              {isVolumeEnabled ? (
+                <VolumeUpIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+              ) : (
+                <VolumeOffIcon style={{ fontSize: 15 }} />
+              )}
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Edit device">
             <IconButton
               size="small"
@@ -760,12 +801,15 @@ RetailPlayerDeviceRow.propTypes = {
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
   onToggleLock: PropTypes.func.isRequired,
+  onToggleVolumeControl: PropTypes.func.isRequired,
   isLocked: PropTypes.bool,
+  isVolumeEnabled: PropTypes.bool,
   isOnline: PropTypes.bool,
 }
 
 RetailPlayerDeviceRow.defaultProps = {
   isLocked: false,
+  isVolumeEnabled: true,
   isOnline: null,
 }
 
@@ -1273,6 +1317,46 @@ const RetailPlayerDeviceManagement = () => {
     [collectDevicesInNode, updateDevice],
   )
 
+  const disableFolderDeviceVolumeControls = useCallback(
+    async (folderNode) => {
+      const devicesToDisable = collectDevicesInNode(folderNode).filter(
+        (device) => device.isVolumeEnabled !== false,
+      )
+      if (!devicesToDisable.length) {
+        return
+      }
+      for (const device of devicesToDisable) {
+        try {
+          await updateDevice({ id: device.id, isVolumeEnabled: false })
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to disable retail player device volume controls from folder', err)
+        }
+      }
+    },
+    [collectDevicesInNode, updateDevice],
+  )
+
+  const enableFolderDeviceVolumeControls = useCallback(
+    async (folderNode) => {
+      const devicesToEnable = collectDevicesInNode(folderNode).filter(
+        (device) => device.isVolumeEnabled === false,
+      )
+      if (!devicesToEnable.length) {
+        return
+      }
+      for (const device of devicesToEnable) {
+        try {
+          await updateDevice({ id: device.id, isVolumeEnabled: true })
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to enable retail player device volume controls from folder', err)
+        }
+      }
+    },
+    [collectDevicesInNode, updateDevice],
+  )
+
   const handleToggleFolderLock = useCallback(
     async (folderNode) => {
       if (!folderNode) {
@@ -1304,6 +1388,35 @@ const RetailPlayerDeviceManagement = () => {
     ],
   )
 
+  const handleToggleFolderVolumeControl = useCallback(
+    async (folderNode) => {
+      if (!folderNode) {
+        return
+      }
+
+      const folderDevices = collectDevicesInNode(folderNode)
+      if (!folderDevices.length) {
+        return
+      }
+
+      const areAllVolumeControlsEnabled = folderDevices.every(
+        (device) => device.isVolumeEnabled !== false,
+      )
+
+      if (areAllVolumeControlsEnabled) {
+        await disableFolderDeviceVolumeControls(folderNode)
+        return
+      }
+
+      await enableFolderDeviceVolumeControls(folderNode)
+    },
+    [
+      collectDevicesInNode,
+      disableFolderDeviceVolumeControls,
+      enableFolderDeviceVolumeControls,
+    ],
+  )
+
   const handleToggleDeviceLock = useCallback(async (device) => {
     if (!device) {
       return
@@ -1315,6 +1428,22 @@ const RetailPlayerDeviceManagement = () => {
       setSelectedIds((previous) => new Set(previous))
     } catch (err) {
       console.error('Failed to update retail player device lock state', err)
+    }
+  }, [updateDevice])
+
+  const handleToggleDeviceVolumeControl = useCallback(async (device) => {
+    if (!device?.id) {
+      return
+    }
+
+    try {
+      const nextIsVolumeEnabled = device.isVolumeEnabled !== false
+        ? false
+        : true
+      await updateDevice({ id: device.id, isVolumeEnabled: nextIsVolumeEnabled })
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to update retail player volume control state', err)
     }
   }, [updateDevice])
 
@@ -1450,6 +1579,10 @@ const RetailPlayerDeviceManagement = () => {
       if (node.type === 'folder') {
         const isSelected = selectedIds.has(node.id)
         const isLocked = Boolean(node.isLocked)
+        const folderDevices = collectDevicesInNode(node)
+        const isVolumeEnabled = folderDevices.length
+          ? folderDevices.every((device) => device.isVolumeEnabled !== false)
+          : true
         return (
           <RetailPlayerFolderRow
             key={`folder-row-${node.id}`}
@@ -1461,7 +1594,9 @@ const RetailPlayerDeviceManagement = () => {
             onKeyDown={handleRowKeyDown}
             onEdit={handleEditFolder}
             onToggleLock={handleToggleFolderLock}
+            onToggleVolumeControl={handleToggleFolderVolumeControl}
             isLocked={isLocked}
+            isVolumeEnabled={isVolumeEnabled}
             onDeviceDrop={handleDeviceDropOnFolder}
           />
         )
@@ -1481,7 +1616,9 @@ const RetailPlayerDeviceManagement = () => {
           onKeyDown={handleRowKeyDown}
           onEdit={handleEditDevice}
           onToggleLock={handleToggleDeviceLock}
+          onToggleVolumeControl={handleToggleDeviceVolumeControl}
           isLocked={isDeviceLocked(node)}
+          isVolumeEnabled={node.isVolumeEnabled !== false}
           isOnline={isOnline}
         />
       )

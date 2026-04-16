@@ -718,6 +718,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   const [hasRealtimeStatus, setHasRealtimeStatus] = useState(false)
   const realtimeDeviceRef = useRef(null)
   const lockedStateRef = useRef(null)
+  const volumeEnabledStateRef = useRef(null)
 
   const {
     devices,
@@ -773,6 +774,12 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       lockedStateRef.current = baseDevice.isLocked
     }
   }, [baseDevice?.isLocked])
+
+  useEffect(() => {
+    if (typeof baseDevice?.isVolumeEnabled === 'boolean') {
+      volumeEnabledStateRef.current = baseDevice.isVolumeEnabled
+    }
+  }, [baseDevice?.isVolumeEnabled])
 
   useEffect(() => {
     if (!slugParam || !Array.isArray(devices) || !devices.length) {
@@ -1021,6 +1028,21 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
                 : undefined
       if (typeof resolvedIsLocked === 'boolean') {
         mergedDevice.isLocked = resolvedIsLocked
+      }
+      const resolvedIsVolumeEnabled =
+        typeof payloadDevice.isVolumeEnabled === 'boolean'
+          ? payloadDevice.isVolumeEnabled
+          : typeof payloadDevice.volumeEnabled === 'boolean'
+            ? payloadDevice.volumeEnabled
+            : typeof payloadDevice.is_volume_enabled === 'boolean'
+              ? payloadDevice.is_volume_enabled
+              : typeof previousDevice.isVolumeEnabled === 'boolean'
+                ? previousDevice.isVolumeEnabled
+                : typeof volumeEnabledStateRef.current === 'boolean'
+                  ? volumeEnabledStateRef.current
+                  : undefined
+      if (typeof resolvedIsVolumeEnabled === 'boolean') {
+        mergedDevice.isVolumeEnabled = resolvedIsVolumeEnabled
       }
 
       const mergedRemoteControlId =

@@ -152,3 +152,24 @@ func TestHasMissingCoverArt(t *testing.T) {
 		})
 	}
 }
+
+func TestSanitizeSpotifyRetryTitle(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{name: "removes parenthesized text", title: "Song Title (Live)", want: "Song Title"},
+		{name: "removes bracketed text", title: "Song Title [Remastered 2019]", want: "Song Title"},
+		{name: "removes mixed suffixes", title: "Song (Live) [Remastered]", want: "Song"},
+		{name: "keeps original when fully stripped", title: "(Live)", want: "(Live)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeSpotifyRetryTitle(tt.title); got != tt.want {
+				t.Fatalf("sanitizeSpotifyRetryTitle() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

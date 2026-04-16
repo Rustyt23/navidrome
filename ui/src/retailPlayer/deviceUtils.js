@@ -81,6 +81,14 @@ const mapRetailPlayerDevice = (device) => {
       : typeof device.isOnline === 'boolean'
         ? device.isOnline
         : undefined
+  const isVolumeEnabled =
+    typeof device.isVolumeEnabled === 'boolean'
+      ? device.isVolumeEnabled
+      : typeof device.volumeEnabled === 'boolean'
+        ? device.volumeEnabled
+        : typeof device.is_volume_enabled === 'boolean'
+          ? device.is_volume_enabled
+          : undefined
 
   return {
     id: fallbackId,
@@ -101,6 +109,9 @@ const mapRetailPlayerDevice = (device) => {
     remoteControlId,
     ...(typeof isLocked === 'boolean' ? { isLocked } : {}),
     ...(typeof isOnline === 'boolean' ? { online: isOnline } : {}),
+    ...(typeof isVolumeEnabled === 'boolean'
+      ? { isVolumeEnabled }
+      : {}),
   }
 }
 

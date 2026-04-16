@@ -247,7 +247,9 @@
         "searchOrCreate": "Search playlists or type to create new...",
         "pressEnterToCreate": "Press Enter to create new playlist",
         "removeFromSelection": "Remove from selection",
-        "setPosition": "Set song position"
+        "setPosition": "Set song position",
+        "compare": "Compare",
+        "removeDuplicatesFrom": "Remove from %{name}"
       },
       "notifications": {
         "published": "%{smart_count} song from %{name} published to Sync folder |||| %{smart_count} songs from %{name} published to Sync folder"
@@ -256,7 +258,12 @@
         "duplicate_song": "Add duplicated songs",
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
-        "noPlaylists": "No playlists available"
+        "noPlaylists": "No playlists available",
+        "compareSelectTwoPlaylists": "Select exactly two playlists to compare.",
+        "compareDuplicatesFound": "Found %{smart_count} duplicate song in both playlists. |||| Found %{smart_count} duplicate songs in both playlists.",
+        "compareNoDuplicates": "No duplicate songs were found between the selected playlists.",
+        "compareRemovePrompt": "Remove duplicates from which playlist?",
+        "compareDeletedFromPlaylist": "%{smart_count} song deleted from playlist \"%{name}\". |||| %{smart_count} songs deleted from playlist \"%{name}\"."
       },
       "dialog": {
         "setPositionTitle": "Set song position",
