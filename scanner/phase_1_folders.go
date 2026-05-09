@@ -476,6 +476,9 @@ func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport 
 		LRA:            options.LRA,
 	}
 	libraryPath := filepath.Clean(entry.job.lib.Path)
+	minLUFS := options.TargetLUFS - options.Tolerance
+	maxLUFS := options.TargetLUFS + options.Tolerance
+	log.Info(p.ctx, "Scanner: checking track loudness", "tracks", len(filesToImport), "targetLUFS", options.TargetLUFS, "minLUFS", minLUFS, "maxLUFS", maxLUFS, "library", entry.job.lib.Name, consts.Zwsp+"folder", entry.path)
 	normalizer := ffmpeg.NewLoudnessNormalizer()
 	for filePath := range filesToImport {
 		trackPath := absoluteMediaPath(libraryPath, filePath)
@@ -485,8 +488,8 @@ func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport 
 			p.state.sendWarning(fmt.Sprintf("Could not analyze track loudness for %s: %v", trackPath, err))
 			continue
 		}
-		if math.Abs(analysis.InputIntegrated-options.TargetLUFS) <= options.Tolerance {
-			log.Trace(p.ctx, "Scanner: skipping track already near target loudness", "path", trackPath, "lufs", analysis.InputIntegrated, "target", options.TargetLUFS)
+		if !shouldNormalizeLoudness(analysis.InputIntegrated, options.TargetLUFS, options.Tolerance) {
+			log.Debug(p.ctx, "Scanner: track loudness already in target range", "path", trackPath, "lufs", analysis.InputIntegrated, "minLUFS", minLUFS, "maxLUFS", maxLUFS)
 			continue
 		}
 		if err := normalizeTrackLoudness(p.ctx, normalizer, trackPath, target, *analysis, options.Backup, options.BackupSuffix); err != nil {
@@ -494,8 +497,22 @@ func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport 
 			p.state.sendWarning(fmt.Sprintf("Could not normalize track loudness for %s: %v", trackPath, err))
 			continue
 		}
-		log.Info(p.ctx, "Scanner: normalized track loudness", "path", trackPath, "fromLUFS", analysis.InputIntegrated, "targetLUFS", options.TargetLUFS)
+		finalAnalysis, err := normalizer.AnalyzeLoudness(p.ctx, trackPath, target)
+		if err != nil {
+			log.Warn(p.ctx, "Scanner: normalized track loudness but could not verify final LUFS", "path", trackPath, "fromLUFS", analysis.InputIntegrated, "targetLUFS", options.TargetLUFS, err)
+			p.state.sendWarning(fmt.Sprintf("Could not verify normalized track loudness for %s: %v", trackPath, err))
+			continue
+		}
+		log.Info(p.ctx, "Scanner: normalized track loudness", "path", trackPath, "fromLUFS", analysis.InputIntegrated, "finalLUFS", finalAnalysis.InputIntegrated, "targetLUFS", options.TargetLUFS, "minLUFS", minLUFS, "maxLUFS", maxLUFS)
+		if shouldNormalizeLoudness(finalAnalysis.InputIntegrated, options.TargetLUFS, options.Tolerance) {
+			log.Warn(p.ctx, "Scanner: normalized track loudness outside target range", "path", trackPath, "finalLUFS", finalAnalysis.InputIntegrated, "minLUFS", minLUFS, "maxLUFS", maxLUFS)
+			p.state.sendWarning(fmt.Sprintf("Normalized track loudness outside target range for %s: %.2f LUFS (wanted %.2f to %.2f)", trackPath, finalAnalysis.InputIntegrated, minLUFS, maxLUFS))
+		}
 	}
+}
+
+func shouldNormalizeLoudness(lufs, targetLUFS, tolerance float64) bool {
+	return math.Abs(lufs-targetLUFS) > tolerance
 }
 
 func absoluteMediaPath(libraryPath, mediaPath string) string {

@@ -630,7 +630,7 @@ func setViperDefaults() {
 	viper.SetDefault("scanner.loudnessnormalization.targetlufs", -12.6)
 	viper.SetDefault("scanner.loudnessnormalization.truepeak", -1.5)
 	viper.SetDefault("scanner.loudnessnormalization.lra", 11.0)
-	viper.SetDefault("scanner.loudnessnormalization.tolerance", 0.1)
+	viper.SetDefault("scanner.loudnessnormalization.tolerance", 0.5)
 	viper.SetDefault("scanner.loudnessnormalization.backup", true)
 	viper.SetDefault("scanner.loudnessnormalization.backupsuffix", ".before_loudnorm")
 	viper.SetDefault("scanner.artistjoiner", consts.ArtistJoiner)
