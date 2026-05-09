@@ -5,8 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"math"
+	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -17,6 +21,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/core/storage"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -244,8 +249,10 @@ func (p *phaseFolders) processFolder(entry *folderEntry) (*folderEntry, error) {
 	// Remaining dbTracks are tracks that were not found in the FS, so they should be marked as missing
 	entry.missingTracks = slices.Collect(maps.Values(dbTracks))
 
-	// Load metadata from files that need to be imported
+	// Normalize changed audio files before reading metadata so persisted audio properties match the final file.
 	if len(filesToImport) > 0 {
+		p.normalizeLoudnessFiles(entry, filesToImport)
+
 		err = p.loadTagsFromFiles(entry, filesToImport)
 		if err != nil {
 			log.Warn(p.ctx, "Scanner: Error loading tags from files. Skipping", "folder", entry.path, err)
@@ -455,6 +462,116 @@ func (p *phaseFolders) logFolder(entry *folderEntry) (*folderEntry, error) {
 		"elapsed", entry.elapsed.Elapsed(), "tracksMissing", len(entry.missingTracks),
 		"tracksImported", len(entry.tracks), "library", entry.job.lib.Name, consts.Zwsp+"folder", entry.path)
 	return entry, nil
+}
+
+func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport map[string]*model.MediaFile) {
+	options := conf.Server.Scanner.LoudnessNormalization
+	if !options.Enabled || len(filesToImport) == 0 {
+		return
+	}
+
+	target := ffmpeg.LoudnessTarget{
+		IntegratedLUFS: options.TargetLUFS,
+		TruePeak:       options.TruePeak,
+		LRA:            options.LRA,
+	}
+	libraryPath := filepath.Clean(entry.job.lib.Path)
+	normalizer := ffmpeg.NewLoudnessNormalizer()
+	for filePath := range filesToImport {
+		trackPath := absoluteMediaPath(libraryPath, filePath)
+		analysis, err := normalizer.AnalyzeLoudness(p.ctx, trackPath, target)
+		if err != nil {
+			log.Warn(p.ctx, "Scanner: could not analyze track loudness", "path", trackPath, err)
+			p.state.sendWarning(fmt.Sprintf("Could not analyze track loudness for %s: %v", trackPath, err))
+			continue
+		}
+		if math.Abs(analysis.InputIntegrated-options.TargetLUFS) <= options.Tolerance {
+			log.Trace(p.ctx, "Scanner: skipping track already near target loudness", "path", trackPath, "lufs", analysis.InputIntegrated, "target", options.TargetLUFS)
+			continue
+		}
+		if err := normalizeTrackLoudness(p.ctx, normalizer, trackPath, target, *analysis, options.Backup, options.BackupSuffix); err != nil {
+			log.Warn(p.ctx, "Scanner: could not normalize track loudness", "path", trackPath, "lufs", analysis.InputIntegrated, "target", options.TargetLUFS, err)
+			p.state.sendWarning(fmt.Sprintf("Could not normalize track loudness for %s: %v", trackPath, err))
+			continue
+		}
+		log.Info(p.ctx, "Scanner: normalized track loudness", "path", trackPath, "fromLUFS", analysis.InputIntegrated, "targetLUFS", options.TargetLUFS)
+	}
+}
+
+func absoluteMediaPath(libraryPath, mediaPath string) string {
+	trackPath := filepath.FromSlash(mediaPath)
+	if !filepath.IsAbs(trackPath) {
+		trackPath = filepath.Join(libraryPath, trackPath)
+	}
+	return filepath.Clean(trackPath)
+}
+
+func normalizeTrackLoudness(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPath string, target ffmpeg.LoudnessTarget, analysis ffmpeg.LoudnessAnalysis, backup bool, backupSuffix string) error {
+	stat, err := os.Stat(trackPath)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(trackPath), "."+trimExt(filepath.Base(trackPath))+".loudnorm-*.tmp"+filepath.Ext(trackPath))
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		return err
+	}
+	defer os.Remove(tmpPath)
+
+	if err := normalizer.NormalizeLoudness(ctx, trackPath, tmpPath, target, analysis); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, stat.Mode()); err != nil {
+		return err
+	}
+	if backup {
+		if backupSuffix == "" {
+			backupSuffix = ".before_loudnorm"
+		}
+		backupPath := trackPath + backupSuffix
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			if err := copyFile(trackPath, backupPath, stat); err != nil {
+				return fmt.Errorf("creating loudness backup: %w", err)
+			}
+		} else if err != nil {
+			return err
+		}
+	}
+	return os.Rename(tmpPath, trackPath)
+}
+
+func copyFile(srcPath, dstPath string, stat os.FileInfo) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, stat.Mode())
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(dst, src)
+	closeErr := dst.Close()
+	if copyErr != nil {
+		_ = os.Remove(dstPath)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(dstPath)
+		return closeErr
+	}
+	return os.Chtimes(dstPath, stat.ModTime(), stat.ModTime())
+}
+
+func trimExt(name string) string {
+	return name[:len(name)-len(filepath.Ext(name))]
 }
 
 func (p *phaseFolders) finalize(err error) error {

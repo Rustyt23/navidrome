@@ -438,6 +438,18 @@ The scanner's behavior can be customized through several configuration settings 
 | `Scanner.WatcherWait`   | Delay before triggering scan after file changes detected         | 5s             |
 | `Scanner.ArtistJoiner`  | String used to join multiple artists in track metadata           | " • "          |
 
+### Loudness Normalization
+
+| Setting                                         | Description                                                                 | Default              |
+|-------------------------------------------------|-----------------------------------------------------------------------------|----------------------|
+| `Scanner.LoudnessNormalization.Enabled`         | Whether to run ffmpeg loudnorm on newly imported or updated audio files      | false                |
+| `Scanner.LoudnessNormalization.TargetLUFS`      | Integrated LUFS target passed to ffmpeg `loudnorm`                           | -12.6                |
+| `Scanner.LoudnessNormalization.TruePeak`        | True-peak target passed to ffmpeg `loudnorm`                                 | -1.5                 |
+| `Scanner.LoudnessNormalization.LRA`             | Loudness-range target passed to ffmpeg `loudnorm`                            | 11                   |
+| `Scanner.LoudnessNormalization.Tolerance`       | LUFS distance from the target that is considered already normalized          | 0.1                  |
+| `Scanner.LoudnessNormalization.Backup`          | Whether to keep the original file before replacing it with the normalized one | true                 |
+| `Scanner.LoudnessNormalization.BackupSuffix`    | Suffix appended to the original path when creating the backup                | `.before_loudnorm`   |
+
 ### Playlist Processing
 
 | Setting                     | Description                                              | Default |

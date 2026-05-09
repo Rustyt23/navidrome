@@ -138,16 +138,27 @@ type configOptions struct {
 }
 
 type scannerOptions struct {
-	Enabled            bool
-	Schedule           string
-	WatcherWait        time.Duration
-	ScanOnStartup      bool
-	Extractor          string
-	ArtistJoiner       string
-	GenreSeparators    string // Deprecated: Use Tags.genre.Split instead
-	GroupAlbumReleases bool   // Deprecated: Use PID.Album instead
-	FollowSymlinks     bool   // Whether to follow symlinks when scanning directories
-	PurgeMissing       string // Values: "never", "always", "full"
+	Enabled               bool
+	Schedule              string
+	WatcherWait           time.Duration
+	ScanOnStartup         bool
+	LoudnessNormalization loudnessNormalizationOptions
+	Extractor             string
+	ArtistJoiner          string
+	GenreSeparators       string // Deprecated: Use Tags.genre.Split instead
+	GroupAlbumReleases    bool   // Deprecated: Use PID.Album instead
+	FollowSymlinks        bool   // Whether to follow symlinks when scanning directories
+	PurgeMissing          string // Values: "never", "always", "full"
+}
+
+type loudnessNormalizationOptions struct {
+	Enabled      bool
+	TargetLUFS   float64
+	TruePeak     float64
+	LRA          float64
+	Tolerance    float64
+	Backup       bool
+	BackupSuffix string
 }
 
 type subsonicOptions struct {
@@ -615,6 +626,13 @@ func setViperDefaults() {
 	viper.SetDefault("scanner.extractor", consts.DefaultScannerExtractor)
 	viper.SetDefault("scanner.watcherwait", consts.DefaultWatcherWait)
 	viper.SetDefault("scanner.scanonstartup", true)
+	viper.SetDefault("scanner.loudnessnormalization.enabled", false)
+	viper.SetDefault("scanner.loudnessnormalization.targetlufs", -12.6)
+	viper.SetDefault("scanner.loudnessnormalization.truepeak", -1.5)
+	viper.SetDefault("scanner.loudnessnormalization.lra", 11.0)
+	viper.SetDefault("scanner.loudnessnormalization.tolerance", 0.1)
+	viper.SetDefault("scanner.loudnessnormalization.backup", true)
+	viper.SetDefault("scanner.loudnessnormalization.backupsuffix", ".before_loudnorm")
 	viper.SetDefault("scanner.artistjoiner", consts.ArtistJoiner)
 	viper.SetDefault("scanner.genreseparators", "")
 	viper.SetDefault("scanner.groupalbumreleases", false)
