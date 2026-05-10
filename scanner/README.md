@@ -440,7 +440,7 @@ The scanner's behavior can be customized through several configuration settings 
 
 ### Loudness Normalization
 
-When enabled, loudness normalization runs during folder scanning for audio files that are new, updated, or included in a full scan, before tags are read from the file. The scanner first analyzes each track, skips tracks already inside the configured target range, normalizes tracks outside the range, then analyzes the replaced file again and logs both `fromLUFS` and `finalLUFS`.
+When enabled, loudness normalization runs during folder scanning for audio files that are new, updated, or included in a full scan, before tags are read from the file. The scanner first analyzes each track, skips tracks already inside the configured target range, normalizes tracks outside the range, then analyzes the replaced file again and logs both `fromLUFS` and `finalLUFS`. If the verified result is still outside the target range, the scanner retries normalization up to three times before emitting a warning.
 
 | Setting                                         | Description                                                                 | Default              |
 |-------------------------------------------------|-----------------------------------------------------------------------------|----------------------|
@@ -448,7 +448,7 @@ When enabled, loudness normalization runs during folder scanning for audio files
 | `Scanner.LoudnessNormalization.TargetLUFS`      | Integrated LUFS target passed to ffmpeg `loudnorm`                           | -12.6                |
 | `Scanner.LoudnessNormalization.TruePeak`        | True-peak target passed to ffmpeg `loudnorm`                                 | -1.5                 |
 | `Scanner.LoudnessNormalization.LRA`             | Loudness-range target passed to ffmpeg `loudnorm`                            | 11                   |
-| `Scanner.LoudnessNormalization.Tolerance`       | LUFS distance from the target that is considered already normalized; default keeps tracks in the -12.1 to -13.1 LUFS range for a -12.6 target | 0.5                  |
+| `Scanner.LoudnessNormalization.Tolerance`       | LUFS distance from the target that is considered already normalized; values below 0.5 are treated as 0.5 so the default -12.6 target keeps tracks in the -13.1 to -12.1 LUFS range | 0.5                  |
 | `Scanner.LoudnessNormalization.Backup`          | Whether to keep the original file before replacing it with the normalized one | true                 |
 | `Scanner.LoudnessNormalization.BackupSuffix`    | Suffix appended to the original path when creating the backup                | `.before_loudnorm`   |
 
