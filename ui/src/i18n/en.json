@@ -642,6 +642,9 @@
       "error": "Unable to load devices",
       "empty": "No devices available"
     },
+    "aiTool": {
+      "name": "AI Tool"
+    },
     "about": "About"
   },
   "player": {

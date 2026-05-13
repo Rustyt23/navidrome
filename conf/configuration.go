@@ -107,6 +107,7 @@ type configOptions struct {
 	Deezer                          deezerOptions       `json:",omitzero"`
 	ListenBrainz                    listenBrainzOptions `json:",omitzero"`
 	RetailPlayer                    retailPlayerOptions `json:",omitzero"`
+	AI                              aiOptions           `json:",omitzero"`
 	Tags                            map[string]TagConf  `json:",omitempty"`
 	Agents                          string
 
@@ -192,6 +193,11 @@ type deezerOptions struct {
 type listenBrainzOptions struct {
 	Enabled bool
 	BaseURL string
+}
+
+type aiOptions struct {
+	OpenAIAPIKey string
+	OpenAIModel  string
 }
 
 type retailPlayerNotificationOptions struct {
@@ -663,6 +669,8 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.search", "")
 	viper.SetDefault("retailplayer.fields", []string{})
 	viper.SetDefault("retailplayer.additionalheaders", map[string]string{})
+	viper.SetDefault("ai.openaiapikey", "")
+	viper.SetDefault("ai.openaimodel", "gpt-4o-mini")
 	viper.SetDefault("httpsecurityheaders.customframeoptionsvalue", "DENY")
 	viper.SetDefault("backup.path", "")
 	viper.SetDefault("backup.schedule", "")
