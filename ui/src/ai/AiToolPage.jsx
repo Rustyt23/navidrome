@@ -23,6 +23,8 @@ import {
 } from '@material-ui/core'
 import { Title, useDataProvider, useTranslate } from 'react-admin'
 
+const ADDED_SONGS_STORAGE_KEY = 'aiToolAddedSongs'
+
 const useStyles = makeStyles((theme) => ({
   root: {
     padding: theme.spacing(2),
@@ -66,7 +68,15 @@ const AiToolPage = () => {
   const [songsLoading, setSongsLoading] = useState(false)
   const [availableSongs, setAvailableSongs] = useState([])
   const [selectedSongIds, setSelectedSongIds] = useState([])
-  const [addedSongs, setAddedSongs] = useState([])
+  const [addedSongs, setAddedSongs] = useState(() => {
+    try {
+      const raw = localStorage.getItem(ADDED_SONGS_STORAGE_KEY)
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })
 
   const selectedSongs = useMemo(
     () => availableSongs.filter((song) => selectedSongIds.includes(song.id)),
@@ -117,7 +127,9 @@ const AiToolPage = () => {
     setAddedSongs((prev) => {
       const existing = new Set(prev.map((song) => song.id))
       const uniqueNew = selectedSongs.filter((song) => !existing.has(song.id))
-      return [...prev, ...uniqueNew]
+      const nextSongs = [...prev, ...uniqueNew]
+      localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
+      return nextSongs
     })
     setSongDialogOpen(false)
   }
