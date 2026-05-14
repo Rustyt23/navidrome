@@ -18,7 +18,7 @@ import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import FolderIcon from '@material-ui/icons/Folder'
-import SmartToyIcon from '@material-ui/icons/SmartToy'
+import ExtensionIcon from '@material-ui/icons/Extension'
 import { useHistory, useLocation } from 'react-router-dom'
 import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
@@ -428,7 +428,7 @@ const Menu = ({ dense = false }) => {
       to="/ai-tool"
       activeClassName={classes.active}
       primaryText={translate('menu.aiTool.name', { _: 'AI Tool' })}
-      leftIcon={<SmartToyIcon />}
+      leftIcon={<ExtensionIcon />}
       sidebarIsOpen={open}
       dense={dense}
     />
