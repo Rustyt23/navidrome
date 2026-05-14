@@ -654,7 +654,8 @@
       "placeholderReply": "AI integration is not connected yet. This is a UI placeholder.",
       "addSongs": "Add songs",
       "addSelected": "Add selected songs",
-      "aiTag": "AI Tag"
+      "aiTag": "AI Tag",
+      "sending": "Sending..."
     }
   },
   "player": {

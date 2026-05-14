@@ -78,26 +78,41 @@ const AiToolPage = () => {
     }
   })
 
+  const [isSending, setIsSending] = useState(false)
+  const [chatError, setChatError] = useState('')
+
   const selectedSongs = useMemo(
     () => availableSongs.filter((song) => selectedSongIds.includes(song.id)),
     [availableSongs, selectedSongIds],
   )
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const trimmed = prompt.trim()
-    if (!trimmed) return
+    if (!trimmed || isSending) return
 
-    setMessages((prev) => [
-      ...prev,
-      { role: 'user', text: trimmed },
-      {
-        role: 'assistant',
-        text: translate('menu.aiTool.placeholderReply', {
-          _: 'AI integration is not connected yet. This is a UI placeholder.',
-        }),
-      },
-    ])
+    setChatError('')
+    setMessages((prev) => [...prev, { role: 'user', text: trimmed }])
     setPrompt('')
+    setIsSending(true)
+
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed }),
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload?.error || payload?.message || 'Request failed')
+      }
+
+      setMessages((prev) => [...prev, { role: 'assistant', text: payload.answer || '' }])
+    } catch (err) {
+      setChatError(err?.message || 'Could not get response from AI')
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const openAddSongsDialog = async () => {
@@ -175,10 +190,17 @@ const AiToolPage = () => {
                 _: 'Ask AI anything...',
               })}
             />
-            <Button variant="contained" color="primary" onClick={sendMessage}>
-              {translate('menu.aiTool.send', { _: 'Send' })}
+            <Button variant="contained" color="primary" onClick={sendMessage} disabled={isSending}>
+              {isSending
+                ? translate('menu.aiTool.sending', { _: 'Sending...' })
+                : translate('menu.aiTool.send', { _: 'Send' })}
             </Button>
           </Box>
+          {chatError ? (
+            <Typography color="error" variant="body2">
+              {chatError}
+            </Typography>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -221,6 +243,11 @@ const AiToolPage = () => {
               </TableBody>
             </Table>
           </Box>
+          {chatError ? (
+            <Typography color="error" variant="body2">
+              {chatError}
+            </Typography>
+          ) : null}
         </CardContent>
       </Card>
 

@@ -153,6 +153,7 @@ func (n *Router) routes() http.Handler {
 		n.addKeepAliveRoute(r)
 		n.addInsightsRoute(r)
 		n.addRetailPlayerPrivateRoutes(r)
+		n.addAIChatRoute(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
 			n.addInspectRoute(r)
