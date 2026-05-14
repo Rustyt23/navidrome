@@ -651,7 +651,10 @@
       "send": "Send",
       "importSong": "Import song",
       "importAction": "Import songs",
-      "placeholderReply": "AI integration is not connected yet. This is a UI placeholder."
+      "placeholderReply": "AI integration is not connected yet. This is a UI placeholder.",
+      "addSongs": "Add songs",
+      "addSelected": "Add selected songs",
+      "aiTag": "AI Tag"
     }
   },
   "player": {
