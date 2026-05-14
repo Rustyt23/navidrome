@@ -448,7 +448,7 @@ When enabled, loudness normalization runs during folder scanning for audio files
 | `Scanner.LoudnessNormalization.TargetLUFS`      | Integrated LUFS target passed to ffmpeg `loudnorm`                           | -12.6                |
 | `Scanner.LoudnessNormalization.TruePeak`        | True-peak target passed to ffmpeg `loudnorm`                                 | -1.5                 |
 | `Scanner.LoudnessNormalization.LRA`             | Loudness-range target passed to ffmpeg `loudnorm`                            | 11                   |
-| `Scanner.LoudnessNormalization.Tolerance`       | LUFS distance from the target that is considered already normalized; values below 0.5 are treated as 0.5 so the default -12.6 target keeps tracks in the -13.1 to -12.1 LUFS range | 0.5                  |
+| `Scanner.LoudnessNormalization.Tolerance`       | LUFS distance from the target that is considered already normalized; the default -12.6 target keeps tracks in the -12.7 to -12.5 LUFS range | 0.1                  |
 | `Scanner.LoudnessNormalization.Backup`          | Whether to keep the original file before replacing it with the normalized one | true                 |
 | `Scanner.LoudnessNormalization.BackupSuffix`    | Suffix appended to the original path when creating the backup                | `.before_loudnorm`   |
 

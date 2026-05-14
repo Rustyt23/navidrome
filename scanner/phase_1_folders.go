@@ -464,10 +464,7 @@ func (p *phaseFolders) logFolder(entry *folderEntry) (*folderEntry, error) {
 	return entry, nil
 }
 
-const (
-	defaultLoudnessTolerance     = 0.5
-	maxLoudnessNormalizeAttempts = 3
-)
+const maxLoudnessNormalizeAttempts = 3
 
 func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport map[string]*model.MediaFile) {
 	options := conf.Server.Scanner.LoudnessNormalization
@@ -531,7 +528,10 @@ func (p *phaseFolders) normalizeTrackLoudnessToRange(normalizer ffmpeg.LoudnessN
 }
 
 func effectiveLoudnessTolerance(tolerance float64) float64 {
-	return max(tolerance, defaultLoudnessTolerance)
+	if tolerance < 0 {
+		return conf.DefaultLoudnessNormalizationTolerance
+	}
+	return tolerance
 }
 
 func shouldNormalizeLoudness(lufs, targetLUFS, tolerance float64) bool {
