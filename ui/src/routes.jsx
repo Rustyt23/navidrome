@@ -3,6 +3,7 @@ import { Redirect, Route } from 'react-router-dom'
 import Personal from './personal/Personal'
 import RetailPlayerDashboard from './retailPlayer/RetailPlayerDashboard'
 import RetailPlayerDeviceManagement from './retailPlayer/RetailPlayerDeviceManagement'
+import AiToolPage from './ai/AiToolPage'
 
 const routes = [
   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
@@ -36,6 +37,7 @@ const routes = [
     render={() => <RetailPlayerDashboard />}
     key={'musicmatters-device'}
   />,
+  <Route exact path="/ai-tool" render={() => <AiToolPage />} key={'ai-tool'} />,
 ]
 
 export default routes
