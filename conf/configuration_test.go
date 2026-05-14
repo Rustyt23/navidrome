@@ -2,6 +2,7 @@ package conf_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -24,6 +25,23 @@ var _ = Describe("Configuration", func() {
 		viper.SetDefault("datafolder", GinkgoT().TempDir())
 		viper.SetDefault("loglevel", "error")
 		conf.ResetConf()
+	})
+
+	It("sets the loudness normalization tolerance default", func() {
+		conf.Load(true)
+
+		Expect(conf.Server.Scanner.LoudnessNormalization.Tolerance).To(Equal(conf.DefaultLoudnessNormalizationTolerance))
+	})
+
+	It("loads a 0.1 loudness normalization tolerance from configuration", func() {
+		filename := filepath.Join(GinkgoT().TempDir(), "navidrome.toml")
+		content := "[Scanner.LoudnessNormalization]\nTolerance = 0.1\n"
+		Expect(os.WriteFile(filename, []byte(content), 0600)).To(Succeed())
+
+		conf.InitConfig(filename)
+		conf.Load(true)
+
+		Expect(conf.Server.Scanner.LoudnessNormalization.Tolerance).To(Equal(0.1))
 	})
 
 	DescribeTable("should load configuration from",
