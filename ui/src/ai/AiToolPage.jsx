@@ -22,6 +22,7 @@ import {
   makeStyles,
 } from '@material-ui/core'
 import { Title, useDataProvider, useTranslate } from 'react-admin'
+import { httpClient } from '../dataProvider'
 
 const ADDED_SONGS_STORAGE_KEY = 'aiToolAddedSongs'
 
@@ -96,16 +97,10 @@ const AiToolPage = () => {
     setIsSending(true)
 
     try {
-      const response = await fetch('/api/ai/chat', {
+      const { json: payload } = await httpClient('/api/ai/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed }),
       })
-
-      const payload = await response.json()
-      if (!response.ok) {
-        throw new Error(payload?.error || payload?.message || 'Request failed')
-      }
 
       setMessages((prev) => [...prev, { role: 'assistant', text: payload.answer || '' }])
     } catch (err) {
