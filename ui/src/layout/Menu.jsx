@@ -18,6 +18,7 @@ import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import FolderIcon from '@material-ui/icons/Folder'
+import ExtensionIcon from '@material-ui/icons/Extension'
 import { useHistory, useLocation } from 'react-router-dom'
 import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
@@ -421,6 +422,18 @@ const Menu = ({ dense = false }) => {
     return renderRetailPlayerNodes(retailTree)
   }
 
+
+  const renderAiToolMenuItem = () => (
+    <MenuItemLink
+      to="/ai-tool"
+      activeClassName={classes.active}
+      primaryText={translate('menu.aiTool.name', { _: 'AI Tool' })}
+      leftIcon={<ExtensionIcon />}
+      sidebarIsOpen={open}
+      dense={dense}
+    />
+  )
+
   const renderRetailPlayerMenu = () => (
     <SubMenu
       handleToggle={() => handleToggle('menuRetailPlayer')}
@@ -460,6 +473,7 @@ const Menu = ({ dense = false }) => {
       {config.devSidebarPlaylists && open ? (
         <>
           {renderRetailPlayerMenu()}
+          {renderAiToolMenuItem()}
           <Divider />
           <DiscoverySubMenu
             state={state}
@@ -478,6 +492,7 @@ const Menu = ({ dense = false }) => {
       ) : (
         <>
           {renderRetailPlayerMenu()}
+          {renderAiToolMenuItem()}
           {resources.filter(subItems('discovery')).map(renderResourceMenuItemLink)}
           {resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)}
         </>

@@ -638,11 +638,25 @@
     "retailPlayer": {
       "name": "Retail Player",
       "allDevices": "All Devices",
-      "loading": "Loading devices…",
+      "loading": "Loading devices\u2026",
       "error": "Unable to load devices",
       "empty": "No devices available"
     },
-    "about": "About"
+    "about": "About",
+    "aiTool": {
+      "name": "AI Tool",
+      "chat": "Chat with AI",
+      "empty": "Start a conversation with AI.",
+      "inputPlaceholder": "Ask AI anything...",
+      "send": "Send",
+      "importSong": "Import song",
+      "importAction": "Import songs",
+      "placeholderReply": "AI integration is not connected yet. This is a UI placeholder.",
+      "addSongs": "Add songs",
+      "addSelected": "Add selected songs",
+      "aiTag": "AI Tag",
+      "sending": "Sending..."
+    }
   },
   "player": {
     "playListsText": "Play Queue",
@@ -750,7 +764,7 @@
     "missingTracksListTitle": "Missing Tracks",
     "missingTracksEmpty": "No missing tracks recorded",
     "missingTracksSummary": "%{smart_count} song is missing from Playlist %{playlist} |||| %{smart_count} songs are missing from Playlist %{playlist}",
-    "missingTracksImportedOn": " — imported on %{date}",
+    "missingTracksImportedOn": " \u2014 imported on %{date}",
     "missingTracksUnknownPlaylist": "Unknown playlist",
     "missingTracksUnknownTitle": "Unknown track",
     "missingTracksUnknownArtist": "Unknown artist"
