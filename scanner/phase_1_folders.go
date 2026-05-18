@@ -288,7 +288,7 @@ func (p *phaseFolders) loadTagsFromFiles(entry *folderEntry, toImport map[string
 				if track.Tags == nil {
 					track.Tags = model.Tags{}
 				}
-				track.Tags[model.TagName("loudnorm_final_lufs")] = []string{strconv.FormatFloat(lufs, "f", 2, 64)}
+				track.Tags[model.TagName("loudnorm_final_lufs")] = []string{strconv.FormatFloat(lufs, 'f', 2, 64)}
 			}
 			tracks = append(tracks, track)
 			for _, t := range track.Tags.FlattenAll() {
@@ -576,7 +576,8 @@ func (p *phaseFolders) normalizeTrackLoudnessToRange(normalizer ffmpeg.LoudnessN
 }
 
 func effectiveLoudnessTolerance(tolerance float64) float64 {
-	return max(tolerance, conf.DefaultLoudnessNormalizationTolerance)
+	const defaultTolerance = 0.5
+	return max(tolerance, defaultTolerance)
 }
 
 func adjustedLoudnessTarget(target ffmpeg.LoudnessTarget, measuredLUFS float64) ffmpeg.LoudnessTarget {
