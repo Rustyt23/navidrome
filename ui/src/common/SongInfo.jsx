@@ -56,6 +56,7 @@ export const SongInfo = (props) => {
     'recordlabel',
     'media',
     'albumversion',
+    'loudnorm_final_lufs',
   ]
   const data = {
     path: <PathField />,
@@ -83,6 +84,9 @@ export const SongInfo = (props) => {
     playCount: <TextField source="playCount" />,
     bpm: <NumberField source="bpm" />,
     comment: <MultiLineTextField source="comment" />,
+    loudnessFinalLUFS: (
+      <FunctionField render={(r) => r.tags?.loudnorm_final_lufs?.[0] ?? ''} />
+    ),
   }
 
   const roles = []
@@ -101,9 +105,14 @@ export const SongInfo = (props) => {
     'genre',
     'bitDepth',
     'sampleRate',
+    'loudnessFinalLUFS',
   ]
   optionalFields.forEach((field) => {
-    !record[field] && delete data[field]
+    const value =
+      field === 'loudnessFinalLUFS'
+        ? record.tags?.loudnorm_final_lufs?.[0]
+        : record[field]
+    !value && delete data[field]
   })
   if (record.playCount > 0) {
     data.playDate = <DateField record={record} source="playDate" showTime />

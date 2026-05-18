@@ -215,35 +215,11 @@ const SongList = (props) => {
         />
       ),
       bpm: isDesktop && <NumberField source="bpm" />,
-      loudnessInitialLUFS: isDesktop && (
-        <FunctionField
-          label="Initial LUFS"
-          source="tags.loudnorm_initial_lufs"
-          render={(r) => r.tags?.loudnorm_initial_lufs?.[0] || ''}
-          sortable={false}
-        />
-      ),
       loudnessFinalLUFS: isDesktop && (
         <FunctionField
           label="Final LUFS"
           source="tags.loudnorm_final_lufs"
           render={(r) => r.tags?.loudnorm_final_lufs?.[0] || ''}
-          sortable={false}
-        />
-      ),
-      loudnessAttempts: isDesktop && (
-        <FunctionField
-          label="Loudness Attempts"
-          source="tags.loudnorm_attempts"
-          render={(r) => r.tags?.loudnorm_attempts?.[0] || ''}
-          sortable={false}
-        />
-      ),
-      loudnessStatus: isDesktop && (
-        <FunctionField
-          label="Loudness Status"
-          source="tags.loudnorm_status"
-          render={(r) => r.tags?.loudnorm_status?.[0] || 'unprocessed'}
           sortable={false}
         />
       ),
