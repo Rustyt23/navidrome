@@ -27,6 +27,33 @@ import config from '../config'
 import { AlbumLinkField } from '../song/AlbumLinkField'
 import { Tab, Tabs } from '@material-ui/core'
 
+
+const getLufsValue = (song) => {
+  const tags = song?.tags || {}
+  const rawTags = song?.rawTags || {}
+
+  const direct =
+    tags.loudnorm_final_lufs?.[0] ??
+    tags.final_lufs?.[0] ??
+    tags.finallufs?.[0] ??
+    tags.lufs?.[0]
+  if (direct !== undefined && direct !== null && direct !== '') return direct
+
+  const merged = { ...tags, ...rawTags }
+  for (const [key, values] of Object.entries(merged)) {
+    const normalized = key.toLowerCase()
+    if (
+      normalized.includes('loudnorm_final_lufs') ||
+      normalized.includes('final_lufs') ||
+      normalized.includes('finallufs')
+    ) {
+      return Array.isArray(values) ? values[0] ?? '' : values ?? ''
+    }
+  }
+
+  return ''
+}
+
 const useStyles = makeStyles({
   gain: {
     '&:after': {
@@ -85,7 +112,7 @@ export const SongInfo = (props) => {
     bpm: <NumberField source="bpm" />,
     comment: <MultiLineTextField source="comment" />,
     loudnessFinalLUFS: (
-      <FunctionField render={(r) => r.tags?.loudnorm_final_lufs?.[0] ?? ''} />
+      <FunctionField render={(r) => getLufsValue(r)} />
     ),
   }
 
@@ -110,7 +137,7 @@ export const SongInfo = (props) => {
   optionalFields.forEach((field) => {
     const value =
       field === 'loudnessFinalLUFS'
-        ? record.tags?.loudnorm_final_lufs?.[0]
+        ? getLufsValue(record)
         : record[field]
     !value && delete data[field]
   })
