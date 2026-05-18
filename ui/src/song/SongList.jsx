@@ -215,7 +215,7 @@ const SongList = (props) => {
         />
       ),
       bpm: isDesktop && <NumberField source="bpm" />,
-      loudnessFinalLUFS: isDesktop && (
+      loudnessFinalLUFS: (
         <FunctionField
           label="Final LUFS"
           source="tags.loudnorm_final_lufs"

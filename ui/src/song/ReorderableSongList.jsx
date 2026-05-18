@@ -303,6 +303,14 @@ const ReorderableSongList = (props) => {
           />
         ),
       bpm: isDesktop ? <NumberField source="bpm" /> : null,
+      loudnessFinalLUFS: (
+        <FunctionField
+          label="Final LUFS"
+          source="tags.loudnorm_final_lufs"
+          render={(r) => r.tags?.loudnorm_final_lufs?.[0] || ''}
+          sortable={false}
+        />
+      ),
       genre: <TextField source="genre" sortBy="genre" />,
       mood: isDesktop ? (
         <FunctionField
