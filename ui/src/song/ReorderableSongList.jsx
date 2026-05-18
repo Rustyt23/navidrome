@@ -300,7 +300,7 @@ const ReorderableSongList = (props) => {
       trackNumber: isDesktop ? (
         <FunctionField
           source="trackNumber"
-          sortable={false}
+          sortBy="lufs"
           render={(record) => getRowNumber(record)}
         />
       ) : null,
@@ -335,7 +335,7 @@ const ReorderableSongList = (props) => {
           label="LUFS"
           source="tags.loudnorm_final_lufs"
           render={(r) => getLufsValue(r)}
-          sortable={false}
+          sortBy="lufs"
         />
       ),
       genre: <TextField source="genre" sortBy="genre" />,

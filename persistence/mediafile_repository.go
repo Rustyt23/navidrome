@@ -91,6 +91,7 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 		"starred_at":     "starred, starred_at",
 		"genre":          "genre",
 		"comment":        "comment",
+		"lufs":           "cast(json_extract(tags, '$.loudnorm_final_lufs[0]') as real)",
 	})
 	return r
 }
