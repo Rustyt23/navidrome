@@ -525,7 +525,7 @@ func (p *phaseFolders) normalizeTrackLoudnessToRange(normalizer ffmpeg.LoudnessN
 	previousDistance := math.Abs(analysis.InputIntegrated - target.IntegratedLUFS)
 	if math.Abs(target.IntegratedLUFS-analysis.InputIntegrated) <= closeLoudnessMissLUFS {
 		var err error
-		attemptTarget = adjustedLoudnessTarget(target, analysis.InputIntegrated)
+		attemptTarget = adjustedLoudnessTarget(target, analysis.InputIntegrated, minLUFS, maxLUFS)
 		log.Debug(p.ctx, "Scanner: using adjusted loudness normalization target", "path", trackPath, "fromLUFS", analysis.InputIntegrated, "fromTruePeak", analysis.InputTruePeak, "targetLUFS", target.IntegratedLUFS, "targetTruePeak", target.TruePeak, "attemptTargetLUFS", attemptTarget.IntegratedLUFS)
 		attemptAnalysis, err = analyzeLoudnessForTarget(p.ctx, normalizer, trackPath, target, attemptTarget, 1)
 		if err != nil {
@@ -561,7 +561,7 @@ func (p *phaseFolders) normalizeTrackLoudnessToRange(normalizer ffmpeg.LoudnessN
 			break
 		}
 		previousDistance = currentDistance
-		attemptTarget = adjustedLoudnessTarget(target, finalAnalysis.InputIntegrated)
+		attemptTarget = adjustedLoudnessTarget(target, finalAnalysis.InputIntegrated, minLUFS, maxLUFS)
 		log.Debug(p.ctx, "Scanner: adjusting loudness normalization target", "path", trackPath, "finalLUFS", finalAnalysis.InputIntegrated, "finalTruePeak", finalAnalysis.InputTruePeak, "targetLUFS", target.IntegratedLUFS, "targetTruePeak", target.TruePeak, "attemptTargetLUFS", attemptTarget.IntegratedLUFS, "attempt", attempt+1)
 		attemptAnalysis, err = analyzeLoudnessForTarget(p.ctx, normalizer, trackPath, target, attemptTarget, attempt+1)
 		if err != nil {
@@ -576,12 +576,15 @@ func (p *phaseFolders) normalizeTrackLoudnessToRange(normalizer ffmpeg.LoudnessN
 }
 
 func effectiveLoudnessTolerance(tolerance float64) float64 {
-	const defaultTolerance = 0.5
-	return max(tolerance, defaultTolerance)
+	if tolerance <= 0 {
+		return conf.DefaultLoudnessNormalizationTolerance
+	}
+	return tolerance
 }
 
-func adjustedLoudnessTarget(target ffmpeg.LoudnessTarget, measuredLUFS float64) ffmpeg.LoudnessTarget {
+func adjustedLoudnessTarget(target ffmpeg.LoudnessTarget, measuredLUFS, minLUFS, maxLUFS float64) ffmpeg.LoudnessTarget {
 	target.IntegratedLUFS += target.IntegratedLUFS - measuredLUFS
+	target.IntegratedLUFS = min(max(target.IntegratedLUFS, minLUFS), maxLUFS)
 	return target
 }
 

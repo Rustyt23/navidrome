@@ -43,6 +43,7 @@
         "playNow": "Play Now",
         "addToPlaylist": "Add to Playlist",
         "editComment": "Edit Comment",
+        "optimizeLufs": "Optimize LUFS",
         "showInPlaylist": "Show in Playlist",
         "shuffleAll": "Shuffle All",
         "download": "Download",
@@ -53,7 +54,14 @@
         "editComment": {
           "title": "Edit Comment",
           "description": "Update the comment metadata for the selected song. |||| Update the comment metadata for the selected songs."
+        },
+        "optimizeLufs": {
+          "title": "Optimize LUFS",
+          "description": "Analyze and rewrite the selected song to match the configured LUFS target. |||| Analyze and rewrite the selected songs to match the configured LUFS target."
         }
+      },
+      "notifications": {
+        "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{skipped} already in range, %{failed} failed."
       }
     },
     "album": {

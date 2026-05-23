@@ -425,6 +425,74 @@ var _ = Describe("MediaRepository", func() {
 			})
 
 		})
+
+		Context("lufs sort", func() {
+			var testMediaFiles []model.MediaFile
+
+			BeforeEach(func() {
+				testMediaFiles = []model.MediaFile{
+					{
+						ID:        id.NewRandom(),
+						LibraryID: 1,
+						Title:     "Quiet Song",
+						Path:      "/test/quiet.mp3",
+						Tags:      model.Tags{"loudnorm_final_lufs": {"-22.30"}},
+					},
+					{
+						ID:        id.NewRandom(),
+						LibraryID: 1,
+						Title:     "Loud Song",
+						Path:      "/test/loud.mp3",
+						Tags:      model.Tags{"loudnorm_final_lufs": {"-8.10"}},
+					},
+					{
+						ID:        id.NewRandom(),
+						LibraryID: 1,
+						Title:     "Fallback LUFS Song",
+						Path:      "/test/fallback-lufs.mp3",
+						Tags:      model.Tags{"final_lufs": {"-15.50"}},
+					},
+				}
+
+				for i := range testMediaFiles {
+					Expect(mr.Put(&testMediaFiles[i])).To(Succeed())
+				}
+			})
+
+			AfterEach(func() {
+				for _, mf := range testMediaFiles {
+					_ = mr.Delete(mf.ID)
+				}
+			})
+
+			It("sorts by the numeric LUFS tag value", func() {
+				results, err := mr.GetAll(model.QueryOptions{
+					Sort:    "lufs",
+					Order:   "asc",
+					Filters: squirrel.Eq{"media_file.id": []string{testMediaFiles[0].ID, testMediaFiles[1].ID, testMediaFiles[2].ID}},
+				})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(results).To(HaveLen(3))
+
+				Expect(results[0].Title).To(Equal("Quiet Song"))
+				Expect(results[1].Title).To(Equal("Fallback LUFS Song"))
+				Expect(results[2].Title).To(Equal("Loud Song"))
+			})
+
+			It("sorts LUFS in descending order", func() {
+				results, err := mr.GetAll(model.QueryOptions{
+					Sort:    "lufs",
+					Order:   "desc",
+					Filters: squirrel.Eq{"media_file.id": []string{testMediaFiles[0].ID, testMediaFiles[1].ID, testMediaFiles[2].ID}},
+				})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(results).To(HaveLen(3))
+
+				Expect(results[0].Title).To(Equal("Loud Song"))
+				Expect(results[1].Title).To(Equal("Fallback LUFS Song"))
+				Expect(results[2].Title).To(Equal("Quiet Song"))
+			})
+		})
 	})
 
 	Describe("Search", func() {

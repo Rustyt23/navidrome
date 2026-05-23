@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/deluan/rest"
@@ -33,6 +34,8 @@ type MockMediaFileRepo struct {
 	FindRecentFilesByPropertiesFunc func(missing model.MediaFile, since time.Time) (model.MediaFiles, error)
 	LastUpdatedCommentIDs           []string
 	LastComment                     string
+	LastUpdatedLoudnessID           string
+	LastUpdatedLoudness             float64
 }
 
 func (m *MockMediaFileRepo) SetError(err bool) {
@@ -128,6 +131,21 @@ func (m *MockMediaFileRepo) UpdateComment(ids []string, comment string) error {
 		if mf, ok := m.Data[id]; ok {
 			mf.Comment = comment
 		}
+	}
+	return nil
+}
+
+func (m *MockMediaFileRepo) UpdateLoudnessTags(id string, lufs float64) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	m.LastUpdatedLoudnessID = id
+	m.LastUpdatedLoudness = lufs
+	if mf, ok := m.Data[id]; ok {
+		if mf.Tags == nil {
+			mf.Tags = model.Tags{}
+		}
+		mf.Tags[model.TagName("loudnorm_final_lufs")] = []string{strconv.FormatFloat(lufs, 'f', 2, 64)}
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import { BatchPlayButton } from './index'
 import { AddToPlaylistButton } from './AddToPlaylistButton'
 import { makeStyles } from '@material-ui/core/styles'
 import { EditSongCommentButton } from './EditSongCommentButton'
+import { OptimizeLufsButton } from './OptimizeLufsButton'
 
 const useStyles = makeStyles((theme) => ({
   button: {
@@ -30,6 +31,7 @@ export const SongBulkActions = (props) => {
       />
       <AddToPlaylistButton {...props} className={classes.button} />
       <EditSongCommentButton {...props} className={classes.button} />
+      <OptimizeLufsButton {...props} className={classes.button} />
     </Fragment>
   )
 }
