@@ -34,11 +34,12 @@ import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
 import DeleteOutlineIcon from '@material-ui/icons/DeleteOutline'
+import SyncIcon from '@material-ui/icons/Sync'
 import Breadcrumbs from '@material-ui/core/Breadcrumbs'
 import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
 import PropTypes from 'prop-types'
-import { useHistory } from 'react-router-dom'
+import { useHistory, useLocation } from 'react-router-dom'
 import { useRetailPlayerDeviceStore } from './RetailPlayerDeviceStoreContext'
 import AddToFolderDialog from './AddToFolderDialog'
 import useAssignRetailPlayerDeviceToFolder from './useAssignRetailPlayerDeviceToFolder'
@@ -48,6 +49,24 @@ import {
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
 import { isDeviceLocked } from './deviceLockState'
+
+const RETAIL_PLAYER_FOLDER_QUERY_PARAM = 'folder'
+
+const getRetailPlayerFolderIdFromSearch = (search) => {
+  const params = new URLSearchParams(search || '')
+  return params.get(RETAIL_PLAYER_FOLDER_QUERY_PARAM) || null
+}
+
+const buildRetailPlayerFolderSearch = (search, folderId) => {
+  const params = new URLSearchParams(search || '')
+  if (folderId) {
+    params.set(RETAIL_PLAYER_FOLDER_QUERY_PARAM, folderId)
+  } else {
+    params.delete(RETAIL_PLAYER_FOLDER_QUERY_PARAM)
+  }
+  const nextSearch = params.toString()
+  return nextSearch ? `?${nextSearch}` : ''
+}
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
@@ -97,6 +116,17 @@ const useStyles = makeStyles((theme) => {
     display: 'flex',
     alignItems: 'center',
     gap: theme.spacing(1),
+    flexWrap: 'wrap',
+  },
+  syncStatus: {
+    color: theme.palette.text.secondary,
+    fontSize: theme.typography.pxToRem(12),
+    minWidth: 180,
+    textAlign: 'right',
+    [theme.breakpoints.down('xs')]: {
+      textAlign: 'left',
+      width: '100%',
+    },
   },
   selectionRibbon: {
     display: 'flex',
@@ -819,9 +849,17 @@ const RetailPlayerDeviceManagement = () => {
   const classes = useStyles()
   const theme = useTheme()
   const history = useHistory()
+  const location = useLocation()
   const {
     state: { tree, folders, devices, loading, error, isApiEnabled },
-    actions: { createFolder, updateFolder, createDevice, updateDevice, deleteNodes },
+    actions: {
+      createFolder,
+      updateFolder,
+      createDevice,
+      updateDevice,
+      deleteNodes,
+      syncQRCodeRemoteControls,
+    },
   } = useRetailPlayerDeviceStore()
   const [folderDialog, setFolderDialog] = useState({
     open: false,
@@ -829,13 +867,17 @@ const RetailPlayerDeviceManagement = () => {
     parentId: null,
   })
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
-  const [activeFolderId, setActiveFolderId] = useState(null)
+  const [activeFolderId, setActiveFolderId] = useState(() =>
+    getRetailPlayerFolderIdFromSearch(location.search),
+  )
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [lastSelectedId, setLastSelectedId] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deviceStatusMap, setDeviceStatusMap] = useState(() => new Map())
+  const [isQRSyncing, setIsQRSyncing] = useState(false)
+  const [qrSyncStatus, setQRSyncStatus] = useState('')
   const assignDeviceToFolder = useAssignRetailPlayerDeviceToFolder()
 
   const folderMap = useMemo(() => {
@@ -845,6 +887,10 @@ const RetailPlayerDeviceManagement = () => {
     })
     return map
   }, [folders])
+
+  useEffect(() => {
+    setActiveFolderId(getRetailPlayerFolderIdFromSearch(location.search))
+  }, [location.search])
 
   const deviceMap = useMemo(() => {
     const map = new Map()
@@ -1113,12 +1159,22 @@ const RetailPlayerDeviceManagement = () => {
       }
       return previous
     })
+    if (activeFolderId && deletedFolderSet.has(activeFolderId)) {
+      history.replace({
+        pathname: location.pathname,
+        search: buildRetailPlayerFolderSearch(location.search, null),
+      })
+    }
 
     setDeleteDialogOpen(false)
     setSelectedIds(new Set())
   }, [
+    activeFolderId,
     collectDescendantFolderIds,
     deleteNodes,
+    history,
+    location.pathname,
+    location.search,
     selectedDeviceIds,
     selectedFolderIds,
   ])
@@ -1149,10 +1205,22 @@ const RetailPlayerDeviceManagement = () => {
   )
 
   useEffect(() => {
-    if (activeFolderId && !activeFolderNode) {
+    if (activeFolderId && !loading && folderMap.size && !activeFolderNode) {
       setActiveFolderId(null)
+      history.replace({
+        pathname: location.pathname,
+        search: buildRetailPlayerFolderSearch(location.search, null),
+      })
     }
-  }, [activeFolderId, activeFolderNode])
+  }, [
+    activeFolderId,
+    activeFolderNode,
+    folderMap.size,
+    history,
+    loading,
+    location.pathname,
+    location.search,
+  ])
 
   const activeFolderPath = useMemo(() => {
     if (!activeFolderId) {
@@ -1265,6 +1333,39 @@ const RetailPlayerDeviceManagement = () => {
       console.error('Failed to save retail player device', err)
     }
   }
+
+  const handleSyncQRCodeRemoteControls = useCallback(async () => {
+    if (isQRSyncing) {
+      return
+    }
+
+    setIsQRSyncing(true)
+    setQRSyncStatus('')
+    try {
+      const results = await syncQRCodeRemoteControls()
+      const successfulResults = Array.isArray(results)
+        ? results.filter((result) => result?.remoteControlId && !result?.error)
+        : []
+      const createdResults = successfulResults.filter((result) => result?.created)
+      const failedResults = Array.isArray(results)
+        ? results.filter((result) => result?.error)
+        : []
+      const statusParts = [
+        `${successfulResults.length} QR ID${successfulResults.length === 1 ? '' : 's'} populated`,
+      ]
+      if (createdResults.length) {
+        statusParts.push(`${createdResults.length} created`)
+      }
+      if (failedResults.length) {
+        statusParts.push(`${failedResults.length} failed`)
+      }
+      setQRSyncStatus(statusParts.join(', '))
+    } catch {
+      setQRSyncStatus('QR sync failed')
+    } finally {
+      setIsQRSyncing(false)
+    }
+  }, [isQRSyncing, syncQRCodeRemoteControls])
 
   const collectDevicesInNode = useCallback((node) => {
     if (!node) {
@@ -1464,14 +1565,21 @@ const RetailPlayerDeviceManagement = () => {
 
   const handleEnterFolder = useCallback(
     (folderId) => {
+      const nextFolderId = folderId || null
       setSearchTerm('')
-      if (!folderId) {
-        setActiveFolderId(null)
-        return
-      }
-      setActiveFolderId(folderId)
+      setActiveFolderId(nextFolderId)
+      history.push({
+        pathname: location.pathname,
+        search: buildRetailPlayerFolderSearch(location.search, nextFolderId),
+      })
     },
-    [setActiveFolderId, setSearchTerm],
+    [
+      history,
+      location.pathname,
+      location.search,
+      setActiveFolderId,
+      setSearchTerm,
+    ],
   )
 
   const visibleNodeIds = useMemo(
@@ -1651,6 +1759,19 @@ const RetailPlayerDeviceManagement = () => {
             inputProps={{ 'aria-label': 'Search retail player items' }}
           />
           <div className={classes.actions}>
+            {isApiEnabled ? (
+              <Button
+                color="primary"
+                variant="outlined"
+                startIcon={
+                  isQRSyncing ? <CircularProgress size={16} /> : <SyncIcon />
+                }
+                onClick={handleSyncQRCodeRemoteControls}
+                disabled={isQRSyncing}
+              >
+                QR IDs
+              </Button>
+            ) : null}
             <Button
               color="primary"
               variant="contained"
@@ -1660,6 +1781,15 @@ const RetailPlayerDeviceManagement = () => {
               Create Folder
             </Button>
           </div>
+          {qrSyncStatus ? (
+            <Typography
+              component="p"
+              variant="caption"
+              className={classes.syncStatus}
+            >
+              {qrSyncStatus}
+            </Typography>
+          ) : null}
         </div>
       </div>
       <Paper className={classes.panel} elevation={0}>

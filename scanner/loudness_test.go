@@ -18,6 +18,30 @@ var _ = Describe("loudness normalization", func() {
 		})
 	})
 
+	Describe("effectiveLoudnessParallelism", func() {
+		It("uses the configured worker count", func() {
+			Expect(effectiveLoudnessParallelism(8, 100)).To(Equal(8))
+		})
+
+		It("does not start more workers than files", func() {
+			Expect(effectiveLoudnessParallelism(8, 3)).To(Equal(3))
+		})
+
+		It("falls back to serial processing when not set", func() {
+			Expect(effectiveLoudnessParallelism(0, 100)).To(Equal(1))
+		})
+	})
+
+	Describe("configuredLoudnessParallelism", func() {
+		It("keeps positive configured values", func() {
+			Expect(configuredLoudnessParallelism(8)).To(Equal(8))
+		})
+
+		It("falls back to one worker when disabled by config", func() {
+			Expect(configuredLoudnessParallelism(0)).To(Equal(1))
+		})
+	})
+
 	Describe("shouldNormalizeLoudness", func() {
 		It("treats 0.1 LUFS as the allowed target range", func() {
 			const targetLUFS = -12.6

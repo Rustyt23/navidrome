@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
 	"net/http"
@@ -84,7 +85,7 @@ func (n *Router) preloadRetailPlayerDeviceMappings() {
 		return
 	}
 
-	mappings, err := repo.All(ctx)
+	mappings, err := allRetailPlayerDeviceMappings(ctx, repo)
 	if err != nil {
 		log.Error(ctx, "Unable to preload retail player device mappings", "err", err)
 		return
@@ -112,6 +113,15 @@ func (n *Router) preloadRetailPlayerDeviceMappings() {
 	}
 
 	n.devices.RememberDevices(devices)
+}
+
+func allRetailPlayerDeviceMappings(ctx context.Context, repo model.RetailPlayerDeviceMappingRepository) (mappings []model.RetailPlayerDeviceMapping, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("retail player device mapping repository unavailable: %v", recovered)
+		}
+	}()
+	return repo.All(ctx)
 }
 
 func (n *Router) routes() http.Handler {

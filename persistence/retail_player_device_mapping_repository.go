@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -92,6 +93,10 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 	}
 
 	now := time.Now().UTC()
+	slugOwners, err := r.retailPlayerDeviceSlugOwners(ctx)
+	if err != nil {
+		return err
+	}
 
 	insert := Insert(r.tableName).
 		Columns(
@@ -123,6 +128,8 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 				slug = model.RetailPlayerDeviceSlug(id)
 			}
 		}
+		slug = uniqueRetailPlayerDeviceSlug(slug, id, slugOwners)
+		slugOwners[slug] = id
 
 		insert = insert.Values(
 			id,
@@ -156,8 +163,63 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
                 remote_control_id = COALESCE(NULLIF(excluded.remote_control_id, ''), retail_player_device_mapping.remote_control_id),
                 updated_at = excluded.updated_at`)
 
-	_, err := r.executeSQL(insert)
+	_, err = r.executeSQL(insert)
 	return err
+}
+
+func (r retailPlayerDeviceMappingRepository) retailPlayerDeviceSlugOwners(ctx context.Context) (map[string]string, error) {
+	existingMappings, err := r.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	slugOwners := make(map[string]string, len(existingMappings))
+	for _, mapping := range existingMappings {
+		id := strings.TrimSpace(mapping.DeviceID)
+		slug := strings.TrimSpace(mapping.DeviceSlug)
+		if id == "" || slug == "" {
+			continue
+		}
+		slugOwners[slug] = id
+	}
+	return slugOwners, nil
+}
+
+func uniqueRetailPlayerDeviceSlug(slug string, deviceID string, slugOwners map[string]string) string {
+	if slug == "" {
+		slug = model.RetailPlayerDeviceSlug(deviceID)
+	}
+	if slug == "" {
+		return ""
+	}
+
+	if owner, exists := slugOwners[slug]; !exists || owner == deviceID {
+		return slug
+	}
+
+	baseSlug := slug
+	suffix := retailPlayerDeviceSlugSuffix(deviceID)
+	if suffix == "" {
+		suffix = "device"
+	}
+
+	for attempt := 0; ; attempt++ {
+		candidate := fmt.Sprintf("%s-%s", baseSlug, suffix)
+		if attempt > 0 {
+			candidate = fmt.Sprintf("%s-%s-%d", baseSlug, suffix, attempt+1)
+		}
+		if owner, exists := slugOwners[candidate]; !exists || owner == deviceID {
+			return candidate
+		}
+	}
+}
+
+func retailPlayerDeviceSlugSuffix(deviceID string) string {
+	normalizedID := strings.ReplaceAll(model.RetailPlayerDeviceSlug(deviceID), "-", "")
+	if len(normalizedID) > 8 {
+		return normalizedID[:8]
+	}
+	return normalizedID
 }
 
 func (r retailPlayerDeviceMappingRepository) SetLocked(ctx context.Context, deviceID string, isLocked bool) error {

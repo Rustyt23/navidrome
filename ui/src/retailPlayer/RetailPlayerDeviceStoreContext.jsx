@@ -371,6 +371,51 @@ const reducer = (state, action) => {
       })
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
     }
+    case 'SYNC_QR_REMOTE_CONTROL_IDS': {
+      const results = Array.isArray(action.payload) ? action.payload : []
+      if (!results.length) {
+        return state
+      }
+
+      const remoteControlByDeviceId = new Map()
+      results.forEach((result) => {
+        const deviceId = normalizeValue(result?.deviceId || result?.deviceID)
+        const remoteControlId = normalizeValue(result?.remoteControlId)
+        if (!deviceId || !remoteControlId || result?.error) {
+          return
+        }
+        remoteControlByDeviceId.set(deviceId, remoteControlId)
+      })
+
+      if (!remoteControlByDeviceId.size) {
+        return state
+      }
+
+      let changed = false
+      const nextDevices = state.devices.map((device) => {
+        const keys = [device.id, device.apiId].filter(Boolean)
+        const remoteControlId = keys
+          .map((key) => remoteControlByDeviceId.get(key))
+          .find((value) => value !== undefined)
+        if (
+          remoteControlId === undefined ||
+          remoteControlId === device.remoteControlId
+        ) {
+          return device
+        }
+        changed = true
+        return {
+          ...device,
+          remoteControlId,
+        }
+      })
+
+      if (!changed) {
+        return state
+      }
+
+      return { ...state, devices: nextDevices, lastUpdated: Date.now() }
+    }
     case 'DELETE_NODES': {
       const { folderIds: rawFolderIds, deviceIds: rawDeviceIds } = action.payload || {}
       const folderIdSet = new Set(
@@ -875,6 +920,20 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
     [apiEnabled, dispatch],
   )
 
+  const syncQRCodeRemoteControls = useCallback(async () => {
+    if (!apiEnabled) {
+      return []
+    }
+
+    const { json } = await httpClient('/api/retailplayer/qr', {
+      method: 'POST',
+      headers: new Headers({ Accept: 'application/json' }),
+    })
+    const results = Array.isArray(json?.data) ? json.data : []
+    dispatch({ type: 'SYNC_QR_REMOTE_CONTROL_IDS', payload: results })
+    return results
+  }, [apiEnabled, dispatch])
+
   const value = useMemo(
     () => ({
       state: { ...state, tree },
@@ -885,6 +944,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         updateDevice,
         assignDeviceToFolder,
         deleteNodes,
+        syncQRCodeRemoteControls,
       },
     }),
     [
@@ -896,6 +956,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
       updateDevice,
       assignDeviceToFolder,
       deleteNodes,
+      syncQRCodeRemoteControls,
     ],
   )
 

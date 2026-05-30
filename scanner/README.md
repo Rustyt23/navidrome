@@ -449,6 +449,7 @@ When enabled, loudness normalization runs during folder scanning for audio files
 | `Scanner.LoudnessNormalization.TruePeak`        | True-peak target passed to ffmpeg `loudnorm`                                 | -1.5                 |
 | `Scanner.LoudnessNormalization.LRA`             | Loudness-range target passed to ffmpeg `loudnorm`                            | 11                   |
 | `Scanner.LoudnessNormalization.Tolerance`       | LUFS distance from the target that is considered already normalized           | 0.1                  |
+| `Scanner.LoudnessNormalization.Parallelism`     | Number of tracks to analyze/normalize with ffmpeg at the same time           | CPU count            |
 | `Scanner.LoudnessNormalization.Backup`          | Whether to keep the original file before replacing it with the normalized one | true                 |
 | `Scanner.LoudnessNormalization.BackupSuffix`    | Suffix appended to the original path when creating the backup                | `.before_loudnorm`   |
 

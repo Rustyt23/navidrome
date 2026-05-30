@@ -157,6 +157,7 @@ type loudnessNormalizationOptions struct {
 	TruePeak     float64
 	LRA          float64
 	Tolerance    float64
+	Parallelism  int
 	Backup       bool
 	BackupSuffix string
 }
@@ -631,6 +632,7 @@ func setViperDefaults() {
 	viper.SetDefault("scanner.loudnessnormalization.truepeak", -1.5)
 	viper.SetDefault("scanner.loudnessnormalization.lra", 11.0)
 	viper.SetDefault("scanner.loudnessnormalization.tolerance", 0.5)
+	viper.SetDefault("scanner.loudnessnormalization.parallelism", runtime.NumCPU())
 	viper.SetDefault("scanner.loudnessnormalization.backup", true)
 	viper.SetDefault("scanner.loudnessnormalization.backupsuffix", ".before_loudnorm")
 	viper.SetDefault("scanner.artistjoiner", consts.ArtistJoiner)

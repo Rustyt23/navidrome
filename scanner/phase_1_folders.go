@@ -67,7 +67,13 @@ func createPhaseFolders(ctx context.Context, state *scanState, ds model.DataStor
 	// Update the state with the libraries that have been processed and have their scan timestamps set
 	state.libraries = updatedLibs
 
-	return &phaseFolders{jobs: jobs, ctx: ctx, ds: ds, state: state}
+	return &phaseFolders{
+		jobs:            jobs,
+		ctx:             ctx,
+		ds:              ds,
+		state:           state,
+		loudnessLimiter: make(chan struct{}, configuredLoudnessParallelism(conf.Server.Scanner.LoudnessNormalization.Parallelism)),
+	}
 }
 
 type scanJob struct {
@@ -129,6 +135,7 @@ type phaseFolders struct {
 	ctx              context.Context
 	state            *scanState
 	prevAlbumPIDConf string
+	loudnessLimiter  chan struct{}
 }
 
 func (p *phaseFolders) description() string {
@@ -477,6 +484,12 @@ const (
 	minLoudnessImprovementLUFS   = 0.02
 )
 
+type loudnessFileResult struct {
+	filePath string
+	lufs     float64
+	ok       bool
+}
+
 func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport map[string]*model.MediaFile) map[string]float64 {
 	options := conf.Server.Scanner.LoudnessNormalization
 	if !options.Enabled || len(filesToImport) == 0 {
@@ -494,28 +507,61 @@ func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport 
 	libraryPath := filepath.Clean(entry.job.lib.Path)
 	minLUFS := options.TargetLUFS - tolerance
 	maxLUFS := options.TargetLUFS + tolerance
-	log.Info(p.ctx, "Scanner: checking track loudness", "tracks", len(filesToImport), "targetLUFS", options.TargetLUFS, "tolerance", tolerance, "minLUFS", minLUFS, "maxLUFS", maxLUFS, "library", entry.job.lib.Name, consts.Zwsp+"folder", entry.path)
-	normalizer := ffmpeg.NewLoudnessNormalizer()
-	for filePath := range filesToImport {
-		trackPath := absoluteMediaPath(libraryPath, filePath)
-		analysis, err := normalizer.AnalyzeLoudness(p.ctx, trackPath, target)
-		if err != nil {
-			log.Warn(p.ctx, "Scanner: could not analyze track loudness", "path", trackPath, err)
-			p.state.sendWarning(fmt.Sprintf("Could not analyze track loudness for %s: %v", trackPath, err))
-			continue
-		}
-		if !shouldNormalizeLoudness(analysis.InputIntegrated, options.TargetLUFS, tolerance) {
-			log.Debug(p.ctx, "Scanner: track loudness already in target range", "path", trackPath, "lufs", analysis.InputIntegrated, "minLUFS", minLUFS, "maxLUFS", maxLUFS)
-			lufsByFile[filePath] = analysis.InputIntegrated
-			continue
-		}
+	parallelism := effectiveLoudnessParallelism(options.Parallelism, len(filesToImport))
+	log.Info(p.ctx, "Scanner: checking track loudness", "tracks", len(filesToImport), "parallelism", parallelism, "targetLUFS", options.TargetLUFS, "tolerance", tolerance, "minLUFS", minLUFS, "maxLUFS", maxLUFS, "library", entry.job.lib.Name, consts.Zwsp+"folder", entry.path)
 
-		if finalLUFS, ok := p.normalizeTrackLoudnessToRange(normalizer, trackPath, target, *analysis, tolerance, minLUFS, maxLUFS, options.Backup, options.BackupSuffix); ok {
-			lufsByFile[filePath] = finalLUFS
+	files := make(chan string)
+	results := make(chan loudnessFileResult)
+	var wg sync.WaitGroup
+	wg.Add(parallelism)
+	for range parallelism {
+		go func() {
+			defer wg.Done()
+			normalizer := ffmpeg.NewLoudnessNormalizer()
+			for filePath := range files {
+				trackPath := absoluteMediaPath(libraryPath, filePath)
+				p.loudnessLimiter <- struct{}{}
+				result := p.normalizeLoudnessFile(normalizer, filePath, trackPath, target, tolerance, minLUFS, maxLUFS, options.TargetLUFS, options.Backup, options.BackupSuffix)
+				<-p.loudnessLimiter
+				results <- result
+			}
+		}()
+	}
+
+	go func() {
+		for filePath := range filesToImport {
+			files <- filePath
+		}
+		close(files)
+		wg.Wait()
+		close(results)
+	}()
+
+	for result := range results {
+		if result.ok {
+			lufsByFile[result.filePath] = result.lufs
 		}
 	}
 
 	return lufsByFile
+}
+
+func (p *phaseFolders) normalizeLoudnessFile(normalizer ffmpeg.LoudnessNormalizer, filePath, trackPath string, target ffmpeg.LoudnessTarget, tolerance, minLUFS, maxLUFS, targetLUFS float64, backup bool, backupSuffix string) loudnessFileResult {
+	analysis, err := normalizer.AnalyzeLoudness(p.ctx, trackPath, target)
+	if err != nil {
+		log.Warn(p.ctx, "Scanner: could not analyze track loudness", "path", trackPath, err)
+		p.state.sendWarning(fmt.Sprintf("Could not analyze track loudness for %s: %v", trackPath, err))
+		return loudnessFileResult{filePath: filePath}
+	}
+	if !shouldNormalizeLoudness(analysis.InputIntegrated, targetLUFS, tolerance) {
+		log.Debug(p.ctx, "Scanner: track loudness already in target range", "path", trackPath, "lufs", analysis.InputIntegrated, "minLUFS", minLUFS, "maxLUFS", maxLUFS)
+		return loudnessFileResult{filePath: filePath, lufs: analysis.InputIntegrated, ok: true}
+	}
+
+	if finalLUFS, ok := p.normalizeTrackLoudnessToRange(normalizer, trackPath, target, *analysis, tolerance, minLUFS, maxLUFS, backup, backupSuffix); ok {
+		return loudnessFileResult{filePath: filePath, lufs: finalLUFS, ok: true}
+	}
+	return loudnessFileResult{filePath: filePath}
 }
 
 func (p *phaseFolders) normalizeTrackLoudnessToRange(normalizer ffmpeg.LoudnessNormalizer, trackPath string, target ffmpeg.LoudnessTarget, analysis ffmpeg.LoudnessAnalysis, tolerance, minLUFS, maxLUFS float64, backup bool, backupSuffix string) (float64, bool) {
@@ -580,6 +626,21 @@ func effectiveLoudnessTolerance(tolerance float64) float64 {
 		return conf.DefaultLoudnessNormalizationTolerance
 	}
 	return tolerance
+}
+
+func effectiveLoudnessParallelism(parallelism, fileCount int) int {
+	parallelism = configuredLoudnessParallelism(parallelism)
+	if fileCount <= 1 {
+		return 1
+	}
+	return min(parallelism, fileCount)
+}
+
+func configuredLoudnessParallelism(parallelism int) int {
+	if parallelism <= 0 {
+		return 1
+	}
+	return parallelism
 }
 
 func adjustedLoudnessTarget(target ffmpeg.LoudnessTarget, measuredLUFS, minLUFS, maxLUFS float64) ffmpeg.LoudnessTarget {

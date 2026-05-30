@@ -37,7 +37,7 @@ const (
 	retailPlayerRemoteControlDefaultKeyHeader = "x-retailplayer-rc-apikey"
 )
 
-var retailPlayerHTTPClient = &http.Client{Timeout: 15 * time.Second}
+var retailPlayerHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 type retailPlayerDeviceResolver struct {
 	mu      sync.RWMutex
@@ -486,6 +486,15 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 		log.Info(ctx, "Fetching retail player devices from remote API")
 		response, err := fetchRetailPlayerDevices(ctx)
 		if err != nil {
+			cachedResponse, cacheErr := n.cachedRetailPlayerDevicesResponse(ctx)
+			if cacheErr == nil && (len(cachedResponse.Data) > 0 || len(cachedResponse.Folders) > 0) {
+				log.Warn(ctx, "Unable to fetch retail player devices, serving cached mappings", "err", err, "count", len(cachedResponse.Data))
+				writeRetailPlayerJSON(ctx, w, http.StatusOK, cachedResponse)
+				return
+			}
+			if cacheErr != nil {
+				log.Warn(ctx, "Unable to load cached retail player devices", "err", cacheErr)
+			}
 			log.Error(ctx, "Unable to fetch retail player devices", "err", err)
 			http.Error(w, "Unable to fetch retail player devices", http.StatusBadGateway)
 			return
@@ -762,6 +771,71 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 			log.Error(ctx, "Unable to encode retail player device response", "err", err)
 		}
 	}
+}
+
+func (n *Router) cachedRetailPlayerDevicesResponse(ctx context.Context) (retailPlayerDevicesResponse, error) {
+	if n == nil || n.ds == nil {
+		return retailPlayerDevicesResponse{}, nil
+	}
+
+	var response retailPlayerDevicesResponse
+
+	if repo := n.ds.RetailPlayerDeviceMapping(ctx); repo != nil {
+		mappings, err := allRetailPlayerDeviceMappings(ctx, repo)
+		if err != nil && !errors.Is(err, model.ErrNotFound) {
+			return retailPlayerDevicesResponse{}, err
+		}
+
+		response.Data = make([]retailPlayerDevice, 0, len(mappings))
+		for _, mapping := range mappings {
+			device := mapRetailPlayerMappingToDevice(mapping)
+			if strings.TrimSpace(device.ID) != "" {
+				response.Data = append(response.Data, device)
+			}
+		}
+	}
+
+	folders, deviceFolders, err := n.loadRetailPlayerFolderData(ctx)
+	if err != nil {
+		return retailPlayerDevicesResponse{}, err
+	}
+
+	if len(deviceFolders) > 0 && len(response.Data) > 0 {
+		folderSet := make(map[string]struct{}, len(folders))
+		for _, folder := range folders {
+			folderSet[folder.ID] = struct{}{}
+		}
+
+		assignments := make(map[string][]string)
+		for _, deviceFolder := range deviceFolders {
+			if _, ok := folderSet[deviceFolder.FolderID]; !ok {
+				continue
+			}
+			assignments[deviceFolder.DeviceID] = append(assignments[deviceFolder.DeviceID], deviceFolder.FolderID)
+		}
+
+		for index := range response.Data {
+			id := strings.TrimSpace(response.Data[index].ID)
+			if id == "" {
+				continue
+			}
+			if folderIDs, ok := assignments[id]; ok {
+				response.Data[index].FolderIDs = append([]string(nil), folderIDs...)
+			}
+		}
+	}
+
+	response.Folders = make([]retailPlayerFolder, 0, len(folders))
+	for _, folder := range folders {
+		response.Folders = append(response.Folders, mapModelRetailPlayerFolder(folder))
+	}
+
+	response.DeviceFolder = make([]retailPlayerDeviceFolder, 0, len(deviceFolders))
+	for _, deviceFolder := range deviceFolders {
+		response.DeviceFolder = append(response.DeviceFolder, mapModelRetailPlayerDeviceFolder(deviceFolder))
+	}
+
+	return response, nil
 }
 
 func (n *Router) applyRetailPlayerChannelNames(ctx context.Context, devices []retailPlayerDevice) error {
