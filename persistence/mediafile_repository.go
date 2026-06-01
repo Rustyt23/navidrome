@@ -91,8 +91,18 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 		"starred_at":     "starred, starred_at",
 		"genre":          "genre",
 		"comment":        "comment",
+		"lufs":           mediaFileLufsSort(),
 	})
 	return r
+}
+
+func mediaFileLufsSort() string {
+	return "(cast(coalesce(" +
+		"json_extract(tags, '$.loudnorm_final_lufs[0].value'), " +
+		"json_extract(tags, '$.final_lufs[0].value'), " +
+		"json_extract(tags, '$.finallufs[0].value'), " +
+		"json_extract(tags, '$.lufs[0].value')" +
+		") as real))"
 }
 
 var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
@@ -282,6 +292,28 @@ func (r *mediaFileRepository) UpdateComment(ids []string, comment string) error 
 	}
 
 	return nil
+}
+
+func (r *mediaFileRepository) UpdateLoudnessTags(id string, lufs float64) error {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+
+	mf, err := r.Get(id)
+	if err != nil {
+		return err
+	}
+	if mf.Tags == nil {
+		mf.Tags = model.Tags{}
+	}
+	mf.Tags[model.TagName("loudnorm_final_lufs")] = []string{fmt.Sprintf("%.2f", lufs)}
+
+	upd := Update(r.tableName).
+		Set("tags", marshalTags(mf.Tags)).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
+	_, err = r.executeSQL(upd)
+	return err
 }
 
 func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error {

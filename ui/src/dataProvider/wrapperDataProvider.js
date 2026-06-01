@@ -23,6 +23,23 @@ const updateSongComments = async (ids, data) => {
   return { data: updated }
 }
 
+const optimizeSongLoudness = async (ids) => {
+  const payload = {
+    ids: ids || [],
+  }
+
+  const response = await httpClient(`${REST_URL}/song/loudness`, {
+    method: 'PUT',
+    headers: new Headers({
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }),
+    body: JSON.stringify(payload),
+  })
+
+  return { data: response?.json || {} }
+}
+
 const isAdmin = () => {
   const role = localStorage.getItem('role')
   return role === 'admin'
@@ -271,6 +288,7 @@ const wrapperDataProvider = {
       data: json,
     }))
   },
+  optimizeSongLoudness,
 
   setPlaylistFolder: ({ playlistId, targetFolderId, sourceParentId }) => {
     return httpClient(`${REST_URL}/playlist/${playlistId}/folder`, {

@@ -160,6 +160,7 @@ func (n *Router) routes() http.Handler {
 			n.addConfigRoute(r)
 			n.addUserLibraryRoute(r)
 			n.addSyncRoute(r)
+			n.addSongLoudnessRoute(r)
 			n.addMusicBrainzMetadataRoute(r)
 			n.RX(r, "/library", n.libs.NewRepository, true)
 		})

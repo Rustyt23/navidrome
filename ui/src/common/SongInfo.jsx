@@ -27,6 +27,33 @@ import config from '../config'
 import { AlbumLinkField } from '../song/AlbumLinkField'
 import { Tab, Tabs } from '@material-ui/core'
 
+
+const getLufsValue = (song) => {
+  const tags = song?.tags || {}
+  const rawTags = song?.rawTags || {}
+
+  const direct =
+    tags.loudnorm_final_lufs?.[0] ??
+    tags.final_lufs?.[0] ??
+    tags.finallufs?.[0] ??
+    tags.lufs?.[0]
+  if (direct !== undefined && direct !== null && direct !== '') return direct
+
+  const merged = { ...tags, ...rawTags }
+  for (const [key, values] of Object.entries(merged)) {
+    const normalized = key.toLowerCase()
+    if (
+      normalized.includes('loudnorm_final_lufs') ||
+      normalized.includes('final_lufs') ||
+      normalized.includes('finallufs')
+    ) {
+      return Array.isArray(values) ? values[0] ?? '' : values ?? ''
+    }
+  }
+
+  return ''
+}
+
 const useStyles = makeStyles({
   gain: {
     '&:after': {
@@ -56,6 +83,7 @@ export const SongInfo = (props) => {
     'recordlabel',
     'media',
     'albumversion',
+    'loudnorm_final_lufs',
   ]
   const data = {
     path: <PathField />,
@@ -83,6 +111,9 @@ export const SongInfo = (props) => {
     playCount: <TextField source="playCount" />,
     bpm: <NumberField source="bpm" />,
     comment: <MultiLineTextField source="comment" />,
+    loudnessFinalLUFS: (
+      <FunctionField render={(r) => getLufsValue(r)} />
+    ),
   }
 
   const roles = []
@@ -101,9 +132,14 @@ export const SongInfo = (props) => {
     'genre',
     'bitDepth',
     'sampleRate',
+    'loudnessFinalLUFS',
   ]
   optionalFields.forEach((field) => {
-    !record[field] && delete data[field]
+    const value =
+      field === 'loudnessFinalLUFS'
+        ? getLufsValue(record)
+        : record[field]
+    !value && delete data[field]
   })
   if (record.playCount > 0) {
     data.playDate = <DateField record={record} source="playDate" showTime />

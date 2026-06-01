@@ -44,6 +44,33 @@ import { SongBulkActions, QualityInfo } from '../common'
 import config from '../config'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
 
+
+const getLufsValue = (song) => {
+  const tags = song?.tags || {}
+  const rawTags = song?.rawTags || {}
+
+  const direct =
+    tags.loudnorm_final_lufs?.[0] ??
+    tags.final_lufs?.[0] ??
+    tags.finallufs?.[0] ??
+    tags.lufs?.[0]
+  if (direct !== undefined && direct !== null && direct !== '') return direct
+
+  const merged = { ...tags, ...rawTags }
+  for (const [key, values] of Object.entries(merged)) {
+    const normalized = key.toLowerCase()
+    if (
+      normalized.includes('loudnorm_final_lufs') ||
+      normalized.includes('final_lufs') ||
+      normalized.includes('finallufs')
+    ) {
+      return Array.isArray(values) ? values[0] ?? '' : values ?? ''
+    }
+  }
+
+  return ''
+}
+
 const useStyles = makeStyles({
   contextHeader: {
     marginLeft: '3px',
@@ -273,7 +300,7 @@ const ReorderableSongList = (props) => {
       trackNumber: isDesktop ? (
         <FunctionField
           source="trackNumber"
-          sortable={false}
+          sortBy="lufs"
           render={(record) => getRowNumber(record)}
         />
       ) : null,
@@ -303,6 +330,14 @@ const ReorderableSongList = (props) => {
           />
         ),
       bpm: isDesktop ? <NumberField source="bpm" /> : null,
+      loudnessFinalLUFS: (
+        <FunctionField
+          label="LUFS"
+          source="tags.loudnorm_final_lufs"
+          render={(r) => getLufsValue(r)}
+          sortBy="lufs"
+        />
+      ),
       genre: <TextField source="genre" sortBy="genre" />,
       mood: isDesktop ? (
         <FunctionField
