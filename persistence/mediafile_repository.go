@@ -312,23 +312,6 @@ func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, ye
 	return err
 }
 
-func (r *mediaFileRepository) UpdateMetadata(id string, album *string, year *int) error {
-	if album == nil && year == nil {
-		return nil
-	}
-
-	up := Update(r.tableName).Where(Eq{"id": id})
-	if album != nil {
-		up = up.Set("album", *album)
-	}
-	if year != nil {
-		up = up.Set("year", *year)
-	}
-	up = up.Set("updated_at", time.Now())
-	_, err := r.executeSQL(up)
-	return err
-}
-
 func (r *mediaFileRepository) UpdateCoverPath(id string, coverPath string) error {
 	coverPath = strings.TrimSpace(coverPath)
 	if id == "" || coverPath == "" {
