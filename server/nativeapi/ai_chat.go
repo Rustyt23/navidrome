@@ -2,47 +2,222 @@ package nativeapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/model"
 )
 
 type aiChatRequest struct {
-	Message string `json:"message"`
+	Message  string `json:"message"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 }
 
 type aiChatResponse struct {
-	Answer string `json:"answer"`
+	Response string `json:"response"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
-type openAIResponsesRequest struct {
+type aiLyricsResponse struct {
+	Language string `json:"language"`
+	Text     string `json:"text"`
+}
+
+type aiClassifyExplicitRequest struct {
+	SongIDs  []string `json:"songIds"`
+	Provider string   `json:"provider"`
+}
+
+type aiClassifyExplicitSong struct {
+	ID             string `json:"id"`
+	ExplicitStatus string `json:"explicitStatus"`
+}
+
+type aiClassifyExplicitResponse struct {
+	Songs []aiClassifyExplicitSong `json:"songs"`
+}
+
+type aiFetchMetadataRequest struct {
+	SongIDs  []string `json:"songIds"`
+	Provider string   `json:"provider"`
+	Force    bool     `json:"force"`
+}
+
+type aiFetchMetadataSong struct {
+	ID         string `json:"id"`
+	Album      string `json:"album,omitempty"`
+	Year       int    `json:"year,omitempty"`
+	AIGenre    string `json:"aiGenre,omitempty"`
+	Confidence int    `json:"confidence,omitempty"`
+}
+
+type aiFetchMetadataResponse struct {
+	Songs []aiFetchMetadataSong `json:"songs"`
+}
+
+type geminiSongMetadata struct {
+	Album      string `json:"album"`
+	Year       int    `json:"year"`
+	Genre      string `json:"genre"`
+	Confidence int    `json:"confidence"`
+}
+
+type aiChatProvider interface {
+	Chat(ctx context.Context, message string) (string, error)
+}
+
+type aiProviderSpec struct {
+	ID    string
+	Model string
+}
+
+type geminiClient struct {
+	apiKey string
+	model  string
+	client *http.Client
+}
+
+type gemmaClient struct {
+	apiURL string
+	apiKey string
+	client *http.Client
+}
+
+type geminiGenerateContentRequest struct {
+	Contents []geminiContent `json:"contents"`
+}
+
+type geminiContent struct {
+	Parts []geminiPart `json:"parts"`
+}
+
+type geminiPart struct {
+	Text string `json:"text"`
+}
+
+type geminiGenerateContentResponse struct {
+	Candidates []struct {
+		Content geminiContent `json:"content"`
+	} `json:"candidates"`
+}
+
+type gemmaChatRequest struct {
+	Message string `json:"message"`
+}
+
+type gemmaChatResponse struct {
+	Reply string `json:"reply"`
 	Model string `json:"model"`
-	Input string `json:"input"`
 }
 
-type openAIResponsesResponse struct {
-	Output []struct {
-		Type    string `json:"type"`
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	} `json:"output"`
+func (g geminiClient) Chat(ctx context.Context, message string) (string, error) {
+	body, _ := json.Marshal(geminiGenerateContentRequest{
+		Contents: []geminiContent{{Parts: []geminiPart{{Text: message}}}},
+	})
+
+	endpoint := fmt.Sprintf(
+		"https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
+		url.PathEscape(g.model),
+		url.QueryEscape(g.apiKey),
+	)
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := g.client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to contact AI provider: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode >= http.StatusBadRequest {
+		errBody, _ := io.ReadAll(httpResp.Body)
+		return "", fmt.Errorf("AI provider error: %s", strings.TrimSpace(string(errBody)))
+	}
+
+	var apiResp geminiGenerateContentResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&apiResp); err != nil {
+		return "", fmt.Errorf("invalid AI provider response: %w", err)
+	}
+
+	answer := ""
+	for _, candidate := range apiResp.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if part.Text != "" {
+				if answer != "" {
+					answer += "\n"
+				}
+				answer += part.Text
+			}
+		}
+	}
+
+	if answer == "" {
+		answer = "No response returned from AI provider."
+	}
+
+	return answer, nil
+}
+
+func (g gemmaClient) Chat(ctx context.Context, message string) (string, error) {
+	if strings.TrimSpace(g.apiURL) == "" {
+		return "", fmt.Errorf("Gemma API URL is not configured")
+	}
+	if strings.TrimSpace(g.apiKey) == "" {
+		return "", fmt.Errorf("Gemma API key is not configured")
+	}
+	if _, err := url.ParseRequestURI(g.apiURL); err != nil {
+		return "", fmt.Errorf("invalid Gemma API URL: %w", err)
+	}
+
+	body, _ := json.Marshal(gemmaChatRequest{Message: message})
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.apiURL, bytes.NewBuffer(body))
+	if err != nil {
+		return "", fmt.Errorf("invalid Gemma API URL: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+g.apiKey)
+
+	client := g.client
+	if client == nil {
+		client = &http.Client{Timeout: 60 * time.Second}
+	}
+	httpResp, err := client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to contact Gemma API: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode >= http.StatusBadRequest {
+		errBody, _ := io.ReadAll(httpResp.Body)
+		return "", fmt.Errorf("Gemma API error: %s", strings.TrimSpace(string(errBody)))
+	}
+
+	var apiResp gemmaChatResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&apiResp); err != nil {
+		return "", fmt.Errorf("invalid Gemma API response: %w", err)
+	}
+	answer := strings.TrimSpace(apiResp.Reply)
+	if answer == "" {
+		return "", fmt.Errorf("Gemma API returned empty reply")
+	}
+	return answer, nil
 }
 
 func (n *Router) addAIChatRoute(r chi.Router) {
 	r.Post("/ai/chat", func(w http.ResponseWriter, req *http.Request) {
-		apiKey := strings.TrimSpace(conf.Server.AI.OpenAIAPIKey)
-		if apiKey == "" {
-			http.Error(w, "AI API key is not configured", http.StatusServiceUnavailable)
-			return
-		}
-
 		var payload aiChatRequest
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 			http.Error(w, "invalid request payload", http.StatusBadRequest)
@@ -53,53 +228,550 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			http.Error(w, "message is required", http.StatusBadRequest)
 			return
 		}
-
-		model := strings.TrimSpace(conf.Server.AI.OpenAIModel)
-		if model == "" {
-			model = "gpt-4.1-mini"
+		providerSpec := aiChatProviderSpec(payload.Provider, payload.Model)
+		if providerSpec.ID == "" {
+			http.Error(w, "unsupported AI provider", http.StatusBadRequest)
+			return
 		}
 
-		body, _ := json.Marshal(openAIResponsesRequest{Model: model, Input: payload.Message})
-		httpReq, _ := http.NewRequestWithContext(req.Context(), http.MethodPost, "https://api.openai.com/v1/responses", bytes.NewBuffer(body))
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-
-		httpResp, err := http.DefaultClient.Do(httpReq)
+		provider, err := newAIChatProvider(providerSpec)
 		if err != nil {
-			http.Error(w, "failed to contact AI provider", http.StatusBadGateway)
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		defer httpResp.Body.Close()
-
-		if httpResp.StatusCode >= http.StatusBadRequest {
-			errBody, _ := io.ReadAll(httpResp.Body)
-			http.Error(w, fmt.Sprintf("AI provider error: %s", strings.TrimSpace(string(errBody))), http.StatusBadGateway)
+		answer, err := provider.Chat(req.Context(), payload.Message)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
-		}
-
-		var apiResp openAIResponsesResponse
-		if err := json.NewDecoder(httpResp.Body).Decode(&apiResp); err != nil {
-			http.Error(w, "invalid AI provider response", http.StatusBadGateway)
-			return
-		}
-
-		answer := ""
-		for _, out := range apiResp.Output {
-			for _, c := range out.Content {
-				if c.Text != "" {
-					if answer != "" {
-						answer += "\n"
-					}
-					answer += c.Text
-				}
-			}
-		}
-
-		if answer == "" {
-			answer = "No response returned from AI provider."
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(aiChatResponse{Answer: answer})
+		_ = json.NewEncoder(w).Encode(aiChatResponse{
+			Response: answer,
+			Provider: providerSpec.ID,
+			Model:    providerSpec.Model,
+		})
 	})
+
+	r.Post("/ai/songs/{id}/lyrics/fetch", func(w http.ResponseWriter, req *http.Request) {
+		whisperURL := strings.TrimSpace(conf.Server.WhisperAPIURL)
+		if whisperURL == "" {
+			http.Error(w, "Whisper API URL is not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		songID := strings.TrimSpace(chi.URLParam(req, "id"))
+		if songID == "" {
+			http.Error(w, "song id is required", http.StatusBadRequest)
+			return
+		}
+
+		mf, err := n.ds.MediaFile(req.Context()).Get(songID)
+		if err != nil {
+			http.Error(w, "song not found", http.StatusNotFound)
+			return
+		}
+
+		lyrics, err := fetchWhisperLyrics(req.Context(), whisperURL, mf.AbsolutePath())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		structured, err := model.ToLyrics(lyrics.Language, lyrics.Text)
+		if err != nil {
+			http.Error(w, "invalid lyrics response", http.StatusBadGateway)
+			return
+		}
+		lyricsJSON, err := json.Marshal(model.LyricList{*structured})
+		if err != nil {
+			http.Error(w, "could not save lyrics", http.StatusInternalServerError)
+			return
+		}
+
+		if err := n.ds.MediaFile(req.Context()).UpdateLyrics(songID, string(lyricsJSON)); err != nil {
+			http.Error(w, "could not save lyrics", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(lyrics)
+	})
+
+	r.Get("/ai/songs/{id}/lyrics", func(w http.ResponseWriter, req *http.Request) {
+		songID := strings.TrimSpace(chi.URLParam(req, "id"))
+		if songID == "" {
+			http.Error(w, "song id is required", http.StatusBadRequest)
+			return
+		}
+
+		mf, err := n.ds.MediaFile(req.Context()).Get(songID)
+		if err != nil {
+			http.Error(w, "song not found", http.StatusNotFound)
+			return
+		}
+
+		text, language := lyricsText(mf)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(aiLyricsResponse{Language: language, Text: text})
+	})
+
+	r.Post("/ai/classify-explicit", func(w http.ResponseWriter, req *http.Request) {
+		var payload aiClassifyExplicitRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid request payload", http.StatusBadRequest)
+			return
+		}
+		if len(payload.SongIDs) == 0 {
+			http.Error(w, "songIds is required", http.StatusBadRequest)
+			return
+		}
+
+		selectedProvider := strings.TrimSpace(payload.Provider)
+		if selectedProvider == "" {
+			selectedProvider = "gemini-2.5"
+		}
+		providerSpec := aiChatProviderSpec(selectedProvider, "")
+		if providerSpec.ID == "" {
+			http.Error(w, "unsupported AI provider", http.StatusBadRequest)
+			return
+		}
+		provider, err := newAIChatProvider(providerSpec)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		songs, err := classifyExplicit(req.Context(), n.ds.MediaFile(req.Context()), provider, payload.SongIDs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(aiClassifyExplicitResponse{Songs: songs})
+	})
+
+	r.Post("/ai/fetch-metadata", func(w http.ResponseWriter, req *http.Request) {
+		var payload aiFetchMetadataRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid request payload", http.StatusBadRequest)
+			return
+		}
+		if len(payload.SongIDs) == 0 {
+			http.Error(w, "songIds is required", http.StatusBadRequest)
+			return
+		}
+
+		selectedProvider := strings.TrimSpace(payload.Provider)
+		if selectedProvider == "" {
+			selectedProvider = "gemini-3.5"
+		}
+		providerSpec := aiChatProviderSpec(selectedProvider, "")
+		if providerSpec.ID == "" {
+			http.Error(w, "unsupported AI provider", http.StatusBadRequest)
+			return
+		}
+		provider, err := newAIChatProvider(providerSpec)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		songs, err := fetchSongMetadata(req.Context(), n.ds.MediaFile(req.Context()), provider, payload.SongIDs, payload.Force)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(aiFetchMetadataResponse{Songs: songs})
+	})
+}
+
+func aiChatProviderSpec(provider string, modelName string) aiProviderSpec {
+	selected := strings.TrimSpace(provider)
+	if selected == "" {
+		selected = strings.TrimSpace(modelName)
+	}
+
+	switch selected {
+	case "", "gemini-2.5", "gemini-2.5-flash":
+		return aiProviderSpec{ID: "gemini-2.5", Model: "gemini-2.5-flash"}
+	case "gemini-3.5", "gemini-3.5-flash":
+		return aiProviderSpec{ID: "gemini-3.5", Model: "gemini-3.5-flash"}
+	case "gemma-4", "gemma-3", "gemma3", "gemma3:4b":
+		return aiProviderSpec{ID: "gemma-4", Model: "gemma4"}
+	default:
+		return aiProviderSpec{}
+	}
+}
+
+func newAIChatProvider(spec aiProviderSpec) (aiChatProvider, error) {
+	switch spec.ID {
+	case "gemini-2.5", "gemini-3.5":
+		apiKey := strings.TrimSpace(conf.Server.GeminiAPIKey)
+		if apiKey == "" {
+			apiKey = strings.TrimSpace(conf.Server.AI.GeminiAPIKey)
+		}
+		if apiKey == "" {
+			return nil, fmt.Errorf("Gemini API key is not configured")
+		}
+		return geminiClient{
+			apiKey: apiKey,
+			model:  spec.Model,
+			client: http.DefaultClient,
+		}, nil
+	case "gemma-4":
+		apiURL := strings.TrimSpace(os.Getenv("ND_GEMMA_API_URL"))
+		apiKey := strings.TrimSpace(os.Getenv("ND_GEMMA_API_KEY"))
+		if apiURL == "" {
+			return nil, fmt.Errorf("Gemma API URL is not configured")
+		}
+		if apiKey == "" {
+			return nil, fmt.Errorf("Gemma API key is not configured")
+		}
+		return gemmaClient{
+			apiURL: apiURL,
+			apiKey: apiKey,
+			client: &http.Client{Timeout: 60 * time.Second},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported AI provider")
+	}
+}
+
+func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string) (aiLyricsResponse, error) {
+	file, err := os.Open(audioPath)
+	if err != nil {
+		return aiLyricsResponse{}, fmt.Errorf("could not open audio file: %w", err)
+	}
+	defer file.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
+	if err != nil {
+		return aiLyricsResponse{}, fmt.Errorf("could not prepare audio upload: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return aiLyricsResponse{}, fmt.Errorf("could not read audio file: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return aiLyricsResponse{}, fmt.Errorf("could not finish audio upload: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, whisperURL, &body)
+	if err != nil {
+		return aiLyricsResponse{}, fmt.Errorf("invalid Whisper API URL: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
+
+	httpResp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return aiLyricsResponse{}, fmt.Errorf("failed to contact Whisper API: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode >= http.StatusBadRequest {
+		errBody, _ := io.ReadAll(httpResp.Body)
+		return aiLyricsResponse{}, fmt.Errorf("Whisper API error: %s", strings.TrimSpace(string(errBody)))
+	}
+
+	var lyrics aiLyricsResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&lyrics); err != nil {
+		return aiLyricsResponse{}, fmt.Errorf("invalid Whisper API response: %w", err)
+	}
+	lyrics.Language = strings.TrimSpace(lyrics.Language)
+	lyrics.Text = strings.TrimSpace(lyrics.Text)
+	if lyrics.Language == "" {
+		lyrics.Language = "xxx"
+	}
+	if lyrics.Text == "" {
+		return aiLyricsResponse{}, fmt.Errorf("Whisper API returned empty lyrics")
+	}
+
+	return lyrics, nil
+}
+
+func lyricsText(mf *model.MediaFile) (string, string) {
+	lyrics, err := mf.StructuredLyrics()
+	if err != nil || len(lyrics) == 0 {
+		return "", ""
+	}
+
+	var out strings.Builder
+	language := lyrics[0].Lang
+	for _, lyric := range lyrics {
+		if language == "" {
+			language = lyric.Lang
+		}
+		for _, line := range lyric.Line {
+			if line.Value == "" {
+				continue
+			}
+			if out.Len() > 0 {
+				out.WriteString("\n")
+			}
+			out.WriteString(line.Value)
+		}
+	}
+	return out.String(), language
+}
+
+func classifyExplicit(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, songIDs []string) ([]aiClassifyExplicitSong, error) {
+	results := make([]aiClassifyExplicitSong, 0, len(songIDs))
+	seen := map[string]struct{}{}
+
+	for _, rawID := range songIDs {
+		songID := strings.TrimSpace(rawID)
+		if songID == "" {
+			continue
+		}
+		if _, ok := seen[songID]; ok {
+			continue
+		}
+		seen[songID] = struct{}{}
+
+		mf, err := repo.Get(songID)
+		if err != nil {
+			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			continue
+		}
+
+		status := strings.TrimSpace(mf.ExplicitStatus)
+		if status != "" {
+			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: status})
+			continue
+		}
+
+		lyrics, _ := lyricsText(mf)
+		if strings.TrimSpace(lyrics) == "" {
+			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			continue
+		}
+
+		classification, err := classifyLyricsExplicit(ctx, provider, lyrics)
+		if err != nil {
+			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			continue
+		}
+		status = explicitStatusCode(classification)
+		if status == "" {
+			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			continue
+		}
+		if err := repo.UpdateExplicitStatus(songID, status); err != nil {
+			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			continue
+		}
+
+		results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: status})
+	}
+
+	return results, nil
+}
+
+func classifyLyricsExplicit(ctx context.Context, provider aiChatProvider, lyrics string) (string, error) {
+	prompt := `Classify this song transcript or lyrics as exactly one value: explicit or clean.
+
+Rules:
+- explicit = strong profanity, sexual content, explicit violence, drug abuse, hate speech, or adult themes
+- clean = no clear explicit content
+
+Return only one word: explicit or clean.
+
+Lyrics:
+` + lyrics
+
+	answer, err := provider.Chat(ctx, prompt)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToLower(strings.TrimSpace(answer)), nil
+}
+
+func explicitStatusCode(classification string) string {
+	classification = strings.Trim(strings.ToLower(strings.TrimSpace(classification)), ".`\"' \n\t")
+	if classification == "clean" {
+		return "c"
+	}
+	if classification == "explicit" {
+		return "e"
+	}
+
+	for _, token := range strings.FieldsFunc(classification, func(r rune) bool {
+		return r < 'a' || r > 'z'
+	}) {
+		switch token {
+		case "clean":
+			return "c"
+		case "explicit":
+			return "e"
+		}
+	}
+	return ""
+}
+
+func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, songIDs []string, force bool) ([]aiFetchMetadataSong, error) {
+	results := make([]aiFetchMetadataSong, 0, len(songIDs))
+	seen := map[string]struct{}{}
+
+	for _, rawID := range songIDs {
+		songID := strings.TrimSpace(rawID)
+		if songID == "" {
+			continue
+		}
+		if _, ok := seen[songID]; ok {
+			continue
+		}
+		seen[songID] = struct{}{}
+
+		result := aiFetchMetadataSong{ID: songID}
+		mf, err := repo.Get(songID)
+		if err != nil {
+			results = append(results, result)
+			continue
+		}
+
+		metadata, err := fetchGeminiSongMetadata(ctx, provider, mf)
+		if err != nil {
+			results = append(results, result)
+			continue
+		}
+
+		var album *string
+		var year *int
+		if (force || albumNeedsFetch(mf.Album)) && metadata.Album != "" {
+			album = &metadata.Album
+			result.Album = metadata.Album
+		}
+		if (force || yearNeedsFetch(mf.Year)) && metadata.Year > 0 {
+			year = &metadata.Year
+			result.Year = metadata.Year
+		}
+		if album != nil || year != nil {
+			var err error
+			if force {
+				err = repo.UpdateMetadata(songID, album, year)
+			} else {
+				err = repo.UpdateMissingMetadata(songID, album, year, nil, nil, nil)
+			}
+			if err != nil {
+				result.Album = ""
+				result.Year = 0
+			}
+		}
+
+		result.AIGenre = metadata.Genre
+		result.Confidence = metadata.Confidence
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+func fetchGeminiSongMetadata(ctx context.Context, provider aiChatProvider, mf *model.MediaFile) (geminiSongMetadata, error) {
+	lyrics, _ := lyricsText(mf)
+	answer, err := provider.Chat(ctx, songMetadataPrompt(mf, lyrics))
+	if err != nil {
+		return geminiSongMetadata{}, err
+	}
+	return parseGeminiSongMetadata(answer)
+}
+
+func songMetadataPrompt(mf *model.MediaFile, lyrics string) string {
+	var b strings.Builder
+	b.WriteString(`Find the most likely album, release year, and concise genre for this song.
+
+Return only valid JSON in this exact shape:
+{"album":"album name or empty string","year":0,"genre":"genre or empty string","confidence":0}
+
+Use 0 or an empty string when you are not confident. Confidence must be an integer from 0 to 100 for the overall album/year/genre match. Do not include markdown.
+
+Song:
+`)
+	b.WriteString("Title: ")
+	b.WriteString(mf.Title)
+	b.WriteString("\nArtist: ")
+	b.WriteString(mf.Artist)
+	b.WriteString("\nCurrent album: ")
+	b.WriteString(mf.Album)
+	b.WriteString("\nCurrent year: ")
+	b.WriteString(fmt.Sprint(mf.Year))
+	b.WriteString("\nCurrent genre: ")
+	b.WriteString(mf.Genre)
+	if strings.TrimSpace(lyrics) != "" {
+		b.WriteString("\nLyrics/transcript:\n")
+		b.WriteString(lyrics)
+	}
+	return b.String()
+}
+
+func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
+	answer = strings.TrimSpace(answer)
+	if strings.HasPrefix(answer, "```") {
+		answer = strings.TrimPrefix(answer, "```json")
+		answer = strings.TrimPrefix(answer, "```")
+		answer = strings.TrimSuffix(answer, "```")
+		answer = strings.TrimSpace(answer)
+	}
+	if start := strings.Index(answer, "{"); start >= 0 {
+		if end := strings.LastIndex(answer, "}"); end > start {
+			answer = answer[start : end+1]
+		}
+	}
+
+	var raw struct {
+		Album      string      `json:"album"`
+		Year       interface{} `json:"year"`
+		Genre      string      `json:"genre"`
+		Confidence interface{} `json:"confidence"`
+	}
+	if err := json.Unmarshal([]byte(answer), &raw); err != nil {
+		return geminiSongMetadata{}, err
+	}
+
+	metadata := geminiSongMetadata{
+		Album:      strings.TrimSpace(raw.Album),
+		Genre:      strings.TrimSpace(raw.Genre),
+		Confidence: parseConfidence(raw.Confidence),
+	}
+	if albumNeedsFetch(metadata.Album) {
+		metadata.Album = ""
+	}
+	switch year := raw.Year.(type) {
+	case float64:
+		metadata.Year = int(year)
+	case string:
+		_, _ = fmt.Sscanf(strings.TrimSpace(year), "%d", &metadata.Year)
+	}
+	if metadata.Year < 1900 || metadata.Year > time.Now().Year()+1 {
+		metadata.Year = 0
+	}
+	return metadata, nil
+}
+
+func parseConfidence(value interface{}) int {
+	var confidence int
+	switch v := value.(type) {
+	case float64:
+		confidence = int(v)
+	case string:
+		_, _ = fmt.Sscanf(strings.TrimSpace(strings.TrimSuffix(v, "%")), "%d", &confidence)
+	}
+	if confidence < 0 {
+		return 0
+	}
+	if confidence > 100 {
+		return 100
+	}
+	return confidence
+}
+
+func albumNeedsFetch(album string) bool {
+	album = strings.ToLower(strings.TrimSpace(album))
+	return album == "" || album == "unknown" || album == "unknown album" || album == "[unknown album]"
+}
+
+func yearNeedsFetch(year int) bool {
+	return year <= 0
 }

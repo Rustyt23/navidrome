@@ -144,6 +144,44 @@ func (m *MockMediaFileRepo) UpdateCoverPath(id string, coverPath string) error {
 	return nil
 }
 
+func (m *MockMediaFileRepo) UpdateMetadata(id string, album *string, year *int) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		if album != nil {
+			mf.Album = *album
+		}
+		if year != nil {
+			mf.Year = *year
+		}
+		return nil
+	}
+	return model.ErrNotFound
+}
+
+func (m *MockMediaFileRepo) UpdateLyrics(id string, lyrics string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		mf.Lyrics = lyrics
+		return nil
+	}
+	return model.ErrNotFound
+}
+
+func (m *MockMediaFileRepo) UpdateExplicitStatus(id string, explicitStatus string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		mf.ExplicitStatus = explicitStatus
+		return nil
+	}
+	return model.ErrNotFound
+}
+
 func (m *MockMediaFileRepo) IncPlayCount(id string, timestamp time.Time) error {
 	if m.Err {
 		return errors.New("error")
