@@ -51,3 +51,27 @@ func TestLoudnormFilter(t *testing.T) {
 		t.Fatalf("filter = %q, want %q", got, want)
 	}
 }
+
+func TestAnalyzeLoudnessArgsSelectsAudioOnly(t *testing.T) {
+	got := analyzeLoudnessArgs("song.mp3", "loudnorm=I=-12.6")
+	want := []string{"-nostdin", "-hide_banner", "-i", "song.mp3", "-map", "0:a:0", "-vn", "-af", "loudnorm=I=-12.6", "-f", "null", "-"}
+	assertStringSliceEqual(t, got, want)
+}
+
+func TestNormalizeLoudnessArgsSelectsAudioOnly(t *testing.T) {
+	got := normalizeLoudnessArgs("in.mp3", "out.mp3", "loudnorm=I=-12.6")
+	want := []string{"-nostdin", "-hide_banner", "-y", "-i", "in.mp3", "-map", "0:a:0", "-map_metadata", "0", "-vn", "-af", "loudnorm=I=-12.6", "out.mp3"}
+	assertStringSliceEqual(t, got, want)
+}
+
+func assertStringSliceEqual(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("arg[%d] = %q, want %q: %#v", i, got[i], want[i], got)
+		}
+	}
+}

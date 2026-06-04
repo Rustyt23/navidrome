@@ -51,7 +51,7 @@ func (e *ffmpeg) AnalyzeLoudness(ctx context.Context, path string, target Loudne
 		return nil, err
 	}
 	filter := loudnormFilter(target, nil, true)
-	args := []string{"-nostdin", "-hide_banner", "-i", path, "-af", filter, "-f", "null", "-"}
+	args := analyzeLoudnessArgs(path, filter)
 	output, err := exec.CommandContext(ctx, cmdPath, args...).CombinedOutput() // #nosec
 	if err != nil {
 		return nil, fmt.Errorf("analyzing loudness: %w: %s", err, string(output))
@@ -72,12 +72,20 @@ func (e *ffmpeg) NormalizeLoudness(ctx context.Context, inputPath, outputPath st
 		return err
 	}
 	filter := loudnormFilter(target, &analysis, false)
-	args := []string{"-nostdin", "-hide_banner", "-y", "-i", inputPath, "-map_metadata", "0", "-af", filter, outputPath}
+	args := normalizeLoudnessArgs(inputPath, outputPath, filter)
 	output, err := exec.CommandContext(ctx, cmdPath, args...).CombinedOutput() // #nosec
 	if err != nil {
 		return fmt.Errorf("normalizing loudness: %w: %s", err, string(output))
 	}
 	return nil
+}
+
+func analyzeLoudnessArgs(path, filter string) []string {
+	return []string{"-nostdin", "-hide_banner", "-i", path, "-map", "0:a:0", "-vn", "-af", filter, "-f", "null", "-"}
+}
+
+func normalizeLoudnessArgs(inputPath, outputPath, filter string) []string {
+	return []string{"-nostdin", "-hide_banner", "-y", "-i", inputPath, "-map", "0:a:0", "-map_metadata", "0", "-vn", "-af", filter, outputPath}
 }
 
 func loudnormFilter(target LoudnessTarget, analysis *LoudnessAnalysis, printJSON bool) string {
