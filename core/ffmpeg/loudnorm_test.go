@@ -34,6 +34,35 @@ more output`)
 	}
 }
 
+func TestParseLoudnessAnalysisIgnoresMetadataBraces(t *testing.T) {
+	output := []byte(`ffmpeg output
+Metadata:
+  title           : Nicky Thomas - Love Of The Common People
+  id3v2_priv.TRAKTOR4: DMRT\S\{}\TAAD;S\not-json
+  comment         : Can't Get You out of My Head (Nu Disco Mix)
+[Parsed_loudnorm_0 @ 0x123]
+{
+	"input_i" : "-13.24",
+	"input_tp" : "-1.25",
+	"input_lra" : "6.80",
+	"input_thresh" : "-23.31",
+	"output_i" : "-12.61",
+	"target_offset" : "0.01"
+}
+more output`)
+
+	analysis, err := parseLoudnessAnalysis(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.InputIntegrated != -13.24 {
+		t.Fatalf("InputIntegrated = %v", analysis.InputIntegrated)
+	}
+	if analysis.TargetOffset != 0.01 {
+		t.Fatalf("TargetOffset = %v", analysis.TargetOffset)
+	}
+}
+
 func TestParseLoudnessAnalysisRejectsInvalidData(t *testing.T) {
 	_, err := parseLoudnessAnalysis([]byte(`{"input_i":"N/A"}`))
 	if err == nil {

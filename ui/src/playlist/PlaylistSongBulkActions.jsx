@@ -10,6 +10,7 @@ import { MdOutlinePlaylistRemove } from 'react-icons/md'
 import PropTypes from 'prop-types'
 import { AddToPlaylistButton } from '../common/AddToPlaylistButton'
 import { EditSongCommentButton } from '../common/EditSongCommentButton'
+import { OptimizeLufsButton } from '../common/OptimizeLufsButton'
 import { makeStyles } from '@material-ui/core/styles'
 
 const useStyles = makeStyles((theme) => ({
@@ -109,6 +110,11 @@ const PlaylistSongBulkActions = ({
           selectedIds={selectedMediaIds}
           recordIds={selectedIds}
           unselectResource={'playlistTrack'}
+          className={classes.button}
+        />
+        <OptimizeLufsButton
+          resource={'playlistTrack'}
+          selectedIds={selectedMediaIds}
           className={classes.button}
         />
       </Fragment>

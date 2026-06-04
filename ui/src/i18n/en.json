@@ -283,7 +283,8 @@
     },
     "playlistTrack": {
       "fields": {
-        "dragHandle": "Move"
+        "dragHandle": "Move",
+        "loudnessFinalLUFS": "LUFS"
       }
     },
     "discovery": {

@@ -173,6 +173,7 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 			"genre":                   "genre",
 			"comment":                 "comment",
 			"track_number":            "track_number",
+			"lufs":                    mediaFileLufsSort(),
 			"order_artist_name":       "order_artist_name",
 			"order_album_artist_name": "order_album_artist_name",
 			"order_album_name":        "order_album_name",

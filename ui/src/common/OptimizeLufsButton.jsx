@@ -10,14 +10,6 @@ import {
   useTranslate,
   useUnselectAll,
 } from 'react-admin'
-import {
-  Button as MuiButton,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-} from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import EqualizerIcon from '@material-ui/icons/Equalizer'
 
@@ -35,25 +27,11 @@ export const OptimizeLufsButton = ({ resource, selectedIds, className }) => {
   const unselectAll = useUnselectAll()
   const dataProvider = useDataProvider()
   const { permissions } = usePermissions()
-  const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const selectedCount = selectedIds?.length || 0
 
-  const handleOpen = useCallback(() => {
-    if (selectedCount === 0) {
-      return
-    }
-    setOpen(true)
-  }, [selectedCount])
-
-  const handleClose = useCallback(() => {
-    if (!saving) {
-      setOpen(false)
-    }
-  }, [saving])
-
-  const handleConfirm = useCallback(async () => {
+  const handleClick = useCallback(async () => {
     if (!selectedCount || saving) {
       return
     }
@@ -69,7 +47,6 @@ export const OptimizeLufsButton = ({ resource, selectedIds, className }) => {
         messageArgs: { normalized, skipped, failed },
       })
 
-      setOpen(false)
       unselectAll(resource)
       refresh({ hard: true })
     } catch (error) {
@@ -95,44 +72,14 @@ export const OptimizeLufsButton = ({ resource, selectedIds, className }) => {
   }
 
   return (
-    <>
-      <RaButton
-        onClick={handleOpen}
-        className={clsx(classes.button, className)}
-        label={translate('resources.song.actions.optimizeLufs')}
-        disabled={!selectedCount}
-      >
-        <EqualizerIcon />
-      </RaButton>
-      <Dialog
-        open={open}
-        onClose={handleClose}
-        aria-labelledby="optimize-lufs-dialog-title"
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle id="optimize-lufs-dialog-title">
-          {translate('resources.song.dialogs.optimizeLufs.title', {
-            smart_count: selectedCount,
-          })}
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            {translate('resources.song.dialogs.optimizeLufs.description', {
-              smart_count: selectedCount,
-            })}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <MuiButton onClick={handleClose} disabled={saving}>
-            {translate('ra.action.cancel')}
-          </MuiButton>
-          <MuiButton color="primary" onClick={handleConfirm} disabled={saving}>
-            {translate('resources.song.actions.optimizeLufs')}
-          </MuiButton>
-        </DialogActions>
-      </Dialog>
-    </>
+    <RaButton
+      onClick={handleClick}
+      className={clsx(classes.button, className)}
+      label={translate('resources.song.actions.optimizeLufs')}
+      disabled={!selectedCount || saving}
+    >
+      <EqualizerIcon />
+    </RaButton>
   )
 }
 

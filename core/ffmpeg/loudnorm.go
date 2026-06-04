@@ -1,11 +1,11 @@
 package ffmpeg
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strconv"
 )
 
@@ -39,8 +39,6 @@ type loudnormJSON struct {
 	InputThreshold  string `json:"input_thresh"`
 	TargetOffset    string `json:"target_offset"`
 }
-
-var loudnormJSONRE = regexp.MustCompile(`(?s)\{.*\}`)
 
 func (e *ffmpeg) AnalyzeLoudness(ctx context.Context, path string, target LoudnessTarget) (*LoudnessAnalysis, error) {
 	cmdPath, err := ffmpegCmd()
@@ -106,9 +104,9 @@ func loudnormFilter(target LoudnessTarget, analysis *LoudnessAnalysis, printJSON
 }
 
 func parseLoudnessAnalysis(output []byte) (*LoudnessAnalysis, error) {
-	jsonText := loudnormJSONRE.Find(output)
-	if len(jsonText) == 0 {
-		return nil, fmt.Errorf("loudnorm JSON not found")
+	jsonText, extractErr := extractLoudnormJSON(output)
+	if extractErr != nil {
+		return nil, extractErr
 	}
 	var raw loudnormJSON
 	if err := json.Unmarshal(jsonText, &raw); err != nil {
@@ -132,6 +130,60 @@ func parseLoudnessAnalysis(output []byte) (*LoudnessAnalysis, error) {
 		return nil, err
 	}
 	return analysis, nil
+}
+
+func extractLoudnormJSON(output []byte) ([]byte, error) {
+	marker := []byte(`"input_i"`)
+	markerIndex := bytes.LastIndex(output, marker)
+	if markerIndex == -1 {
+		return nil, fmt.Errorf("loudnorm JSON not found")
+	}
+
+	start := bytes.LastIndexByte(output[:markerIndex], '{')
+	if start == -1 {
+		return nil, fmt.Errorf("loudnorm JSON start not found")
+	}
+
+	end := matchingJSONEnd(output[start:])
+	if end == -1 {
+		return nil, fmt.Errorf("loudnorm JSON end not found")
+	}
+	return output[start : start+end], nil
+}
+
+func matchingJSONEnd(input []byte) int {
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i, b := range input {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch b {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch b {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
 }
 
 func parseLoudnormFloat(value, name string) (float64, error) {

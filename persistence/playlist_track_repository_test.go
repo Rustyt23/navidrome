@@ -286,5 +286,42 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[1].ID).To(Equal("1"))
 			Expect(tracks[2].ID).To(Equal("3"))
 		})
+
+		It("sorts by LUFS using media file loudness tags", func() {
+			updates := []struct {
+				id   string
+				lufs string
+			}{
+				{songRadioactivity.ID, "-16.20"},
+				{songAntenna.ID, "-9.80"},
+				{songDayInALife.ID, "-12.40"},
+			}
+			DeferCleanup(func() {
+				for _, upd := range updates {
+					_, err := GetDBXBuilder().Update("media_file", dbx.Params{
+						"tags": "{}",
+					}, dbx.HashExp{"id": upd.id}).Execute()
+					Expect(err).ToNot(HaveOccurred())
+				}
+			})
+
+			for _, upd := range updates {
+				_, err := GetDBXBuilder().Update("media_file", dbx.Params{
+					"tags": `{"loudnorm_final_lufs":[{"value":"` + upd.lufs + `"}]}`,
+				}, dbx.HashExp{"id": upd.id}).Execute()
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			repo := playlistRepo.Tracks(playlist.ID, true)
+			result, err := repo.ReadAll(rest.QueryOptions{Sort: "lufs", Order: "ASC"})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(3))
+			Expect(tracks[0].ID).To(Equal("1"))
+			Expect(tracks[1].ID).To(Equal("3"))
+			Expect(tracks[2].ID).To(Equal("2"))
+		})
 	})
 })
