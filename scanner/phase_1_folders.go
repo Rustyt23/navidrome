@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -521,7 +522,7 @@ func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport 
 			for filePath := range files {
 				trackPath := absoluteMediaPath(libraryPath, filePath)
 				p.loudnessLimiter <- struct{}{}
-				result := p.normalizeLoudnessFile(normalizer, filePath, trackPath, target, tolerance, minLUFS, maxLUFS, options.TargetLUFS, options.Backup, options.BackupSuffix)
+				result := p.normalizeLoudnessFile(normalizer, libraryPath, filePath, trackPath, target, tolerance, minLUFS, maxLUFS, options.TargetLUFS, options.Backup, options.BackupSuffix)
 				<-p.loudnessLimiter
 				results <- result
 			}
@@ -546,7 +547,7 @@ func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport 
 	return lufsByFile
 }
 
-func (p *phaseFolders) normalizeLoudnessFile(normalizer ffmpeg.LoudnessNormalizer, filePath, trackPath string, target ffmpeg.LoudnessTarget, tolerance, minLUFS, maxLUFS, targetLUFS float64, backup bool, backupSuffix string) loudnessFileResult {
+func (p *phaseFolders) normalizeLoudnessFile(normalizer ffmpeg.LoudnessNormalizer, libraryPath, filePath, trackPath string, target ffmpeg.LoudnessTarget, tolerance, minLUFS, maxLUFS, targetLUFS float64, backup bool, backupSuffix string) loudnessFileResult {
 	analysis, err := normalizer.AnalyzeLoudness(p.ctx, trackPath, target)
 	if err != nil {
 		log.Warn(p.ctx, "Scanner: could not analyze track loudness", "path", trackPath, err)
@@ -559,6 +560,10 @@ func (p *phaseFolders) normalizeLoudnessFile(normalizer ffmpeg.LoudnessNormalize
 	}
 
 	if finalLUFS, ok := p.normalizeTrackLoudnessToRange(normalizer, trackPath, target, *analysis, tolerance, minLUFS, maxLUFS, backup, backupSuffix); ok {
+		if err := copyLoudnessUpdatedTrackToSyncFolder(libraryPath, filePath, trackPath); err != nil {
+			log.Warn(p.ctx, "Scanner: could not copy LUFS-updated track to sync folder", "path", trackPath, "syncFolder", conf.Server.SyncFolder, err)
+			p.state.sendWarning(fmt.Sprintf("Could not copy LUFS-updated track to sync folder for %s: %v", trackPath, err))
+		}
 		return loudnessFileResult{filePath: filePath, lufs: finalLUFS, ok: true}
 	}
 	return loudnessFileResult{filePath: filePath}
@@ -736,6 +741,77 @@ func copyFile(srcPath, dstPath string, stat os.FileInfo) error {
 		return closeErr
 	}
 	return os.Chtimes(dstPath, stat.ModTime(), stat.ModTime())
+}
+
+func copyLoudnessUpdatedTrackToSyncFolder(libraryPath, filePath, trackPath string) error {
+	if conf.Server.SyncFolder == "" {
+		return nil
+	}
+	stat, err := os.Stat(trackPath)
+	if err != nil {
+		return err
+	}
+	dstPath := loudnessSyncPath(libraryPath, filePath, trackPath)
+	srcAbs, srcErr := filepath.Abs(trackPath)
+	dstAbs, dstErr := filepath.Abs(dstPath)
+	if srcErr == nil && dstErr == nil && filepath.Clean(srcAbs) == filepath.Clean(dstAbs) {
+		return nil
+	}
+	return copyFileReplace(trackPath, dstPath, stat)
+}
+
+func loudnessSyncPath(libraryPath, filePath, trackPath string) string {
+	rel := filepath.FromSlash(filePath)
+	if filepath.IsAbs(rel) {
+		rel = filepath.Base(rel)
+		if libraryPath != "" {
+			if r, err := filepath.Rel(libraryPath, trackPath); err == nil && r != "." && !strings.HasPrefix(r, "..") {
+				rel = r
+			}
+		}
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		rel = filepath.Base(trackPath)
+	}
+	return filepath.Join(conf.Server.SyncFolder, rel)
+}
+
+func copyFileReplace(srcPath, dstPath string, stat os.FileInfo) error {
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dstPath), "."+filepath.Base(dstPath)+".sync-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	src, err := os.Open(srcPath)
+	if err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	_, copyErr := io.Copy(tmp, src)
+	closeSrcErr := src.Close()
+	closeTmpErr := tmp.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeSrcErr != nil {
+		return closeSrcErr
+	}
+	if closeTmpErr != nil {
+		return closeTmpErr
+	}
+	if err := os.Chmod(tmpPath, stat.Mode()); err != nil {
+		return err
+	}
+	if err := os.Chtimes(tmpPath, stat.ModTime(), stat.ModTime()); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, dstPath)
 }
 
 func trimExt(name string) string {
