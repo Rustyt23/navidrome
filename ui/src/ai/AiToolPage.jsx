@@ -453,12 +453,6 @@ const formatExplicitStatus = (status) => {
   return ''
 }
 
-const formatConfidence = (confidence) => {
-  const value = Number(confidence)
-  if (!Number.isFinite(value) || value <= 0) return '-'
-  return `${Math.round(value)}%`
-}
-
 const isUnknownValue = (value) => {
   const normalized = String(value || '').trim().toLowerCase()
   return normalized === '' || normalized === 'unknown' || normalized === 'unknown album' || normalized === '[unknown album]'
@@ -544,7 +538,6 @@ const AiToolPage = () => {
   const isAIValue = (song, field) => {
     if (song.aiFields?.[field]) return true
     if (field === 'aiGenre') return !isUnknownValue(song.aiGenre)
-    if (field === 'aiMetadataConfidence') return Number(song.aiMetadataConfidence) > 0
     if (field === 'lyrics') return hasSavedLyrics(song)
     if (field === 'explicitStatus') return Boolean(formatExplicitStatus(song.explicitStatus))
     if ((field === 'album' || field === 'year') && !isUnknownValue(song[field]) && !isUnknownValue(song.aiGenre)) {
@@ -610,7 +603,6 @@ const AiToolPage = () => {
               ...song,
               ...current,
               aiGenre: song.aiGenre || '',
-              aiMetadataConfidence: song.aiMetadataConfidence || '',
             }
           })
 
@@ -964,16 +956,10 @@ const AiToolPage = () => {
   const fetchAIMetadata = async () => {
     if (!selectedAddedIds.length || isFetchingMetadata) return
 
-    await fetchAIMetadataForSongs(selectedAddedSongs, false)
+    await fetchAIMetadataForSongs(selectedAddedSongs)
   }
 
-  const refetchAIMetadata = async () => {
-    if (!selectedAddedIds.length || isFetchingMetadata) return
-
-    await fetchAIMetadataForSongs(selectedAddedSongs, true)
-  }
-
-  const fetchAIMetadataForSongs = async (songs, force = false) => {
+  const fetchAIMetadataForSongs = async (songs) => {
     if (!songs.length || isFetchingMetadata) return
 
     setToolError('')
@@ -987,7 +973,6 @@ const AiToolPage = () => {
           body: JSON.stringify({
             songIds: [song.id],
             provider: normalizeAIProvider(defaultProvider),
-            force,
           }),
         })
         const metadata = new Map((payload.songs || []).map((item) => [item.id, item]))
@@ -1000,13 +985,11 @@ const AiToolPage = () => {
               album: update.album || item.album,
               year: update.year || item.year,
               aiGenre: update.aiGenre || item.aiGenre || '',
-              aiMetadataConfidence: update.confidence || item.aiMetadataConfidence || '',
               aiFields: {
                 ...(item.aiFields || {}),
                 album: Boolean(update.album) || Boolean(item.aiFields?.album),
                 year: Boolean(update.year) || Boolean(item.aiFields?.year),
                 aiGenre: Boolean(update.aiGenre) || Boolean(item.aiFields?.aiGenre),
-                aiMetadataConfidence: Boolean(update.confidence) || Boolean(item.aiFields?.aiMetadataConfidence),
               },
             }
           })
@@ -1033,7 +1016,7 @@ const AiToolPage = () => {
     } else if (action === 'showLyrics') {
       await showLyrics(song)
     } else if (action === 'fetchMetadata') {
-      await fetchAIMetadataForSongs([song], false)
+      await fetchAIMetadataForSongs([song])
     } else if (action === 'removeSong') {
       removeSong(song.id)
     }
@@ -1110,19 +1093,6 @@ const AiToolPage = () => {
             <Button
               variant="outlined"
               color="primary"
-              onClick={refetchAIMetadata}
-              disabled={!selectedAddedIds.length || isFetchingMetadata}
-            >
-              {isFetchingMetadata ? (
-                <CircularProgress size={14} color="inherit" className={classes.buttonProgress} />
-              ) : null}
-              {isFetchingMetadata
-                ? translate('menu.aiTool.fetchingMetadata', { _: 'Fetching...' })
-                : translate('menu.aiTool.refetchMetadata', { _: 'Refetch Entire Metadata' })}
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
               onClick={removeSelectedSongs}
               disabled={!selectedAddedIds.length}
             >
@@ -1178,7 +1148,6 @@ const AiToolPage = () => {
                   <TableCell>{translate('resources.song.fields.duration', { _: 'Time' })}</TableCell>
                   <TableCell>{translate('resources.song.fields.genre', { _: 'Genre' })}</TableCell>
                   <TableCell>{translate('menu.aiTool.aiGenre', { _: 'AI Genre' })}</TableCell>
-                  <TableCell>{translate('menu.aiTool.confidence', { _: 'Confidence' })}</TableCell>
                   <TableCell>{translate('ra.action.actions', { _: 'Actions' })}</TableCell>
                 </TableRow>
               </TableHead>
@@ -1206,9 +1175,6 @@ const AiToolPage = () => {
                     <TableCell className={classes.valueExisting}>{formatDuration(song.duration)}</TableCell>
                     <TableCell className={classes.valueExisting}>{song.genre || ''}</TableCell>
                     <TableCell className={valueClass(song, 'aiGenre')}>{song.aiGenre || '-'}</TableCell>
-                    <TableCell className={valueClass(song, 'aiMetadataConfidence')}>
-                      {formatConfidence(song.aiMetadataConfidence)}
-                    </TableCell>
                     <TableCell>
                       <IconButton
                         size="small"
@@ -1436,7 +1402,6 @@ const AiToolPage = () => {
                   <TableCell>{translate('resources.song.fields.duration', { _: 'Time' })}</TableCell>
                   <TableCell>{translate('resources.song.fields.genre', { _: 'Genre' })}</TableCell>
                   <TableCell>{translate('menu.aiTool.aiGenre', { _: 'AI Genre' })}</TableCell>
-                  <TableCell>{translate('menu.aiTool.confidence', { _: 'Confidence' })}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1458,7 +1423,6 @@ const AiToolPage = () => {
                     <TableCell>{formatDuration(song.duration)}</TableCell>
                     <TableCell>{song.genre || ''}</TableCell>
                     <TableCell>{song.aiGenre || '-'}</TableCell>
-                    <TableCell>{formatConfidence(song.aiMetadataConfidence)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

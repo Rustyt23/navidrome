@@ -376,7 +376,7 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		songs, err := fetchSongMetadata(req.Context(), n.ds.MediaFile(req.Context()), provider, payload.SongIDs, payload.Force)
+		songs, err := fetchSongMetadata(req.Context(), n.ds.MediaFile(req.Context()), provider, payload.SongIDs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -611,7 +611,7 @@ func explicitStatusCode(classification string) string {
 	return ""
 }
 
-func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, songIDs []string, force bool) ([]aiFetchMetadataSong, error) {
+func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, songIDs []string) ([]aiFetchMetadataSong, error) {
 	results := make([]aiFetchMetadataSong, 0, len(songIDs))
 	seen := map[string]struct{}{}
 
@@ -640,29 +640,22 @@ func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, prov
 
 		var album *string
 		var year *int
-		if (force || albumNeedsFetch(mf.Album)) && metadata.Album != "" {
+		if albumNeedsFetch(mf.Album) && metadata.Album != "" {
 			album = &metadata.Album
 			result.Album = metadata.Album
 		}
-		if (force || yearNeedsFetch(mf.Year)) && metadata.Year > 0 {
+		if yearNeedsFetch(mf.Year) && metadata.Year > 0 {
 			year = &metadata.Year
 			result.Year = metadata.Year
 		}
 		if album != nil || year != nil {
-			var err error
-			if force {
-				err = repo.UpdateMetadata(songID, album, year)
-			} else {
-				err = repo.UpdateMissingMetadata(songID, album, year, nil, nil, nil)
-			}
-			if err != nil {
+			if err := repo.UpdateMissingMetadata(songID, album, year, nil, nil, nil); err != nil {
 				result.Album = ""
 				result.Year = 0
 			}
 		}
 
 		result.AIGenre = metadata.Genre
-		result.Confidence = metadata.Confidence
 		results = append(results, result)
 	}
 
@@ -683,9 +676,9 @@ func songMetadataPrompt(mf *model.MediaFile, lyrics string) string {
 	b.WriteString(`Find the most likely album, release year, and concise genre for this song.
 
 Return only valid JSON in this exact shape:
-{"album":"album name or empty string","year":0,"genre":"genre or empty string","confidence":0}
+{"album":"album name or empty string","year":0,"genre":"genre or empty string"}
 
-Use 0 or an empty string when you are not confident. Confidence must be an integer from 0 to 100 for the overall album/year/genre match. Do not include markdown.
+Use 0 or an empty string when you are not confident. Do not include markdown.
 
 Song:
 `)
@@ -721,19 +714,17 @@ func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
 	}
 
 	var raw struct {
-		Album      string      `json:"album"`
-		Year       interface{} `json:"year"`
-		Genre      string      `json:"genre"`
-		Confidence interface{} `json:"confidence"`
+		Album string      `json:"album"`
+		Year  interface{} `json:"year"`
+		Genre string      `json:"genre"`
 	}
 	if err := json.Unmarshal([]byte(answer), &raw); err != nil {
 		return geminiSongMetadata{}, err
 	}
 
 	metadata := geminiSongMetadata{
-		Album:      strings.TrimSpace(raw.Album),
-		Genre:      strings.TrimSpace(raw.Genre),
-		Confidence: parseConfidence(raw.Confidence),
+		Album: strings.TrimSpace(raw.Album),
+		Genre: strings.TrimSpace(raw.Genre),
 	}
 	if albumNeedsFetch(metadata.Album) {
 		metadata.Album = ""
@@ -748,23 +739,6 @@ func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
 		metadata.Year = 0
 	}
 	return metadata, nil
-}
-
-func parseConfidence(value interface{}) int {
-	var confidence int
-	switch v := value.(type) {
-	case float64:
-		confidence = int(v)
-	case string:
-		_, _ = fmt.Sscanf(strings.TrimSpace(strings.TrimSuffix(v, "%")), "%d", &confidence)
-	}
-	if confidence < 0 {
-		return 0
-	}
-	if confidence > 100 {
-		return 100
-	}
-	return confidence
 }
 
 func albumNeedsFetch(album string) bool {

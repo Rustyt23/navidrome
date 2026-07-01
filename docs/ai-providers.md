@@ -1,6 +1,6 @@
 # AI Providers
 
-The AI Tool supports Gemini 2.5, Gemini 3.5, and Gemma 4 for chat and AI song actions.
+The AI Tool supports Gemini 2.5, Gemini 3.5, and Gemma 3 for chat and AI song actions.
 
 Gemini uses the existing `GeminiAPIKey` configuration. Gemma is called from the backend only and reads these environment variables:
 
