@@ -15,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/metrics"
+	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/storage/storagetest"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/model"
@@ -39,8 +40,8 @@ func BenchmarkScan(b *testing.B) {
 
 	ds := persistence.New(db.Db())
 	conf.Server.DevExternalScanner = false
-        s := scanner.New(context.Background(), ds, artwork.NoopCacheWarmer(), events.NoopBroker(),
-                core.NewPlaylists(ds), core.NewDiscoveries(ds), metrics.NewNoopInstance())
+	s := scanner.New(context.Background(), ds, artwork.NoopCacheWarmer(), events.NoopBroker(),
+		playlists.NewPlaylists(ds, core.NewImageUploadService()), core.NewDiscoveries(ds), metrics.NewNoopInstance())
 
 	fs := storagetest.FakeFS{}
 	storagetest.Register("fake", &fs)

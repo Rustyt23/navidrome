@@ -11,7 +11,7 @@ import (
 
 	. "github.com/Masterminds/squirrel"
 	"github.com/go-chi/chi/v5"
-	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/model"
 )
 
@@ -131,7 +131,7 @@ func MoveFolder(ds model.DataStore) http.HandlerFunc {
 	}
 }
 
-func BulkMove(ds model.DataStore, pls core.Playlists) http.HandlerFunc {
+func BulkMove(ds model.DataStore, pls playlists.Playlists) http.HandlerFunc {
 	type movePayload struct {
 		Ids      []string `json:"ids"`
 		Types    []string `json:"types"`    // "folder" | "playlist"

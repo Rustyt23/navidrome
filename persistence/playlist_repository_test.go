@@ -10,7 +10,6 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/model/criteria"
 	"github.com/navidrome/navidrome/model/request"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -20,7 +19,7 @@ var _ = Describe("PlaylistRepository", func() {
 	var repo model.PlaylistRepository
 
 	BeforeEach(func() {
-		ctx := log.NewContext(context.TODO())
+		ctx := log.NewContext(GinkgoT().Context())
 		ctx = request.WithUser(ctx, model.User{ID: "userid", UserName: "userid", IsAdmin: true})
 		repo = NewPlaylistRepository(ctx, GetDBXBuilder())
 	})
@@ -192,96 +191,76 @@ var _ = Describe("PlaylistRepository", func() {
 		})
 	})
 
-	Context("Smart Playlists", func() {
-		var rules *criteria.Criteria
-		BeforeEach(func() {
-			rules = &criteria.Criteria{
-				Expression: criteria.All{
-					criteria.Contains{"title": "love"},
-				},
+	Describe("Track Deletion and Renumbering", func() {
+		var testPlaylistID string
+
+		AfterEach(func() {
+			if testPlaylistID != "" {
+				Expect(repo.Delete(testPlaylistID)).To(BeNil())
+				testPlaylistID = ""
 			}
 		})
-		Context("valid rules", func() {
-			Specify("Put/Get", func() {
-				newPls := model.Playlist{Name: "Great!", OwnerID: "userid", Rules: rules}
-				Expect(repo.Put(&newPls)).To(Succeed())
 
-				savedPls, err := repo.Get(newPls.ID)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(savedPls.Rules).To(Equal(rules))
-			})
+		// helper to get track positions and media file IDs
+		getTrackInfo := func(playlistID string) (ids []string, mediaFileIDs []string) {
+			pls, err := repo.GetWithTracks(playlistID, false, false)
+			Expect(err).ToNot(HaveOccurred())
+			for _, t := range pls.Tracks {
+				ids = append(ids, t.ID)
+				mediaFileIDs = append(mediaFileIDs, t.MediaFileID)
+			}
+			return
+		}
+
+		It("renumbers correctly after deleting a track from the middle", func() {
+			By("creating a playlist with 4 tracks")
+			newPls := model.Playlist{Name: "Renumber Test Middle", OwnerID: "userid"}
+			newPls.AddMediaFilesByID([]string{"1001", "1002", "1003", "1004"})
+			Expect(repo.Put(&newPls)).To(Succeed())
+			testPlaylistID = newPls.ID
+
+			By("deleting the second track (position 2)")
+			tracksRepo := repo.Tracks(newPls.ID, false)
+			Expect(tracksRepo.Delete("2")).To(Succeed())
+
+			By("verifying remaining tracks are renumbered sequentially")
+			ids, mediaFileIDs := getTrackInfo(newPls.ID)
+			Expect(ids).To(Equal([]string{"1", "2", "3"}))
+			Expect(mediaFileIDs).To(Equal([]string{"1001", "1003", "1004"}))
 		})
 
-		Context("invalid rules", func() {
-			It("fails to Put it in the DB", func() {
-				rules = &criteria.Criteria{
-					// This is invalid because "contains" cannot have multiple fields
-					Expression: criteria.All{
-						criteria.Contains{"genre": "Hardcore", "filetype": "mp3"},
-					},
-				}
-				newPls := model.Playlist{Name: "Great!", OwnerID: "userid", Rules: rules}
-				Expect(repo.Put(&newPls)).To(MatchError(ContainSubstring("invalid criteria expression")))
-			})
+		It("renumbers correctly after deleting the first track", func() {
+			By("creating a playlist with 3 tracks")
+			newPls := model.Playlist{Name: "Renumber Test First", OwnerID: "userid"}
+			newPls.AddMediaFilesByID([]string{"1001", "1002", "1003"})
+			Expect(repo.Put(&newPls)).To(Succeed())
+			testPlaylistID = newPls.ID
+
+			By("deleting the first track (position 1)")
+			tracksRepo := repo.Tracks(newPls.ID, false)
+			Expect(tracksRepo.Delete("1")).To(Succeed())
+
+			By("verifying remaining tracks are renumbered sequentially")
+			ids, mediaFileIDs := getTrackInfo(newPls.ID)
+			Expect(ids).To(Equal([]string{"1", "2"}))
+			Expect(mediaFileIDs).To(Equal([]string{"1002", "1003"}))
 		})
 
-		// TODO Validate these tests
-		XContext("child smart playlists", func() {
-			When("refresh day has expired", func() {
-				It("should refresh tracks for smart playlist referenced in parent smart playlist criteria", func() {
-					conf.Server.SmartPlaylistRefreshDelay = -1 * time.Second
+		It("renumbers correctly after deleting the last track", func() {
+			By("creating a playlist with 3 tracks")
+			newPls := model.Playlist{Name: "Renumber Test Last", OwnerID: "userid"}
+			newPls.AddMediaFilesByID([]string{"1001", "1002", "1003"})
+			Expect(repo.Put(&newPls)).To(Succeed())
+			testPlaylistID = newPls.ID
 
-					nestedPls := model.Playlist{Name: "Nested", OwnerID: "userid", Rules: rules}
-					Expect(repo.Put(&nestedPls)).To(Succeed())
+			By("deleting the last track (position 3)")
+			tracksRepo := repo.Tracks(newPls.ID, false)
+			Expect(tracksRepo.Delete("3")).To(Succeed())
 
-					parentPls := model.Playlist{Name: "Parent", OwnerID: "userid", Rules: &criteria.Criteria{
-						Expression: criteria.All{
-							criteria.InPlaylist{"id": nestedPls.ID},
-						},
-					}}
-					Expect(repo.Put(&parentPls)).To(Succeed())
-
-					nestedPlsRead, err := repo.Get(nestedPls.ID)
-					Expect(err).ToNot(HaveOccurred())
-
-					_, err = repo.GetWithTracks(parentPls.ID, true, false)
-					Expect(err).ToNot(HaveOccurred())
-
-					// Check that the nested playlist was refreshed by parent get by verifying evaluatedAt is updated since first nestedPls get
-					nestedPlsAfterParentGet, err := repo.Get(nestedPls.ID)
-					Expect(err).ToNot(HaveOccurred())
-
-					Expect(*nestedPlsAfterParentGet.EvaluatedAt).To(BeTemporally(">", *nestedPlsRead.EvaluatedAt))
-				})
-			})
-
-			When("refresh day has not expired", func() {
-				It("should NOT refresh tracks for smart playlist referenced in parent smart playlist criteria", func() {
-					conf.Server.SmartPlaylistRefreshDelay = 1 * time.Hour
-
-					nestedPls := model.Playlist{Name: "Nested", OwnerID: "userid", Rules: rules}
-					Expect(repo.Put(&nestedPls)).To(Succeed())
-
-					parentPls := model.Playlist{Name: "Parent", OwnerID: "userid", Rules: &criteria.Criteria{
-						Expression: criteria.All{
-							criteria.InPlaylist{"id": nestedPls.ID},
-						},
-					}}
-					Expect(repo.Put(&parentPls)).To(Succeed())
-
-					nestedPlsRead, err := repo.Get(nestedPls.ID)
-					Expect(err).ToNot(HaveOccurred())
-
-					_, err = repo.GetWithTracks(parentPls.ID, true, false)
-					Expect(err).ToNot(HaveOccurred())
-
-					// Check that the nested playlist was not refreshed by parent get by verifying evaluatedAt is not updated since first nestedPls get
-					nestedPlsAfterParentGet, err := repo.Get(nestedPls.ID)
-					Expect(err).ToNot(HaveOccurred())
-
-					Expect(*nestedPlsAfterParentGet.EvaluatedAt).To(Equal(*nestedPlsRead.EvaluatedAt))
-				})
-			})
+			By("verifying remaining tracks are renumbered sequentially")
+			ids, mediaFileIDs := getTrackInfo(newPls.ID)
+			Expect(ids).To(Equal([]string{"1", "2"}))
+			Expect(mediaFileIDs).To(Equal([]string{"1001", "1002"}))
 		})
 	})
 })

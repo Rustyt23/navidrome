@@ -31,9 +31,11 @@ import (
 
 func postFormToQueryParams(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
 		err := r.ParseForm()
 		if err != nil {
 			sendError(w, r, newError(responses.ErrorGeneric, err.Error()))
+			return
 		}
 		var parts []string
 		for key, values := range r.Form {
@@ -56,7 +58,7 @@ func fromInternalOrProxyAuth(r *http.Request) (string, bool) {
 		return username, true
 	}
 
-	return server.UsernameFromReverseProxyHeader(r), false
+	return server.UsernameFromExtAuthHeader(r), false
 }
 
 func checkRequiredParameters(next http.Handler) http.Handler {
@@ -153,13 +155,30 @@ func authenticate(ds model.DataStore) func(next http.Handler) http.Handler {
 	}
 }
 
+func adminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		loggedUser, ok := request.UserFrom(r.Context())
+		if !ok {
+			sendError(w, r, newError(responses.ErrorGeneric, "Internal error"))
+			return
+		}
+
+		if !loggedUser.IsAdmin {
+			sendError(w, r, newError(responses.ErrorAuthorizationFail))
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func validateCredentials(user *model.User, pass, token, salt, jwt string) error {
 	valid := false
 
 	switch {
 	case jwt != "":
 		claims, err := auth.Validate(jwt)
-		valid = err == nil && claims["sub"] == user.UserName
+		valid = err == nil && claims.Subject == user.UserName
 	case pass != "":
 		if strings.HasPrefix(pass, "enc:") {
 			if dec, err := hex.DecodeString(pass[4:]); err == nil {
@@ -197,7 +216,7 @@ func getPlayer(players core.Players) func(next http.Handler) http.Handler {
 				}
 				r = r.WithContext(ctx)
 
-				cookie := &http.Cookie{
+				cookie := &http.Cookie{ //nolint:gosec // Secure omitted: Navidrome may run over plain HTTP
 					Name:     playerIDCookieName(userName),
 					Value:    player.ID,
 					MaxAge:   consts.CookieExpiry,
@@ -237,7 +256,9 @@ func playerIDCookieName(userName string) string {
 	return cookieName
 }
 
-const subsonicErrorPointer = "subsonicErrorPointer"
+type contextKey string
+
+const subsonicErrorPointer contextKey = "subsonicErrorPointer"
 
 func recordStats(metrics metrics.Metrics) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

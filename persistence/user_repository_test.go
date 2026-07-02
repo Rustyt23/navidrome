@@ -11,6 +11,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/id"
+	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -204,6 +205,52 @@ var _ = Describe("UserRepository", func() {
 				err := validatePasswordChange(&user, loggedUser)
 				Expect(err).ToNot(HaveOccurred())
 			})
+		})
+	})
+
+	Describe("ReadAll name filter", func() {
+		var adminRepo model.ResourceRepository
+
+		BeforeEach(func() {
+			adminCtx := request.WithUser(GinkgoT().Context(), model.User{ID: "admin-id", UserName: "admin", IsAdmin: true})
+			adminRepo = NewUserRepository(adminCtx, GetDBXBuilder()).(model.ResourceRepository)
+
+			for _, u := range []model.User{
+				{ID: "filter-alice", UserName: "alice_filter", Name: "Alice Filter", NewPassword: "x"},
+				{ID: "filter-bob", UserName: "bob_filter", Name: "Bob Filter", NewPassword: "x"},
+			} {
+				Expect(adminRepo.(model.UserRepository).Put(&u)).To(Succeed())
+			}
+		})
+
+		AfterEach(func() {
+			ur := adminRepo.(model.UserRepository)
+			_ = ur.Delete("filter-alice")
+			_ = ur.Delete("filter-bob")
+		})
+
+		It("matches users whose name starts with the given prefix", func() {
+			res, err := adminRepo.ReadAll(rest.QueryOptions{Filters: map[string]any{"name": "Alice"}})
+			Expect(err).ToNot(HaveOccurred())
+			users := res.(model.Users)
+
+			var names []string
+			for _, u := range users {
+				names = append(names, u.Name)
+			}
+			Expect(names).To(ContainElement("Alice Filter"))
+			Expect(names).ToNot(ContainElement("Bob Filter"))
+		})
+
+		It("does not match names by mid-string substring (startsWith, not contains)", func() {
+			res, err := adminRepo.ReadAll(rest.QueryOptions{Filters: map[string]any{"name": "Filter"}})
+			Expect(err).ToNot(HaveOccurred())
+			users := res.(model.Users)
+
+			for _, u := range users {
+				Expect(u.ID).ToNot(Or(Equal("filter-alice"), Equal("filter-bob")),
+					"a mid-string substring should not match a startsWith filter")
+			}
 		})
 	})
 
@@ -557,6 +604,17 @@ var _ = Describe("UserRepository", func() {
 			// Regular users should be assigned to default libraries (library ID 1 from migration)
 			Expect(user.Libraries).To(HaveLen(1))
 			Expect(user.Libraries[0].ID).To(Equal(1))
+		})
+	})
+
+	Describe("filters", func() {
+		It("qualifies id filter with table name", func() {
+			r := repo.(*userRepository)
+			qo := r.parseRestOptions(r.ctx, rest.QueryOptions{Filters: map[string]any{"id": "123"}})
+			sel := r.selectUserWithLibraries(qo)
+			query, _, err := r.toSQL(sel)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(query).To(ContainSubstring("user.id = {:p0}"))
 		})
 	})
 })

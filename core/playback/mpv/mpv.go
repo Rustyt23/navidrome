@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kballard/go-shellquote"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/utils/shellquote"
 )
 
 func start(ctx context.Context, args []string) (Executor, error) {
@@ -62,8 +62,7 @@ func (j *Executor) start(ctx context.Context) error {
 
 func (j *Executor) wait() {
 	if err := j.cmd.Wait(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			_ = j.out.CloseWithError(fmt.Errorf("%s exited with non-zero status code: %d", j.args[0], exitErr.ExitCode()))
 		} else {
 			_ = j.out.CloseWithError(fmt.Errorf("waiting %s cmd: %w", j.args[0], err))

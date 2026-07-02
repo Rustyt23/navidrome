@@ -131,6 +131,10 @@ func (a *artwork) getArtworkReader(ctx context.Context, artID model.ArtworkID, s
 			artReader, err = newPlaylistArtworkReader(ctx, a, artID)
 		case model.KindDiscoveryArtwork:
 			artReader, err = newDiscoveryArtworkReader(ctx, a, artID)
+		case model.KindDiscArtwork:
+			artReader, err = newDiscArtworkReader(ctx, a, artID)
+		case model.KindRadioArtwork:
+			artReader, err = newRadioArtworkReader(ctx, a, artID)
 		default:
 			return nil, ErrUnavailable
 		}

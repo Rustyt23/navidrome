@@ -10,8 +10,8 @@ import (
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
-	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/tests"
@@ -113,9 +113,9 @@ var _ = Describe("phasePlaylists", func() {
 			future := time.Now()
 			Expect(os.Chtimes(file1, future, future)).To(Succeed())
 
-			pls.On("ImportFile", mock.Anything, folder, "playlist1.m3u").
+			pls.On("ImportFromFolder", mock.Anything, folder, "playlist1.m3u").
 				Return(&model.Playlist{}, nil)
-			pls.On("ImportFile", mock.Anything, folder, "playlist2.m3u").
+			pls.On("ImportFromFolder", mock.Anything, folder, "playlist2.m3u").
 				Return(&model.Playlist{}, nil)
 
 			_, err := phase.processPlaylistsInFolder(folder)
@@ -176,6 +176,7 @@ var _ = Describe("phasePlaylists", func() {
 		})
 
 		It("reports an error if there is an error reading files", func() {
+			tests.SkipOnWindows("relies on Unix /etc filesystem")
 			progress := make(chan *ProgressInfo)
 			state.progress = progress
 			folder := &model.Folder{Path: "/invalid/path"}
@@ -195,10 +196,10 @@ var _ = Describe("phasePlaylists", func() {
 
 type mockPlaylists struct {
 	mock.Mock
-	core.Playlists
+	playlists.Playlists
 }
 
-func (p *mockPlaylists) ImportFile(ctx context.Context, folder *model.Folder, filename string) (*model.Playlist, error) {
+func (p *mockPlaylists) ImportFromFolder(ctx context.Context, folder *model.Folder, filename string) (*model.Playlist, error) {
 	args := p.Called(ctx, folder, filename)
 	return args.Get(0).(*model.Playlist), args.Error(1)
 }
@@ -231,4 +232,33 @@ func (f *mockFolderRepository) GetTouchedWithPlaylists() (model.FolderCursor, er
 
 func (f *mockFolderRepository) SetData(m map[*model.Folder]error) {
 	f.data = m
+}
+
+// playlistRepoMock is a minimal PlaylistRepository mock used by the playlist
+// phase tests. It tracks synced playlists by path and records deletions.
+type playlistRepoMock struct {
+	model.PlaylistRepository
+	playlists map[string]model.Playlist
+	deleted   []string
+}
+
+func (r *playlistRepoMock) GetSyncedByDirectory(dir string) (model.Playlists, error) {
+	var res model.Playlists
+	cleanDir := filepath.Clean(dir)
+	for _, p := range r.playlists {
+		if p.Sync && filepath.Dir(filepath.Clean(p.Path)) == cleanDir {
+			res = append(res, p)
+		}
+	}
+	return res, nil
+}
+
+func (r *playlistRepoMock) Delete(id string) error {
+	r.deleted = append(r.deleted, id)
+	for k, p := range r.playlists {
+		if p.ID == id {
+			delete(r.playlists, k)
+		}
+	}
+	return nil
 }

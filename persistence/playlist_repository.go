@@ -14,10 +14,8 @@ import (
 
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
-	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/model/criteria"
 	"github.com/pocketbase/dbx"
 )
 
@@ -64,14 +62,14 @@ func NewPlaylistRepository(ctx context.Context, db dbx.Builder) model.PlaylistRe
 	return r
 }
 
-func playlistFilter(_ string, value interface{}) Sqlizer {
+func playlistFilter(_ string, value any) Sqlizer {
 	return Or{
 		substringFilter("playlist.name", value),
 		substringFilter("playlist.comment", value),
 	}
 }
 
-func smartPlaylistFilter(string, interface{}) Sqlizer {
+func smartPlaylistFilter(string, any) Sqlizer {
 	return Or{
 		Eq{"rules": ""},
 		Eq{"rules": nil},
@@ -162,18 +160,17 @@ func (r *playlistRepository) movePlaylistFile(pls *model.Playlist) error {
 	return nil
 }
 
-func (r *playlistRepository) Put(p *model.Playlist) error {
+func (r *playlistRepository) Put(p *model.Playlist, cols ...string) error {
 	pls := dbPlaylist{Playlist: *p}
+	if len(cols) > 0 {
+		if pls.ID == "" {
+			return errors.New("playlist id is required for partial update")
+		}
+		_, err := r.put(pls.ID, pls, cols...)
+		return err
+	}
 	if pls.ID == "" {
 		pls.CreatedAt = time.Now()
-	} else {
-		ok, err := r.Exists(pls.ID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return model.ErrNotAuthorized
-		}
 	}
 	if p.Sync && !p.UpdatedAt.IsZero() {
 		pls.UpdatedAt = p.UpdatedAt
@@ -195,7 +192,6 @@ func (r *playlistRepository) Put(p *model.Playlist) error {
 
 	if p.IsSmartPlaylist() {
 		// Do not update tracks at this point, as it may take a long time and lock the DB, breaking the scan process
-		//r.refreshSmartPlaylist(p)
 		return nil
 	}
 	// Only update tracks if they were specified
@@ -364,88 +360,6 @@ func (r *playlistRepository) selectPlaylist(options ...model.QueryOptions) Selec
 		Columns(r.tableName+".*", "user.user_name as owner_name")
 }
 
-func (r *playlistRepository) refreshSmartPlaylist(pls *model.Playlist) bool {
-	// Only refresh if it is a smart playlist and was not refreshed within the interval provided by the refresh delay config
-	if !pls.IsSmartPlaylist() || (pls.EvaluatedAt != nil && time.Since(*pls.EvaluatedAt) < conf.Server.SmartPlaylistRefreshDelay) {
-		return false
-	}
-
-	// Never refresh other users' playlists
-	usr := loggedUser(r.ctx)
-	if pls.OwnerID != usr.ID {
-		log.Trace(r.ctx, "Not refreshing smart playlist from other user", "playlist", pls.Name, "id", pls.ID)
-		return false
-	}
-
-	log.Debug(r.ctx, "Refreshing smart playlist", "playlist", pls.Name, "id", pls.ID)
-	start := time.Now()
-
-	// Remove old tracks
-	del := Delete("playlist_tracks").Where(Eq{"playlist_id": pls.ID})
-	_, err := r.executeSQL(del)
-	if err != nil {
-		log.Error(r.ctx, "Error deleting old smart playlist tracks", "playlist", pls.Name, "id", pls.ID, err)
-		return false
-	}
-
-	// Re-populate playlist based on Smart Playlist criteria
-	rules := *pls.Rules
-
-	// If the playlist depends on other playlists, recursively refresh them first
-	childPlaylistIds := rules.ChildPlaylistIds()
-	for _, id := range childPlaylistIds {
-		childPls, err := r.Get(id)
-		if err != nil {
-			log.Error(r.ctx, "Error loading child playlist", "id", pls.ID, "childId", id, err)
-			return false
-		}
-		r.refreshSmartPlaylist(childPls)
-	}
-
-	sq := Select("row_number() over (order by "+rules.OrderBy()+") as id", "'"+pls.ID+"' as playlist_id", "media_file.id as media_file_id").
-		From("media_file").LeftJoin("annotation on (" +
-		"annotation.item_id = media_file.id" +
-		" AND annotation.item_type = 'media_file'" +
-		" AND annotation.user_id = '" + usr.ID + "')")
-	sq = r.addCriteria(sq, rules)
-	insSql := Insert("playlist_tracks").Columns("id", "playlist_id", "media_file_id").Select(sq)
-	_, err = r.executeSQL(insSql)
-	if err != nil {
-		log.Error(r.ctx, "Error refreshing smart playlist tracks", "playlist", pls.Name, "id", pls.ID, err)
-		return false
-	}
-
-	// Update playlist stats
-	err = r.refreshCounters(pls)
-	if err != nil {
-		log.Error(r.ctx, "Error updating smart playlist stats", "playlist", pls.Name, "id", pls.ID, err)
-		return false
-	}
-
-	// Update when the playlist was last refreshed (for cache purposes)
-	updSql := Update(r.tableName).Set("evaluated_at", time.Now()).Where(Eq{"id": pls.ID})
-	_, err = r.executeSQL(updSql)
-	if err != nil {
-		log.Error(r.ctx, "Error updating smart playlist", "playlist", pls.Name, "id", pls.ID, err)
-		return false
-	}
-
-	log.Debug(r.ctx, "Refreshed playlist", "playlist", pls.Name, "id", pls.ID, "numTracks", pls.SongCount, "elapsed", time.Since(start))
-
-	return true
-}
-
-func (r *playlistRepository) addCriteria(sql SelectBuilder, c criteria.Criteria) SelectBuilder {
-	sql = sql.Where(c)
-	if c.Limit > 0 {
-		sql = sql.Limit(uint64(c.Limit)).Offset(uint64(c.Offset))
-	}
-	if order := c.OrderBy(); order != "" {
-		sql = sql.OrderBy(order)
-	}
-	return sql
-}
-
 func (r *playlistRepository) updateTracks(id string, tracks model.MediaFiles) error {
 	ids := make([]string, len(tracks))
 	for i := range tracks {
@@ -455,10 +369,6 @@ func (r *playlistRepository) updateTracks(id string, tracks model.MediaFiles) er
 }
 
 func (r *playlistRepository) updatePlaylist(playlistId string, mediaFileIds []string) error {
-	if !r.isWritable(playlistId) {
-		return rest.ErrPermissionDenied
-	}
-
 	// Remove old tracks
 	del := Delete("playlist_tracks").Where(Eq{"playlist_id": playlistId})
 	_, err := r.executeSQL(del)
@@ -531,6 +441,7 @@ func (r *playlistRepository) loadTracks(sel SelectBuilder, id string) (model.Pla
 			"coalesce(play_count, 0) as play_count",
 			"play_date",
 			"coalesce(rating, 0) as rating",
+			"rated_at",
 			"f.*",
 			"playlist_tracks.*",
 			"library.path as library_path",
@@ -555,11 +466,11 @@ func (r *playlistRepository) Count(options ...rest.QueryOptions) (int64, error) 
 	return r.CountAll(r.parseRestOptions(r.ctx, options...))
 }
 
-func (r *playlistRepository) Read(id string) (interface{}, error) {
+func (r *playlistRepository) Read(id string) (any, error) {
 	return r.Get(id)
 }
 
-func (r *playlistRepository) ReadAll(options ...rest.QueryOptions) (interface{}, error) {
+func (r *playlistRepository) ReadAll(options ...rest.QueryOptions) (any, error) {
 	return r.GetAll(r.parseRestOptions(r.ctx, options...))
 }
 
@@ -567,14 +478,13 @@ func (r *playlistRepository) EntityName() string {
 	return "playlist"
 }
 
-func (r *playlistRepository) NewInstance() interface{} {
+func (r *playlistRepository) NewInstance() any {
 	return &model.Playlist{}
 }
 
-func (r *playlistRepository) Save(entity interface{}) (string, error) {
+func (r *playlistRepository) Save(entity any) (string, error) {
 	pls := entity.(*model.Playlist)
-	pls.OwnerID = loggedUser(r.ctx).ID
-	pls.ID = "" // Make sure we don't override an existing playlist
+	pls.ID = "" // Force new creation
 	err := r.Put(pls)
 	if err != nil {
 		return "", err
@@ -582,26 +492,11 @@ func (r *playlistRepository) Save(entity interface{}) (string, error) {
 	return pls.ID, err
 }
 
-func (r *playlistRepository) Update(id string, entity interface{}, cols ...string) error {
+func (r *playlistRepository) Update(id string, entity any, cols ...string) error {
 	pls := dbPlaylist{Playlist: *entity.(*model.Playlist)}
-	current, err := r.Get(id)
-	if err != nil {
-		return err
-	}
-	usr := loggedUser(r.ctx)
-	if !usr.IsAdmin {
-		// Only the owner can update the playlist
-		if current.OwnerID != usr.ID {
-			return rest.ErrPermissionDenied
-		}
-		// Regular users can't change the ownership of a playlist
-		if pls.OwnerID != "" && pls.OwnerID != usr.ID {
-			return rest.ErrPermissionDenied
-		}
-	}
 	pls.ID = id
 	pls.UpdatedAt = time.Now()
-	_, err = r.put(id, pls, append(cols, "updatedAt")...)
+	_, err := r.put(id, pls, append(cols, "updatedAt")...)
 	if errors.Is(err, model.ErrNotFound) {
 		return rest.ErrNotFound
 	}
@@ -641,23 +536,31 @@ func (r *playlistRepository) removeOrphans() error {
 	return nil
 }
 
+// renumber updates the position of all tracks in the playlist to be sequential starting from 1, ordered by their
+// current position. This is needed after removing orphan tracks, to ensure there are no gaps in the track numbering.
+// The two-step approach (negate then reassign via CTE) avoids UNIQUE constraint violations on (playlist_id, id).
 func (r *playlistRepository) renumber(id string) error {
-	var ids []string
-	sq := Select("media_file_id").From("playlist_tracks").Where(Eq{"playlist_id": id}).OrderBy("id")
-	err := r.queryAllSlice(sq, &ids)
+	// Step 1: Negate all IDs to clear the positive ID space
+	_, err := r.executeSQL(Expr(
+		`UPDATE playlist_tracks SET id = -id WHERE playlist_id = ? AND id > 0`, id))
 	if err != nil {
 		return err
 	}
-	return r.updatePlaylist(id, ids)
-}
-
-func (r *playlistRepository) isWritable(playlistId string) bool {
-	usr := loggedUser(r.ctx)
-	if usr.IsAdmin {
-		return true
+	// Step 2: Assign new sequential positive IDs using UPDATE...FROM with a CTE.
+	// The CTE is fully materialized before the UPDATE begins, avoiding self-referencing issues.
+	// ORDER BY id DESC restores original order since IDs are now negative.
+	_, err = r.executeSQL(Expr(
+		`WITH new_ids AS (
+			SELECT rowid as rid, ROW_NUMBER() OVER (ORDER BY id DESC) as new_id
+			FROM playlist_tracks WHERE playlist_id = ?
+		)
+		UPDATE playlist_tracks SET id = new_ids.new_id
+		FROM new_ids
+		WHERE playlist_tracks.rowid = new_ids.rid AND playlist_tracks.playlist_id = ?`, id, id))
+	if err != nil {
+		return err
 	}
-	pls, err := r.Get(playlistId)
-	return err == nil && pls.OwnerID == usr.ID
+	return r.refreshCounters(&model.Playlist{ID: id})
 }
 
 func (r *playlistRepository) UpdatePlaylistFolder(id string, folderID *string) error {

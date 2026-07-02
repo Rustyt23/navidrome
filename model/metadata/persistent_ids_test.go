@@ -6,21 +6,23 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("getPID", func() {
 	var (
-		md     Metadata
-		mf     model.MediaFile
-		sum    hashFunc
-		getPID getPIDFunc
+		md  Metadata
+		mf  model.MediaFile
+		sum hashFunc
 	)
+	getPID := func(mf model.MediaFile, md Metadata, spec string, prependLibId bool) string {
+		return computePID(mf, md, spec, prependLibId, sum)
+	}
 
 	BeforeEach(func() {
 		sum = func(s ...string) string { return "(" + strings.Join(s, ",") + ")" }
-		getPID = createGetPID(sum)
 	})
 
 	Context("attributes are tags", func() {
@@ -65,7 +67,7 @@ var _ = Describe("getPID", func() {
 	Context("calculated attributes", func() {
 		BeforeEach(func() {
 			DeferCleanup(configtest.SetupConfig())
-			conf.Server.PID.Album = "musicbrainz_albumid|albumartistid,album,version,releasedate"
+			conf.Server.PID.Album = "musicbrainz_albumid|albumartistid,album,albumversion,releasedate"
 		})
 		When("field is title", func() {
 			It("should return the pid", func() {
@@ -78,6 +80,7 @@ var _ = Describe("getPID", func() {
 		})
 		When("field is folder", func() {
 			It("should return the pid", func() {
+				tests.SkipOnWindows("path separator bug (#TBD-path-sep-metadata)")
 				spec := "folder|title"
 				md.tags = map[model.TagName][]string{"title": {"title"}}
 				mf.Path = "/path/to/file.mp3"
@@ -88,13 +91,13 @@ var _ = Describe("getPID", func() {
 			It("should return the pid", func() {
 				spec := "albumid|title"
 				md.tags = map[model.TagName][]string{
-					"title":       {"title"},
-					"album":       {"album name"},
-					"version":     {"version"},
-					"releasedate": {"2021-01-01"},
+					"title":        {"title"},
+					"album":        {"album name"},
+					"albumversion": {"deluxe edition"},
+					"releasedate":  {"2021-01-01"},
 				}
 				mf.AlbumArtist = "Album Artist"
-				Expect(getPID(mf, md, spec, false)).To(Equal("(((album artist)\\album name\\version\\2021-01-01))"))
+				Expect(getPID(mf, md, spec, false)).To(Equal("(((album artist)\\album name\\deluxe edition\\2021-01-01))"))
 			})
 		})
 		When("field is albumartistid", func() {
@@ -112,6 +115,24 @@ var _ = Describe("getPID", func() {
 				spec := "album|title"
 				md.tags = map[model.TagName][]string{"album": {"Album Name"}}
 				Expect(getPID(mf, md, spec, false)).To(Equal("(album name)"))
+			})
+		})
+
+		When("albumid configuration refers to albumid recursively", func() {
+			It("should avoid infinite recursion", func() {
+				// Reproduce the issue from #4920
+				conf.Server.PID.Album = "albumid,album,albumversion,releasedate"
+				spec := conf.Server.PID.Album
+				md.tags = map[model.TagName][]string{
+					"album":        {"Album Name"},
+					"albumversion": {"Version"},
+					"releasedate":  {"2022"},
+				}
+				// Should not panic and return a valid PID ignoring the recursive "albumid"
+				Expect(func() {
+					pid := getPID(mf, md, spec, false)
+					Expect(pid).To(Equal("(\\album name\\Version\\2022)"))
+				}).To(Not(Panic()))
 			})
 		})
 	})

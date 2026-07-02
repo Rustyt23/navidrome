@@ -23,7 +23,10 @@ const defaultConfig = {
   defaultTheme: 'Music Matters',
   defaultLanguage: '',
   defaultUIVolume: 100,
+  uiSearchDebounceMs: 200,
+  uiCoverArtSize: 600,
   enableUserEditing: true,
+  enableArtworkUpload: true,
   enableSharing: true,
   shareURL: '',
   defaultDownloadableShare: true,
@@ -33,6 +36,7 @@ const defaultConfig = {
   enableExternalServices: true,
   enableCoverAnimation: true,
   enableNowPlaying: true,
+  playbackReportIntervalMs: 60000,
   devShowArtistPage: true,
   devUIShowConfig: true,
   devNewEventStream: false,
@@ -43,6 +47,7 @@ const defaultConfig = {
   enableInspect: true,
   retailPlayerDevicesEnabled: false,
   retailPlayerDeviceLockPassword: '',
+  pluginsEnabled: true,
 }
 
 let config

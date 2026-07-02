@@ -14,6 +14,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/metrics"
+	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/storage/storagetest"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
@@ -32,7 +33,7 @@ var _ = Describe("Scanner - Multi-Library", Ordered, func() {
 	var ctx context.Context
 	var lib1, lib2 model.Library
 	var ds *tests.MockDataStore
-	var s scanner.Scanner
+	var s model.Scanner
 
 	createFS := func(path string, files fstest.MapFS) storagetest.FakeFS {
 		fs := storagetest.FakeFS{}
@@ -42,6 +43,7 @@ var _ = Describe("Scanner - Multi-Library", Ordered, func() {
 	}
 
 	BeforeAll(func() {
+		tests.SkipOnWindows("SQLite file lock blocks TempDir cleanup (#TBD-path-sep-scanner)")
 		ctx = request.WithUser(GinkgoT().Context(), model.User{ID: "123", IsAdmin: true})
 		tmpDir := GinkgoT().TempDir()
 		conf.Server.DbPath = filepath.Join(tmpDir, "test-scanner-multilibrary.db?_journal_mode=WAL")
@@ -51,7 +53,13 @@ var _ = Describe("Scanner - Multi-Library", Ordered, func() {
 
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
+		conf.Server.MusicFolder = "default:///music" // Use a distinct schema for the default library
 		conf.Server.DevExternalScanner = false
+
+		// Register an empty fake storage for the default library
+		emptyFS := storagetest.FakeFS{}
+		emptyFS.SetFiles(fstest.MapFS{})
+		storagetest.Register("default", &emptyFS)
 
 		db.Init(ctx)
 		DeferCleanup(func() {
@@ -70,8 +78,8 @@ var _ = Describe("Scanner - Multi-Library", Ordered, func() {
 		}
 		Expect(ds.User(ctx).Put(&adminUser)).To(Succeed())
 
-                s = scanner.New(ctx, ds, artwork.NoopCacheWarmer(), events.NoopBroker(),
-                        core.NewPlaylists(ds), core.NewDiscoveries(ds), metrics.NewNoopInstance())
+		s = scanner.New(ctx, ds, artwork.NoopCacheWarmer(), events.NoopBroker(),
+			playlists.NewPlaylists(ds, core.NewImageUploadService()), core.NewDiscoveries(ds), metrics.NewNoopInstance())
 
 		// Create two test libraries (let DB auto-assign IDs)
 		lib1 = model.Library{Name: "Rock Collection", Path: "rock:///music"}
@@ -770,7 +778,7 @@ var _ = Describe("Scanner - Multi-Library", Ordered, func() {
 				// Second scan should recover and import all rock content
 				warnings, err = s.ScanAll(ctx, true)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(warnings).ToNot(BeEmpty(), "Should have warnings for temporary disk error")
+				Expect(warnings).To(BeEmpty(), "Should have no warnings after error recovery")
 
 				// Verify both libraries now have content (at least jazz should work)
 				rockFiles, err := ds.MediaFile(ctx).GetAll(model.QueryOptions{

@@ -164,7 +164,7 @@ func (r *playlistRepository) Tracks(playlistId string, refreshSmartPlaylist bool
 			"id":                      "playlist_tracks.id",
 			"artist":                  "order_artist_name",
 			"album_artist":            "order_album_artist_name",
-			"album":                   "order_album_name, order_album_artist_name",
+			"album":                   "order_album_name, album_id, disc_number, track_number, order_artist_name, title",
 			"title":                   "order_title",
 			"duration":                "duration",
 			"year":                    "year",
@@ -207,7 +207,7 @@ func (r *playlistTrackRepository) Count(options ...rest.QueryOptions) (int64, er
 	return int64(len(tracks)), nil
 }
 
-func (r *playlistTrackRepository) Read(id string) (interface{}, error) {
+func (r *playlistTrackRepository) Read(id string) (any, error) {
 	userID := loggedUser(r.ctx).ID
 	sel := r.newSelect().
 		LeftJoin("annotation on ("+
@@ -220,6 +220,7 @@ func (r *playlistTrackRepository) Read(id string) (interface{}, error) {
 			"coalesce(rating, 0) as rating",
 			"starred_at",
 			"play_date",
+			"rated_at",
 			"f.*",
 			"playlist_tracks.*",
 		).
@@ -277,7 +278,7 @@ func (r *playlistTrackRepository) Search(q string, offset, size int, options ...
 		Join("media_file f on f.id = media_file_id").
 		Where(Eq{"playlist_id": r.playlistId})
 
-	if filter := fullTextExpr("f", q); filter != nil {
+	if filter := legacySearchExpr("f", q); filter != nil {
 		sel = sel.Where(filter).OrderBy("order_title")
 	} else {
 		sel = sel.OrderBy("playlist_tracks.rowid")
@@ -291,7 +292,7 @@ func (r *playlistTrackRepository) Search(q string, offset, size int, options ...
 	return tracks, nil
 }
 
-func (r *playlistTrackRepository) ReadAll(options ...rest.QueryOptions) (interface{}, error) {
+func (r *playlistTrackRepository) ReadAll(options ...rest.QueryOptions) (any, error) {
 	if len(options) > 0 {
 		r.lastRestOpts = options[0]
 	} else {
@@ -466,12 +467,8 @@ func (r *playlistTrackRepository) EntityName() string {
 	return "playlist_tracks"
 }
 
-func (r *playlistTrackRepository) NewInstance() interface{} {
+func (r *playlistTrackRepository) NewInstance() any {
 	return &model.PlaylistTrack{}
-}
-
-func (r *playlistTrackRepository) isTracksEditable() bool {
-	return r.playlistRepo.isWritable(r.playlistId) && !r.playlist.IsSmartPlaylist()
 }
 
 func (r *playlistTrackRepository) Add(mediaFileIds []string) (int, error) {
@@ -479,7 +476,9 @@ func (r *playlistTrackRepository) Add(mediaFileIds []string) (int, error) {
 		return 0, rest.ErrPermissionDenied
 	}
 
-	if len(mediaFileIds) == 0 {
+	if len(mediaFileIds) > 0 {
+		log.Debug(r.ctx, "Adding songs to playlist", "playlistId", r.playlistId, "mediaFileIds", mediaFileIds)
+	} else {
 		return 0, nil
 	}
 
@@ -896,9 +895,6 @@ func (r *playlistTrackRepository) getTracks() ([]string, error) {
 }
 
 func (r *playlistTrackRepository) Delete(ids ...string) error {
-	if !r.isTracksEditable() {
-		return rest.ErrPermissionDenied
-	}
 	err := r.delete(And{Eq{"playlist_id": r.playlistId}, Eq{"id": ids}})
 	if err != nil {
 		return err
@@ -908,9 +904,6 @@ func (r *playlistTrackRepository) Delete(ids ...string) error {
 }
 
 func (r *playlistTrackRepository) DeleteAll() error {
-	if !r.isTracksEditable() {
-		return rest.ErrPermissionDenied
-	}
 	err := r.delete(Eq{"playlist_id": r.playlistId})
 	if err != nil {
 		return err
@@ -919,16 +912,45 @@ func (r *playlistTrackRepository) DeleteAll() error {
 	return r.playlistRepo.renumber(r.playlistId)
 }
 
+// Reorder moves a track from pos to newPos, shifting other tracks accordingly.
 func (r *playlistTrackRepository) Reorder(pos int, newPos int) error {
-	if !r.isTracksEditable() {
-		return rest.ErrPermissionDenied
+	if pos == newPos {
+		return nil
 	}
-	ids, err := r.getTracks()
+	pid := r.playlistId
+
+	// Step 1: Move the source track out of the way (temporary sentinel value)
+	_, err := r.executeSQL(Expr(
+		`UPDATE playlist_tracks SET id = -999999 WHERE playlist_id = ? AND id = ?`, pid, pos))
 	if err != nil {
 		return err
 	}
-	newOrder := slice.Move(ids, pos-1, newPos-1)
-	return r.playlistRepo.updatePlaylist(r.playlistId, newOrder)
+
+	// Step 2: Shift the affected range using negative values to avoid unique constraint violations
+	if pos < newPos {
+		_, err = r.executeSQL(Expr(
+			`UPDATE playlist_tracks SET id = -(id - 1) WHERE playlist_id = ? AND id > ? AND id <= ?`,
+			pid, pos, newPos))
+	} else {
+		_, err = r.executeSQL(Expr(
+			`UPDATE playlist_tracks SET id = -(id + 1) WHERE playlist_id = ? AND id >= ? AND id < ?`,
+			pid, newPos, pos))
+	}
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Flip the shifted range back to positive
+	_, err = r.executeSQL(Expr(
+		`UPDATE playlist_tracks SET id = -id WHERE playlist_id = ? AND id < 0 AND id != -999999`, pid))
+	if err != nil {
+		return err
+	}
+
+	// Step 4: Place the source track at its new position
+	_, err = r.executeSQL(Expr(
+		`UPDATE playlist_tracks SET id = ? WHERE playlist_id = ? AND id = -999999`, newPos, pid))
+	return err
 }
 
 var _ model.PlaylistTrackRepository = (*playlistTrackRepository)(nil)

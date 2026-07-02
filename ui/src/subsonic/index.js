@@ -1,10 +1,14 @@
 import { baseUrl } from '../utils'
+import {
+  httpClient,
+  clientUniqueId,
+  clientUniqueIdHeader,
+} from '../dataProvider'
 
 const defaultCoverArtUrl = () => {
   const coverArtPath = url('getCoverArt')
   return coverArtPath ? baseUrl(coverArtPath) : ''
 }
-import { httpClient } from '../dataProvider'
 
 const url = (command, id, options) => {
   const username = localStorage.getItem('username')
@@ -28,7 +32,13 @@ const url = (command, id, options) => {
       delete options.ts
     }
     Object.keys(options).forEach((k) => {
-      params.append(k, options[k])
+      const value = options[k]
+      // Handle array parameters by appending each value separately
+      if (Array.isArray(value)) {
+        value.forEach((v) => params.append(k, v))
+      } else {
+        params.append(k, value)
+      }
     })
   }
   return `/rest/${command}?${params.toString()}`
@@ -36,16 +46,21 @@ const url = (command, id, options) => {
 
 const ping = () => httpClient(url('ping'))
 
-const scrobble = (id, time, submission = true, position = null) =>
-  httpClient(
-    url('scrobble', id, {
-      ...(submission && time && { time }),
-      submission,
-      ...(!submission && position !== null && { position }),
-    }),
-  )
+const reportPlaybackUrl = (mediaId, positionMs, state) =>
+  url('reportPlayback', null, { mediaId, mediaType: 'song', positionMs, state })
 
-const nowPlaying = (id, position = null) => scrobble(id, null, false, position)
+const reportPlayback = (mediaId, positionMs, state) =>
+  httpClient(reportPlaybackUrl(mediaId, positionMs, state))
+
+const reportPlaybackKeepalive = (mediaId, positionMs, state) => {
+  const u = reportPlaybackUrl(mediaId, positionMs, state)
+  if (u) {
+    fetch(baseUrl(u), {
+      keepalive: true,
+      headers: { [clientUniqueIdHeader]: clientUniqueId },
+    })
+  }
+}
 
 const star = (id) => httpClient(url('star', id))
 
@@ -80,7 +95,7 @@ const getCoverArtUrl = (record, size, square) => {
   // TODO Move this logic to server
   let coverArtUrl = ''
   if (record.type === 'discovery') {
-    coverArtUrl = baseUrl(url('getCoverArt', `dc-${record.id}`, options))
+    coverArtUrl = baseUrl(url('getCoverArt', `dy-${record.id}`, options))
   } else if (record.album) {
     coverArtUrl = baseUrl(url('getCoverArt', 'mf-' + record.id, options))
   } else if (record.albumArtist) {
@@ -88,11 +103,24 @@ const getCoverArtUrl = (record, size, square) => {
   } else if (record.sync !== undefined) {
     // This is a playlist
     coverArtUrl = baseUrl(url('getCoverArt', 'pl-' + record.id, options))
+  } else if (record.streamUrl !== undefined) {
+    // This is a radio station
+    coverArtUrl = baseUrl(url('getCoverArt', 'ra-' + record.id, options))
   } else {
     coverArtUrl = baseUrl(url('getCoverArt', 'ar-' + record.id, options))
   }
 
   return coverArtUrl || defaultCoverArtUrl()
+}
+
+const getDiscCoverArtUrl = (albumId, discNumber, updatedAt, size) => {
+  const options = {
+    ...(updatedAt && { _: updatedAt }),
+    ...(size && { size }),
+  }
+  return baseUrl(
+    url('getCoverArt', 'dc-' + albumId + ':' + discNumber, options),
+  )
 }
 
 const getArtistInfo = (id) => {
@@ -123,8 +151,8 @@ const streamUrl = (id, options) => {
 export default {
   url,
   ping,
-  scrobble,
-  nowPlaying,
+  reportPlayback,
+  reportPlaybackKeepalive,
   download,
   star,
   unstar,
@@ -133,6 +161,7 @@ export default {
   getScanStatus,
   getNowPlaying,
   getCoverArtUrl,
+  getDiscCoverArtUrl,
   getAvatarUrl,
   streamUrl,
   getAlbumInfo,

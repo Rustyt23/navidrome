@@ -3,19 +3,36 @@ import { render, fireEvent, screen, waitFor } from '@testing-library/react'
 import { TestContext } from 'ra-test'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SongContextMenu } from './SongContextMenu'
+import subsonic from '../subsonic'
 
 vi.mock('../dataProvider', () => ({
   httpClient: vi.fn(),
 }))
 
-vi.mock('react-redux', () => ({ useDispatch: () => vi.fn() }))
+vi.mock('../subsonic', () => ({
+  default: { getSimilarSongs2: vi.fn() },
+}))
+
+vi.mock('../config', () => ({
+  default: {
+    enableDownloads: true,
+    enableFavourites: true,
+    enableSharing: true,
+    enableExternalServices: true,
+  },
+}))
+
+const mockDispatch = vi.fn()
+vi.mock('react-redux', () => ({ useDispatch: () => mockDispatch }))
 
 const getPlaylistsMock = vi.fn()
+const mockNotify = vi.fn()
 
 vi.mock('react-admin', async (importOriginal) => {
   const actual = await importOriginal()
   return {
     ...actual,
+    useNotify: () => mockNotify,
     useRedirect: () => (url) => {
       window.location.hash = `#${url}`
     },
@@ -34,6 +51,14 @@ describe('SongContextMenu', () => {
     window.location.hash = ''
     getPlaylistsMock.mockResolvedValue({
       data: [{ id: 'pl1', name: 'Pl 1' }],
+    })
+    subsonic.getSimilarSongs2.mockResolvedValue({
+      json: {
+        'subsonic-response': {
+          status: 'ok',
+          similarSongs2: { song: [{ id: 's1' }] },
+        },
+      },
     })
   })
 

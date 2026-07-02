@@ -89,8 +89,7 @@ func (r *playQueueRepository) Retrieve(userId string) (*model.PlayQueue, error) 
 	sel := r.newSelect().Columns("*").Where(Eq{"user_id": userId})
 	var res playQueue
 	err := r.queryOne(sel, &res)
-	q := r.toModel(&res)
-	return &q, err
+	return new(r.toModel(&res)), err
 }
 
 func (r *playQueueRepository) fromModel(q *model.PlayQueue) playQueue {
@@ -122,8 +121,8 @@ func (r *playQueueRepository) toModel(pq *playQueue) model.PlayQueue {
 		UpdatedAt: pq.UpdatedAt,
 	}
 	if strings.TrimSpace(pq.Items) != "" {
-		tracks := strings.Split(pq.Items, ",")
-		for _, t := range tracks {
+		tracks := strings.SplitSeq(pq.Items, ",")
+		for t := range tracks {
 			q.Items = append(q.Items, model.MediaFile{ID: t})
 		}
 	}

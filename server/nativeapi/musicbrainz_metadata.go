@@ -19,7 +19,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/navidrome/navidrome/adapters/taglib"
+	"github.com/navidrome/navidrome/adapters/taglibwrite"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -1865,7 +1865,7 @@ func (n *Router) saveFetchedMetadataToSongs() (metadataSaveSummary, error) {
 
 		summary.Remaining++
 
-		if err := taglib.WriteFetchedMetadata(mf.AbsolutePath(), taglib.FetchedMetadata{
+		if err := taglibwrite.WriteFetchedMetadata(mf.AbsolutePath(), taglibwrite.FetchedMetadata{
 			Album:         mf.Album,
 			Year:          mf.Year,
 			Genre:         mf.Genre,
