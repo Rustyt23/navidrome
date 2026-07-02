@@ -27,7 +27,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/server/public"
+	"github.com/navidrome/navidrome/core/publicurl"
 	"github.com/navidrome/navidrome/utils"
 )
 
@@ -2979,7 +2979,7 @@ func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.
 			continue
 		}
 
-		artworkURL := public.ImageURL(r, artID, 300)
+		artworkURL := publicurl.ImageURL(r, artID, 300)
 		if artworkURL != "" {
 			if strings.Contains(artworkURL, "?") {
 				artworkURL += "&square=true"

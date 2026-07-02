@@ -27,11 +27,11 @@ import (
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server"
-	"github.com/navidrome/navidrome/server/public"
+	"github.com/navidrome/navidrome/core/publicurl"
 )
 
 const (
-	coverArtDefaultSize = consts.UICoverArtSize
+	coverArtDefaultSize = consts.DefaultUICoverArtSize
 	coverCacheDirName   = "covercache"
 )
 
@@ -340,7 +340,7 @@ func (n *Router) populateSongArtwork(r *http.Request, song *model.MediaFile) {
 		song.ArtworkID = coverArtID
 		coverArtURL := strings.TrimSpace(song.ArtworkURL)
 		if coverArtURL == "" && coverArtID != "" {
-			coverArtURL = public.ImageURL(r, song.CoverArtID(), coverArtDefaultSize)
+			coverArtURL = publicurl.ImageURL(r, song.CoverArtID(), coverArtDefaultSize)
 		}
 		if coverArtURL != "" {
 			if strings.Contains(coverArtURL, "?") {
