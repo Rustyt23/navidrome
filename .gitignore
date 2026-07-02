@@ -25,3 +25,5 @@ docker-compose.yml
 binaries
 navidrome-master
 *.exe
+# Local confidential backup
+conf/configuration.go.local-secret-backup

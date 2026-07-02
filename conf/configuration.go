@@ -86,6 +86,10 @@ type configOptions struct {
 	EnableCoverAnimation            bool
 	EnableNowPlaying                bool
 	GATrackingID                    string
+	GeminiAPIKey                    string
+	GemmaAPIURL                     string
+	GemmaAPIKey                     string
+	WhisperAPIURL                   string
 	EnableLogRedacting              bool
 	AuthRequestLimit                int
 	AuthWindowLength                time.Duration
@@ -107,6 +111,7 @@ type configOptions struct {
 	Deezer                          deezerOptions       `json:",omitzero"`
 	ListenBrainz                    listenBrainzOptions `json:",omitzero"`
 	RetailPlayer                    retailPlayerOptions `json:",omitzero"`
+	AI                              aiOptions           `json:",omitzero"`
 	Tags                            map[string]TagConf  `json:",omitempty"`
 	Agents                          string
 
@@ -206,6 +211,12 @@ type deezerOptions struct {
 type listenBrainzOptions struct {
 	Enabled bool
 	BaseURL string
+}
+
+type aiOptions struct {
+	OpenAIAPIKey string
+	OpenAIModel  string
+	GeminiAPIKey string
 }
 
 type retailPlayerNotificationOptions struct {
@@ -610,6 +621,10 @@ func setViperDefaults() {
 	viper.SetDefault("defaultshareexpiration", 8760*time.Hour)
 	viper.SetDefault("defaultdownloadableshare", false)
 	viper.SetDefault("gatrackingid", "")
+	viper.SetDefault("geminiapikey", "")
+	viper.SetDefault("gemmaapiurl", "")
+	viper.SetDefault("gemmaapikey", "")
+	viper.SetDefault("whisperapiurl", "")
 	viper.SetDefault("enableinsightscollector", true)
 	viper.SetDefault("enablelogredacting", true)
 	viper.SetDefault("authrequestlimit", 5)
@@ -685,6 +700,9 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.search", "")
 	viper.SetDefault("retailplayer.fields", []string{})
 	viper.SetDefault("retailplayer.additionalheaders", map[string]string{})
+	viper.SetDefault("ai.openaiapikey", "")
+	viper.SetDefault("ai.openaimodel", "gpt-4.1-mini")
+	viper.SetDefault("ai.geminiapikey", "")
 	viper.SetDefault("httpsecurityheaders.customframeoptionsvalue", "DENY")
 	viper.SetDefault("backup.path", "")
 	viper.SetDefault("backup.schedule", "")

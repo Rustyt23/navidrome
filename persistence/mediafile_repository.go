@@ -385,6 +385,35 @@ func (r *mediaFileRepository) UpdateSpotifyMetadata(id string, confidence *float
 	return err
 }
 
+func (r *mediaFileRepository) UpdateLyrics(id string, lyrics string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+
+	up := Update(r.tableName).
+		Set("lyrics", lyrics).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(up)
+	return err
+}
+
+func (r *mediaFileRepository) UpdateExplicitStatus(id string, explicitStatus string) error {
+	id = strings.TrimSpace(id)
+	explicitStatus = strings.TrimSpace(explicitStatus)
+	if id == "" || explicitStatus == "" {
+		return nil
+	}
+
+	up := Update(r.tableName).
+		Set("explicit_status", explicitStatus).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(up)
+	return err
+}
+
 func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile) error {
 	ids := slice.SeqFunc(mfs, func(m *model.MediaFile) string { return m.ID })
 	for chunk := range slice.CollectChunks(ids, 200) {
