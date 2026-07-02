@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -82,6 +83,16 @@ type aiChatProvider interface {
 type aiProviderSpec struct {
 	ID    string
 	Model string
+}
+
+type aiServiceStatus struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Online bool   `json:"online"`
+}
+
+type aiStatusResponse struct {
+	Services []aiServiceStatus `json:"services"`
 }
 
 type geminiClient struct {
@@ -217,6 +228,14 @@ func (g gemmaClient) Chat(ctx context.Context, message string) (string, error) {
 }
 
 func (n *Router) addAIChatRoute(r chi.Router) {
+	r.Get("/ai/status", func(w http.ResponseWriter, req *http.Request) {
+		ctx, cancel := context.WithTimeout(req.Context(), 4*time.Second)
+		defer cancel()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(aiStatusResponse{Services: getAIServiceStatuses(ctx)})
+	})
+
 	r.Post("/ai/chat", func(w http.ResponseWriter, req *http.Request) {
 		var payload aiChatRequest
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
@@ -398,8 +417,8 @@ func aiChatProviderSpec(provider string, modelName string) aiProviderSpec {
 		return aiProviderSpec{ID: "gemini-2.5", Model: "gemini-2.5-flash"}
 	case "gemini-3.5", "gemini-3.5-flash":
 		return aiProviderSpec{ID: "gemini-3.5", Model: "gemini-3.5-flash"}
-	case "gemma-4", "gemma-3", "gemma3", "gemma3:4b":
-		return aiProviderSpec{ID: "gemma-4", Model: "gemma4"}
+	case "gemma-26b", "gemma-26", "gemma-4", "gemma-3", "gemma3", "gemma3:4b":
+		return aiProviderSpec{ID: "gemma-26b", Model: "gemma-26b"}
 	default:
 		return aiProviderSpec{}
 	}
@@ -408,10 +427,7 @@ func aiChatProviderSpec(provider string, modelName string) aiProviderSpec {
 func newAIChatProvider(spec aiProviderSpec) (aiChatProvider, error) {
 	switch spec.ID {
 	case "gemini-2.5", "gemini-3.5":
-		apiKey := strings.TrimSpace(conf.Server.GeminiAPIKey)
-		if apiKey == "" {
-			apiKey = strings.TrimSpace(conf.Server.AI.GeminiAPIKey)
-		}
+		apiKey := geminiAPIKey()
 		if apiKey == "" {
 			return nil, fmt.Errorf("Gemini API key is not configured")
 		}
@@ -420,9 +436,8 @@ func newAIChatProvider(spec aiProviderSpec) (aiChatProvider, error) {
 			model:  spec.Model,
 			client: http.DefaultClient,
 		}, nil
-	case "gemma-4":
-		apiURL := strings.TrimSpace(os.Getenv("ND_GEMMA_API_URL"))
-		apiKey := strings.TrimSpace(os.Getenv("ND_GEMMA_API_KEY"))
+	case "gemma-26b":
+		apiURL, apiKey := gemmaCredentials()
 		if apiURL == "" {
 			return nil, fmt.Errorf("Gemma API URL is not configured")
 		}
@@ -437,6 +452,125 @@ func newAIChatProvider(spec aiProviderSpec) (aiChatProvider, error) {
 	default:
 		return nil, fmt.Errorf("unsupported AI provider")
 	}
+}
+
+func gemmaCredentials() (string, string) {
+	apiURL := strings.TrimSpace(os.Getenv("ND_GEMMA_API_URL"))
+	apiKey := strings.TrimSpace(os.Getenv("ND_GEMMA_API_KEY"))
+	if apiURL == "" {
+		apiURL = strings.TrimSpace(conf.Server.GemmaAPIURL)
+	}
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(conf.Server.GemmaAPIKey)
+	}
+	return apiURL, apiKey
+}
+
+func geminiAPIKey() string {
+	apiKey := strings.TrimSpace(conf.Server.GeminiAPIKey)
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(conf.Server.AI.GeminiAPIKey)
+	}
+	return apiKey
+}
+
+func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
+	client := &http.Client{Timeout: 4 * time.Second}
+	gemmaURL, gemmaAPIKey := gemmaCredentials()
+	whisperURL := strings.TrimSpace(conf.Server.WhisperAPIURL)
+	geminiKey := geminiAPIKey()
+
+	checks := []struct {
+		id    string
+		label string
+		probe func() bool
+	}{
+		{
+			id:    "gemma-26b",
+			label: "Gemma 26B",
+			probe: func() bool {
+				return gemmaAPIKey != "" && probeAIEndpoint(ctx, client, gemmaURL, gemmaAPIKey)
+			},
+		},
+		{
+			id:    "whisper",
+			label: "Whisper",
+			probe: func() bool { return probeAIEndpoint(ctx, client, whisperURL, "") },
+		},
+		{
+			id:    "gemini-2.5",
+			label: "Gemini 2.5",
+			probe: func() bool { return probeGeminiModel(ctx, client, geminiKey, "gemini-2.5-flash") },
+		},
+		{
+			id:    "gemini-3.5",
+			label: "Gemini 3.5",
+			probe: func() bool { return probeGeminiModel(ctx, client, geminiKey, "gemini-3.5-flash") },
+		},
+	}
+
+	statuses := make([]aiServiceStatus, len(checks))
+	var wg sync.WaitGroup
+	for i := range checks {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			check := checks[index]
+			statuses[index] = aiServiceStatus{
+				ID:     check.id,
+				Label:  check.label,
+				Online: check.probe(),
+			}
+		}(i)
+	}
+	wg.Wait()
+	return statuses
+}
+
+func probeAIEndpoint(ctx context.Context, client *http.Client, endpoint string, apiKey string) bool {
+	if strings.TrimSpace(endpoint) == "" {
+		return false
+	}
+	if _, err := url.ParseRequestURI(endpoint); err != nil {
+		return false
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, endpoint, nil)
+	if err != nil {
+		return false
+	}
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusBadRequest ||
+		resp.StatusCode == http.StatusMethodNotAllowed
+}
+
+func probeGeminiModel(ctx context.Context, client *http.Client, apiKey string, model string) bool {
+	if strings.TrimSpace(apiKey) == "" {
+		return false
+	}
+	endpoint := fmt.Sprintf(
+		"https://generativelanguage.googleapis.com/v1beta/models/%s?key=%s",
+		url.PathEscape(model),
+		url.QueryEscape(apiKey),
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusBadRequest
 }
 
 func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string) (aiLyricsResponse, error) {

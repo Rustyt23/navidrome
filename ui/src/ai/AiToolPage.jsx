@@ -6,6 +6,7 @@ import {
   CardContent,
   Checkbox,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -35,7 +36,14 @@ const DEFAULT_AI_PROVIDER_STORAGE_KEY = 'aiToolDefaultProvider'
 const AI_PROVIDERS = [
   { id: 'gemini-2.5', label: 'Gemini 2.5' },
   { id: 'gemini-3.5', label: 'Gemini 3.5' },
-  { id: 'gemma-4', label: 'Gemma 4' },
+  { id: 'gemma-26b', label: 'Gemma 26B' },
+]
+
+const AI_SERVICES = [
+  { id: 'gemma-26b', label: 'Gemma 26B' },
+  { id: 'whisper', label: 'Whisper' },
+  { id: 'gemini-2.5', label: 'Gemini 2.5' },
+  { id: 'gemini-3.5', label: 'Gemini 3.5' },
 ]
 
 const CHAT_MIN_WIDTH = 320
@@ -86,11 +94,13 @@ const normalizeAIProvider = (provider) => {
     case 'gemini-3.5':
     case 'gemini-3.5-flash':
       return 'gemini-3.5'
+    case 'gemma-26b':
+    case 'gemma-26':
     case 'gemma-4':
     case 'gemma-3':
     case 'gemma3':
     case 'gemma3:4b':
-      return 'gemma-4'
+      return 'gemma-26b'
     case 'gemini-2.5':
     case 'gemini-2.5-flash':
     default:
@@ -151,6 +161,68 @@ const useStyles = makeStyles((theme) => ({
     '& .MuiSelect-icon': {
       color: '#ff8fc6',
     },
+  },
+  serviceStatusPanel: {
+    width: '100%',
+    borderRadius: 8,
+    border: '1px solid rgba(255, 255, 255, 0.12)',
+    background: '#151f2d',
+    overflow: 'hidden',
+  },
+  serviceStatusHeader: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: theme.spacing(1.25, 1.5),
+    color: '#ffffff',
+    cursor: 'pointer',
+    background: 'transparent',
+    border: 0,
+    textAlign: 'left',
+    font: 'inherit',
+  },
+  serviceStatusSummary: {
+    color: '#c9d1dc',
+    fontSize: 13,
+  },
+  serviceStatusList: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: theme.spacing(1),
+    padding: theme.spacing(0, 1.5, 1.5),
+  },
+  serviceStatusItem: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing(1),
+    padding: theme.spacing(1),
+    borderRadius: 6,
+    background: '#0f1722',
+  },
+  serviceStatusName: {
+    color: '#f7f8fb',
+  },
+  serviceStatusValue: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 12,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: '#8a94a3',
+  },
+  statusDotOnline: {
+    background: '#3ddc84',
+    boxShadow: '0 0 8px rgba(61, 220, 132, 0.6)',
+  },
+  statusDotOffline: {
+    background: '#ff5c8a',
+    boxShadow: '0 0 8px rgba(255, 92, 138, 0.45)',
   },
   buttonProgress: {
     marginRight: theme.spacing(1),
@@ -275,6 +347,12 @@ const useStyles = makeStyles((theme) => ({
     color: '#ff8fc6',
     fontSize: 13,
     marginTop: 2,
+  },
+  chatStatusOnline: {
+    color: '#3ddc84',
+  },
+  chatStatusOffline: {
+    color: '#ff8fc6',
   },
   chatClose: {
     minWidth: 32,
@@ -510,6 +588,10 @@ const AiToolPage = () => {
   const [rowActionAnchorEl, setRowActionAnchorEl] = useState(null)
   const [rowActionSong, setRowActionSong] = useState(null)
   const [jobProgress, setJobProgress] = useState(null)
+  const [isStatusOpen, setIsStatusOpen] = useState(true)
+  const [modelStatuses, setModelStatuses] = useState(() =>
+    AI_SERVICES.map((service) => ({ ...service, online: null })),
+  )
 
   const selectedSongs = useMemo(
     () => availableSongs.filter((song) => selectedSongIds.includes(song.id)),
@@ -534,6 +616,13 @@ const AiToolPage = () => {
   const jobProgressValue = jobProgress?.total
     ? Math.round((jobProgress.done / jobProgress.total) * 100)
     : 0
+
+  const selectedModelStatus = modelStatuses.find(
+    (service) => service.id === normalizeAIProvider(chatProvider),
+  )
+  const selectedModelOnline = selectedModelStatus?.online
+  const onlineServiceCount = modelStatuses.filter((service) => service.online === true).length
+  const areStatusesChecking = modelStatuses.some((service) => service.online === null)
 
   const isAIValue = (song, field) => {
     if (song.aiFields?.[field]) return true
@@ -569,6 +658,35 @@ const AiToolPage = () => {
       setChatProvider(defaultProvider)
     }
   }, [defaultProvider, chatProviderOverridden])
+
+  useEffect(() => {
+    let active = true
+
+    const refreshStatuses = async () => {
+      try {
+        const { json } = await httpClient('/api/ai/status')
+        if (!active) return
+        const byId = new Map((json?.services || []).map((service) => [service.id, service]))
+        setModelStatuses(
+          AI_SERVICES.map((service) => ({
+            ...service,
+            online: byId.get(service.id)?.online === true,
+          })),
+        )
+      } catch {
+        if (active) {
+          setModelStatuses(AI_SERVICES.map((service) => ({ ...service, online: false })))
+        }
+      }
+    }
+
+    refreshStatuses()
+    const interval = window.setInterval(refreshStatuses, 30000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [])
 
   useEffect(() => {
     if (!isChatOpen || !chatMessagesRef.current) return
@@ -1049,6 +1167,60 @@ const AiToolPage = () => {
                 </MenuItem>
               ))}
             </TextField>
+            <Box className={classes.serviceStatusPanel}>
+              <button
+                type="button"
+                className={classes.serviceStatusHeader}
+                onClick={() => setIsStatusOpen((open) => !open)}
+                aria-expanded={isStatusOpen}
+              >
+                <Typography component="span">AI model status</Typography>
+                <Typography component="span" className={classes.serviceStatusSummary}>
+                  {areStatusesChecking
+                    ? 'Checking…'
+                    : `${onlineServiceCount}/${AI_SERVICES.length} online`}{' '}
+                  {isStatusOpen ? '−' : '+'}
+                </Typography>
+              </button>
+              <Collapse in={isStatusOpen}>
+                <Box className={classes.serviceStatusList}>
+                  {modelStatuses.map((service) => {
+                    const statusLabel =
+                      service.online === null ? 'Checking…' : service.online ? 'Online' : 'Offline'
+                    return (
+                      <Box className={classes.serviceStatusItem} key={service.id}>
+                        <Typography className={classes.serviceStatusName} variant="body2">
+                          {service.label}
+                        </Typography>
+                        <Typography
+                          component="span"
+                          className={classes.serviceStatusValue}
+                          style={{
+                            color:
+                              service.online === true
+                                ? '#3ddc84'
+                                : service.online === false
+                                  ? '#ff8fc6'
+                                  : '#c9d1dc',
+                          }}
+                        >
+                          <span
+                            className={`${classes.statusDot} ${
+                              service.online === true
+                                ? classes.statusDotOnline
+                                : service.online === false
+                                  ? classes.statusDotOffline
+                                  : ''
+                            }`}
+                          />
+                          {statusLabel}
+                        </Typography>
+                      </Box>
+                    )
+                  })}
+                </Box>
+              </Collapse>
+            </Box>
           </Box>
           <Box className={classes.tableActions}>
             <Button variant="outlined" color="primary" onClick={openAddSongsDialog}>
@@ -1250,8 +1422,21 @@ const AiToolPage = () => {
             <Box className={classes.chatAvatar}>AI</Box>
             <Box className={classes.chatTitleWrap}>
               <Typography className={classes.chatTitle}>AI Chat</Typography>
-              <Typography className={classes.chatStatus}>
-                {aiProviderLabel(chatProvider)} - Online
+              <Typography
+                className={`${classes.chatStatus} ${
+                  selectedModelOnline === true
+                    ? classes.chatStatusOnline
+                    : selectedModelOnline === false
+                      ? classes.chatStatusOffline
+                      : ''
+                }`}
+              >
+                {aiProviderLabel(chatProvider)} -{' '}
+                {selectedModelOnline === null || selectedModelOnline === undefined
+                  ? 'Checking…'
+                  : selectedModelOnline
+                    ? 'Online'
+                    : 'Offline'}
               </Typography>
             </Box>
             <Box className={classes.chatHeaderActions}>

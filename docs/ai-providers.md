@@ -1,6 +1,8 @@
 # AI Providers
 
-The AI Tool supports Gemini 2.5, Gemini 3.5, and Gemma 3 for chat and AI song actions.
+The AI Tool supports Gemini 2.5, Gemini 3.5, and Gemma 26B for chat and AI song actions. Whisper provides lyrics transcription.
+
+The collapsible status panel checks all four services when the page opens and every 30 seconds. Gemini models are verified against the Gemini model API; Gemma and Whisper are checked with lightweight requests to their configured endpoints.
 
 Gemini uses the existing `GeminiAPIKey` configuration. Gemma is called from the backend only and reads these environment variables:
 
