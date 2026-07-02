@@ -3,6 +3,8 @@ package artwork
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/navidrome/navidrome/model"
@@ -49,9 +51,10 @@ func (d *discoveryArtworkReader) Reader(ctx context.Context) (io.ReadCloser, str
 		return nil, "", ErrUnavailable
 	}
 
+	trackPath := d.leadTrack.Path
 	ff := []sourceFunc{
-		fromTag(ctx, d.leadTrack.Path),
-		fromFFmpegTag(ctx, d.a.ffmpeg, d.leadTrack.Path),
+		fromTag(ctx, os.DirFS(filepath.Dir(trackPath)), filepath.Base(trackPath)),
+		fromFFmpegTag(ctx, d.a.ffmpeg, trackPath),
 		fromAlbumPlaceholder(),
 	}
 

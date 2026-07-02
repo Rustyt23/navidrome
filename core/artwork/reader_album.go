@@ -133,7 +133,7 @@ func loadAlbumMetadataCover(ctx context.Context, ds model.DataStore, albumID str
 			continue
 		}
 		if !filepath.IsAbs(candidate) {
-			candidate = filepath.Join(conf.Server.DataFolder, candidate)
+			candidate = filepath.Join(conf.Server.DataFolder.String(), candidate)
 		}
 		if coverPath == "" || candidate < coverPath {
 			coverPath = candidate

@@ -70,7 +70,7 @@ func (a *mediafileArtworkReader) Reader(ctx context.Context) (io.ReadCloser, str
 
 	if coverPath := strings.TrimSpace(a.mediafile.CoverPath); coverPath != "" {
 		if !filepath.IsAbs(coverPath) {
-			coverPath = filepath.Join(conf.Server.DataFolder, coverPath)
+			coverPath = filepath.Join(conf.Server.DataFolder.String(), coverPath)
 		}
 		ff = append(ff, fromLocalFile(coverPath))
 	}

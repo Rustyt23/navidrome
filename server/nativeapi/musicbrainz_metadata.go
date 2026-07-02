@@ -510,14 +510,14 @@ func (j *musicBrainzMetadataJob) setError(err error) {
 }
 
 func (j *musicBrainzMetadataJob) ensureReleaseCover(ctx context.Context, releaseMBID string) (string, bool) {
-	if _, err := os.Stat(filepath.Join(conf.Server.DataFolder, coverCacheDirName)); err != nil {
-		if err := os.MkdirAll(filepath.Join(conf.Server.DataFolder, coverCacheDirName), 0o755); err != nil {
+	if _, err := os.Stat(filepath.Join(conf.Server.DataFolder.String(), coverCacheDirName)); err != nil {
+		if err := os.MkdirAll(filepath.Join(conf.Server.DataFolder.String(), coverCacheDirName), 0o755); err != nil {
 			log.Warn(ctx, "Could not create cover cache directory", "err", err)
 			return "", false
 		}
 	}
 
-	coverPath := filepath.Join(conf.Server.DataFolder, coverCacheDirName, releaseMBID+".jpg")
+	coverPath := filepath.Join(conf.Server.DataFolder.String(), coverCacheDirName, releaseMBID+".jpg")
 	if _, err := os.Stat(coverPath); err == nil {
 		return filepath.ToSlash(filepath.Join(coverCacheDirName, releaseMBID+".jpg")), true
 	}
@@ -1670,13 +1670,13 @@ func (j *spotifyMetadataJob) ensureSpotifyCover(ctx context.Context, trackID, co
 	if force {
 		j.coverMisses.Delete(trackID)
 	}
-	if err := os.MkdirAll(filepath.Join(conf.Server.DataFolder, coverCacheDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(conf.Server.DataFolder.String(), coverCacheDirName), 0o755); err != nil {
 		log.Warn(ctx, "Could not create cover cache directory", "err", err)
 		return "", false
 	}
 
 	fileName := "spotify-" + trackID + ".jpg"
-	coverPath := filepath.Join(conf.Server.DataFolder, coverCacheDirName, fileName)
+	coverPath := filepath.Join(conf.Server.DataFolder.String(), coverCacheDirName, fileName)
 	if !force {
 		if _, err := os.Stat(coverPath); err == nil {
 			return filepath.ToSlash(filepath.Join(coverCacheDirName, fileName)), true
@@ -1855,7 +1855,7 @@ func (n *Router) saveFetchedMetadataToSongs() (metadataSaveSummary, error) {
 
 		coverFile := ""
 		if strings.HasPrefix(strings.TrimSpace(mf.CoverPath), coverCacheDirName+"/") {
-			coverFile = filepath.Join(conf.Server.DataFolder, filepath.FromSlash(mf.CoverPath))
+			coverFile = filepath.Join(conf.Server.DataFolder.String(), filepath.FromSlash(mf.CoverPath))
 		}
 
 		hasFetchedIDs := strings.TrimSpace(mf.MbzRecordingID) != "" || strings.TrimSpace(mf.MbzReleaseID) != ""

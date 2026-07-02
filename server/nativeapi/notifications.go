@@ -49,12 +49,12 @@ func (n *Router) handleMissingTrackNotifications() http.HandlerFunc {
 			}
 		}
 
-		if conf.Server.DataFolder == "" {
+		if conf.Server.DataFolder.String() == "" {
 			writeMissingTrackResponse(w, entries, total, ctx)
 			return
 		}
 
-		dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
+		dbFile := filepath.Join(conf.Server.DataFolder.String(), "missing_tracks.db")
 		dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
 
 		db, err := sql.Open("sqlite3", dsn)

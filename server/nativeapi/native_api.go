@@ -225,7 +225,7 @@ func (api *Router) RX(r chi.Router, pathPrefix string, constructor rest.Reposito
 }
 
 func (n *Router) coverCacheDir() string {
-	return filepath.Join(conf.Server.DataFolder, coverCacheDirName)
+	return filepath.Join(conf.Server.DataFolder.String(), coverCacheDirName)
 }
 
 func (n *Router) ensureCoverCacheDir() {

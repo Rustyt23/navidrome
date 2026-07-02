@@ -103,21 +103,6 @@ func (a *playlistArtworkReader) fromPlaylistExternalImage(ctx context.Context) s
 	}
 }
 
-// fromLocalFile returns a sourceFunc that opens the given local path.
-// Returns (nil, "", nil) if path is empty — signalling "not found, try next source".
-func fromLocalFile(path string) sourceFunc {
-	return func() (io.ReadCloser, string, error) {
-		if path == "" {
-			return nil, "", nil
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, "", err
-		}
-		return f, path, nil
-	}
-}
-
 // findPlaylistSidecarPath scans the directory of the playlist file for a sidecar
 // image file with the same base name (case-insensitive). Returns empty string if
 // no matching image is found or if plsPath is empty.

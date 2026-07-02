@@ -86,11 +86,11 @@ func (s *playlists) ensurePlaylistFolder(ctx context.Context, playlistPath strin
 }
 
 func recordMissingPlaylistTrack(ctx context.Context, playlistPath, trackPath string) {
-	if trackPath == "" || conf.Server.DataFolder == "" {
+	if trackPath == "" || conf.Server.DataFolder.String() == "" {
 		return
 	}
 
-	dbFile := filepath.Join(conf.Server.DataFolder, "missing_tracks.db")
+	dbFile := filepath.Join(conf.Server.DataFolder.String(), "missing_tracks.db")
 	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
 
 	db, err := sql.Open("sqlite3", dsn)
