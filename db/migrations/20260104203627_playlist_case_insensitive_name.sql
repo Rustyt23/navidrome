@@ -1,5 +1,9 @@
 -- +goose Up
 -- Fix case-insensitive sorting for playlist names
+-- Fork note: temporarily drop the playlist_folder trigger that references the
+-- playlist table, and preserve the fork's folder_id column through the rebuild.
+DROP TRIGGER IF EXISTS trg_playlist_folder_delete_playlists;
+
 create table playlist_dg_tmp
 (
     id           varchar(255)                              not null
@@ -19,13 +23,14 @@ create table playlist_dg_tmp
     owner_id     varchar(255)                              not null
         constraint playlist_user_user_id_fk
             references user
-            on update cascade on delete cascade
+            on update cascade on delete cascade,
+    folder_id    TEXT
 );
 
 insert into playlist_dg_tmp(id, name, comment, duration, song_count, public, created_at, updated_at, path, sync, size,
-                            rules, evaluated_at, owner_id)
+                            rules, evaluated_at, owner_id, folder_id)
 select id, name, comment, duration, song_count, public, created_at, updated_at, path, sync, size, rules, evaluated_at,
-       owner_id
+       owner_id, folder_id
 from playlist;
 
 drop table playlist;
@@ -48,7 +53,19 @@ create index playlist_evaluated_at
 create index playlist_size
     on playlist (size);
 
+create index if not exists idx_playlist_folder_id
+    on playlist (folder_id);
+
+-- +goose StatementBegin
+CREATE TRIGGER IF NOT EXISTS trg_playlist_folder_delete_playlists
+AFTER DELETE ON playlist_folder
+BEGIN
+    DELETE FROM playlist WHERE folder_id = OLD.id;
+END;
+-- +goose StatementEnd
+
 -- +goose Down
+DROP TRIGGER IF EXISTS trg_playlist_folder_delete_playlists;
 -- Note: Downgrade loses the collation but preserves data
 create table playlist_dg_tmp
 (
@@ -69,13 +86,14 @@ create table playlist_dg_tmp
     owner_id     varchar(255)              not null
         constraint playlist_user_user_id_fk
             references user
-            on update cascade on delete cascade
+            on update cascade on delete cascade,
+    folder_id    TEXT
 );
 
 insert into playlist_dg_tmp(id, name, comment, duration, song_count, public, created_at, updated_at, path, sync, size,
-                            rules, evaluated_at, owner_id)
+                            rules, evaluated_at, owner_id, folder_id)
 select id, name, comment, duration, song_count, public, created_at, updated_at, path, sync, size, rules, evaluated_at,
-       owner_id
+       owner_id, folder_id
 from playlist;
 
 drop table playlist;
@@ -97,3 +115,14 @@ create index playlist_evaluated_at
 
 create index playlist_size
     on playlist (size);
+
+create index if not exists idx_playlist_folder_id
+    on playlist (folder_id);
+
+-- +goose StatementBegin
+CREATE TRIGGER IF NOT EXISTS trg_playlist_folder_delete_playlists
+AFTER DELETE ON playlist_folder
+BEGIN
+    DELETE FROM playlist WHERE folder_id = OLD.id;
+END;
+-- +goose StatementEnd
