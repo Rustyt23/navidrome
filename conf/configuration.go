@@ -137,6 +137,8 @@ type configOptions struct {
 	DevExternalArtistFetchMultiplier float64
 }
 
+const DefaultLoudnessNormalizationTolerance = 0.1
+
 type scannerOptions struct {
 	Enabled               bool
 	Schedule              string
@@ -631,7 +633,7 @@ func setViperDefaults() {
 	viper.SetDefault("scanner.loudnessnormalization.targetlufs", -12.6)
 	viper.SetDefault("scanner.loudnessnormalization.truepeak", -1.5)
 	viper.SetDefault("scanner.loudnessnormalization.lra", 11.0)
-	viper.SetDefault("scanner.loudnessnormalization.tolerance", 0.5)
+	viper.SetDefault("scanner.loudnessnormalization.tolerance", DefaultLoudnessNormalizationTolerance)
 	viper.SetDefault("scanner.loudnessnormalization.parallelism", runtime.NumCPU())
 	viper.SetDefault("scanner.loudnessnormalization.backup", true)
 	viper.SetDefault("scanner.loudnessnormalization.backupsuffix", ".before_loudnorm")
