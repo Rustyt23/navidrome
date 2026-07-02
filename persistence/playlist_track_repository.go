@@ -267,11 +267,16 @@ func (r *playlistTrackRepository) GetAlbumIDs(options ...model.QueryOptions) ([]
 	return ids, nil
 }
 
-func (r *playlistTrackRepository) Search(q string, offset, size int, options ...model.QueryOptions) (model.PlaylistTracks, error) {
+func (r *playlistTrackRepository) Search(q string, options ...model.QueryOptions) (model.PlaylistTracks, error) {
 	q = strings.TrimSpace(q)
 	q = strings.TrimSuffix(q, "*")
 	if len(q) < 2 {
 		return nil, nil
+	}
+
+	var opts model.QueryOptions
+	if len(options) > 0 {
+		opts = options[0]
 	}
 
 	sel := r.newSelect(options...).
@@ -283,7 +288,13 @@ func (r *playlistTrackRepository) Search(q string, offset, size int, options ...
 	} else {
 		sel = sel.OrderBy("playlist_tracks.rowid")
 	}
-	sel = sel.Where(Eq{"f.missing": false}).Limit(uint64(size)).Offset(uint64(offset))
+	sel = sel.Where(Eq{"f.missing": false})
+	if opts.Max > 0 {
+		sel = sel.Limit(uint64(opts.Max))
+	}
+	if opts.Offset > 0 {
+		sel = sel.Offset(uint64(opts.Offset))
+	}
 
 	tracks, err := r.playlistRepo.loadTracks(sel, r.playlistId)
 	if err != nil {
@@ -472,10 +483,6 @@ func (r *playlistTrackRepository) NewInstance() any {
 }
 
 func (r *playlistTrackRepository) Add(mediaFileIds []string) (int, error) {
-	if !r.isTracksEditable() {
-		return 0, rest.ErrPermissionDenied
-	}
-
 	if len(mediaFileIds) > 0 {
 		log.Debug(r.ctx, "Adding songs to playlist", "playlistId", r.playlistId, "mediaFileIds", mediaFileIds)
 	} else {

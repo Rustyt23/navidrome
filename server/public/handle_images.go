@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"

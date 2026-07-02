@@ -21,6 +21,17 @@ type dbPlaylistFolder struct {
 	model.PlaylistFolder `structs:",flatten"`
 }
 
+// withTableName qualifies the filtered field with this repository's table name.
+// (Restored from the pre-v0.62 sqlRepository, which no longer provides it.)
+func (r *playlistFolderRepository) withTableName(filter filterFunc) filterFunc {
+	return func(field string, value any) Sqlizer {
+		if r.tableName != "" {
+			field = r.tableName + "." + field
+		}
+		return filter(field, value)
+	}
+}
+
 func NewPlaylistFolderRepository(ctx context.Context, db dbx.Builder) model.PlaylistFolderRepository {
 	r := &playlistFolderRepository{}
 	r.ctx = ctx

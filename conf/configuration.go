@@ -172,6 +172,10 @@ type scannerOptions struct {
 	PurgeMissing          string // Values: "never", "always", "full"
 }
 
+// DefaultLoudnessNormalizationTolerance is the fallback tolerance (in LU) used
+// when Scanner.LoudnessNormalization.Tolerance is unset or invalid.
+const DefaultLoudnessNormalizationTolerance = 0.5
+
 type loudnessNormalizationOptions struct {
 	Enabled      bool
 	TargetLUFS   float64

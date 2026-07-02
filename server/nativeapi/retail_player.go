@@ -2959,7 +2959,7 @@ func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.
 			continue
 		}
 
-		files, err := repo.Search(query, 0, 5)
+		files, err := repo.Search(query, model.QueryOptions{Max: 5})
 		if err != nil {
 			log.Debug(ctx, "Retail player artwork search failed", "query", query, "err", err)
 			continue
