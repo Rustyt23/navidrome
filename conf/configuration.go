@@ -121,6 +121,7 @@ type configOptions struct {
 	Deezer                          deezerOptions       `json:",omitzero"`
 	ListenBrainz                    listenBrainzOptions `json:",omitzero"`
 	Spotify                         spotifyOptions      `json:",omitzero"`
+	GCSync                          gcsyncOptions       `json:",omitzero"`
 	RetailPlayer                    retailPlayerOptions `json:",omitzero"`
 	EnableScrobbleHistory           bool
 	Tags                            map[string]TagConf `json:",omitempty"`
@@ -247,6 +248,20 @@ type listenBrainzOptions struct {
 	BaseURL         string
 	ArtistAlgorithm string
 	TrackAlgorithm  string
+}
+
+// gcsyncOptions configures the built-in replacement for the sync-to-GCS
+// script: uploads app-updated MP3s and versioned playlists to a GCS bucket.
+type gcsyncOptions struct {
+	Enabled           bool
+	Bucket            string
+	CredentialsFile   string
+	GcloudPath        string
+	Schedule          string
+	DryRun            bool
+	OriginalsFolder   string
+	PlaylistFolder    string
+	LastVersionFolder string
 }
 
 type retailPlayerNotificationOptions struct {
@@ -951,6 +966,15 @@ func setViperDefaults() {
 	viper.SetDefault("listenbrainz.artistalgorithm", consts.DefaultListenBrainzArtistAlgorithm)
 	viper.SetDefault("listenbrainz.trackalgorithm", consts.DefaultListenBrainzTrackAlgorithm)
 	viper.SetDefault("enablescrobblehistory", true)
+	viper.SetDefault("gcsync.enabled", false)
+	viper.SetDefault("gcsync.bucket", "")
+	viper.SetDefault("gcsync.credentialsfile", "")
+	viper.SetDefault("gcsync.gcloudpath", "gcloud")
+	viper.SetDefault("gcsync.schedule", "")
+	viper.SetDefault("gcsync.dryrun", false)
+	viper.SetDefault("gcsync.originalsfolder", "")
+	viper.SetDefault("gcsync.playlistfolder", "")
+	viper.SetDefault("gcsync.lastversionfolder", "")
 	viper.SetDefault("retailplayer.enabled", false)
 	viper.SetDefault("retailplayer.devicelockpassword", "")
 	viper.SetDefault("retailplayer.baseurl", "")

@@ -192,6 +192,7 @@ func (api *Router) routes() http.Handler {
 			api.addSyncRoute(r)
 			api.addSongLoudnessRoute(r)
 			api.addMusicBrainzMetadataRoute(r)
+			api.addGCSyncRoute(r)
 			api.addPluginRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)
 		})

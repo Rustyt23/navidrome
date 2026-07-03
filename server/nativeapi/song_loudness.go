@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -144,6 +145,12 @@ func optimizeSelectedSongLoudness(ctx context.Context, ds model.DataStore, ids [
 		result.Status = "normalized"
 		result.After = &finalLUFS
 		result.UpdatedDB = updateSongLoudnessTag(ctx, repo, id, finalLUFS)
+		// Only overwrite the bucket copy when the new loudness is closer to
+		// the target than the old one
+		if gcsync.IsEligibleLUFS(*result.Before, finalLUFS, options.TargetLUFS) {
+			gcsync.GetInstance().EnqueueMP3(trackPath,
+				fmt.Sprintf("LUFS optimized: %.2f -> %.2f (target %.2f)", *result.Before, finalLUFS, options.TargetLUFS))
+		}
 		response.Normalized = append(response.Normalized, id)
 		response.Results = append(response.Results, result)
 	}

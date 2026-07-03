@@ -24,6 +24,7 @@ import (
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/ffmpeg"
+	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/core/storage"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -577,9 +578,21 @@ func (p *phaseFolders) normalizeLoudnessFile(normalizer ffmpeg.LoudnessNormalize
 	}
 
 	if finalLUFS, ok := p.normalizeTrackLoudnessToRange(normalizer, trackPath, target, *analysis, tolerance, minLUFS, maxLUFS, backup, backupSuffix); ok {
+		uploadPath := trackPath
 		if err := copyLoudnessUpdatedTrackToSyncFolder(libraryPath, filePath, trackPath); err != nil {
 			log.Warn(p.ctx, "Scanner: could not copy LUFS-updated track to sync folder", "path", trackPath, "syncFolder", conf.Server.SyncFolder, err)
 			p.state.sendWarning(fmt.Sprintf("Could not copy LUFS-updated track to sync folder for %s: %v", trackPath, err))
+		} else if conf.Server.SyncFolder != "" {
+			uploadPath = loudnessSyncPath(libraryPath, filePath, trackPath)
+		}
+		// Only overwrite the bucket copy when the new loudness is closer to
+		// the target than the old one
+		if gcsync.IsEligibleLUFS(analysis.InputIntegrated, finalLUFS, targetLUFS) {
+			gcsync.GetInstance().EnqueueMP3(uploadPath,
+				fmt.Sprintf("LUFS improved: %.2f -> %.2f (target %.2f)", analysis.InputIntegrated, finalLUFS, targetLUFS))
+		} else {
+			log.Debug(p.ctx, "Scanner: LUFS change not closer to target, skipping GCS upload",
+				"path", trackPath, "oldLUFS", analysis.InputIntegrated, "newLUFS", finalLUFS, "targetLUFS", targetLUFS)
 		}
 		return loudnessFileResult{filePath: filePath, lufs: finalLUFS, ok: true}
 	}

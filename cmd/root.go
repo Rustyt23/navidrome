@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
@@ -85,6 +86,7 @@ func runNavidrome(ctx context.Context) {
 	g.Go(startScheduler(ctx))
 	g.Go(startPlaybackServer(ctx))
 	g.Go(schedulePeriodicBackup(ctx))
+	g.Go(startGCSync(ctx))
 	g.Go(startInsightsCollector(ctx))
 	g.Go(scheduleDBOptimizer(ctx))
 	g.Go(startPluginManager(ctx))
@@ -235,6 +237,36 @@ func startScanWatcher(ctx context.Context) func() error {
 		err := w.Run(ctx)
 		if err != nil {
 			log.Error("Error starting watcher", err)
+		}
+		return nil
+	}
+}
+
+// startGCSync starts the GCS sync upload worker and schedules the periodic
+// Sync-folder sweep (playlist versioning + leftover MP3 archiving), replacing
+// the external sync-to-GCS bash script.
+func startGCSync(ctx context.Context) func() error {
+	return func() error {
+		if !conf.Server.GCSync.Enabled {
+			log.Info(ctx, "GCS sync is DISABLED")
+			return nil
+		}
+		svc := gcsync.GetInstance()
+		svc.Start(ctx)
+
+		schedule := conf.Server.GCSync.Schedule
+		if schedule == "" {
+			log.Info(ctx, "GCS sync sweep has no schedule; only event-driven uploads and manual sweeps will run")
+			return nil
+		}
+		log.Info("Scheduling GCS sync sweep", "schedule", schedule)
+		_, err := scheduler.GetInstance().Add(schedule, func() {
+			if err := svc.Sweep(ctx); err != nil {
+				log.Error(ctx, "Error executing GCS sync sweep", err)
+			}
+		})
+		if err != nil {
+			log.Error(ctx, "Error scheduling GCS sync sweep", err)
 		}
 		return nil
 	}

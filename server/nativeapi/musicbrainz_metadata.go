@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/adapters/taglibwrite"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/pmezard/go-difflib/difflib"
@@ -1879,6 +1880,12 @@ func (n *Router) saveFetchedMetadataToSongs() (metadataSaveSummary, error) {
 
 		summary.Saved++
 		summary.Remaining--
+
+		reason := "fetched metadata written to tags"
+		if coverFile != "" {
+			reason = "cover art embedded"
+		}
+		gcsync.GetInstance().EnqueueMP3(mf.AbsolutePath(), reason)
 	}
 
 	return summary, nil
