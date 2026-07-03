@@ -27,11 +27,33 @@ import {
 import MoreVertIcon from '@material-ui/icons/MoreVert'
 import AspectRatioIcon from '@material-ui/icons/AspectRatio'
 import StopIcon from '@material-ui/icons/Stop'
+import ViewColumnIcon from '@material-ui/icons/ViewColumn'
 import { Title, useDataProvider, useTranslate } from 'react-admin'
 import { httpClient } from '../dataProvider'
 
 const ADDED_SONGS_STORAGE_KEY = 'aiToolAddedSongs'
 const DEFAULT_AI_PROVIDER_STORAGE_KEY = 'aiToolDefaultProvider'
+const AI_TOOL_COLUMNS_STORAGE_KEY = 'aiToolVisibleColumns'
+
+const AI_TOOL_COLUMNS = [
+  { id: 'title', label: 'Title' },
+  { id: 'album', label: 'Album' },
+  { id: 'albumConfidence', label: 'Album Confidence' },
+  { id: 'artist', label: 'Artist' },
+  { id: 'year', label: 'Year' },
+  { id: 'yearConfidence', label: 'Year Confidence' },
+  { id: 'explicit', label: 'Explicit' },
+  { id: 'lyrics', label: 'Lyrics' },
+  { id: 'duration', label: 'Time' },
+  { id: 'genre', label: 'Genre' },
+  { id: 'aiGenre', label: 'AI Genre' },
+  { id: 'genreConfidence', label: 'Genre Confidence' },
+]
+
+const CONFIDENCE_COLUMN_IDS = ['albumConfidence', 'yearConfidence', 'genreConfidence']
+const DEFAULT_AI_TOOL_COLUMN_VISIBILITY = Object.fromEntries(
+  AI_TOOL_COLUMNS.map((column) => [column.id, true]),
+)
 
 const AI_PROVIDERS = [
   { id: 'gemini-2.5', label: 'Gemini 2.5' },
@@ -247,6 +269,14 @@ const useStyles = makeStyles((theme) => ({
     color: '#ff8fc6',
     whiteSpace: 'nowrap',
   },
+  progressActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+  },
+  stopJobButton: {
+    minWidth: 86,
+  },
   progressBar: {
     height: 6,
     borderRadius: 6,
@@ -260,6 +290,26 @@ const useStyles = makeStyles((theme) => ({
   },
   valueAI: {
     color: '#ff2a8e',
+  },
+  confidenceBadge: {
+    padding: '1px 6px',
+    borderRadius: 10,
+    fontSize: 11,
+    lineHeight: 1.5,
+    background: 'rgba(255, 255, 255, 0.08)',
+    whiteSpace: 'nowrap',
+  },
+  confidenceColumn: {
+    minWidth: 130,
+    whiteSpace: 'nowrap',
+  },
+  columnMenuTitle: {
+    padding: theme.spacing(1.5, 2, 0.75),
+    color: '#c9d1dc',
+  },
+  columnMenuItems: {
+    maxHeight: 420,
+    overflowY: 'auto',
   },
   chatWidget: {
     position: 'fixed',
@@ -541,12 +591,20 @@ const hasSavedLyrics = (song) => {
   return lyrics !== '' && lyrics !== '[]'
 }
 
+const normalizeMetadataConfidence = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const confidence = Number(value)
+  if (!Number.isFinite(confidence)) return null
+  return Math.max(0, Math.min(100, Math.round(confidence)))
+}
+
 const AiToolPage = () => {
   const classes = useStyles()
   const translate = useTranslate()
   const dataProvider = useDataProvider()
   const chatMessagesRef = useRef(null)
   const chatAbortControllerRef = useRef(null)
+  const jobAbortControllerRef = useRef(null)
   const [messages, setMessages] = useState([])
   const [prompt, setPrompt] = useState('')
   const [songDialogOpen, setSongDialogOpen] = useState(false)
@@ -585,6 +643,19 @@ const AiToolPage = () => {
   const [lyricsText, setLyricsText] = useState('')
   const [isClassifyingExplicit, setIsClassifyingExplicit] = useState(false)
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
+  const [isClearingMetadata, setIsClearingMetadata] = useState(false)
+  const [modelDialogAction, setModelDialogAction] = useState('')
+  const [modelDialogSongs, setModelDialogSongs] = useState([])
+  const [modelDialogProvider, setModelDialogProvider] = useState(defaultProvider)
+  const [columnMenuAnchorEl, setColumnMenuAnchorEl] = useState(null)
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(AI_TOOL_COLUMNS_STORAGE_KEY) || '{}')
+      return { ...DEFAULT_AI_TOOL_COLUMN_VISIBILITY, ...saved }
+    } catch {
+      return DEFAULT_AI_TOOL_COLUMN_VISIBILITY
+    }
+  })
   const [rowActionAnchorEl, setRowActionAnchorEl] = useState(null)
   const [rowActionSong, setRowActionSong] = useState(null)
   const [jobProgress, setJobProgress] = useState(null)
@@ -616,6 +687,7 @@ const AiToolPage = () => {
   const jobProgressValue = jobProgress?.total
     ? Math.round((jobProgress.done / jobProgress.total) * 100)
     : 0
+  const isFetchJobRunning = Boolean(lyricsLoadingId) || isFetchingMetadata
 
   const selectedModelStatus = modelStatuses.find(
     (service) => service.id === normalizeAIProvider(chatProvider),
@@ -638,6 +710,40 @@ const AiToolPage = () => {
   const valueClass = (song, field) =>
     isAIValue(song, field) ? classes.valueAI : classes.valueExisting
 
+  const renderMetadataConfidence = (value) => {
+    const confidence = normalizeMetadataConfidence(value)
+    if (confidence === null) return null
+    const color = confidence >= 80 ? '#3ddc84' : confidence >= 50 ? '#ffcb6b' : '#ff8fc6'
+    return (
+      <Typography
+        component="span"
+        className={classes.confidenceBadge}
+        style={{ color }}
+      >
+        {confidence}% confidence
+      </Typography>
+    )
+  }
+
+  const isColumnVisible = (column) => visibleColumns[column] !== false
+  const allConfidenceColumnsVisible = CONFIDENCE_COLUMN_IDS.every(isColumnVisible)
+  const someConfidenceColumnsVisible = CONFIDENCE_COLUMN_IDS.some(isColumnVisible)
+
+  const toggleColumn = (column) => {
+    setVisibleColumns((current) => ({
+      ...current,
+      [column]: current[column] === false,
+    }))
+  }
+
+  const toggleAllConfidenceColumns = () => {
+    const visible = !allConfidenceColumnsVisible
+    setVisibleColumns((current) => ({
+      ...current,
+      ...Object.fromEntries(CONFIDENCE_COLUMN_IDS.map((column) => [column, visible])),
+    }))
+  }
+
   const addedSongIds = useMemo(
     () => addedSongs.map((song) => song.id).join('|'),
     [addedSongs],
@@ -658,6 +764,10 @@ const AiToolPage = () => {
       setChatProvider(defaultProvider)
     }
   }, [defaultProvider, chatProviderOverridden])
+
+  useEffect(() => {
+    localStorage.setItem(AI_TOOL_COLUMNS_STORAGE_KEY, JSON.stringify(visibleColumns))
+  }, [visibleColumns])
 
   useEffect(() => {
     let active = true
@@ -697,6 +807,7 @@ const AiToolPage = () => {
 
   useEffect(() => () => {
     chatAbortControllerRef.current?.abort()
+    jobAbortControllerRef.current?.abort()
   }, [])
 
   useEffect(() => {
@@ -929,6 +1040,7 @@ const AiToolPage = () => {
       currentTitle: songs[0]?.title || '',
       done: 0,
       total: songs.length,
+      status: 'running',
     })
   }
 
@@ -938,6 +1050,7 @@ const AiToolPage = () => {
       currentTitle: song?.title || '',
       done,
       total,
+      status: 'running',
     })
   }
 
@@ -947,10 +1060,33 @@ const AiToolPage = () => {
       currentTitle: 'Complete',
       done: total,
       total,
+      status: 'complete',
     })
     window.setTimeout(() => {
-      setJobProgress((prev) => (prev?.type === type ? null : prev))
+      setJobProgress((prev) =>
+        prev?.type === type && prev?.status === 'complete' ? null : prev,
+      )
     }, 1500)
+  }
+
+  const stopProgress = (type) => {
+    setJobProgress((prev) =>
+      prev?.type === type ? { ...prev, currentTitle: 'Stopped', status: 'stopped' } : prev,
+    )
+    window.setTimeout(() => {
+      setJobProgress((prev) =>
+        prev?.type === type && prev?.status === 'stopped' ? null : prev,
+      )
+    }, 1500)
+  }
+
+  const stopFetchJob = () => {
+    if (!jobAbortControllerRef.current) return
+
+    jobAbortControllerRef.current.abort()
+    setJobProgress((prev) =>
+      prev ? { ...prev, currentTitle: 'Stopping…', status: 'stopping' } : prev,
+    )
   }
 
   const openRowActions = (event, song) => {
@@ -964,14 +1100,17 @@ const AiToolPage = () => {
   }
 
   const fetchLyrics = async (song) => {
-    if (!song?.id || lyricsLoadingId) return
+    if (!song?.id || lyricsLoadingId || jobAbortControllerRef.current) return
 
+    const abortController = new AbortController()
+    jobAbortControllerRef.current = abortController
     setToolError('')
     setLyricsLoadingId(song.id)
     startProgress('lyrics', [song])
     try {
       await httpClient(`/api/ai/songs/${song.id}/lyrics/fetch`, {
         method: 'POST',
+        signal: abortController.signal,
       })
       setAddedSongs((prev) => {
         const nextSongs = prev.map((item) =>
@@ -983,16 +1122,26 @@ const AiToolPage = () => {
       updateProgress('lyrics', song, 1, 1)
       finishProgress('lyrics', 1)
     } catch (err) {
-      removeStaleSongOnNotFound(err, song)
-      setToolError(err?.message || 'Could not fetch lyrics')
+      if (abortController.signal.aborted || err?.name === 'AbortError') {
+        stopProgress('lyrics')
+      } else {
+        removeStaleSongOnNotFound(err, song)
+        setToolError(err?.message || 'Could not fetch lyrics')
+        setJobProgress(null)
+      }
     } finally {
+      if (jobAbortControllerRef.current === abortController) {
+        jobAbortControllerRef.current = null
+      }
       setLyricsLoadingId('')
     }
   }
 
   const fetchSelectedLyrics = async () => {
-    if (!selectedAddedIds.length || lyricsLoadingId) return
+    if (!selectedAddedIds.length || lyricsLoadingId || jobAbortControllerRef.current) return
 
+    const abortController = new AbortController()
+    jobAbortControllerRef.current = abortController
     setToolError('')
     setLyricsLoadingId('bulk')
     startProgress('lyrics', selectedAddedSongs)
@@ -1001,6 +1150,7 @@ const AiToolPage = () => {
         updateProgress('lyrics', song, index, selectedAddedSongs.length)
         await httpClient(`/api/ai/songs/${song.id}/lyrics/fetch`, {
           method: 'POST',
+          signal: abortController.signal,
         })
         setAddedSongs((prev) => {
           const nextSongs = prev.map((item) =>
@@ -1013,8 +1163,16 @@ const AiToolPage = () => {
       }
       finishProgress('lyrics', selectedAddedSongs.length)
     } catch (err) {
-      setToolError(err?.message || 'Could not fetch lyrics')
+      if (abortController.signal.aborted || err?.name === 'AbortError') {
+        stopProgress('lyrics')
+      } else {
+        setToolError(err?.message || 'Could not fetch lyrics')
+        setJobProgress(null)
+      }
     } finally {
+      if (jobAbortControllerRef.current === abortController) {
+        jobAbortControllerRef.current = null
+      }
       setLyricsLoadingId('')
     }
   }
@@ -1034,8 +1192,22 @@ const AiToolPage = () => {
     }
   }
 
-  const classifyExplicit = async () => {
-    if (!selectedAddedIds.length || isClassifyingExplicit) return
+  const openModelDialog = (action, songs) => {
+    if (!songs.length) return
+
+    setModelDialogAction(action)
+    setModelDialogSongs(songs)
+    setModelDialogProvider(defaultProvider)
+  }
+
+  const closeModelDialog = () => {
+    setModelDialogAction('')
+    setModelDialogSongs([])
+  }
+
+  const classifyExplicit = async (songs, provider) => {
+    const songIds = songs.map((song) => song.id)
+    if (!songIds.length || isClassifyingExplicit) return
 
     setToolError('')
     setIsClassifyingExplicit(true)
@@ -1043,8 +1215,8 @@ const AiToolPage = () => {
       const { json: payload } = await httpClient('/api/ai/classify-explicit', {
         method: 'POST',
         body: JSON.stringify({
-          songIds: selectedAddedIds,
-          provider: normalizeAIProvider(defaultProvider),
+          songIds,
+          provider: normalizeAIProvider(provider),
         }),
       })
       const statuses = new Map((payload.songs || []).map((song) => [song.id, song.explicitStatus]))
@@ -1071,15 +1243,11 @@ const AiToolPage = () => {
     }
   }
 
-  const fetchAIMetadata = async () => {
-    if (!selectedAddedIds.length || isFetchingMetadata) return
+  const fetchAIMetadataForSongs = async (songs, provider) => {
+    if (!songs.length || isFetchingMetadata || jobAbortControllerRef.current) return
 
-    await fetchAIMetadataForSongs(selectedAddedSongs)
-  }
-
-  const fetchAIMetadataForSongs = async (songs) => {
-    if (!songs.length || isFetchingMetadata) return
-
+    const abortController = new AbortController()
+    jobAbortControllerRef.current = abortController
     setToolError('')
     setIsFetchingMetadata(true)
     startProgress('metadata', songs)
@@ -1088,9 +1256,10 @@ const AiToolPage = () => {
         updateProgress('metadata', song, index, songs.length)
         const { json: payload } = await httpClient('/api/ai/fetch-metadata', {
           method: 'POST',
+          signal: abortController.signal,
           body: JSON.stringify({
             songIds: [song.id],
-            provider: normalizeAIProvider(defaultProvider),
+            provider: normalizeAIProvider(provider),
           }),
         })
         const metadata = new Map((payload.songs || []).map((item) => [item.id, item]))
@@ -1103,6 +1272,12 @@ const AiToolPage = () => {
               album: update.album || item.album,
               year: update.year || item.year,
               aiGenre: update.aiGenre || item.aiGenre || '',
+              metadataConfidence: {
+                ...(item.metadataConfidence || {}),
+                album: normalizeMetadataConfidence(update.albumConfidence) ?? 0,
+                year: normalizeMetadataConfidence(update.yearConfidence) ?? 0,
+                genre: normalizeMetadataConfidence(update.genreConfidence) ?? 0,
+              },
               aiFields: {
                 ...(item.aiFields || {}),
                 album: Boolean(update.album) || Boolean(item.aiFields?.album),
@@ -1118,9 +1293,75 @@ const AiToolPage = () => {
       }
       finishProgress('metadata', songs.length)
     } catch (err) {
-      setToolError(err?.message || 'Could not fetch AI metadata')
+      if (abortController.signal.aborted || err?.name === 'AbortError') {
+        stopProgress('metadata')
+      } else {
+        setToolError(err?.message || 'Could not fetch AI metadata')
+        setJobProgress(null)
+      }
     } finally {
+      if (jobAbortControllerRef.current === abortController) {
+        jobAbortControllerRef.current = null
+      }
       setIsFetchingMetadata(false)
+    }
+  }
+
+  const clearFetchedMetadata = async () => {
+    if (!selectedAddedSongs.length || isClearingMetadata) return
+
+    setToolError('')
+    setIsClearingMetadata(true)
+    try {
+      const { json: payload } = await httpClient('/api/ai/clear-metadata', {
+        method: 'POST',
+        body: JSON.stringify({
+          songs: selectedAddedSongs.map((song) => ({
+            id: song.id,
+            album: Boolean(song.aiFields?.album),
+            year: Boolean(song.aiFields?.year),
+          })),
+        }),
+      })
+      const cleared = new Set(payload.songIds || [])
+      setAddedSongs((prev) => {
+        const nextSongs = prev.map((song) =>
+          cleared.has(song.id)
+            ? {
+                ...song,
+                album: song.aiFields?.album ? '[Unknown Album]' : song.album,
+                year: song.aiFields?.year ? 0 : song.year,
+                aiGenre: '',
+                metadataConfidence: {},
+                aiFields: {
+                  ...(song.aiFields || {}),
+                  album: false,
+                  year: false,
+                  aiGenre: false,
+                },
+              }
+            : song,
+        )
+        localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
+        return nextSongs
+      })
+    } catch (err) {
+      setToolError(err?.message || 'Could not clear fetched metadata')
+    } finally {
+      setIsClearingMetadata(false)
+    }
+  }
+
+  const runModelAction = async () => {
+    const action = modelDialogAction
+    const songs = modelDialogSongs
+    const provider = modelDialogProvider
+    closeModelDialog()
+
+    if (action === 'classifyExplicit') {
+      await classifyExplicit(songs, provider)
+    } else if (action === 'fetchMetadata') {
+      await fetchAIMetadataForSongs(songs, provider)
     }
   }
 
@@ -1134,7 +1375,7 @@ const AiToolPage = () => {
     } else if (action === 'showLyrics') {
       await showLyrics(song)
     } else if (action === 'fetchMetadata') {
-      await fetchAIMetadataForSongs([song])
+      openModelDialog('fetchMetadata', [song])
     } else if (action === 'removeSong') {
       removeSong(song.id)
     }
@@ -1229,8 +1470,8 @@ const AiToolPage = () => {
             <Button
               variant="outlined"
               color="primary"
-              onClick={classifyExplicit}
-              disabled={!selectedAddedIds.length || isClassifyingExplicit}
+              onClick={() => openModelDialog('classifyExplicit', selectedAddedSongs)}
+              disabled={!selectedAddedIds.length || isClassifyingExplicit || isFetchJobRunning}
             >
               {isClassifyingExplicit
                 ? translate('menu.aiTool.classifyingExplicit', { _: 'Classifying...' })
@@ -1240,7 +1481,7 @@ const AiToolPage = () => {
               variant="outlined"
               color="primary"
               onClick={fetchSelectedLyrics}
-              disabled={!selectedAddedIds.length || Boolean(lyricsLoadingId)}
+              disabled={!selectedAddedIds.length || isFetchJobRunning}
             >
               {lyricsLoadingId ? (
                 <CircularProgress size={14} color="inherit" className={classes.buttonProgress} />
@@ -1252,8 +1493,8 @@ const AiToolPage = () => {
             <Button
               variant="outlined"
               color="primary"
-              onClick={fetchAIMetadata}
-              disabled={!selectedAddedIds.length || isFetchingMetadata}
+              onClick={() => openModelDialog('fetchMetadata', selectedAddedSongs)}
+              disabled={!selectedAddedIds.length || isFetchJobRunning || isClassifyingExplicit}
             >
               {isFetchingMetadata ? (
                 <CircularProgress size={14} color="inherit" className={classes.buttonProgress} />
@@ -1261,6 +1502,32 @@ const AiToolPage = () => {
               {isFetchingMetadata
                 ? translate('menu.aiTool.fetchingMetadata', { _: 'Fetching...' })
                 : translate('menu.aiTool.fetchAIMetadata', { _: 'Fetch AI Metadata' })}
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={(event) => setColumnMenuAnchorEl(event.currentTarget)}
+              startIcon={<ViewColumnIcon />}
+            >
+              {translate('ra.toggleFieldsMenu.columnsToDisplay', { _: 'Columns' })}
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={clearFetchedMetadata}
+              disabled={
+                !selectedAddedIds.length ||
+                isClearingMetadata ||
+                isFetchJobRunning ||
+                isClassifyingExplicit
+              }
+            >
+              {isClearingMetadata ? (
+                <CircularProgress size={14} color="inherit" className={classes.buttonProgress} />
+              ) : null}
+              {isClearingMetadata
+                ? translate('menu.aiTool.clearingMetadata', { _: 'Clearing...' })
+                : translate('menu.aiTool.clearFetchedMetadata', { _: 'Clear Fetched Metadata' })}
             </Button>
             <Button
               variant="outlined"
@@ -1285,10 +1552,24 @@ const AiToolPage = () => {
                   {' '}
                   {jobProgress.currentTitle}
                 </Typography>
-                <Typography variant="body2" className={classes.progressMeta}>
-                  {jobProgress.done}/{jobProgress.total} done,{' '}
-                  {Math.max(jobProgress.total - jobProgress.done, 0)} left
-                </Typography>
+                <Box className={classes.progressActions}>
+                  <Typography variant="body2" className={classes.progressMeta}>
+                    {jobProgress.done}/{jobProgress.total} done,{' '}
+                    {Math.max(jobProgress.total - jobProgress.done, 0)} left
+                  </Typography>
+                  {isFetchJobRunning ? (
+                    <Button
+                      className={classes.stopJobButton}
+                      variant="outlined"
+                      color="secondary"
+                      size="small"
+                      onClick={stopFetchJob}
+                      startIcon={<StopIcon fontSize="small" />}
+                    >
+                      {translate('ra.action.stop', { _: 'Stop' })}
+                    </Button>
+                  ) : null}
+                </Box>
               </Box>
               <LinearProgress
                 className={classes.progressBar}
@@ -1311,15 +1592,42 @@ const AiToolPage = () => {
                       onChange={toggleAllAddedSongs}
                     />
                   </TableCell>
-                  <TableCell>{translate('resources.song.fields.title', { _: 'Title' })}</TableCell>
-                  <TableCell>{translate('resources.song.fields.album', { _: 'Album' })}</TableCell>
-                  <TableCell>{translate('resources.song.fields.artist', { _: 'Artist' })}</TableCell>
-                  <TableCell>{translate('resources.song.fields.year', { _: 'Year' })}</TableCell>
-                  <TableCell>{translate('resources.song.fields.explicitStatus', { _: 'Explicit' })}</TableCell>
-                  <TableCell>{translate('menu.aiTool.lyrics', { _: 'Lyrics' })}</TableCell>
-                  <TableCell>{translate('resources.song.fields.duration', { _: 'Time' })}</TableCell>
-                  <TableCell>{translate('resources.song.fields.genre', { _: 'Genre' })}</TableCell>
-                  <TableCell>{translate('menu.aiTool.aiGenre', { _: 'AI Genre' })}</TableCell>
+                  {isColumnVisible('title') ? (
+                    <TableCell>{translate('resources.song.fields.title', { _: 'Title' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('album') ? (
+                    <TableCell>{translate('resources.song.fields.album', { _: 'Album' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('albumConfidence') ? (
+                    <TableCell className={classes.confidenceColumn}>Album Confidence</TableCell>
+                  ) : null}
+                  {isColumnVisible('artist') ? (
+                    <TableCell>{translate('resources.song.fields.artist', { _: 'Artist' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('year') ? (
+                    <TableCell>{translate('resources.song.fields.year', { _: 'Year' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('yearConfidence') ? (
+                    <TableCell className={classes.confidenceColumn}>Year Confidence</TableCell>
+                  ) : null}
+                  {isColumnVisible('explicit') ? (
+                    <TableCell>{translate('resources.song.fields.explicitStatus', { _: 'Explicit' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('lyrics') ? (
+                    <TableCell>{translate('menu.aiTool.lyrics', { _: 'Lyrics' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('duration') ? (
+                    <TableCell>{translate('resources.song.fields.duration', { _: 'Time' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('genre') ? (
+                    <TableCell>{translate('resources.song.fields.genre', { _: 'Genre' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('aiGenre') ? (
+                    <TableCell>{translate('menu.aiTool.aiGenre', { _: 'AI Genre' })}</TableCell>
+                  ) : null}
+                  {isColumnVisible('genreConfidence') ? (
+                    <TableCell className={classes.confidenceColumn}>Genre Confidence</TableCell>
+                  ) : null}
                   <TableCell>{translate('ra.action.actions', { _: 'Actions' })}</TableCell>
                 </TableRow>
               </TableHead>
@@ -1332,21 +1640,54 @@ const AiToolPage = () => {
                         onChange={() => toggleAddedSong(song.id)}
                       />
                     </TableCell>
-                    <TableCell className={classes.valueExisting}>{song.title || ''}</TableCell>
-                    <TableCell className={valueClass(song, 'album')}>{song.album || ''}</TableCell>
-                    <TableCell className={classes.valueExisting}>{song.artist || ''}</TableCell>
-                    <TableCell className={valueClass(song, 'year')}>{song.year || ''}</TableCell>
-                    <TableCell className={valueClass(song, 'explicitStatus')}>
-                      {formatExplicitStatus(song.explicitStatus)}
-                    </TableCell>
-                    <TableCell className={valueClass(song, 'lyrics')}>
-                      {hasSavedLyrics(song)
-                        ? translate('menu.aiTool.lyricsAvailable', { _: 'Available' })
-                        : translate('menu.aiTool.lyricsMissing', { _: 'Missing' })}
-                    </TableCell>
-                    <TableCell className={classes.valueExisting}>{formatDuration(song.duration)}</TableCell>
-                    <TableCell className={classes.valueExisting}>{song.genre || ''}</TableCell>
-                    <TableCell className={valueClass(song, 'aiGenre')}>{song.aiGenre || '-'}</TableCell>
+                    {isColumnVisible('title') ? (
+                      <TableCell className={classes.valueExisting}>{song.title || ''}</TableCell>
+                    ) : null}
+                    {isColumnVisible('album') ? (
+                      <TableCell className={valueClass(song, 'album')}>{song.album || ''}</TableCell>
+                    ) : null}
+                    {isColumnVisible('albumConfidence') ? (
+                      <TableCell className={classes.confidenceColumn}>
+                        {renderMetadataConfidence(song.metadataConfidence?.album) || '—'}
+                      </TableCell>
+                    ) : null}
+                    {isColumnVisible('artist') ? (
+                      <TableCell className={classes.valueExisting}>{song.artist || ''}</TableCell>
+                    ) : null}
+                    {isColumnVisible('year') ? (
+                      <TableCell className={valueClass(song, 'year')}>{song.year || ''}</TableCell>
+                    ) : null}
+                    {isColumnVisible('yearConfidence') ? (
+                      <TableCell className={classes.confidenceColumn}>
+                        {renderMetadataConfidence(song.metadataConfidence?.year) || '—'}
+                      </TableCell>
+                    ) : null}
+                    {isColumnVisible('explicit') ? (
+                      <TableCell className={valueClass(song, 'explicitStatus')}>
+                        {formatExplicitStatus(song.explicitStatus)}
+                      </TableCell>
+                    ) : null}
+                    {isColumnVisible('lyrics') ? (
+                      <TableCell className={valueClass(song, 'lyrics')}>
+                        {hasSavedLyrics(song)
+                          ? translate('menu.aiTool.lyricsAvailable', { _: 'Available' })
+                          : translate('menu.aiTool.lyricsMissing', { _: 'Missing' })}
+                      </TableCell>
+                    ) : null}
+                    {isColumnVisible('duration') ? (
+                      <TableCell className={classes.valueExisting}>{formatDuration(song.duration)}</TableCell>
+                    ) : null}
+                    {isColumnVisible('genre') ? (
+                      <TableCell className={classes.valueExisting}>{song.genre || ''}</TableCell>
+                    ) : null}
+                    {isColumnVisible('aiGenre') ? (
+                      <TableCell className={valueClass(song, 'aiGenre')}>{song.aiGenre || '-'}</TableCell>
+                    ) : null}
+                    {isColumnVisible('genreConfidence') ? (
+                      <TableCell className={classes.confidenceColumn}>
+                        {renderMetadataConfidence(song.metadataConfidence?.genre) || '—'}
+                      </TableCell>
+                    ) : null}
                     <TableCell>
                       <IconButton
                         size="small"
@@ -1370,12 +1711,38 @@ const AiToolPage = () => {
       </Card>
 
       <Menu
+        anchorEl={columnMenuAnchorEl}
+        keepMounted
+        open={Boolean(columnMenuAnchorEl)}
+        onClose={() => setColumnMenuAnchorEl(null)}
+      >
+        <Typography className={classes.columnMenuTitle} variant="body2">
+          {translate('ra.toggleFieldsMenu.columnsToDisplay', { _: 'Columns to display' })}
+        </Typography>
+        <Box className={classes.columnMenuItems}>
+          <MenuItem onClick={toggleAllConfidenceColumns}>
+            <Checkbox
+              checked={allConfidenceColumnsVisible}
+              indeterminate={someConfidenceColumnsVisible && !allConfidenceColumnsVisible}
+            />
+            All Confidence Columns
+          </MenuItem>
+          {AI_TOOL_COLUMNS.map((column) => (
+            <MenuItem key={column.id} onClick={() => toggleColumn(column.id)}>
+              <Checkbox checked={isColumnVisible(column.id)} />
+              {column.label}
+            </MenuItem>
+          ))}
+        </Box>
+      </Menu>
+
+      <Menu
         anchorEl={rowActionAnchorEl}
         keepMounted
         open={Boolean(rowActionAnchorEl)}
         onClose={closeRowActions}
       >
-        <MenuItem onClick={() => runRowAction('fetchLyrics')} disabled={Boolean(lyricsLoadingId)}>
+        <MenuItem onClick={() => runRowAction('fetchLyrics')} disabled={isFetchJobRunning}>
           {lyricsLoadingId === rowActionSong?.id
             ? translate('menu.aiTool.fetchingLyrics', { _: 'Fetching...' })
             : translate('menu.aiTool.fetchLyrics', { _: 'Fetch Lyrics' })}
@@ -1383,7 +1750,10 @@ const AiToolPage = () => {
         <MenuItem onClick={() => runRowAction('showLyrics')}>
           {translate('menu.aiTool.showLyrics', { _: 'Show Lyrics' })}
         </MenuItem>
-        <MenuItem onClick={() => runRowAction('fetchMetadata')} disabled={isFetchingMetadata}>
+        <MenuItem
+          onClick={() => runRowAction('fetchMetadata')}
+          disabled={isFetchJobRunning || isClassifyingExplicit}
+        >
           {isFetchingMetadata
             ? translate('menu.aiTool.fetchingMetadata', { _: 'Fetching...' })
             : translate('menu.aiTool.fetchAIMetadata', { _: 'Fetch AI Metadata' })}
@@ -1392,6 +1762,55 @@ const AiToolPage = () => {
           {translate('menu.aiTool.removeSong', { _: 'Remove Song' })}
         </MenuItem>
       </Menu>
+
+      <Dialog
+        open={Boolean(modelDialogAction)}
+        onClose={closeModelDialog}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>
+          {modelDialogAction === 'classifyExplicit'
+            ? translate('menu.aiTool.classifyExplicit', { _: 'Classify Explicit' })
+            : translate('menu.aiTool.fetchAIMetadata', { _: 'Fetch AI Metadata' })}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Choose the AI model for {modelDialogSongs.length}{' '}
+            {modelDialogSongs.length === 1 ? 'song' : 'songs'}.
+          </Typography>
+          <TextField
+            select
+            fullWidth
+            margin="normal"
+            variant="outlined"
+            label={translate('menu.aiTool.aiModel', { _: 'AI Model' })}
+            value={modelDialogProvider}
+            onChange={(event) => setModelDialogProvider(normalizeAIProvider(event.target.value))}
+          >
+            {AI_PROVIDERS.map((provider) => (
+              <MenuItem key={provider.id} value={provider.id}>
+                {provider.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeModelDialog}>
+            {translate('ra.action.cancel', { _: 'Cancel' })}
+          </Button>
+          <Button
+            color="primary"
+            variant="contained"
+            onClick={runModelAction}
+            disabled={isClassifyingExplicit || isFetchJobRunning}
+          >
+            {modelDialogAction === 'classifyExplicit'
+              ? translate('menu.aiTool.classify', { _: 'Classify' })
+              : translate('menu.aiTool.fetchMetadata', { _: 'Fetch Metadata' })}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {isChatOpen ? (
         <Box

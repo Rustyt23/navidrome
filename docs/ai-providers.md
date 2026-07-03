@@ -7,7 +7,7 @@ The collapsible status panel checks all four services when the page opens and ev
 Gemini uses the existing `GeminiAPIKey` configuration. Gemma is called from the backend only and reads these environment variables:
 
 ```env
-ND_GEMMA_API_URL=http://34.172.168.194:3001/chat
+ND_GEMMA_API_URL=http://34.172.168.194:8081/chat
 ND_GEMMA_API_KEY=your-secret-key
 ```
 

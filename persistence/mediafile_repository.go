@@ -344,6 +344,24 @@ func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, ye
 	return err
 }
 
+func (r *mediaFileRepository) ClearAIMetadata(id string, album bool, year bool) error {
+	id = strings.TrimSpace(id)
+	if id == "" || (!album && !year) {
+		return nil
+	}
+
+	up := Update(r.tableName).Where(Eq{"id": id})
+	if album {
+		up = up.Set("album", "[Unknown Album]")
+	}
+	if year {
+		up = up.Set("year", 0)
+	}
+	up = up.Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
 func (r *mediaFileRepository) UpdateCoverPath(id string, coverPath string) error {
 	coverPath = strings.TrimSpace(coverPath)
 	if id == "" || coverPath == "" {

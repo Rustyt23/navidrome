@@ -178,6 +178,22 @@ func (m *MockMediaFileRepo) UpdateMetadata(id string, album *string, year *int) 
 	return model.ErrNotFound
 }
 
+func (m *MockMediaFileRepo) ClearAIMetadata(id string, album bool, year bool) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		if album {
+			mf.Album = "[Unknown Album]"
+		}
+		if year {
+			mf.Year = 0
+		}
+		return nil
+	}
+	return model.ErrNotFound
+}
+
 func (m *MockMediaFileRepo) UpdateLyrics(id string, lyrics string) error {
 	if m.Err {
 		return errors.New("error")

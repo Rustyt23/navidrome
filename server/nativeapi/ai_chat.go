@@ -58,22 +58,40 @@ type aiFetchMetadataRequest struct {
 }
 
 type aiFetchMetadataSong struct {
-	ID         string `json:"id"`
-	Album      string `json:"album,omitempty"`
-	Year       int    `json:"year,omitempty"`
-	AIGenre    string `json:"aiGenre,omitempty"`
-	Confidence int    `json:"confidence,omitempty"`
+	ID              string `json:"id"`
+	Album           string `json:"album,omitempty"`
+	Year            int    `json:"year,omitempty"`
+	AIGenre         string `json:"aiGenre,omitempty"`
+	AlbumConfidence int    `json:"albumConfidence"`
+	YearConfidence  int    `json:"yearConfidence"`
+	GenreConfidence int    `json:"genreConfidence"`
 }
 
 type aiFetchMetadataResponse struct {
 	Songs []aiFetchMetadataSong `json:"songs"`
 }
 
+type aiClearMetadataSong struct {
+	ID    string `json:"id"`
+	Album bool   `json:"album"`
+	Year  bool   `json:"year"`
+}
+
+type aiClearMetadataRequest struct {
+	Songs []aiClearMetadataSong `json:"songs"`
+}
+
+type aiClearMetadataResponse struct {
+	SongIDs []string `json:"songIds"`
+}
+
 type geminiSongMetadata struct {
-	Album      string `json:"album"`
-	Year       int    `json:"year"`
-	Genre      string `json:"genre"`
-	Confidence int    `json:"confidence"`
+	Album           string `json:"album"`
+	Year            int    `json:"year"`
+	Genre           string `json:"genre"`
+	AlbumConfidence int    `json:"albumConfidence"`
+	YearConfidence  int    `json:"yearConfidence"`
+	GenreConfidence int    `json:"genreConfidence"`
 }
 
 type aiChatProvider interface {
@@ -130,8 +148,9 @@ type gemmaChatRequest struct {
 }
 
 type gemmaChatResponse struct {
-	Reply string `json:"reply"`
-	Model string `json:"model"`
+	Response string `json:"response"`
+	Reply    string `json:"reply"`
+	Model    string `json:"model"`
 }
 
 func (g geminiClient) Chat(ctx context.Context, message string) (string, error) {
@@ -220,9 +239,12 @@ func (g gemmaClient) Chat(ctx context.Context, message string) (string, error) {
 	if err := json.NewDecoder(httpResp.Body).Decode(&apiResp); err != nil {
 		return "", fmt.Errorf("invalid Gemma API response: %w", err)
 	}
-	answer := strings.TrimSpace(apiResp.Reply)
+	answer := strings.TrimSpace(apiResp.Response)
 	if answer == "" {
-		return "", fmt.Errorf("Gemma API returned empty reply")
+		answer = strings.TrimSpace(apiResp.Reply)
+	}
+	if answer == "" {
+		return "", fmt.Errorf("Gemma API returned an empty response")
 	}
 	return answer, nil
 }
@@ -404,6 +426,27 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(aiFetchMetadataResponse{Songs: songs})
 	})
+
+	r.Post("/ai/clear-metadata", func(w http.ResponseWriter, req *http.Request) {
+		var payload aiClearMetadataRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid request payload", http.StatusBadRequest)
+			return
+		}
+		if len(payload.Songs) == 0 {
+			http.Error(w, "songs is required", http.StatusBadRequest)
+			return
+		}
+
+		cleared, err := clearAIMetadata(n.ds.MediaFile(req.Context()), payload.Songs)
+		if err != nil {
+			http.Error(w, "could not clear AI metadata", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(aiClearMetadataResponse{SongIDs: cleared})
+	})
 }
 
 func aiChatProviderSpec(provider string, modelName string) aiProviderSpec {
@@ -489,7 +532,7 @@ func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
 			id:    "gemma-26b",
 			label: "Gemma 26B",
 			probe: func() bool {
-				return gemmaAPIKey != "" && probeAIEndpoint(ctx, client, gemmaURL, gemmaAPIKey)
+				return gemmaAPIKey != "" && probeGemmaEndpoint(ctx, client, gemmaURL, gemmaAPIKey)
 			},
 		},
 		{
@@ -528,6 +571,14 @@ func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
 }
 
 func probeAIEndpoint(ctx context.Context, client *http.Client, endpoint string, apiKey string) bool {
+	return probeAIEndpointMethod(ctx, client, endpoint, apiKey, http.MethodHead)
+}
+
+func probeGemmaEndpoint(ctx context.Context, client *http.Client, endpoint string, apiKey string) bool {
+	return probeAIEndpointMethod(ctx, client, endpoint, apiKey, http.MethodOptions)
+}
+
+func probeAIEndpointMethod(ctx context.Context, client *http.Client, endpoint string, apiKey string, method string) bool {
 	if strings.TrimSpace(endpoint) == "" {
 		return false
 	}
@@ -535,7 +586,7 @@ func probeAIEndpoint(ctx context.Context, client *http.Client, endpoint string, 
 		return false
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
 	if err != nil {
 		return false
 	}
@@ -774,26 +825,59 @@ func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, prov
 
 		var album *string
 		var year *int
+		if metadata.Album != "" && strings.EqualFold(strings.TrimSpace(metadata.Album), strings.TrimSpace(mf.Album)) {
+			result.AlbumConfidence = metadata.AlbumConfidence
+		}
+		if metadata.Year > 0 && metadata.Year == mf.Year {
+			result.YearConfidence = metadata.YearConfidence
+		}
 		if albumNeedsFetch(mf.Album) && metadata.Album != "" {
 			album = &metadata.Album
 			result.Album = metadata.Album
+			result.AlbumConfidence = metadata.AlbumConfidence
 		}
 		if yearNeedsFetch(mf.Year) && metadata.Year > 0 {
 			year = &metadata.Year
 			result.Year = metadata.Year
+			result.YearConfidence = metadata.YearConfidence
 		}
 		if album != nil || year != nil {
 			if err := repo.UpdateMissingMetadata(songID, album, year, nil, nil, nil); err != nil {
 				result.Album = ""
 				result.Year = 0
+				result.AlbumConfidence = 0
+				result.YearConfidence = 0
 			}
 		}
 
 		result.AIGenre = metadata.Genre
+		if result.AIGenre != "" {
+			result.GenreConfidence = metadata.GenreConfidence
+		}
 		results = append(results, result)
 	}
 
 	return results, nil
+}
+
+func clearAIMetadata(repo model.MediaFileRepository, songs []aiClearMetadataSong) ([]string, error) {
+	cleared := make([]string, 0, len(songs))
+	seen := map[string]struct{}{}
+	for _, song := range songs {
+		songID := strings.TrimSpace(song.ID)
+		if songID == "" {
+			continue
+		}
+		if _, ok := seen[songID]; ok {
+			continue
+		}
+		seen[songID] = struct{}{}
+		if err := repo.ClearAIMetadata(songID, song.Album, song.Year); err != nil {
+			return cleared, err
+		}
+		cleared = append(cleared, songID)
+	}
+	return cleared, nil
 }
 
 func fetchGeminiSongMetadata(ctx context.Context, provider aiChatProvider, mf *model.MediaFile) (geminiSongMetadata, error) {
@@ -810,9 +894,9 @@ func songMetadataPrompt(mf *model.MediaFile, lyrics string) string {
 	b.WriteString(`Find the most likely album, release year, and concise genre for this song.
 
 Return only valid JSON in this exact shape:
-{"album":"album name or empty string","year":0,"genre":"genre or empty string"}
+{"album":"album name or empty string","albumConfidence":0,"year":0,"yearConfidence":0,"genre":"genre or empty string","genreConfidence":0}
 
-Use 0 or an empty string when you are not confident. Do not include markdown.
+Confidence values must be whole numbers from 0 to 100 for each individual field. If current metadata is supplied and appears correct, return it unchanged and score it. Use 0 or an empty string when you are not confident. Do not include markdown.
 
 Song:
 `)
@@ -848,20 +932,29 @@ func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
 	}
 
 	var raw struct {
-		Album string      `json:"album"`
-		Year  interface{} `json:"year"`
-		Genre string      `json:"genre"`
+		Album           string      `json:"album"`
+		Year            interface{} `json:"year"`
+		Genre           string      `json:"genre"`
+		AlbumConfidence interface{} `json:"albumConfidence"`
+		YearConfidence  interface{} `json:"yearConfidence"`
+		GenreConfidence interface{} `json:"genreConfidence"`
+		Confidence      interface{} `json:"confidence"`
 	}
 	if err := json.Unmarshal([]byte(answer), &raw); err != nil {
 		return geminiSongMetadata{}, err
 	}
 
+	legacyConfidence := parseMetadataConfidence(raw.Confidence)
 	metadata := geminiSongMetadata{
-		Album: strings.TrimSpace(raw.Album),
-		Genre: strings.TrimSpace(raw.Genre),
+		Album:           strings.TrimSpace(raw.Album),
+		Genre:           strings.TrimSpace(raw.Genre),
+		AlbumConfidence: metadataConfidenceOr(raw.AlbumConfidence, legacyConfidence),
+		YearConfidence:  metadataConfidenceOr(raw.YearConfidence, legacyConfidence),
+		GenreConfidence: metadataConfidenceOr(raw.GenreConfidence, legacyConfidence),
 	}
 	if albumNeedsFetch(metadata.Album) {
 		metadata.Album = ""
+		metadata.AlbumConfidence = 0
 	}
 	switch year := raw.Year.(type) {
 	case float64:
@@ -871,8 +964,37 @@ func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
 	}
 	if metadata.Year < 1900 || metadata.Year > time.Now().Year()+1 {
 		metadata.Year = 0
+		metadata.YearConfidence = 0
+	}
+	if metadata.Genre == "" {
+		metadata.GenreConfidence = 0
 	}
 	return metadata, nil
+}
+
+func metadataConfidenceOr(value interface{}, fallback int) int {
+	confidence := parseMetadataConfidence(value)
+	if confidence == 0 {
+		return fallback
+	}
+	return confidence
+}
+
+func parseMetadataConfidence(value interface{}) int {
+	confidence := 0.0
+	switch typed := value.(type) {
+	case float64:
+		confidence = typed
+	case string:
+		_, _ = fmt.Sscanf(strings.TrimSpace(strings.TrimSuffix(typed, "%")), "%f", &confidence)
+	}
+	if confidence < 0 {
+		return 0
+	}
+	if confidence > 100 {
+		return 100
+	}
+	return int(confidence + 0.5)
 }
 
 func albumNeedsFetch(album string) bool {
