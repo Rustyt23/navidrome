@@ -422,6 +422,24 @@ func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, ye
 	return err
 }
 
+func (r *mediaFileRepository) ClearAIMetadata(id string, album bool, year bool) error {
+	id = strings.TrimSpace(id)
+	if id == "" || (!album && !year) {
+		return nil
+	}
+
+	up := Update(r.tableName).Where(Eq{"id": id})
+	if album {
+		up = up.Set("album", "[Unknown Album]")
+	}
+	if year {
+		up = up.Set("year", 0)
+	}
+	up = up.Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
 func (r *mediaFileRepository) UpdateCoverPath(id string, coverPath string) error {
 	coverPath = strings.TrimSpace(coverPath)
 	if id == "" || coverPath == "" {
@@ -459,6 +477,35 @@ func (r *mediaFileRepository) UpdateSpotifyMetadata(id string, confidence *float
 		up = up.Set("spotify_url", strings.TrimSpace(*spotifyURL))
 	}
 	up = up.Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
+func (r *mediaFileRepository) UpdateLyrics(id string, lyrics string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+
+	up := Update(r.tableName).
+		Set("lyrics", lyrics).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(up)
+	return err
+}
+
+func (r *mediaFileRepository) UpdateExplicitStatus(id string, explicitStatus string) error {
+	id = strings.TrimSpace(id)
+	explicitStatus = strings.TrimSpace(explicitStatus)
+	if id == "" || explicitStatus == "" {
+		return nil
+	}
+
+	up := Update(r.tableName).
+		Set("explicit_status", explicitStatus).
+		Set("updated_at", time.Now()).
+		Where(Eq{"id": id})
 	_, err := r.executeSQL(up)
 	return err
 }

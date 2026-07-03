@@ -81,6 +81,8 @@ var _ = Describe("Config API", func() {
 				conf.Server.PasswordEncryptionKey = "encryptionkey789"
 				conf.Server.DevAutoCreateAdminPassword = "adminpassword123"
 				conf.Server.Prometheus.Password = "prometheuspass"
+				conf.Server.GeminiAPIKey = "gemini-secret"
+				conf.Server.GemmaAPIKey = "gemma-secret"
 
 				req := createAuthenticatedConfigRequest(adminToken)
 				w := httptest.NewRecorder()
@@ -106,6 +108,9 @@ var _ = Describe("Config API", func() {
 				prometheus, ok := resp.Config["Prometheus"].(map[string]any)
 				Expect(ok).To(BeTrue())
 				Expect(prometheus["Password"]).To(Equal("****"))
+
+				Expect(resp.Config["GeminiAPIKey"]).To(Equal("****"))
+				Expect(resp.Config["GemmaAPIKey"]).To(Equal("****"))
 			})
 
 			It("handles empty sensitive values", func() {
@@ -172,6 +177,8 @@ var _ = Describe("redactValue function", func() {
 		Expect(redactValue("PasswordEncryptionKey", "1234567890")).To(Equal("****"))
 		Expect(redactValue("DevAutoCreateAdminPassword", "1234567890")).To(Equal("****"))
 		Expect(redactValue("Prometheus.Password", "1234567890")).To(Equal("****"))
+		Expect(redactValue("GeminiAPIKey", "1234567890")).To(Equal("****"))
+		Expect(redactValue("GemmaAPIKey", "1234567890")).To(Equal("****"))
 	})
 
 	It("fully masks short sensitive values", func() {

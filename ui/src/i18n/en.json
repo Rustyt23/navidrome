@@ -744,7 +744,21 @@
       "error": "Unable to load devices",
       "empty": "No devices available"
     },
-    "about": "About"
+    "about": "About",
+    "aiTool": {
+      "name": "AI Tool",
+      "chat": "Chat with AI",
+      "empty": "Start a conversation with AI.",
+      "inputPlaceholder": "Ask AI anything...",
+      "send": "Send",
+      "importSong": "Import song",
+      "importAction": "Import songs",
+      "placeholderReply": "AI integration is not connected yet. This is a UI placeholder.",
+      "addSongs": "Add songs",
+      "addSelected": "Add selected songs",
+      "aiTag": "AI Tag",
+      "sending": "Sending..."
+    }
   },
   "player": {
     "playListsText": "Play Queue",

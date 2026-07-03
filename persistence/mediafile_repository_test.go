@@ -854,6 +854,19 @@ var _ = Describe("MediaRepository", func() {
 		})
 	})
 
+	Context("ClearAIMetadata", func() {
+		It("clears only the requested AI-filled fields", func() {
+			mf := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Title: "Song", Album: "AI Album", Year: 2014}
+			Expect(mr.Put(&mf)).To(Succeed())
+
+			Expect(mr.ClearAIMetadata(mf.ID, true, false)).To(Succeed())
+
+			updated, err := mr.Get(mf.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.Album).To(Equal("[Unknown Album]"))
+			Expect(updated.Year).To(Equal(2014))
+		})
+	})
 
 	Describe("FindByPaths", func() {
 		// Test fixtures for Unicode and case-sensitivity tests

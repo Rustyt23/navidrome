@@ -449,8 +449,11 @@ type MediaFileRepository interface {
 	UpdateComment(ids []string, comment string) error
 	UpdateLoudnessTags(id string, lufs float64) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
+	ClearAIMetadata(id string, album bool, year bool) error
 	UpdateCoverPath(id string, coverPath string) error
 	UpdateSpotifyMetadata(id string, confidence *float64, match *string, artist *string, spotifyURL *string) error
+	UpdateLyrics(id string, lyrics string) error
+	UpdateExplicitStatus(id string, explicitStatus string) error
 
 	// The following methods are used exclusively by the scanner:
 	MarkMissing(bool, ...*MediaFile) error

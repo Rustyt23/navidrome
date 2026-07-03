@@ -102,6 +102,10 @@ type configOptions struct {
 	EnableNowPlaying                bool
 	UIPlaybackReportInterval        time.Duration
 	GATrackingID                    string
+	GeminiAPIKey                    string
+	GemmaAPIURL                     string
+	GemmaAPIKey                     string
+	WhisperAPIURL                   string
 	EnableLogRedacting              bool
 	AuthRequestLimit                int
 	AuthWindowLength                time.Duration
@@ -887,6 +891,10 @@ func setViperDefaults() {
 	viper.SetDefault("defaultshareexpiration", 8760*time.Hour)
 	viper.SetDefault("defaultdownloadableshare", false)
 	viper.SetDefault("gatrackingid", "")
+	viper.SetDefault("geminiapikey", "")
+	viper.SetDefault("gemmaapiurl", "")
+	viper.SetDefault("gemmaapikey", "")
+	viper.SetDefault("whisperapiurl", "")
 	viper.SetDefault("enableinsightscollector", true)
 	viper.SetDefault("enablelogredacting", true)
 	viper.SetDefault("authrequestlimit", 5)
