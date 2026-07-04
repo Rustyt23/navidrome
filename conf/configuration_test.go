@@ -278,6 +278,63 @@ var _ = Describe("Configuration", func() {
 		})
 	})
 
+	Describe("RAG configuration", func() {
+		It("enables RAG with local Qdrant defaults", func() {
+			conf.Load(true)
+
+			Expect(conf.Server.EnableRAG).To(BeTrue())
+			Expect(conf.Server.RAGVectorURL).To(Equal("http://localhost:6333"))
+			Expect(conf.Server.RAGCollection).To(Equal("navidrome_songs"))
+			Expect(conf.Server.RAGTopK).To(Equal(20))
+		})
+
+		It("loads ND_ environment variables", func() {
+			GinkgoT().Setenv("ND_ENABLERAG", "true")
+			GinkgoT().Setenv("ND_RAGVECTORURL", "http://vector.test:6333")
+			GinkgoT().Setenv("ND_RAGCOLLECTION", "test_songs")
+			GinkgoT().Setenv("ND_RAGTOPK", "12")
+
+			conf.InitConfig("", true)
+			conf.Load(true)
+
+			Expect(conf.Server.EnableRAG).To(BeTrue())
+			Expect(conf.Server.RAGVectorURL).To(Equal("http://vector.test:6333"))
+			Expect(conf.Server.RAGCollection).To(Equal("test_songs"))
+			Expect(conf.Server.RAGTopK).To(Equal(12))
+		})
+	})
+
+	Describe("Gemma 3:4b configuration", func() {
+		It("uses the default Ollama API URL", func() {
+			conf.Load(true)
+			Expect(conf.Server.Gemma4APIURL).To(Equal("http://34.172.168.194:8084/api/generate"))
+		})
+
+		It("loads ND_GEMMA4APIURL", func() {
+			GinkgoT().Setenv("ND_GEMMA4APIURL", "http://gemma4.test/api/generate")
+			conf.InitConfig("", true)
+			conf.Load(true)
+			Expect(conf.Server.Gemma4APIURL).To(Equal("http://gemma4.test/api/generate"))
+		})
+	})
+
+	Describe("Whisper configuration", func() {
+		It("uses the default model and lyrics folder", func() {
+			conf.Load(true)
+			Expect(conf.Server.WhisperModel).To(Equal("large-v3"))
+			Expect(conf.Server.WhisperLyricsFolder).To(Equal("./lyrics"))
+		})
+
+		It("loads Whisper environment variables", func() {
+			GinkgoT().Setenv("ND_WHISPERMODEL", "small")
+			GinkgoT().Setenv("ND_WHISPERLYRICSFOLDER", "/tmp/lyrics")
+			conf.InitConfig("", true)
+			conf.Load(true)
+			Expect(conf.Server.WhisperModel).To(Equal("small"))
+			Expect(conf.Server.WhisperLyricsFolder).To(Equal("/tmp/lyrics"))
+		})
+	})
+
 	DescribeTable("should load configuration from",
 		func(format string) {
 			filename := filepath.Join("testdata", "cfg."+format)

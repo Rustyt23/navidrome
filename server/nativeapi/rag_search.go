@@ -1,0 +1,119 @@
+package nativeapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/server/nativeapi/rag"
+)
+
+type ragSearchRequest struct {
+	Query string `json:"query"`
+	TopK  int    `json:"topK"`
+}
+
+type ragSearchResponse struct {
+	Results []rag.SongSearchResult `json:"results"`
+}
+
+type ragSearchFunc func(context.Context, string, int) ([]rag.SongSearchResult, error)
+
+func (n *Router) handleRAGSearch(w http.ResponseWriter, request *http.Request) {
+	serveRAGSearch(w, request, searchRAG)
+}
+
+func serveRAGSearch(w http.ResponseWriter, request *http.Request, search ragSearchFunc) {
+	if !ragEnabled() {
+		writeRAGSearchError(w, http.StatusServiceUnavailable, "RAG is disabled")
+		return
+	}
+	payload, err := decodeRAGSearchRequest(request.Body, conf.Server.RAGTopK)
+	if err != nil {
+		writeRAGSearchError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	results, err := search(request.Context(), payload.Query, payload.TopK)
+	if err != nil {
+		writeRAGSearchError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ragSearchResponse{Results: results})
+}
+
+func searchRAG(ctx context.Context, query string, topK int) ([]rag.SongSearchResult, error) {
+	if !ragEnabled() {
+		return nil, fmt.Errorf("RAG is disabled")
+	}
+	if strings.TrimSpace(conf.Server.GeminiAPIKey) == "" {
+		return nil, fmt.Errorf("Gemini API key is not configured")
+	}
+
+	qdrant := rag.NewQdrantClient(conf.Server.RAGVectorURL, conf.Server.RAGCollection)
+	status := qdrant.Status(ctx, false)
+	if !status.VectorDBOnline {
+		if status.Error != "" {
+			return nil, errors.New(status.Error)
+		}
+		return nil, fmt.Errorf("Qdrant is offline")
+	}
+	if !status.CollectionExists {
+		return nil, fmt.Errorf("Qdrant collection %q does not exist", conf.Server.RAGCollection)
+	}
+	if status.Error != "" {
+		return nil, errors.New(status.Error)
+	}
+
+	return rag.SearchSongs(
+		ctx,
+		rag.NewGeminiQueryEmbedder(conf.Server.GeminiAPIKey),
+		qdrant,
+		query,
+		topK,
+	)
+}
+
+func decodeRAGSearchRequest(reader io.Reader, defaultTopK int) (ragSearchRequest, error) {
+	payload := ragSearchRequest{TopK: defaultTopK}
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return ragSearchRequest{}, fmt.Errorf("invalid request payload: %w", err)
+	}
+	payload.Query = strings.TrimSpace(payload.Query)
+	if payload.Query == "" {
+		return ragSearchRequest{}, fmt.Errorf("query is required")
+	}
+	if payload.TopK <= 0 || payload.TopK > rag.MaxSearchTopK {
+		return ragSearchRequest{}, fmt.Errorf("topK must be between 1 and %d", rag.MaxSearchTopK)
+	}
+	return payload, nil
+}
+
+func writeRAGSearchError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+func prepareAIChatMessage(
+	ctx context.Context,
+	message string,
+	search ragSearchFunc,
+) (string, []rag.SongSearchResult, error) {
+	if !ragEnabled() {
+		return message, nil, nil
+	}
+	results, err := search(ctx, message, conf.Server.RAGTopK)
+	if err != nil {
+		return message, nil, err
+	}
+	return rag.BuildChatPrompt(message, results), results, nil
+}

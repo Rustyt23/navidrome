@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Button,
@@ -32,8 +32,10 @@ import { Title, useDataProvider, useTranslate } from 'react-admin'
 import { httpClient } from '../dataProvider'
 
 const ADDED_SONGS_STORAGE_KEY = 'aiToolAddedSongs'
-const DEFAULT_AI_PROVIDER_STORAGE_KEY = 'aiToolDefaultProvider'
+const DEFAULT_AI_PROVIDER_STORAGE_KEY = 'aiToolDefaultProviderV3'
 const AI_TOOL_COLUMNS_STORAGE_KEY = 'aiToolVisibleColumns'
+const DEFAULT_AI_PROVIDER = 'gemma-3-4b'
+const DEFAULT_WHISPER_MODEL = 'large-v3'
 
 const AI_TOOL_COLUMNS = [
   { id: 'title', label: 'Title' },
@@ -63,13 +65,24 @@ const AI_PROVIDERS = [
   { id: 'gemini-2.5', label: 'Gemini 2.5' },
   { id: 'gemini-3.5', label: 'Gemini 3.5' },
   { id: 'gemma-26b', label: 'Gemma 26B' },
+  { id: 'gemma-3-4b', label: 'Gemma 3:4b' },
 ]
 
 const AI_SERVICES = [
   { id: 'gemma-26b', label: 'Gemma 26B' },
+  { id: 'gemma-3-4b', label: 'Gemma 3:4b' },
   { id: 'whisper', label: 'Whisper' },
   { id: 'gemini-2.5', label: 'Gemini 2.5' },
   { id: 'gemini-3.5', label: 'Gemini 3.5' },
+]
+
+const WHISPER_MODELS = [
+  { id: 'tiny', label: 'Tiny' },
+  { id: 'base', label: 'Base' },
+  { id: 'small', label: 'Small' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'large-v3', label: 'Large v3' },
+  { id: 'turbo', label: 'Turbo' },
 ]
 
 const CHAT_MIN_WIDTH = 320
@@ -77,6 +90,8 @@ const CHAT_MIN_HEIGHT = 420
 const CHAT_MARGIN = 16
 const CHAT_DEFAULT_WIDTH = 360
 const CHAT_DEFAULT_HEIGHT = 520
+const DEFAULT_RAG_INDEX_LIMIT = 50
+const MAX_RAG_INDEX_LIMIT = 500
 
 const defaultChatFrame = () => {
   if (typeof window === 'undefined') {
@@ -93,6 +108,18 @@ const defaultChatFrame = () => {
     top: Math.max(window.innerHeight - CHAT_DEFAULT_HEIGHT - 24, CHAT_MARGIN),
     width: CHAT_DEFAULT_WIDTH,
     height: CHAT_DEFAULT_HEIGHT,
+  }
+}
+
+const defaultNormalChatFrame = () => {
+  const frame = defaultChatFrame()
+  if (typeof window === 'undefined') return frame
+  return {
+    ...frame,
+    left: Math.max(
+      window.innerWidth - CHAT_DEFAULT_WIDTH * 2 - 40,
+      CHAT_MARGIN,
+    ),
   }
 }
 
@@ -123,14 +150,18 @@ const normalizeAIProvider = (provider) => {
     case 'gemma-26b':
     case 'gemma-26':
     case 'gemma-4':
+      return 'gemma-26b'
+    case 'gemma-3-4b':
+    case 'gemma-3:4b':
     case 'gemma-3':
     case 'gemma3':
     case 'gemma3:4b':
-      return 'gemma-26b'
+      return 'gemma-3-4b'
     case 'gemini-2.5':
     case 'gemini-2.5-flash':
-    default:
       return 'gemini-2.5'
+    default:
+      return DEFAULT_AI_PROVIDER
   }
 }
 
@@ -236,6 +267,91 @@ const useStyles = makeStyles((theme) => ({
     alignItems: 'center',
     gap: 6,
     fontSize: 12,
+  },
+  ragStatusCard: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: theme.spacing(1, 2),
+    padding: theme.spacing(1.25, 1.5),
+    borderRadius: 8,
+    border: '1px solid rgba(255, 255, 255, 0.12)',
+    color: '#f7f8fb',
+    background: '#151f2d',
+  },
+  ragStatusTitle: {
+    fontWeight: 600,
+  },
+  ragStatusBadge: {
+    padding: theme.spacing(0.25, 0.75),
+    borderRadius: 10,
+    fontSize: 12,
+    color: '#c9d1dc',
+    background: 'rgba(255, 255, 255, 0.08)',
+  },
+  ragStatusEnabled: {
+    color: '#3ddc84',
+  },
+  ragStatusDisabled: {
+    color: '#ff8fc6',
+  },
+  ragStatusErrorText: {
+    width: '100%',
+    color: '#ff8fc6',
+    fontSize: 12,
+  },
+  ragToggleButton: {
+    marginLeft: 'auto',
+  },
+  ragIndexMessage: {
+    width: '100%',
+    color: '#3ddc84',
+    fontSize: 12,
+  },
+  ragIndexControls: {
+    width: '100%',
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+  },
+  ragIndexLimitInput: {
+    width: 150,
+  },
+  ragIndexHint: {
+    color: '#c9d1dc',
+    fontSize: 12,
+  },
+  ragSearchControls: {
+    width: '100%',
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+  },
+  ragSearchInput: {
+    flex: '1 1 260px',
+  },
+  ragSearchResults: {
+    width: '100%',
+    display: 'grid',
+    gap: theme.spacing(0.75),
+  },
+  ragSearchResult: {
+    padding: theme.spacing(0.75, 1),
+    borderRadius: 6,
+    color: '#c9d1dc',
+    background: '#0f1722',
+    fontSize: 12,
+  },
+  ragStatusDetails: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: theme.spacing(0.5, 2),
+    color: '#c9d1dc',
+    fontSize: 12,
+    wordBreak: 'break-word',
   },
   statusDot: {
     width: 8,
@@ -436,6 +552,19 @@ const useStyles = makeStyles((theme) => ({
     fontSize: 12,
     marginBottom: theme.spacing(0.5),
   },
+  chatSources: {
+    maxWidth: '82%',
+    marginTop: theme.spacing(0.75),
+    padding: theme.spacing(0.75, 1),
+    borderRadius: 8,
+    color: '#c9d1dc',
+    background: '#111b28',
+    fontSize: 11,
+  },
+  chatSource: {
+    display: 'block',
+    marginTop: 2,
+  },
   chatBubble: {
     maxWidth: '82%',
     borderRadius: 18,
@@ -564,10 +693,24 @@ const useStyles = makeStyles((theme) => ({
       background: '#e9197c',
     },
   },
+  ragChatLauncher: {
+    right: theme.spacing(3),
+    bottom: theme.spacing(3),
+  },
+  normalChatLauncher: {
+    right: theme.spacing(12),
+    bottom: theme.spacing(3),
+  },
   chatError: {
     color: '#ff8fc6',
     padding: theme.spacing(0, 1.5, 1.25),
     background: '#0f1722',
+  },
+  chatRAGWarning: {
+    maxWidth: 310,
+    marginTop: theme.spacing(0.75),
+    color: '#f6c177',
+    fontSize: 11,
   },
 }))
 
@@ -618,10 +761,14 @@ const AiToolPage = () => {
   const dataProvider = useDataProvider()
   const chatMessagesRef = useRef(null)
   const chatAbortControllerRef = useRef(null)
+  const normalChatMessagesRef = useRef(null)
+  const normalChatAbortControllerRef = useRef(null)
   const jobAbortControllerRef = useRef(null)
   const progressTimeoutRef = useRef(null)
   const [messages, setMessages] = useState([])
   const [prompt, setPrompt] = useState('')
+  const [normalMessages, setNormalMessages] = useState([])
+  const [normalPrompt, setNormalPrompt] = useState('')
   const [songDialogOpen, setSongDialogOpen] = useState(false)
   const [songsLoading, setSongsLoading] = useState(false)
   const [availableSongs, setAvailableSongs] = useState([])
@@ -638,22 +785,34 @@ const AiToolPage = () => {
   })
 
   const [isSending, setIsSending] = useState(false)
+  const [isNormalSending, setIsNormalSending] = useState(false)
   const [defaultProvider, setDefaultProvider] = useState(() => {
     try {
       return normalizeAIProvider(
         localStorage.getItem(DEFAULT_AI_PROVIDER_STORAGE_KEY),
       )
     } catch {
-      return 'gemini-2.5'
+      return DEFAULT_AI_PROVIDER
     }
   })
+  const [whisperModel, setWhisperModel] = useState(DEFAULT_WHISPER_MODEL)
+  const [isUpdatingWhisperModel, setIsUpdatingWhisperModel] = useState(false)
   const [chatProvider, setChatProvider] = useState(defaultProvider)
   const [chatProviderOverridden, setChatProviderOverridden] = useState(false)
+  const [normalChatProvider, setNormalChatProvider] = useState(defaultProvider)
+  const [normalChatProviderOverridden, setNormalChatProviderOverridden] =
+    useState(false)
   const [chatError, setChatError] = useState('')
+  const [normalChatError, setNormalChatError] = useState('')
   const [toolError, setToolError] = useState('')
   const [isChatOpen, setIsChatOpen] = useState(true)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [chatFrame, setChatFrame] = useState(defaultChatFrame)
+  const [isNormalChatOpen, setIsNormalChatOpen] = useState(false)
+  const [isNormalChatExpanded, setIsNormalChatExpanded] = useState(false)
+  const [normalChatFrame, setNormalChatFrame] = useState(
+    defaultNormalChatFrame,
+  )
   const [lyricsLoadingId, setLyricsLoadingId] = useState('')
   const [lyricsDialogOpen, setLyricsDialogOpen] = useState(false)
   const [lyricsDialogTitle, setLyricsDialogTitle] = useState('')
@@ -683,6 +842,165 @@ const AiToolPage = () => {
   const [modelStatuses, setModelStatuses] = useState(() =>
     AI_SERVICES.map((service) => ({ ...service, online: null })),
   )
+  const [ragStatus, setRAGStatus] = useState(null)
+  const [ragStatusError, setRAGStatusError] = useState('')
+  const [isTogglingRAG, setIsTogglingRAG] = useState(false)
+  const [isIndexingRAG, setIsIndexingRAG] = useState(false)
+  const [ragIndexLimit, setRAGIndexLimit] = useState(
+    String(DEFAULT_RAG_INDEX_LIMIT),
+  )
+  const [ragIndexMessage, setRAGIndexMessage] = useState('')
+  const [ragIndexError, setRAGIndexError] = useState('')
+  const [isRAGDocumentsOpen, setIsRAGDocumentsOpen] = useState(false)
+  const [isLoadingRAGDocuments, setIsLoadingRAGDocuments] = useState(false)
+  const [ragDocuments, setRAGDocuments] = useState([])
+  const [ragDocumentsCollection, setRAGDocumentsCollection] = useState('')
+  const [ragDocumentsCount, setRAGDocumentsCount] = useState(0)
+  const [ragDocumentsError, setRAGDocumentsError] = useState('')
+  const [ragSearchQuery, setRAGSearchQuery] = useState('')
+  const [ragSearchResults, setRAGSearchResults] = useState([])
+  const [isSearchingRAG, setIsSearchingRAG] = useState(false)
+  const [ragSearchError, setRAGSearchError] = useState('')
+
+  const parsedRAGIndexLimit = Number(ragIndexLimit)
+  const isRAGIndexLimitValid =
+    Number.isInteger(parsedRAGIndexLimit) &&
+    parsedRAGIndexLimit >= 1 &&
+    parsedRAGIndexLimit <= MAX_RAG_INDEX_LIMIT
+
+  const loadRAGStatus = useCallback(async () => {
+    try {
+      const { json } = await httpClient('/api/ai/rag/status')
+      setRAGStatus({
+        enabled: json?.enabled === true,
+        vectorUrl: json?.vectorUrl || '',
+        collection: json?.collection || '',
+        topK: Number(json?.topK) || 0,
+        vectorDbOnline: json?.vectorDbOnline === true,
+        collectionExists: json?.collectionExists === true,
+        indexedCount: Number(json?.indexedCount) || 0,
+        error: json?.error || '',
+      })
+      setRAGStatusError('')
+    } catch (error) {
+      setRAGStatus(null)
+      setRAGStatusError(error?.message || 'Could not load RAG status')
+    }
+  }, [])
+
+  const toggleRAG = async () => {
+    if (!ragStatus || isTogglingRAG) return
+    const enabled = !ragStatus.enabled
+    setIsTogglingRAG(true)
+    setRAGStatusError('')
+    try {
+      const { json } = await httpClient('/api/ai/rag/enabled', {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
+      })
+      setRAGStatus((current) => ({
+        ...current,
+        enabled: json?.enabled === true,
+        vectorDbOnline:
+          json?.enabled === true ? current.vectorDbOnline : false,
+        collectionExists:
+          json?.enabled === true ? current.collectionExists : false,
+        indexedCount: json?.enabled === true ? current.indexedCount : 0,
+      }))
+      if (json?.enabled === true) await loadRAGStatus()
+    } catch (error) {
+      setRAGStatusError(error?.message || 'Could not change RAG status')
+    } finally {
+      setIsTogglingRAG(false)
+    }
+  }
+
+  const updateWhisperModel = async (model) => {
+    if (isUpdatingWhisperModel) return
+    setIsUpdatingWhisperModel(true)
+    try {
+      const { json } = await httpClient('/api/ai/whisper/model', {
+        method: 'POST',
+        body: JSON.stringify({ model }),
+      })
+      setWhisperModel(json?.model || model)
+    } catch (error) {
+      setToolError(error?.message || 'Could not change Whisper model')
+    } finally {
+      setIsUpdatingWhisperModel(false)
+    }
+  }
+
+  const indexRAGSongs = async () => {
+    if (!ragStatus?.enabled || isIndexingRAG) return
+
+    if (!isRAGIndexLimitValid) {
+      setRAGIndexError(
+        `Choose a whole number between 1 and ${MAX_RAG_INDEX_LIMIT}.`,
+      )
+      return
+    }
+
+    setIsIndexingRAG(true)
+    setRAGIndexMessage('')
+    setRAGIndexError('')
+    try {
+      const { json } = await httpClient('/api/ai/rag/index', {
+        method: 'POST',
+        body: JSON.stringify({ limit: parsedRAGIndexLimit, force: false }),
+      })
+      setRAGIndexMessage(
+        `Indexed ${Number(json?.indexed) || 0}, skipped ${
+          Number(json?.skipped) || 0
+        }, failed ${Number(json?.failed) || 0}.`,
+      )
+      if (json?.error) setRAGIndexError(json.error)
+      await loadRAGStatus()
+    } catch (error) {
+      setRAGIndexError(error?.message || 'Could not index songs')
+    } finally {
+      setIsIndexingRAG(false)
+    }
+  }
+
+  const openRAGDocuments = async () => {
+    setIsRAGDocumentsOpen(true)
+    setIsLoadingRAGDocuments(true)
+    setRAGDocumentsError('')
+    try {
+      const { json } = await httpClient('/api/ai/rag/documents?limit=100')
+      setRAGDocuments(Array.isArray(json?.songs) ? json.songs : [])
+      setRAGDocumentsCollection(json?.collection || '')
+      setRAGDocumentsCount(Number(json?.indexedCount) || 0)
+    } catch (error) {
+      setRAGDocuments([])
+      setRAGDocumentsError(
+        error?.message || 'Could not load indexed songs from Qdrant',
+      )
+    } finally {
+      setIsLoadingRAGDocuments(false)
+    }
+  }
+
+  const searchRAGSongs = async () => {
+    const query = ragSearchQuery.trim()
+    if (!query || !ragStatus?.enabled || isSearchingRAG) return
+
+    setIsSearchingRAG(true)
+    setRAGSearchError('')
+    setRAGSearchResults([])
+    try {
+      const { json } = await httpClient('/api/ai/rag/search', {
+        method: 'POST',
+        body: JSON.stringify({ query, topK: ragStatus.topK || 20 }),
+      })
+      setRAGSearchResults(Array.isArray(json?.results) ? json.results : [])
+    } catch (error) {
+      setRAGSearchError(error?.message || 'Could not search RAG')
+    } finally {
+      setIsSearchingRAG(false)
+    }
+  }
 
   const selectedSongs = useMemo(
     () => availableSongs.filter((song) => selectedSongIds.includes(song.id)),
@@ -713,6 +1031,10 @@ const AiToolPage = () => {
     (service) => service.id === normalizeAIProvider(chatProvider),
   )
   const selectedModelOnline = selectedModelStatus?.online
+  const selectedNormalModelStatus = modelStatuses.find(
+    (service) => service.id === normalizeAIProvider(normalChatProvider),
+  )
+  const selectedNormalModelOnline = selectedNormalModelStatus?.online
   const onlineServiceCount = modelStatuses.filter(
     (service) => service.online === true,
   ).length
@@ -797,7 +1119,14 @@ const AiToolPage = () => {
     if (!chatProviderOverridden) {
       setChatProvider(defaultProvider)
     }
-  }, [defaultProvider, chatProviderOverridden])
+    if (!normalChatProviderOverridden) {
+      setNormalChatProvider(defaultProvider)
+    }
+  }, [
+    defaultProvider,
+    chatProviderOverridden,
+    normalChatProviderOverridden,
+  ])
 
   useEffect(() => {
     localStorage.setItem(
@@ -816,6 +1145,7 @@ const AiToolPage = () => {
         const byId = new Map(
           (json?.services || []).map((service) => [service.id, service]),
         )
+        setWhisperModel(json?.whisperModel || DEFAULT_WHISPER_MODEL)
         setModelStatuses(
           AI_SERVICES.map((service) => ({
             ...service,
@@ -840,15 +1170,32 @@ const AiToolPage = () => {
   }, [])
 
   useEffect(() => {
+    loadRAGStatus()
+  }, [loadRAGStatus])
+
+  useEffect(() => {
     if (!isChatOpen || !chatMessagesRef.current) return
 
     const messagesEl = chatMessagesRef.current
     messagesEl.scrollTop = messagesEl.scrollHeight
   }, [messages, isSending, isChatOpen, isChatExpanded])
 
+  useEffect(() => {
+    if (!isNormalChatOpen || !normalChatMessagesRef.current) return
+
+    const messagesEl = normalChatMessagesRef.current
+    messagesEl.scrollTop = messagesEl.scrollHeight
+  }, [
+    normalMessages,
+    isNormalSending,
+    isNormalChatOpen,
+    isNormalChatExpanded,
+  ])
+
   useEffect(
     () => () => {
       chatAbortControllerRef.current?.abort()
+      normalChatAbortControllerRef.current?.abort()
       jobAbortControllerRef.current?.abort()
       if (progressTimeoutRef.current !== null) {
         window.clearTimeout(progressTimeoutRef.current)
@@ -923,7 +1270,7 @@ const AiToolPage = () => {
       const { json: payload } = await httpClient('/api/ai/chat', {
         method: 'POST',
         signal: abortController.signal,
-        body: JSON.stringify({ message: trimmed, provider }),
+        body: JSON.stringify({ message: trimmed, provider, useRag: true }),
       })
 
       setMessages((prev) => [
@@ -933,6 +1280,8 @@ const AiToolPage = () => {
           text: payload.response || '',
           provider: payload.provider || provider,
           model: payload.model || '',
+          sources: Array.isArray(payload.sources) ? payload.sources : [],
+          ragError: payload.ragError || '',
         },
       ])
     } catch (err) {
@@ -953,14 +1302,70 @@ const AiToolPage = () => {
     chatAbortControllerRef.current?.abort()
   }
 
-  const startChatResize = (corner, event) => {
+  const sendNormalMessage = async () => {
+    const trimmed = normalPrompt.trim()
+    if (!trimmed || isNormalSending) return
+
+    const provider = normalizeAIProvider(normalChatProvider)
+    const abortController = new AbortController()
+    normalChatAbortControllerRef.current = abortController
+    setNormalChatError('')
+    setNormalMessages((prev) => [
+      ...prev,
+      { role: 'user', text: trimmed, provider },
+    ])
+    setNormalPrompt('')
+    setIsNormalSending(true)
+
+    try {
+      const { json: payload } = await httpClient('/api/ai/chat', {
+        method: 'POST',
+        signal: abortController.signal,
+        body: JSON.stringify({ message: trimmed, provider, useRag: false }),
+      })
+
+      setNormalMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: payload.response || '',
+          provider: payload.provider || provider,
+          model: payload.model || '',
+        },
+      ])
+    } catch (err) {
+      if (abortController.signal.aborted || err?.name === 'AbortError') {
+        setNormalChatError('')
+      } else {
+        setNormalChatError(err?.message || 'Could not get response from AI')
+      }
+    } finally {
+      if (normalChatAbortControllerRef.current === abortController) {
+        normalChatAbortControllerRef.current = null
+      }
+      setIsNormalSending(false)
+    }
+  }
+
+  const stopNormalMessage = () => {
+    normalChatAbortControllerRef.current?.abort()
+  }
+
+  const startFloatingChatResize = (
+    corner,
+    event,
+    expanded,
+    frame,
+    setExpanded,
+    setFrame,
+  ) => {
     event.preventDefault()
     event.stopPropagation()
-    setIsChatExpanded(false)
+    setExpanded(false)
 
     const startX = event.clientX
     const startY = event.clientY
-    const startFrame = isChatExpanded ? expandedChatFrame() : chatFrame
+    const startFrame = expanded ? expandedChatFrame() : frame
 
     const onMouseMove = (moveEvent) => {
       const dx = moveEvent.clientX - startX
@@ -1006,7 +1411,7 @@ const AiToolPage = () => {
         height = Math.max(CHAT_MIN_HEIGHT, Math.min(height, maxBottom - top))
       }
 
-      setChatFrame({ left, top, width, height })
+      setFrame({ left, top, width, height })
     }
 
     const onMouseUp = () => {
@@ -1017,6 +1422,26 @@ const AiToolPage = () => {
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
   }
+
+  const startChatResize = (corner, event) =>
+    startFloatingChatResize(
+      corner,
+      event,
+      isChatExpanded,
+      chatFrame,
+      setIsChatExpanded,
+      setChatFrame,
+    )
+
+  const startNormalChatResize = (corner, event) =>
+    startFloatingChatResize(
+      corner,
+      event,
+      isNormalChatExpanded,
+      normalChatFrame,
+      setIsNormalChatExpanded,
+      setNormalChatFrame,
+    )
 
   const openAddSongsDialog = async () => {
     setSongDialogOpen(true)
@@ -1509,6 +1934,22 @@ const AiToolPage = () => {
                 </MenuItem>
               ))}
             </TextField>
+            <TextField
+              select
+              className={classes.defaultProviderSelect}
+              label="Default Whisper Model"
+              variant="outlined"
+              size="small"
+              value={whisperModel}
+              disabled={isUpdatingWhisperModel}
+              onChange={(event) => updateWhisperModel(event.target.value)}
+            >
+              {WHISPER_MODELS.map((model) => (
+                <MenuItem key={model.id} value={model.id}>
+                  {model.label}
+                </MenuItem>
+              ))}
+            </TextField>
             <Box className={classes.serviceStatusPanel}>
               <button
                 type="button"
@@ -1575,6 +2016,198 @@ const AiToolPage = () => {
                   })}
                 </Box>
               </Collapse>
+            </Box>
+            <Box
+              className={classes.ragStatusCard}
+              role="region"
+              aria-label="RAG status"
+            >
+              <Typography className={classes.ragStatusTitle} variant="body2">
+                RAG status
+              </Typography>
+              <Typography
+                component="span"
+                className={`${classes.ragStatusBadge} ${
+                  ragStatus?.enabled
+                    ? classes.ragStatusEnabled
+                    : classes.ragStatusDisabled
+                }`}
+              >
+                {ragStatus
+                  ? ragStatus.enabled
+                    ? 'Enabled'
+                    : 'Disabled'
+                  : ragStatusError
+                    ? 'Unavailable'
+                    : 'Loading…'}
+              </Typography>
+              <Button
+                className={classes.ragToggleButton}
+                size="small"
+                variant="outlined"
+                color="primary"
+                onClick={toggleRAG}
+                disabled={!ragStatus || isTogglingRAG}
+              >
+                {isTogglingRAG
+                  ? 'Updating…'
+                  : ragStatus?.enabled
+                    ? 'Disable RAG'
+                    : 'Enable RAG'}
+              </Button>
+              {ragStatus ? (
+                <Box className={classes.ragStatusDetails}>
+                  <span>
+                    Vector DB:{' '}
+                    <strong
+                      className={
+                        ragStatus.vectorDbOnline
+                          ? classes.ragStatusEnabled
+                          : classes.ragStatusDisabled
+                      }
+                    >
+                      {ragStatus.vectorDbOnline ? 'Online' : 'Offline'}
+                    </strong>
+                  </span>
+                  <span>Vector URL: {ragStatus.vectorUrl}</span>
+                  <span>Collection: {ragStatus.collection}</span>
+                  <span>
+                    Collection status:{' '}
+                    <strong
+                      className={
+                        ragStatus.collectionExists
+                          ? classes.ragStatusEnabled
+                          : classes.ragStatusDisabled
+                      }
+                    >
+                      {ragStatus.collectionExists ? 'Exists' : 'Missing'}
+                    </strong>
+                  </span>
+                  <span>Indexed: {ragStatus.indexedCount}</span>
+                  <span>Top K: {ragStatus.topK}</span>
+                </Box>
+              ) : null}
+              <Box className={classes.ragIndexControls}>
+                <TextField
+                  id="rag-index-limit"
+                  className={classes.ragIndexLimitInput}
+                  variant="outlined"
+                  size="small"
+                  type="number"
+                  label="Songs to index"
+                  value={ragIndexLimit}
+                  onChange={(event) => setRAGIndexLimit(event.target.value)}
+                  inputProps={{
+                    min: 1,
+                    max: MAX_RAG_INDEX_LIMIT,
+                    step: 1,
+                    'aria-label': 'Songs to index',
+                  }}
+                  error={ragIndexLimit !== '' && !isRAGIndexLimitValid}
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  onClick={indexRAGSongs}
+                  disabled={
+                    !ragStatus?.enabled ||
+                    !isRAGIndexLimitValid ||
+                    isIndexingRAG
+                  }
+                >
+                  {isIndexingRAG
+                    ? 'Indexing…'
+                    : `Index ${isRAGIndexLimitValid ? parsedRAGIndexLimit : ''} songs`}
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  onClick={openRAGDocuments}
+                  disabled={
+                    !ragStatus?.enabled ||
+                    !ragStatus?.vectorDbOnline ||
+                    !ragStatus?.collectionExists
+                  }
+                >
+                  View indexed songs
+                </Button>
+                <Typography className={classes.ragIndexHint} variant="body2">
+                  Already indexed songs are skipped.
+                </Typography>
+              </Box>
+              {ragIndexMessage ? (
+                <Typography className={classes.ragIndexMessage} variant="body2">
+                  {ragIndexMessage}
+                </Typography>
+              ) : null}
+              {ragIndexError ? (
+                <Typography
+                  className={classes.ragStatusErrorText}
+                  variant="body2"
+                >
+                  {ragIndexError}
+                </Typography>
+              ) : null}
+              <Box className={classes.ragSearchControls}>
+                <TextField
+                  className={classes.ragSearchInput}
+                  variant="outlined"
+                  size="small"
+                  value={ragSearchQuery}
+                  onChange={(event) => setRAGSearchQuery(event.target.value)}
+                  onKeyPress={(event) => {
+                    if (event.key === 'Enter') searchRAGSongs()
+                  }}
+                  placeholder="Test RAG search"
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  onClick={searchRAGSongs}
+                  disabled={
+                    !ragStatus?.enabled ||
+                    !ragSearchQuery.trim() ||
+                    isSearchingRAG
+                  }
+                >
+                  {isSearchingRAG ? 'Searching…' : 'Search RAG'}
+                </Button>
+              </Box>
+              {ragSearchError ? (
+                <Typography
+                  className={classes.ragStatusErrorText}
+                  variant="body2"
+                >
+                  {ragSearchError}
+                </Typography>
+              ) : null}
+              {ragSearchResults.length ? (
+                <Box className={classes.ragSearchResults}>
+                  {ragSearchResults.map((result, index) => (
+                    <Box
+                      className={classes.ragSearchResult}
+                      key={`${result.songId || 'song'}-${index}`}
+                    >
+                      {result.title || 'Unknown title'} —{' '}
+                      {result.artist || 'Unknown artist'} · score{' '}
+                      {Number(result.score || 0).toFixed(3)} ·{' '}
+                      {result.genre || 'Unknown genre'} ·{' '}
+                      {result.explicit ? 'Explicit' : 'Clean'}
+                    </Box>
+                  ))}
+                </Box>
+              ) : null}
+              {ragStatus?.error || ragStatusError ? (
+                <Typography
+                  className={classes.ragStatusErrorText}
+                  variant="body2"
+                >
+                  {ragStatus?.error || ragStatusError}
+                </Typography>
+              ) : null}
             </Box>
           </Box>
           <Box className={classes.tableActions}>
@@ -2050,6 +2683,8 @@ const AiToolPage = () => {
         <Box
           className={classes.chatWidget}
           style={isChatExpanded ? expandedChatFrame() : chatFrame}
+          role="dialog"
+          aria-label="RAG"
         >
           <Box
             className={`${classes.chatResizeHandle} ${classes.chatResizeTopLeft}`}
@@ -2072,9 +2707,9 @@ const AiToolPage = () => {
             title="Resize chat"
           />
           <Box className={classes.chatHeader}>
-            <Box className={classes.chatAvatar}>AI</Box>
+            <Box className={classes.chatAvatar}>RAG</Box>
             <Box className={classes.chatTitleWrap}>
-              <Typography className={classes.chatTitle}>AI Chat</Typography>
+              <Typography className={classes.chatTitle}>RAG</Typography>
               <Typography
                 className={`${classes.chatStatus} ${
                   selectedModelOnline === true
@@ -2118,7 +2753,7 @@ const AiToolPage = () => {
                 <Box
                   className={`${classes.chatBubble} ${classes.chatBubbleAssistant}`}
                 >
-                  Hi. What can I help with today?
+                  Ask me about songs in your indexed library.
                 </Box>
               </Box>
             ) : (
@@ -2147,6 +2782,27 @@ const AiToolPage = () => {
                     >
                       {message.text}
                     </Box>
+                    {message.role === 'assistant' && message.sources?.length ? (
+                      <Box className={classes.chatSources}>
+                        Sources
+                        {message.sources.map((source, sourceIndex) => (
+                          <span
+                            className={classes.chatSource}
+                            key={`${source.songId || 'source'}-${sourceIndex}`}
+                          >
+                            {source.title || 'Unknown title'} —{' '}
+                            {source.artist || 'Unknown artist'} ·{' '}
+                            {Number(source.score || 0).toFixed(3)}
+                          </span>
+                        ))}
+                      </Box>
+                    ) : null}
+                    {message.role === 'assistant' && message.ragError ? (
+                      <Typography className={classes.chatRAGWarning}>
+                        RAG unavailable: {message.ragError}. Answered without
+                        library context.
+                      </Typography>
+                    ) : null}
                   </Box>
                 </Box>
               ))
@@ -2202,9 +2858,7 @@ const AiToolPage = () => {
               onKeyPress={(event) => {
                 if (event.key === 'Enter') sendMessage()
               }}
-              placeholder={translate('menu.aiTool.inputPlaceholder', {
-                _: 'Ask AI anything...',
-              })}
+              placeholder="Ask RAG about your library..."
             />
             <Button
               className={
@@ -2212,7 +2866,7 @@ const AiToolPage = () => {
               }
               variant="contained"
               onClick={isSending ? stopMessage : sendMessage}
-              title={isSending ? 'Stop response' : 'Send message'}
+              title={isSending ? 'Stop RAG response' : 'Send RAG message'}
             >
               {isSending ? <StopIcon fontSize="small" /> : '>'}
             </Button>
@@ -2225,12 +2879,286 @@ const AiToolPage = () => {
         </Box>
       ) : (
         <Button
-          className={classes.chatLauncher}
+          className={`${classes.chatLauncher} ${classes.ragChatLauncher}`}
           onClick={() => setIsChatOpen(true)}
+          aria-label="Open RAG"
+        >
+          RAG
+        </Button>
+      )}
+
+      {isNormalChatOpen ? (
+        <Box
+          className={classes.chatWidget}
+          style={
+            isNormalChatExpanded ? expandedChatFrame() : normalChatFrame
+          }
+          role="dialog"
+          aria-label="AI Chat"
+        >
+          <Box
+            className={`${classes.chatResizeHandle} ${classes.chatResizeTopLeft}`}
+            onMouseDown={(event) =>
+              startNormalChatResize('top-left', event)
+            }
+            title="Resize normal chat"
+          />
+          <Box
+            className={`${classes.chatResizeHandle} ${classes.chatResizeTopRight}`}
+            onMouseDown={(event) =>
+              startNormalChatResize('top-right', event)
+            }
+            title="Resize normal chat"
+          />
+          <Box
+            className={`${classes.chatResizeHandle} ${classes.chatResizeBottomLeft}`}
+            onMouseDown={(event) =>
+              startNormalChatResize('bottom-left', event)
+            }
+            title="Resize normal chat"
+          />
+          <Box
+            className={`${classes.chatResizeHandle} ${classes.chatResizeBottomRight}`}
+            onMouseDown={(event) =>
+              startNormalChatResize('bottom-right', event)
+            }
+            title="Resize normal chat"
+          />
+          <Box className={classes.chatHeader}>
+            <Box className={classes.chatAvatar}>AI</Box>
+            <Box className={classes.chatTitleWrap}>
+              <Typography className={classes.chatTitle}>AI Chat</Typography>
+              <Typography
+                className={`${classes.chatStatus} ${
+                  selectedNormalModelOnline === true
+                    ? classes.chatStatusOnline
+                    : selectedNormalModelOnline === false
+                      ? classes.chatStatusOffline
+                      : ''
+                }`}
+              >
+                {aiProviderLabel(normalChatProvider)} -{' '}
+                {selectedNormalModelOnline === null ||
+                selectedNormalModelOnline === undefined
+                  ? 'Checking…'
+                  : selectedNormalModelOnline
+                    ? 'Online'
+                    : 'Offline'}
+              </Typography>
+            </Box>
+            <Box className={classes.chatHeaderActions}>
+              <Button
+                className={classes.chatClose}
+                variant="outlined"
+                onClick={() => setIsNormalChatExpanded((prev) => !prev)}
+                title={
+                  isNormalChatExpanded
+                    ? 'Collapse normal chat'
+                    : 'Expand normal chat'
+                }
+              >
+                <AspectRatioIcon fontSize="small" />
+              </Button>
+              <Button
+                className={classes.chatClose}
+                variant="outlined"
+                onClick={() => setIsNormalChatOpen(false)}
+                title="Close normal chat"
+              >
+                x
+              </Button>
+            </Box>
+          </Box>
+          <Box className={classes.chatMessages} ref={normalChatMessagesRef}>
+            {normalMessages.length === 0 ? (
+              <Box className={classes.chatMessageRow}>
+                <Box
+                  className={`${classes.chatBubble} ${classes.chatBubbleAssistant}`}
+                >
+                  Hi. What can I help with today?
+                </Box>
+              </Box>
+            ) : (
+              normalMessages.map((message, index) => (
+                <Box
+                  key={`normal-${message.role}-${index}`}
+                  className={`${classes.chatMessageRow} ${
+                    message.role === 'user' ? classes.chatMessageRowUser : ''
+                  }`}
+                >
+                  <Box>
+                    <Typography
+                      className={classes.chatMessageLabel}
+                      align={message.role === 'user' ? 'right' : 'left'}
+                    >
+                      {message.role === 'user'
+                        ? 'You'
+                        : aiProviderLabel(message.provider)}
+                    </Typography>
+                    <Box
+                      className={`${classes.chatBubble} ${
+                        message.role === 'user'
+                          ? classes.chatBubbleUser
+                          : classes.chatBubbleAssistant
+                      }`}
+                    >
+                      {message.text}
+                    </Box>
+                  </Box>
+                </Box>
+              ))
+            )}
+            {isNormalSending ? (
+              <Box className={classes.chatMessageRow}>
+                <Box>
+                  <Typography className={classes.chatMessageLabel}>
+                    {aiProviderLabel(normalChatProvider)}
+                  </Typography>
+                  <Box
+                    className={`${classes.chatBubble} ${classes.chatBubbleAssistant}`}
+                  >
+                    <Box
+                      className={classes.chatThinking}
+                      component="span"
+                      title="Normal chat thinking"
+                    >
+                      <span />
+                      <span />
+                      <span />
+                    </Box>
+                  </Box>
+                </Box>
+              </Box>
+            ) : null}
+          </Box>
+          <Box className={classes.chatInputBar}>
+            <TextField
+              select
+              className={classes.chatModelSelect}
+              variant="outlined"
+              size="small"
+              value={normalChatProvider}
+              onChange={(event) => {
+                setNormalChatProvider(
+                  normalizeAIProvider(event.target.value),
+                )
+                setNormalChatProviderOverridden(true)
+              }}
+            >
+              {AI_PROVIDERS.map((provider) => (
+                <MenuItem key={provider.id} value={provider.id}>
+                  {provider.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              fullWidth
+              className={classes.chatInput}
+              variant="outlined"
+              size="small"
+              value={normalPrompt}
+              onChange={(event) => setNormalPrompt(event.target.value)}
+              onKeyPress={(event) => {
+                if (event.key === 'Enter') sendNormalMessage()
+              }}
+              placeholder="Ask AI anything..."
+            />
+            <Button
+              className={
+                isNormalSending
+                  ? classes.chatStopButton
+                  : classes.chatSendButton
+              }
+              variant="contained"
+              onClick={
+                isNormalSending ? stopNormalMessage : sendNormalMessage
+              }
+              title={
+                isNormalSending ? 'Stop normal response' : 'Send normal message'
+              }
+            >
+              {isNormalSending ? <StopIcon fontSize="small" /> : '>'}
+            </Button>
+          </Box>
+          {normalChatError ? (
+            <Typography className={classes.chatError} variant="body2">
+              {normalChatError}
+            </Typography>
+          ) : null}
+        </Box>
+      ) : (
+        <Button
+          className={`${classes.chatLauncher} ${classes.normalChatLauncher}`}
+          onClick={() => setIsNormalChatOpen(true)}
+          aria-label="Open AI Chat"
         >
           AI
         </Button>
       )}
+
+      <Dialog
+        open={isRAGDocumentsOpen}
+        onClose={() => setIsRAGDocumentsOpen(false)}
+        fullWidth
+        maxWidth="lg"
+        aria-labelledby="rag-documents-title"
+      >
+        <DialogTitle id="rag-documents-title">Indexed RAG songs</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" gutterBottom>
+            Collection: {ragDocumentsCollection || ragStatus?.collection || '—'}
+            {' · '}Showing {ragDocuments.length} of {ragDocumentsCount} indexed
+            songs
+          </Typography>
+          {isLoadingRAGDocuments ? (
+            <Box display="flex" justifyContent="center" p={3}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : ragDocumentsError ? (
+            <Typography color="error">{ragDocumentsError}</Typography>
+          ) : ragDocuments.length === 0 ? (
+            <Typography variant="body2">No indexed songs found.</Typography>
+          ) : (
+            <Table size="small" stickyHeader aria-label="Indexed songs table">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Song ID</TableCell>
+                  <TableCell>Title</TableCell>
+                  <TableCell>Artist</TableCell>
+                  <TableCell>Album</TableCell>
+                  <TableCell>Year</TableCell>
+                  <TableCell>Genre</TableCell>
+                  <TableCell>Explicit</TableCell>
+                  <TableCell>BPM</TableCell>
+                  <TableCell>LUFS</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {ragDocuments.map((song) => (
+                  <TableRow key={song.songId}>
+                    <TableCell>{song.songId}</TableCell>
+                    <TableCell>{song.title || '—'}</TableCell>
+                    <TableCell>{song.artist || '—'}</TableCell>
+                    <TableCell>{song.album || '—'}</TableCell>
+                    <TableCell>{song.year || '—'}</TableCell>
+                    <TableCell>{song.genre || '—'}</TableCell>
+                    <TableCell>{song.explicit ? 'Yes' : 'No'}</TableCell>
+                    <TableCell>{song.bpm || '—'}</TableCell>
+                    <TableCell>
+                      {Number.isFinite(Number(song.lufs))
+                        ? Number(song.lufs).toFixed(2)
+                        : '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsRAGDocumentsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={songDialogOpen}

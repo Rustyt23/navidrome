@@ -18,18 +18,22 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/server/nativeapi/rag"
 )
 
 type aiChatRequest struct {
 	Message  string `json:"message"`
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
+	UseRAG   *bool  `json:"useRag,omitempty"`
 }
 
 type aiChatResponse struct {
-	Response string `json:"response"`
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
+	Response string                 `json:"response"`
+	Provider string                 `json:"provider,omitempty"`
+	Model    string                 `json:"model,omitempty"`
+	Sources  []rag.SongSearchResult `json:"sources,omitempty"`
+	RAGError string                 `json:"ragError,omitempty"`
 }
 
 type aiLyricsResponse struct {
@@ -110,7 +114,19 @@ type aiServiceStatus struct {
 }
 
 type aiStatusResponse struct {
-	Services []aiServiceStatus `json:"services"`
+	Services     []aiServiceStatus `json:"services"`
+	WhisperModel string            `json:"whisperModel"`
+}
+
+type aiRAGStatusResponse struct {
+	Enabled          bool   `json:"enabled"`
+	VectorURL        string `json:"vectorUrl"`
+	Collection       string `json:"collection"`
+	TopK             int    `json:"topK"`
+	VectorDBOnline   bool   `json:"vectorDbOnline"`
+	CollectionExists bool   `json:"collectionExists"`
+	IndexedCount     int64  `json:"indexedCount"`
+	Error            string `json:"error,omitempty"`
 }
 
 type geminiClient struct {
@@ -122,6 +138,12 @@ type geminiClient struct {
 type gemmaClient struct {
 	apiURL string
 	apiKey string
+	client *http.Client
+}
+
+type ollamaGemmaClient struct {
+	apiURL string
+	model  string
 	client *http.Client
 }
 
@@ -147,11 +169,19 @@ type gemmaChatRequest struct {
 	Message string `json:"message"`
 }
 
+type ollamaGenerateRequest struct {
+	Model  string `json:"model"`
+	Prompt string `json:"prompt"`
+	Stream bool   `json:"stream"`
+}
+
 type gemmaChatResponse struct {
 	Response string `json:"response"`
 	Reply    string `json:"reply"`
 	Model    string `json:"model"`
 }
+
+const gemmaChatTimeout = 120 * time.Second
 
 func (g geminiClient) Chat(ctx context.Context, message string) (string, error) {
 	body, _ := json.Marshal(geminiGenerateContentRequest{
@@ -222,7 +252,7 @@ func (g gemmaClient) Chat(ctx context.Context, message string) (string, error) {
 
 	client := g.client
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		client = &http.Client{Timeout: gemmaChatTimeout}
 	}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
@@ -249,40 +279,123 @@ func (g gemmaClient) Chat(ctx context.Context, message string) (string, error) {
 	return answer, nil
 }
 
+func (g ollamaGemmaClient) Chat(ctx context.Context, message string) (string, error) {
+	if strings.TrimSpace(g.apiURL) == "" {
+		return "", fmt.Errorf("Gemma 3:4b API URL is not configured")
+	}
+	if _, err := url.ParseRequestURI(g.apiURL); err != nil {
+		return "", fmt.Errorf("invalid Gemma 3:4b API URL: %w", err)
+	}
+
+	body, _ := json.Marshal(ollamaGenerateRequest{
+		Model:  g.model,
+		Prompt: message,
+		Stream: false,
+	})
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.apiURL, bytes.NewBuffer(body))
+	if err != nil {
+		return "", fmt.Errorf("invalid Gemma 3:4b API URL: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := g.client
+	if client == nil {
+		client = &http.Client{Timeout: gemmaChatTimeout}
+	}
+	httpResp, err := client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to contact Gemma 3:4b API: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode >= http.StatusBadRequest {
+		errBody, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4096))
+		return "", fmt.Errorf("Gemma 3:4b API error: %s", strings.TrimSpace(string(errBody)))
+	}
+
+	var apiResp gemmaChatResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&apiResp); err != nil {
+		return "", fmt.Errorf("invalid Gemma 3:4b API response: %w", err)
+	}
+	answer := strings.TrimSpace(apiResp.Response)
+	if answer == "" {
+		return "", fmt.Errorf("Gemma 3:4b API returned an empty response")
+	}
+	return answer, nil
+}
+
 func (n *Router) addAIChatRoute(r chi.Router) {
+	r.Post("/ai/rag/search", n.handleRAGSearch)
+
+	r.Get("/ai/rag/status", func(w http.ResponseWriter, request *http.Request) {
+		response := aiRAGStatusResponse{
+			Enabled:    ragEnabled(),
+			VectorURL:  conf.Server.RAGVectorURL,
+			Collection: conf.Server.RAGCollection,
+			TopK:       conf.Server.RAGTopK,
+		}
+		if response.Enabled {
+			ctx, cancel := context.WithTimeout(request.Context(), 5*time.Second)
+			defer cancel()
+
+			qdrantStatus := rag.NewQdrantClient(response.VectorURL, response.Collection).Status(ctx, true)
+			response.VectorDBOnline = qdrantStatus.VectorDBOnline
+			response.CollectionExists = qdrantStatus.CollectionExists
+			response.IndexedCount = qdrantStatus.IndexedCount
+			response.Error = qdrantStatus.Error
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	})
+
 	r.Get("/ai/status", func(w http.ResponseWriter, req *http.Request) {
 		ctx, cancel := context.WithTimeout(req.Context(), 4*time.Second)
 		defer cancel()
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(aiStatusResponse{Services: getAIServiceStatuses(ctx)})
+		_ = json.NewEncoder(w).Encode(aiStatusResponse{
+			Services:     getAIServiceStatuses(ctx),
+			WhisperModel: selectedWhisperModel(),
+		})
 	})
 
 	r.Post("/ai/chat", func(w http.ResponseWriter, req *http.Request) {
 		var payload aiChatRequest
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-			http.Error(w, "invalid request payload", http.StatusBadRequest)
+			writeAIChatError(w, http.StatusBadRequest, "invalid request payload")
 			return
 		}
 		payload.Message = strings.TrimSpace(payload.Message)
 		if payload.Message == "" {
-			http.Error(w, "message is required", http.StatusBadRequest)
+			writeAIChatError(w, http.StatusBadRequest, "message is required")
 			return
 		}
 		providerSpec := aiChatProviderSpec(payload.Provider, payload.Model)
 		if providerSpec.ID == "" {
-			http.Error(w, "unsupported AI provider", http.StatusBadRequest)
+			writeAIChatError(w, http.StatusBadRequest, "unsupported AI provider")
 			return
 		}
 
 		provider, err := newAIChatProvider(providerSpec)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			writeAIChatError(w, http.StatusServiceUnavailable, err.Error())
 			return
 		}
-		answer, err := provider.Chat(req.Context(), payload.Message)
+		chatMessage := payload.Message
+		var sources []rag.SongSearchResult
+		ragError := ""
+		if shouldUseRAG(payload) {
+			chatMessage, sources, err = prepareAIChatMessage(req.Context(), payload.Message, searchRAG)
+			if err != nil {
+				ragError = err.Error()
+				chatMessage = payload.Message
+				sources = nil
+			}
+		}
+		answer, err := provider.Chat(req.Context(), chatMessage)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeAIChatError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 
@@ -291,6 +404,8 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			Response: answer,
 			Provider: providerSpec.ID,
 			Model:    providerSpec.Model,
+			Sources:  sources,
+			RAGError: ragError,
 		})
 	})
 
@@ -313,7 +428,12 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			return
 		}
 
-		lyrics, err := fetchWhisperLyrics(req.Context(), whisperURL, mf.AbsolutePath())
+		lyrics, err := fetchWhisperLyrics(
+			req.Context(),
+			whisperURL,
+			mf.AbsolutePath(),
+			selectedWhisperModel(),
+		)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -327,6 +447,10 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 		lyricsJSON, err := json.Marshal(model.LyricList{*structured})
 		if err != nil {
 			http.Error(w, "could not save lyrics", http.StatusInternalServerError)
+			return
+		}
+		if err := saveWhisperLyricsFile(conf.Server.WhisperLyricsFolder, songID, lyrics.Text); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -449,6 +573,16 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 	})
 }
 
+func shouldUseRAG(request aiChatRequest) bool {
+	return request.UseRAG == nil || *request.UseRAG
+}
+
+func writeAIChatError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
+}
+
 func aiChatProviderSpec(provider string, modelName string) aiProviderSpec {
 	selected := strings.TrimSpace(provider)
 	if selected == "" {
@@ -460,8 +594,10 @@ func aiChatProviderSpec(provider string, modelName string) aiProviderSpec {
 		return aiProviderSpec{ID: "gemini-2.5", Model: "gemini-2.5-flash"}
 	case "gemini-3.5", "gemini-3.5-flash":
 		return aiProviderSpec{ID: "gemini-3.5", Model: "gemini-3.5-flash"}
-	case "gemma-26b", "gemma-26", "gemma-4", "gemma-3", "gemma3", "gemma3:4b":
+	case "gemma-26b", "gemma-26", "gemma-4":
 		return aiProviderSpec{ID: "gemma-26b", Model: "gemma-26b"}
+	case "gemma-3-4b", "gemma-3:4b", "gemma-3", "gemma3", "gemma3:4b":
+		return aiProviderSpec{ID: "gemma-3-4b", Model: "gemma3:4b"}
 	default:
 		return aiProviderSpec{}
 	}
@@ -490,7 +626,17 @@ func newAIChatProvider(spec aiProviderSpec) (aiChatProvider, error) {
 		return gemmaClient{
 			apiURL: apiURL,
 			apiKey: apiKey,
-			client: &http.Client{Timeout: 60 * time.Second},
+			client: &http.Client{Timeout: gemmaChatTimeout},
+		}, nil
+	case "gemma-3-4b":
+		apiURL := gemma4APIURL()
+		if apiURL == "" {
+			return nil, fmt.Errorf("Gemma 3:4b API URL is not configured")
+		}
+		return ollamaGemmaClient{
+			apiURL: apiURL,
+			model:  spec.Model,
+			client: &http.Client{Timeout: gemmaChatTimeout},
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported AI provider")
@@ -513,9 +659,18 @@ func geminiAPIKey() string {
 	return strings.TrimSpace(conf.Server.GeminiAPIKey)
 }
 
+func gemma4APIURL() string {
+	apiURL := strings.TrimSpace(os.Getenv("ND_GEMMA4APIURL"))
+	if apiURL == "" {
+		apiURL = strings.TrimSpace(conf.Server.Gemma4APIURL)
+	}
+	return apiURL
+}
+
 func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
 	client := &http.Client{Timeout: 4 * time.Second}
 	gemmaURL, gemmaAPIKey := gemmaCredentials()
+	gemma4URL := gemma4APIURL()
 	whisperURL := strings.TrimSpace(conf.Server.WhisperAPIURL)
 	geminiKey := geminiAPIKey()
 
@@ -529,6 +684,13 @@ func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
 			label: "Gemma 26B",
 			probe: func() bool {
 				return gemmaAPIKey != "" && probeGemmaEndpoint(ctx, client, gemmaURL, gemmaAPIKey)
+			},
+		},
+		{
+			id:    "gemma-3-4b",
+			label: "Gemma 3:4b",
+			probe: func() bool {
+				return probeGemmaEndpoint(ctx, client, gemma4URL, "")
 			},
 		},
 		{
@@ -620,7 +782,7 @@ func probeGeminiModel(ctx context.Context, client *http.Client, apiKey string, m
 	return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusBadRequest
 }
 
-func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string) (aiLyricsResponse, error) {
+func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string, whisperModel string) (aiLyricsResponse, error) {
 	file, err := os.Open(audioPath)
 	if err != nil {
 		return aiLyricsResponse{}, fmt.Errorf("could not open audio file: %w", err)
@@ -635,6 +797,11 @@ func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string
 	}
 	if _, err := io.Copy(part, file); err != nil {
 		return aiLyricsResponse{}, fmt.Errorf("could not read audio file: %w", err)
+	}
+	if strings.TrimSpace(whisperModel) != "" {
+		if err := writer.WriteField("model", strings.TrimSpace(whisperModel)); err != nil {
+			return aiLyricsResponse{}, fmt.Errorf("could not add Whisper model: %w", err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		return aiLyricsResponse{}, fmt.Errorf("could not finish audio upload: %w", err)
@@ -671,6 +838,38 @@ func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string
 	}
 
 	return lyrics, nil
+}
+
+func saveWhisperLyricsFile(folder string, songID string, text string) error {
+	folder = strings.TrimSpace(folder)
+	if folder == "" {
+		folder = "./lyrics"
+	}
+	filename := strings.Map(func(value rune) rune {
+		switch {
+		case value >= 'a' && value <= 'z':
+			return value
+		case value >= 'A' && value <= 'Z':
+			return value
+		case value >= '0' && value <= '9':
+			return value
+		case value == '-' || value == '_':
+			return value
+		default:
+			return '_'
+		}
+	}, strings.TrimSpace(songID))
+	if filename == "" {
+		return fmt.Errorf("could not save lyrics: song ID is empty")
+	}
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		return fmt.Errorf("could not create lyrics folder: %w", err)
+	}
+	path := filepath.Join(folder, filename+".txt")
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(text)+"\n"), 0o644); err != nil {
+		return fmt.Errorf("could not save lyrics file: %w", err)
+	}
+	return nil
 }
 
 func lyricsText(mf *model.MediaFile) (string, string) {

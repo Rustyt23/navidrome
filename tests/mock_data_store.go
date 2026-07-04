@@ -9,6 +9,8 @@ import (
 
 type MockDataStore struct {
 	RealDS                          model.DataStore
+	GCCalled                        bool
+	GCError                         error
 	MockedLibrary                   model.LibraryRepository
 	MockedFolder                    model.FolderRepository
 	MockedGenre                     model.GenreRepository

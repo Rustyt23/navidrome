@@ -23,11 +23,11 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/metrics"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
+	"github.com/navidrome/navidrome/core/publicurl"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server"
-	"github.com/navidrome/navidrome/core/publicurl"
 )
 
 const (
@@ -187,6 +187,7 @@ func (api *Router) routes() http.Handler {
 		api.addAIChatRoute(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
+			api.addRAGAdminRoute(r)
 			api.addInspectRoute(r)
 			api.addConfigRoute(r)
 			api.addUserLibraryRoute(r)
