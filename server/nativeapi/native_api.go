@@ -21,6 +21,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/core/metrics"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/log"
@@ -570,18 +571,23 @@ func (api *Router) addConfigRoute(r chi.Router) {
 	}
 }
 
+// addSyncRoute is triggered by the "Sync" button in the activity panel. It
+// used to call an external webhook that ran the sync-to-GCS bash script on the
+// server; it now runs the built-in GCSync sweep instead.
 func (n *Router) addSyncRoute(r chi.Router) {
 	r.Get("/sync", func(w http.ResponseWriter, r *http.Request) {
-		resp, err := http.Get("https://push.jareddietch.com")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		if !conf.Server.GCSync.Enabled {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"message":"GCS sync is disabled (set GCSync.Enabled in the config)"}`))
 			return
 		}
-		defer resp.Body.Close()
-		w.Header().Set("Content-Type", "application/json")
-		if _, err := io.Copy(w, resp.Body); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+		go func() {
+			if err := gcsync.GetInstance().Sweep(context.Background()); err != nil {
+				log.Error("GCSync: sweep triggered from UI failed", err)
+			}
+		}()
+		_, _ = w.Write([]byte(`{"message":"GCS sync started"}`))
 	})
 }
 
