@@ -113,43 +113,45 @@ func optimizeSelectedSongLoudness(ctx context.Context, ds model.DataStore, ids [
 			continue
 		}
 
-		analysis, err := normalizer.AnalyzeLoudness(ctx, trackPath, target)
+		res, err := ffmpeg.NormalizeToBest(ctx, normalizer, trackPath, target, ffmpeg.NormalizeOptions{
+			Tolerance:    tolerance,
+			MaxAttempts:  maxManualLoudnessNormalizeAttempts,
+			Backup:       options.Backup,
+			BackupSuffix: options.BackupSuffix,
+		})
 		if err != nil {
 			result.Status = "failed"
 			result.Error = err.Error()
 			response.Failed = append(response.Failed, id)
 			response.Results = append(response.Results, result)
-			log.Warn(ctx, "Could not analyze selected song loudness", "id", id, "path", trackPath, err)
+			log.Warn(ctx, "Could not optimize selected song loudness", "id", id, "path", trackPath, err)
 			continue
 		}
-		result.Before = &analysis.InputIntegrated
+		result.Before = &res.OldLUFS
+		result.After = &res.FinalLUFS
 
-		if !shouldNormalizeManualLoudness(analysis.InputIntegrated, options.TargetLUFS, tolerance) {
+		if !res.Changed {
+			// Either already in range, or no attempt improved on the original
+			// (best-result guarantee keeps the file untouched)
 			result.Status = "skipped"
-			result.After = &analysis.InputIntegrated
-			result.UpdatedDB = updateSongLoudnessTag(ctx, repo, id, analysis.InputIntegrated)
+			if !res.InRange {
+				result.Error = fmt.Sprintf("could not get closer to target than current %.2f LUFS; kept original", res.FinalLUFS)
+				log.Warn(ctx, "Loudness optimization could not improve song, kept original", "id", id, "path", trackPath, "lufs", res.FinalLUFS, "targetLUFS", options.TargetLUFS, "attempts", res.Attempts)
+			}
+			result.UpdatedDB = updateSongLoudnessTag(ctx, repo, id, res.FinalLUFS)
 			response.Skipped = append(response.Skipped, id)
 			response.Results = append(response.Results, result)
 			continue
 		}
 
-		finalLUFS, err := normalizeSelectedTrackLoudness(ctx, normalizer, trackPath, target, *analysis, tolerance, minLUFS, maxLUFS, options.Backup, options.BackupSuffix)
-		if err != nil {
-			result.Status = "failed"
-			result.Error = err.Error()
-			response.Failed = append(response.Failed, id)
-			response.Results = append(response.Results, result)
-			log.Warn(ctx, "Could not optimize selected song loudness", "id", id, "path", trackPath, "lufs", analysis.InputIntegrated, err)
-			continue
-		}
+		log.Info(ctx, "Optimized selected song loudness", "id", id, "path", trackPath, "fromLUFS", res.OldLUFS, "finalLUFS", res.FinalLUFS, "targetLUFS", options.TargetLUFS, "minLUFS", minLUFS, "maxLUFS", maxLUFS, "attempts", res.Attempts, "inRange", res.InRange)
 		result.Status = "normalized"
-		result.After = &finalLUFS
-		result.UpdatedDB = updateSongLoudnessTag(ctx, repo, id, finalLUFS)
+		result.UpdatedDB = updateSongLoudnessTag(ctx, repo, id, res.FinalLUFS)
 		// Only overwrite the bucket copy when the new loudness is closer to
 		// the target than the old one
-		if gcsync.IsEligibleLUFS(*result.Before, finalLUFS, options.TargetLUFS) {
+		if gcsync.IsEligibleLUFS(res.OldLUFS, res.FinalLUFS, options.TargetLUFS) {
 			gcsync.GetInstance().EnqueueMP3(trackPath,
-				fmt.Sprintf("LUFS optimized: %.2f -> %.2f (target %.2f)", *result.Before, finalLUFS, options.TargetLUFS))
+				fmt.Sprintf("LUFS optimized: %.2f -> %.2f (target %.2f)", res.OldLUFS, res.FinalLUFS, options.TargetLUFS))
 		}
 		response.Normalized = append(response.Normalized, id)
 		response.Results = append(response.Results, result)

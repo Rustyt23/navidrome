@@ -6,12 +6,12 @@
 //     track closer to the configured target), the code path that made the
 //     change enqueues the file, and a background worker uploads it to the
 //     bucket root, overwriting the existing object. Uploaded files that live
-//     in the Sync folder are then moved to the originals folder.
+//     in the Sync folder are then moved to the music folder.
 //
 //   - A periodic sweep processes everything else in the Sync folder:
-//     leftover MP3s (not eligible for upload) are moved to the originals
-//     folder without touching the bucket; M3U playlists are cleaned
-//     (CRLF -> space, Unicode NFC), uploaded, and placed under the playlist
+//     leftover MP3s (not eligible for upload) are moved to the music
+//     folder (conf.Server.MusicFolder) without touching the bucket; M3U playlists are cleaned
+//     (CRLF -> space, Unicode NFC), uploaded, and placed under the PlaylistsPath
 //     folder with timestamped versioning into the last-version folder; any
 //     other file is uploaded and left in place. Empty directories are removed.
 //
@@ -150,7 +150,7 @@ func (s *service) processUpload(ctx context.Context, req uploadRequest) {
 	// Files living in the Sync folder are archived to originals/ after upload
 	syncRoot := strings.TrimSpace(conf.Server.SyncFolder)
 	if syncRoot != "" && isUnder(syncRoot, req.path) {
-		if err := s.moveToOriginals(ctx, req.path); err != nil {
+		if err := s.moveToMusicFolder(ctx, req.path); err != nil {
 			log.Warn(ctx, "GCSync: could not move uploaded file to originals", "path", req.path, err)
 		}
 	}
@@ -190,14 +190,31 @@ func (s *service) upload(ctx context.Context, localPath string) error {
 	return nil
 }
 
-func (s *service) moveToOriginals(ctx context.Context, path string) error {
-	origDir := strings.TrimSpace(conf.Server.GCSync.OriginalsFolder)
-	if origDir == "" {
-		log.Debug(ctx, "GCSync: OriginalsFolder not configured, leaving file in place", "path", path)
+func (s *service) moveToMusicFolder(ctx context.Context, path string) error {
+	musicDir := strings.TrimSpace(conf.Server.MusicFolder)
+	if musicDir == "" {
+		log.Debug(ctx, "GCSync: MusicFolder not configured, leaving file in place", "path", path)
 		return nil
 	}
-	dest := filepath.Join(origDir, filepath.Base(path))
+	dest := filepath.Join(musicDir, filepath.Base(path))
 	return s.move(ctx, path, dest)
+}
+
+// playlistDestRoot derives the playlist destination directory from the
+// PlaylistsPath config option (same derivation as the playlists service:
+// first entry, glob suffix stripped).
+func playlistDestRoot() string {
+	pp := strings.TrimSpace(conf.Server.PlaylistsPath)
+	if pp == "" {
+		return ""
+	}
+	first := strings.Split(pp, string(filepath.ListSeparator))[0]
+	root := strings.TrimSuffix(first, "**")
+	root = strings.TrimSuffix(root, string(os.PathSeparator))
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	return root
 }
 
 // move renames src to dest (creating parent dirs), falling back to
@@ -273,11 +290,11 @@ func (s *service) Sweep(ctx context.Context) error {
 		switch strings.ToLower(filepath.Ext(file)) {
 		case ".mp3":
 			// Not enqueued by any update path => not eligible for bucket
-			// overwrite. Archive to originals/ without uploading.
-			if err := s.moveToOriginals(ctx, file); err != nil {
-				log.Warn(ctx, "GCSync: could not move MP3 to originals", "path", file, err)
+			// overwrite. Move to the music folder without uploading.
+			if err := s.moveToMusicFolder(ctx, file); err != nil {
+				log.Warn(ctx, "GCSync: could not move MP3 to music folder", "path", file, err)
 			} else {
-				log.Info(ctx, "GCSync: MP3 not eligible for upload, moved to originals", "path", file)
+				log.Info(ctx, "GCSync: MP3 not eligible for upload, moved to music folder", "path", file)
 				moved++
 			}
 		case ".m3u":
@@ -296,7 +313,7 @@ func (s *service) Sweep(ctx context.Context) error {
 	}
 
 	s.removeEmptyDirs(ctx, root)
-	log.Info(ctx, "GCSync: sweep finished", "elapsed", time.Since(start), "mp3sToOriginals", moved,
+	log.Info(ctx, "GCSync: sweep finished", "elapsed", time.Since(start), "mp3sToMusicFolder", moved,
 		"playlists", playlists, "otherUploads", uploaded, "skippedPending", skipped)
 	return nil
 }
@@ -342,10 +359,10 @@ func (s *service) processPlaylist(ctx context.Context, root, file string) error 
 		return fmt.Errorf("uploading playlist: %w", err)
 	}
 
-	plsDir := strings.TrimSpace(conf.Server.GCSync.PlaylistFolder)
+	plsDir := playlistDestRoot()
 	lastDir := strings.TrimSpace(conf.Server.GCSync.LastVersionFolder)
 	if plsDir == "" || lastDir == "" {
-		log.Warn(ctx, "GCSync: PlaylistFolder/LastVersionFolder not configured, leaving playlist in Sync", "path", file)
+		log.Warn(ctx, "GCSync: PlaylistsPath/LastVersionFolder not configured, leaving playlist in Sync", "path", file)
 		return nil
 	}
 

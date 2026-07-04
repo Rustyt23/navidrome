@@ -566,37 +566,50 @@ func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport 
 }
 
 func (p *phaseFolders) normalizeLoudnessFile(normalizer ffmpeg.LoudnessNormalizer, libraryPath, filePath, trackPath string, target ffmpeg.LoudnessTarget, tolerance, minLUFS, maxLUFS, targetLUFS float64, backup bool, backupSuffix string) loudnessFileResult {
-	analysis, err := normalizer.AnalyzeLoudness(p.ctx, trackPath, target)
+	res, err := ffmpeg.NormalizeToBest(p.ctx, normalizer, trackPath, target, ffmpeg.NormalizeOptions{
+		Tolerance:    tolerance,
+		MaxAttempts:  maxLoudnessNormalizeAttempts,
+		Backup:       backup,
+		BackupSuffix: backupSuffix,
+	})
 	if err != nil {
-		log.Warn(p.ctx, "Scanner: could not analyze track loudness", "path", trackPath, err)
-		p.state.sendWarning(fmt.Sprintf("Could not analyze track loudness for %s: %v", trackPath, err))
+		log.Warn(p.ctx, "Scanner: could not normalize track loudness", "path", trackPath, err)
+		p.state.sendWarning(fmt.Sprintf("Could not normalize track loudness for %s: %v", trackPath, err))
 		return loudnessFileResult{filePath: filePath}
 	}
-	if !shouldNormalizeLoudness(analysis.InputIntegrated, targetLUFS, tolerance) {
-		log.Debug(p.ctx, "Scanner: track loudness already in target range", "path", trackPath, "lufs", analysis.InputIntegrated, "minLUFS", minLUFS, "maxLUFS", maxLUFS)
-		return loudnessFileResult{filePath: filePath, lufs: analysis.InputIntegrated, ok: true}
+
+	if !res.Changed {
+		if res.InRange {
+			log.Debug(p.ctx, "Scanner: track loudness already in target range", "path", trackPath, "lufs", res.FinalLUFS, "minLUFS", minLUFS, "maxLUFS", maxLUFS)
+		} else {
+			// Best-result guarantee: no attempt got closer to the target than
+			// the original, so the file was left untouched
+			log.Warn(p.ctx, "Scanner: loudness normalization could not improve track, keeping original", "path", trackPath, "lufs", res.FinalLUFS, "minLUFS", minLUFS, "maxLUFS", maxLUFS, "attempts", res.Attempts)
+			p.state.sendWarning(fmt.Sprintf("Loudness normalization could not improve %s: kept original at %.2f LUFS (wanted %.2f to %.2f)", trackPath, res.FinalLUFS, minLUFS, maxLUFS))
+		}
+		return loudnessFileResult{filePath: filePath, lufs: res.FinalLUFS, ok: true}
 	}
 
-	if finalLUFS, ok := p.normalizeTrackLoudnessToRange(normalizer, trackPath, target, *analysis, tolerance, minLUFS, maxLUFS, backup, backupSuffix); ok {
-		uploadPath := trackPath
-		if err := copyLoudnessUpdatedTrackToSyncFolder(libraryPath, filePath, trackPath); err != nil {
-			log.Warn(p.ctx, "Scanner: could not copy LUFS-updated track to sync folder", "path", trackPath, "syncFolder", conf.Server.SyncFolder, err)
-			p.state.sendWarning(fmt.Sprintf("Could not copy LUFS-updated track to sync folder for %s: %v", trackPath, err))
-		} else if conf.Server.SyncFolder != "" {
-			uploadPath = loudnessSyncPath(libraryPath, filePath, trackPath)
-		}
-		// Only overwrite the bucket copy when the new loudness is closer to
-		// the target than the old one
-		if gcsync.IsEligibleLUFS(analysis.InputIntegrated, finalLUFS, targetLUFS) {
-			gcsync.GetInstance().EnqueueMP3(uploadPath,
-				fmt.Sprintf("LUFS improved: %.2f -> %.2f (target %.2f)", analysis.InputIntegrated, finalLUFS, targetLUFS))
-		} else {
-			log.Debug(p.ctx, "Scanner: LUFS change not closer to target, skipping GCS upload",
-				"path", trackPath, "oldLUFS", analysis.InputIntegrated, "newLUFS", finalLUFS, "targetLUFS", targetLUFS)
-		}
-		return loudnessFileResult{filePath: filePath, lufs: finalLUFS, ok: true}
+	log.Info(p.ctx, "Scanner: normalized track loudness", "path", trackPath, "fromLUFS", res.OldLUFS, "finalLUFS", res.FinalLUFS, "targetLUFS", targetLUFS, "minLUFS", minLUFS, "maxLUFS", maxLUFS, "attempts", res.Attempts, "inRange", res.InRange)
+	if !res.InRange {
+		p.state.sendWarning(fmt.Sprintf("Normalized track loudness improved but outside target range for %s: %.2f LUFS (wanted %.2f to %.2f)", trackPath, res.FinalLUFS, minLUFS, maxLUFS))
 	}
-	return loudnessFileResult{filePath: filePath}
+
+	uploadPath := trackPath
+	if err := copyLoudnessUpdatedTrackToSyncFolder(libraryPath, filePath, trackPath); err != nil {
+		log.Warn(p.ctx, "Scanner: could not copy LUFS-updated track to sync folder", "path", trackPath, "syncFolder", conf.Server.SyncFolder, err)
+		p.state.sendWarning(fmt.Sprintf("Could not copy LUFS-updated track to sync folder for %s: %v", trackPath, err))
+	} else if conf.Server.SyncFolder != "" {
+		uploadPath = loudnessSyncPath(libraryPath, filePath, trackPath)
+	}
+	// Only overwrite the bucket copy when the new loudness is closer to the
+	// target than the old one (always true here thanks to NormalizeToBest,
+	// but kept as an explicit guard)
+	if gcsync.IsEligibleLUFS(res.OldLUFS, res.FinalLUFS, targetLUFS) {
+		gcsync.GetInstance().EnqueueMP3(uploadPath,
+			fmt.Sprintf("LUFS improved: %.2f -> %.2f (target %.2f)", res.OldLUFS, res.FinalLUFS, targetLUFS))
+	}
+	return loudnessFileResult{filePath: filePath, lufs: res.FinalLUFS, ok: true}
 }
 
 func (p *phaseFolders) normalizeTrackLoudnessToRange(normalizer ffmpeg.LoudnessNormalizer, trackPath string, target ffmpeg.LoudnessTarget, analysis ffmpeg.LoudnessAnalysis, tolerance, minLUFS, maxLUFS float64, backup bool, backupSuffix string) (float64, bool) {

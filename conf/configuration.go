@@ -259,8 +259,6 @@ type gcsyncOptions struct {
 	GcloudPath        string
 	Schedule          string
 	DryRun            bool
-	OriginalsFolder   string
-	PlaylistFolder    string
 	LastVersionFolder string
 }
 
@@ -972,8 +970,6 @@ func setViperDefaults() {
 	viper.SetDefault("gcsync.gcloudpath", "gcloud")
 	viper.SetDefault("gcsync.schedule", "")
 	viper.SetDefault("gcsync.dryrun", false)
-	viper.SetDefault("gcsync.originalsfolder", "")
-	viper.SetDefault("gcsync.playlistfolder", "")
 	viper.SetDefault("gcsync.lastversionfolder", "")
 	viper.SetDefault("retailplayer.enabled", false)
 	viper.SetDefault("retailplayer.devicelockpassword", "")
