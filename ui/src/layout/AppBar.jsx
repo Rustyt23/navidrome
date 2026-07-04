@@ -72,6 +72,7 @@ const settingsResources = (resource) =>
 const CustomUserMenu = ({ onClick, ...rest }) => {
   const translate = useTranslate()
   const resources = useSelector(getResources)
+  const appBarIcons = useSelector((state) => state.settings?.appBarIcons)
   const classes = useStyles(rest)
   const { permissions } = usePermissions()
 
@@ -122,12 +123,13 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
 
   return (
     <>
-      {config.devActivityPanel && permissions === 'admin' && (
-        <MissingTracksPanel />
-      )}
       {config.devActivityPanel &&
         permissions === 'admin' &&
-        config.enableNowPlaying && <NowPlayingPanel />}
+        appBarIcons?.missingTracks !== false && <MissingTracksPanel />}
+      {config.devActivityPanel &&
+        permissions === 'admin' &&
+        config.enableNowPlaying &&
+        appBarIcons?.nowPlaying !== false && <NowPlayingPanel />}
       {config.devActivityPanel && permissions === 'admin' && <ActivityPanel />}
       {config.devActivityPanel && permissions === 'admin' && <CoverArtPanel />}
       <UserMenu {...rest}>

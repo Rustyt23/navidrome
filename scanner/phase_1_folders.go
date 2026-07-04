@@ -503,6 +503,20 @@ const (
 	minLoudnessImprovementLUFS   = 0.02
 )
 
+// loudnessAutoProcessed counts tracks submitted for automatic loudness
+// processing; once it exceeds MaxAutoProcessTracks, processing is skipped.
+// Reset at the start of each scan (see scanFolders).
+var (
+	loudnessAutoProcessed atomic.Int64
+	loudnessLimitWarned   atomic.Bool
+)
+
+// ResetLoudnessAutoCounter resets the automatic loudness processing budget.
+func ResetLoudnessAutoCounter() {
+	loudnessAutoProcessed.Store(0)
+	loudnessLimitWarned.Store(false)
+}
+
 type loudnessFileResult struct {
 	filePath string
 	lufs     float64
@@ -516,6 +530,20 @@ func (p *phaseFolders) normalizeLoudnessFiles(entry *folderEntry, filesToImport 
 	}
 
 	lufsByFile := map[string]float64{}
+
+	// Skip automatic processing when too many tracks are pending: on large
+	// (first) scans this would delay the library listing by hours or days.
+	if maxAuto := options.MaxAutoProcessTracks; maxAuto > 0 {
+		total := loudnessAutoProcessed.Add(int64(len(filesToImport)))
+		if total > int64(maxAuto) {
+			if loudnessLimitWarned.CompareAndSwap(false, true) {
+				log.Warn(p.ctx, "Scanner: too many tracks pending loudness normalization; automatic processing disabled for this scan",
+					"pending", total, "max", maxAuto)
+				p.state.sendWarning(fmt.Sprintf("Loudness normalization skipped: more than %d tracks pending. Use 'Process LUFS for entire library' in Personal settings to run it manually.", maxAuto))
+			}
+			return nil
+		}
+	}
 
 	target := ffmpeg.LoudnessTarget{
 		IntegratedLUFS: options.TargetLUFS,
@@ -817,7 +845,7 @@ func loudnessSyncPath(libraryPath, filePath, trackPath string) string {
 	if rel == "." || strings.HasPrefix(rel, "..") {
 		rel = filepath.Base(trackPath)
 	}
-	return filepath.Join(conf.Server.SyncFolder, rel)
+	return filepath.Join(conf.Server.SyncFolder, "mp3", rel)
 }
 
 func copyFileReplace(srcPath, dstPath string, stat os.FileInfo) error {

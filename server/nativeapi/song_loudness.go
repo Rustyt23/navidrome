@@ -48,6 +48,8 @@ type songLoudnessResponse struct {
 
 func (n *Router) addSongLoudnessRoute(r chi.Router) {
 	r.Put("/song/loudness", n.optimizeSongLoudness())
+	r.Post("/song/loudness/library", n.startLibraryLoudness())
+	r.Get("/song/loudness/library", n.libraryLoudnessStatusHandler())
 }
 
 func (n *Router) optimizeSongLoudness() http.HandlerFunc {

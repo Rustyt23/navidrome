@@ -730,7 +730,12 @@
           "none": "Disabled",
           "album": "Use Album Gain",
           "track": "Use Track Gain"
-        }
+        },
+        "showNowPlayingIcon": "Show Now Playing icon",
+        "showMissingTracksIcon": "Show Missing Tracks icon",
+        "processLufsLibrary": "Process LUFS for entire library",
+        "processLufsRunning": "LUFS processing running...",
+        "processLufsHelper": "Analyzes and normalizes loudness for all songs in the background. Use this when automatic processing was skipped during a scan."
       }
     },
     "albumList": "Albums",

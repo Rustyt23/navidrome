@@ -2,6 +2,7 @@ export const SET_NOTIFICATIONS_STATE = 'SET_NOTIFICATIONS_STATE'
 export const SET_TOGGLEABLE_FIELDS = 'SET_TOGGLEABLE_FIELDS'
 export const SET_OMITTED_FIELDS = 'SET_OMITTED_FIELDS'
 export const SET_COLUMNS_ORDER = 'SET_COLUMNS_ORDER'
+export const SET_APPBAR_ICONS = 'SET_APPBAR_ICONS'
 
 export const setNotificationsState = (enabled) => ({
   type: SET_NOTIFICATIONS_STATE,
@@ -20,5 +21,10 @@ export const setOmittedFields = (obj) => ({
 
 export const setColumnsOrder = (obj) => ({
   type: SET_COLUMNS_ORDER,
+  data: obj,
+})
+
+export const setAppBarIcons = (obj) => ({
+  type: SET_APPBAR_ICONS,
   data: obj,
 })

@@ -186,6 +186,11 @@ type loudnessNormalizationOptions struct {
 	Parallelism  int
 	Backup       bool
 	BackupSuffix string
+	// MaxAutoProcessTracks: when a scan would process more than this many
+	// tracks for loudness normalization, automatic processing is skipped so
+	// the scan (and song listing) is not delayed. Use the "Process LUFS for
+	// entire library" action to normalize manually. <= 0 disables the limit.
+	MaxAutoProcessTracks int
 }
 
 type transcodingOptions struct {
@@ -928,6 +933,7 @@ func setViperDefaults() {
 	viper.SetDefault("scanner.loudnessnormalization.parallelism", runtime.NumCPU())
 	viper.SetDefault("scanner.loudnessnormalization.backup", true)
 	viper.SetDefault("scanner.loudnessnormalization.backupsuffix", ".before_loudnorm")
+	viper.SetDefault("scanner.loudnessnormalization.maxautoprocesstracks", 1000)
 	viper.SetDefault("scanner.artistjoiner", consts.ArtistJoiner)
 	viper.SetDefault("scanner.genreseparators", "")
 	viper.SetDefault("scanner.groupalbumreleases", false)

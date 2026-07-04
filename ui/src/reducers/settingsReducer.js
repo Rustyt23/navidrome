@@ -3,6 +3,7 @@ import {
   SET_OMITTED_FIELDS,
   SET_TOGGLEABLE_FIELDS,
   SET_COLUMNS_ORDER,
+  SET_APPBAR_ICONS,
 } from '../actions'
 
 const initialState = {
@@ -10,6 +11,10 @@ const initialState = {
   toggleableFields: {},
   omittedFields: {},
   columnsOrder: {},
+  appBarIcons: {
+    nowPlaying: true,
+    missingTracks: true,
+  },
 }
 
 export const settingsReducer = (previousState = initialState, payload) => {
@@ -19,6 +24,15 @@ export const settingsReducer = (previousState = initialState, payload) => {
       return {
         ...previousState,
         notifications: data,
+      }
+    case SET_APPBAR_ICONS:
+      return {
+        ...previousState,
+        appBarIcons: {
+          ...initialState.appBarIcons,
+          ...previousState.appBarIcons,
+          ...data,
+        },
       }
     case SET_TOGGLEABLE_FIELDS:
       return {

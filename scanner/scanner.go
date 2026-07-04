@@ -58,6 +58,7 @@ func (s *scanState) sendError(err error) {
 
 func (s *scannerImpl) scanFolders(ctx context.Context, fullScan bool, targets []model.ScanTarget, progress chan<- *ProgressInfo) {
 	startTime := time.Now()
+	ResetLoudnessAutoCounter()
 
 	state := scanState{
 		progress:        progress,

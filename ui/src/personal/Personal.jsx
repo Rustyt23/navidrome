@@ -1,4 +1,4 @@
-import { SimpleForm, Title, useTranslate } from 'react-admin'
+import { SimpleForm, Title, usePermissions, useTranslate } from 'react-admin'
 import { Card } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import { SelectLanguage } from './SelectLanguage'
@@ -9,6 +9,11 @@ import { LastfmScrobbleToggle } from './LastfmScrobbleToggle'
 import { ListenBrainzScrobbleToggle } from './ListenBrainzScrobbleToggle'
 import config from '../config'
 import { ReplayGainToggle } from './ReplayGainToggle'
+import {
+  NowPlayingIconToggle,
+  MissingTracksIconToggle,
+} from './AppBarIconToggles'
+import { ProcessLufsButton } from './ProcessLufsButton'
 
 const useStyles = makeStyles({
   root: { marginTop: '1em' },
@@ -17,6 +22,7 @@ const useStyles = makeStyles({
 const Personal = () => {
   const translate = useTranslate()
   const classes = useStyles()
+  const { permissions } = usePermissions()
 
   return (
     <Card className={classes.root}>
@@ -27,6 +33,11 @@ const Personal = () => {
         <SelectDefaultView />
         {config.enableReplayGain && <ReplayGainToggle />}
         <NotificationsToggle />
+        {config.enableNowPlaying && permissions === 'admin' && (
+          <NowPlayingIconToggle />
+        )}
+        {permissions === 'admin' && <MissingTracksIconToggle />}
+        {permissions === 'admin' && <ProcessLufsButton />}
         {config.lastFMEnabled && <LastfmScrobbleToggle />}
         {config.listenBrainzEnabled && <ListenBrainzScrobbleToggle />}
       </SimpleForm>

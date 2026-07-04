@@ -9,8 +9,10 @@
 //     in the Sync folder are then moved to the music folder.
 //
 //   - A periodic sweep processes everything else in the Sync folder:
-//     leftover MP3s (not eligible for upload) are moved to the music
-//     folder (conf.Server.MusicFolder) without touching the bucket; M3U playlists are cleaned
+//     MP3s under SyncFolder/mp3 (placed there by LUFS processing) are
+//     uploaded (overwrite) and then moved to the music folder
+//     (conf.Server.MusicFolder); other MP3s are moved to the music folder
+//     without touching the bucket; M3U playlists are cleaned
 //     (CRLF -> space, Unicode NFC), uploaded, and placed under the PlaylistsPath
 //     folder with timestamped versioning into the last-version folder; any
 //     other file is uploaded and left in place. Empty directories are removed.
@@ -289,12 +291,23 @@ func (s *service) Sweep(ctx context.Context) error {
 		}
 		switch strings.ToLower(filepath.Ext(file)) {
 		case ".mp3":
-			// Not enqueued by any update path => not eligible for bucket
-			// overwrite. Move to the music folder without uploading.
+			// MP3s under SyncFolder/mp3 were put there by the app's LUFS
+			// processing and are eligible for a bucket overwrite even if the
+			// in-memory queue was lost (e.g. server restart). Anything else
+			// just moves to the music folder without touching the bucket.
+			if isUnder(filepath.Join(root, "mp3"), file) {
+				if err := s.upload(ctx, file); err != nil {
+					log.Warn(ctx, "GCSync: could not upload eligible MP3, leaving in Sync/mp3", "path", file, err)
+					continue
+				}
+				log.Info(ctx, "GCSync: uploaded eligible MP3 from Sync/mp3 (overwrite)", "path", file, "object", objectName(file))
+				uploaded++
+			} else {
+				log.Info(ctx, "GCSync: MP3 not eligible for upload, moving to music folder", "path", file)
+			}
 			if err := s.moveToMusicFolder(ctx, file); err != nil {
 				log.Warn(ctx, "GCSync: could not move MP3 to music folder", "path", file, err)
 			} else {
-				log.Info(ctx, "GCSync: MP3 not eligible for upload, moved to music folder", "path", file)
 				moved++
 			}
 		case ".m3u":
