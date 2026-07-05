@@ -1,6 +1,7 @@
 package rag
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -13,7 +14,7 @@ type PromptContext struct {
 
 // BuildChatPrompt constrains an AI answer to the retrieved music-library
 // context and provides a deterministic fallback instruction for no matches.
-func BuildChatPrompt(question string, results []SongSearchResult) string {
+func BuildChatPrompt(question string, results []SongSearchResult, filters ...SearchFilters) string {
 	var context strings.Builder
 	if len(results) == 0 {
 		context.WriteString("(no matching songs found)")
@@ -21,7 +22,7 @@ func BuildChatPrompt(question string, results []SongSearchResult) string {
 		for index, result := range results {
 			fmt.Fprintf(
 				&context,
-				"%d. %s — %s | album: %s | year: %d | genre: %s | explicit: %t | bpm: %d | lufs: %.2f | score: %.4f\n",
+				"%d. %s — %s | album: %s | year: %d | genre: %s | explicit: %t | bpm: %d | lufs: %.2f | duration: %.0fs | play count: %d | score: %.4f\n",
 				index+1,
 				result.Title,
 				result.Artist,
@@ -31,18 +32,29 @@ func BuildChatPrompt(question string, results []SongSearchResult) string {
 				result.Explicit,
 				result.BPM,
 				result.LUFS,
+				result.Duration,
+				result.PlayCount,
 				result.Score,
 			)
 		}
 	}
 
+	searchFilters := SearchFilters{}
+	if len(filters) > 0 {
+		searchFilters = filters[0]
+	}
+	appliedFilters, _ := json.Marshal(searchFilters)
+
 	return `You are a music-library assistant. Answer only using the provided library context.
 Do not invent songs or facts that are not present in the context.
 If the context does not contain enough useful matching songs, say that you did not find enough matching songs in the library.
 
-Library context:
-` + strings.TrimSpace(context.String()) + `
+User question:
+` + strings.TrimSpace(question) + `
 
-User message:
-` + strings.TrimSpace(question)
+Applied filters:
+` + string(appliedFilters) + `
+
+Retrieved songs:
+` + strings.TrimSpace(context.String())
 }

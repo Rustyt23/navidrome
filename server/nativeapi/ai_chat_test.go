@@ -15,6 +15,14 @@ import (
 	"github.com/navidrome/navidrome/tests"
 )
 
+type staticAIChatProvider struct {
+	answer string
+}
+
+func (p staticAIChatProvider) Chat(context.Context, string) (string, error) {
+	return p.answer, nil
+}
+
 func TestRAGStatus(t *testing.T) {
 	restoreConfig := conf.SnapshotConfig()
 	defer restoreConfig()
@@ -361,6 +369,37 @@ func TestSaveWhisperLyricsFile(t *testing.T) {
 	}
 }
 
+func TestDeleteSongLyricsClearsRepositoryAndSavedFile(t *testing.T) {
+	folder := t.TempDir()
+	repo := tests.CreateMockMediaFileRepo()
+	repo.SetData(model.MediaFiles{{ID: "song-1", Lyrics: `[{"lang":"eng","line":[{"value":"lyrics"}]}]`}})
+	if err := saveWhisperLyricsFile(folder, "song-1", "lyrics"); err != nil {
+		t.Fatalf("save lyrics: %v", err)
+	}
+	if err := deleteSongLyrics(repo, folder, "song-1"); err != nil {
+		t.Fatalf("delete lyrics: %v", err)
+	}
+	updated, _ := repo.Get("song-1")
+	if updated.Lyrics != "" {
+		t.Fatalf("expected repository lyrics to be empty, got %q", updated.Lyrics)
+	}
+	path, _ := whisperLyricsFilePath(folder, "song-1")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected lyrics file to be removed, err=%v", err)
+	}
+}
+
+func TestNormalizeExplicitWordRules(t *testing.T) {
+	rules := normalizeExplicitWordRules(
+		[]string{" Strong Word ", "strong word", ""},
+		[]string{" Mild Word ", "mild word"},
+	)
+	if len(rules.Included) != 1 || rules.Included[0] != "strong word" ||
+		len(rules.Excluded) != 1 || rules.Excluded[0] != "mild word" {
+		t.Fatalf("unexpected normalized rules: %+v", rules)
+	}
+}
+
 func TestParseGeminiSongMetadataConfidence(t *testing.T) {
 	metadata, err := parseGeminiSongMetadata(`{
 		"album":"Discovery",
@@ -394,6 +433,106 @@ func TestParseGeminiSongMetadataLegacyConfidence(t *testing.T) {
 	if metadata.AlbumConfidence != 76 || metadata.YearConfidence != 76 || metadata.GenreConfidence != 76 {
 		t.Fatalf("expected legacy confidence for all fields, got %+v", metadata)
 	}
+}
+
+func TestParseExplicitClassificationRequiresConfidenceAndEvidence(t *testing.T) {
+	lyrics := "We dance all night\nThis contains an uncensored explicit phrase\nThen we go home"
+
+	tests := []struct {
+		name   string
+		answer string
+		want   string
+	}{
+		{
+			name:   "high confidence explicit with quoted evidence",
+			answer: `{"classification":"explicit","confidence":95,"evidence":["This contains an uncensored explicit phrase"]}`,
+			want:   "explicit",
+		},
+		{
+			name:   "explicit without evidence abstains",
+			answer: `{"classification":"explicit","confidence":99,"evidence":[]}`,
+		},
+		{
+			name:   "hallucinated evidence abstains",
+			answer: `{"classification":"explicit","confidence":99,"evidence":["words not present in the lyrics"]}`,
+		},
+		{
+			name:   "low confidence explicit abstains",
+			answer: `{"classification":"explicit","confidence":89,"evidence":["This contains an uncensored explicit phrase"]}`,
+		},
+		{
+			name:   "high confidence clean",
+			answer: `{"classification":"clean","confidence":92,"evidence":[]}`,
+			want:   "clean",
+		},
+		{
+			name:   "low confidence clean abstains",
+			answer: `{"classification":"clean","confidence":70,"evidence":[]}`,
+		},
+		{
+			name:   "single word clean compatibility",
+			answer: "clean",
+			want:   "clean",
+		},
+		{
+			name:   "single word explicit is not trusted without evidence",
+			answer: "explicit",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseExplicitClassification(tt.answer, lyrics); got != tt.want {
+				t.Fatalf("parseExplicitClassification() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExplicitStatusCodeDoesNotScanExplanatoryText(t *testing.T) {
+	if got := explicitStatusCode("not explicit; this song is clean"); got != "" {
+		t.Fatalf("expected ambiguous explanatory text to be ignored, got %q", got)
+	}
+	if got := explicitStatusCode("clean"); got != "c" {
+		t.Fatalf("expected clean status, got %q", got)
+	}
+	if got := explicitStatusCode("explicit"); got != "e" {
+		t.Fatalf("expected explicit status, got %q", got)
+	}
+}
+
+func TestClassifyExplicitCorrectsExistingStatusOnlyWithValidatedVerdict(t *testing.T) {
+	lyrics := `[{"lang":"eng","line":[{"value":"We dance together all night"},{"value":"Then watch the morning light"}]}]`
+
+	t.Run("corrects an earlier explicit false positive", func(t *testing.T) {
+		repo := tests.CreateMockMediaFileRepo()
+		repo.SetData(model.MediaFiles{{ID: "song-1", Lyrics: lyrics, ExplicitStatus: "e"}})
+		results, err := classifyExplicit(context.Background(), repo, staticAIChatProvider{
+			answer: `{"classification":"clean","confidence":96,"evidence":[]}`,
+		}, []string{"song-1"})
+		if err != nil {
+			t.Fatalf("classify explicit: %v", err)
+		}
+		updated, _ := repo.Get("song-1")
+		if len(results) != 1 || results[0].ExplicitStatus != "c" || updated.ExplicitStatus != "c" {
+			t.Fatalf("expected corrected clean status, results=%+v stored=%q", results, updated.ExplicitStatus)
+		}
+	})
+
+	t.Run("preserves existing status when the new verdict is uncertain", func(t *testing.T) {
+		repo := tests.CreateMockMediaFileRepo()
+		repo.SetData(model.MediaFiles{{ID: "song-1", Lyrics: lyrics, ExplicitStatus: "e"}})
+		results, err := classifyExplicit(context.Background(), repo, staticAIChatProvider{
+			answer: `{"classification":"clean","confidence":50,"evidence":[]}`,
+		}, []string{"song-1"})
+		if err != nil {
+			t.Fatalf("classify explicit: %v", err)
+		}
+		updated, _ := repo.Get("song-1")
+		if len(results) != 1 || results[0].ExplicitStatus != "e" || updated.ExplicitStatus != "e" {
+			t.Fatalf("expected existing status preserved, results=%+v stored=%q", results, updated.ExplicitStatus)
+		}
+	})
 }
 
 func TestClearAIMetadata(t *testing.T) {

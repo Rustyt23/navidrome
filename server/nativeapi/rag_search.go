@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/navidrome/navidrome/conf"
@@ -14,15 +16,18 @@ import (
 )
 
 type ragSearchRequest struct {
-	Query string `json:"query"`
-	TopK  int    `json:"topK"`
+	Query   string            `json:"query"`
+	TopK    int               `json:"topK"`
+	Filters rag.SearchFilters `json:"filters,omitempty"`
 }
 
 type ragSearchResponse struct {
-	Results []rag.SongSearchResult `json:"results"`
+	Results        []rag.SongSearchResult `json:"results"`
+	AppliedFilters rag.SearchFilters      `json:"appliedFilters"`
+	Count          int                    `json:"count"`
 }
 
-type ragSearchFunc func(context.Context, string, int) ([]rag.SongSearchResult, error)
+type ragSearchFunc func(context.Context, string, int, rag.SearchFilters) ([]rag.SongSearchResult, error)
 
 func (n *Router) handleRAGSearch(w http.ResponseWriter, request *http.Request) {
 	serveRAGSearch(w, request, searchRAG)
@@ -39,16 +44,21 @@ func serveRAGSearch(w http.ResponseWriter, request *http.Request, search ragSear
 		return
 	}
 
-	results, err := search(request.Context(), payload.Query, payload.TopK)
+	results, err := search(request.Context(), payload.Query, payload.TopK, payload.Filters)
 	if err != nil {
 		writeRAGSearchError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(ragSearchResponse{Results: results})
+	if results == nil {
+		results = []rag.SongSearchResult{}
+	}
+	_ = json.NewEncoder(w).Encode(ragSearchResponse{
+		Results: results, AppliedFilters: payload.Filters, Count: len(results),
+	})
 }
 
-func searchRAG(ctx context.Context, query string, topK int) ([]rag.SongSearchResult, error) {
+func searchRAG(ctx context.Context, query string, topK int, filters rag.SearchFilters) ([]rag.SongSearchResult, error) {
 	if !ragEnabled() {
 		return nil, fmt.Errorf("RAG is disabled")
 	}
@@ -77,6 +87,7 @@ func searchRAG(ctx context.Context, query string, topK int) ([]rag.SongSearchRes
 		qdrant,
 		query,
 		topK,
+		filters,
 	)
 }
 
@@ -94,6 +105,11 @@ func decodeRAGSearchRequest(reader io.Reader, defaultTopK int) (ragSearchRequest
 	if payload.TopK <= 0 || payload.TopK > rag.MaxSearchTopK {
 		return ragSearchRequest{}, fmt.Errorf("topK must be between 1 and %d", rag.MaxSearchTopK)
 	}
+	normalizedFilters, err := rag.NormalizeSearchFilters(payload.Filters)
+	if err != nil {
+		return ragSearchRequest{}, err
+	}
+	payload.Filters = normalizedFilters
 	return payload, nil
 }
 
@@ -111,9 +127,52 @@ func prepareAIChatMessage(
 	if !ragEnabled() {
 		return message, nil, nil
 	}
-	results, err := search(ctx, message, conf.Server.RAGTopK)
+	filters := extractRAGFilters(message)
+	results, err := search(ctx, message, conf.Server.RAGTopK, filters)
 	if err != nil {
 		return message, nil, err
 	}
-	return rag.BuildChatPrompt(message, results), results, nil
+	return rag.BuildChatPrompt(message, results, filters), results, nil
+}
+
+var (
+	bpmMinimumPattern  = regexp.MustCompile(`(?i)\bbpm\s+(?:above|over)\s+(\d+(?:\.\d+)?)\b`)
+	durationMaxPattern = regexp.MustCompile(`(?i)\bunder\s+(\d+(?:\.\d+)?)\s+minutes?\b`)
+	yearRangePattern   = regexp.MustCompile(`(?i)\bfrom\s+(\d{4})\s+to\s+(\d{4})\b`)
+	cleanPattern       = regexp.MustCompile(`(?i)\bclean\b`)
+	explicitPattern    = regexp.MustCompile(`(?i)\bexplicit\b`)
+)
+
+func extractRAGFilters(message string) rag.SearchFilters {
+	filters := rag.SearchFilters{}
+	lower := strings.ToLower(message)
+	if cleanPattern.MatchString(message) {
+		filters.Explicit = "clean"
+	} else if explicitPattern.MatchString(message) {
+		filters.Explicit = "explicit"
+	}
+	if match := bpmMinimumPattern.FindStringSubmatch(message); len(match) == 2 {
+		if value, err := strconv.ParseFloat(match[1], 64); err == nil {
+			filters.BPMMin = &value
+		}
+	}
+	if match := durationMaxPattern.FindStringSubmatch(message); len(match) == 2 {
+		if value, err := strconv.ParseFloat(match[1], 64); err == nil {
+			value *= 60
+			filters.DurationMax = &value
+		}
+	}
+	if match := yearRangePattern.FindStringSubmatch(message); len(match) == 3 {
+		if minYear, minErr := strconv.Atoi(match[1]); minErr == nil {
+			if maxYear, maxErr := strconv.Atoi(match[2]); maxErr == nil {
+				filters.YearMin = &minYear
+				filters.YearMax = &maxYear
+			}
+		}
+	}
+	if strings.Contains(lower, "not played too often") {
+		value := int64(20)
+		filters.PlayCountMax = &value
+	}
+	return filters
 }

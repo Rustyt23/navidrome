@@ -4,6 +4,7 @@ import Personal from './personal/Personal'
 import RetailPlayerDashboard from './retailPlayer/RetailPlayerDashboard'
 import RetailPlayerDeviceManagement from './retailPlayer/RetailPlayerDeviceManagement'
 import AiToolPage from './ai/AiToolPage'
+import PlaylistAiToolPage from './ai/PlaylistAiToolPage'
 
 const routes = [
   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
@@ -38,6 +39,12 @@ const routes = [
     key={'musicmatters-device'}
   />,
   <Route exact path="/ai-tool" render={() => <AiToolPage />} key={'ai-tool'} />,
+  <Route
+    exact
+    path="/playlist-ai-tool"
+    render={() => <PlaylistAiToolPage />}
+    key={'playlist-ai-tool'}
+  />,
 ]
 
 export default routes

@@ -22,9 +22,11 @@ func TestRAGSearchEndpoint(t *testing.T) {
 
 	var receivedQuery string
 	var receivedTopK int
-	search := func(_ context.Context, query string, topK int) ([]rag.SongSearchResult, error) {
+	var receivedFilters rag.SearchFilters
+	search := func(_ context.Context, query string, topK int, filters rag.SearchFilters) ([]rag.SongSearchResult, error) {
 		receivedQuery = query
 		receivedTopK = topK
+		receivedFilters = filters
 		return []rag.SongSearchResult{{
 			SongID: "song-1", Title: "Bright Song", Artist: "Artist", Album: "Album",
 			Year: 2020, Genre: "Pop", BPM: 100, LUFS: -12.5, Score: 0.87,
@@ -33,7 +35,7 @@ func TestRAGSearchEndpoint(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/ai/rag/search",
-		bytes.NewBufferString(`{"query":"clean upbeat retail songs","topK":20}`),
+		bytes.NewBufferString(`{"query":"clean upbeat retail songs","topK":20,"filters":{"explicit":"clean","genre":"Pop","yearMin":2000}}`),
 	)
 	recorder := httptest.NewRecorder()
 
@@ -45,12 +47,18 @@ func TestRAGSearchEndpoint(t *testing.T) {
 	if receivedQuery != "clean upbeat retail songs" || receivedTopK != 20 {
 		t.Fatalf("unexpected search input: query=%q topK=%d", receivedQuery, receivedTopK)
 	}
+	if receivedFilters.Explicit != "clean" || receivedFilters.Genre != "Pop" || receivedFilters.YearMin == nil || *receivedFilters.YearMin != 2000 {
+		t.Fatalf("unexpected filters: %+v", receivedFilters)
+	}
 	var response ragSearchResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if len(response.Results) != 1 || response.Results[0].SongID != "song-1" || response.Results[0].Score != 0.87 {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+	if response.Count != 1 || response.AppliedFilters.Explicit != "clean" {
+		t.Fatalf("unexpected search metadata: %+v", response)
 	}
 }
 
@@ -62,7 +70,7 @@ func TestRAGSearchDisabled(t *testing.T) {
 	called := false
 	request := httptest.NewRequest(http.MethodPost, "/api/ai/rag/search", bytes.NewBufferString(`{"query":"songs","topK":20}`))
 	recorder := httptest.NewRecorder()
-	serveRAGSearch(recorder, request, func(context.Context, string, int) ([]rag.SongSearchResult, error) {
+	serveRAGSearch(recorder, request, func(context.Context, string, int, rag.SearchFilters) ([]rag.SongSearchResult, error) {
 		called = true
 		return nil, nil
 	})
@@ -87,7 +95,7 @@ func TestRAGSearchQdrantOffline(t *testing.T) {
 	conf.Server.RAGVectorURL = serverURL
 	conf.Server.RAGCollection = "songs"
 
-	_, err := searchRAG(context.Background(), "songs", 20)
+	_, err := searchRAG(context.Background(), "songs", 20, rag.SearchFilters{})
 	if err == nil || !strings.Contains(err.Error(), "Qdrant unavailable") {
 		t.Fatalf("expected useful Qdrant offline error, got %v", err)
 	}
@@ -103,9 +111,12 @@ func TestPrepareAIChatMessage(t *testing.T) {
 		prompt, sources, err := prepareAIChatMessage(
 			context.Background(),
 			"find upbeat songs",
-			func(_ context.Context, query string, topK int) ([]rag.SongSearchResult, error) {
+			func(_ context.Context, query string, topK int, filters rag.SearchFilters) ([]rag.SongSearchResult, error) {
 				if query != "find upbeat songs" || topK != 5 {
 					t.Fatalf("unexpected search input: %q %d", query, topK)
+				}
+				if filters != (rag.SearchFilters{}) {
+					t.Fatalf("unexpected filters: %+v", filters)
 				}
 				return []rag.SongSearchResult{{Title: "Bright Song", Artist: "Artist", Score: 0.9}}, nil
 			},
@@ -124,7 +135,7 @@ func TestPrepareAIChatMessage(t *testing.T) {
 		prompt, sources, err := prepareAIChatMessage(
 			context.Background(),
 			"normal chat",
-			func(context.Context, string, int) ([]rag.SongSearchResult, error) {
+			func(context.Context, string, int, rag.SearchFilters) ([]rag.SongSearchResult, error) {
 				called = true
 				return nil, nil
 			},
@@ -139,7 +150,7 @@ func TestPrepareAIChatMessage(t *testing.T) {
 		prompt, sources, err := prepareAIChatMessage(
 			context.Background(),
 			"normal chat",
-			func(context.Context, string, int) ([]rag.SongSearchResult, error) {
+			func(context.Context, string, int, rag.SearchFilters) ([]rag.SongSearchResult, error) {
 				return nil, errors.New("embedding unavailable")
 			},
 		)
@@ -147,4 +158,31 @@ func TestPrepareAIChatMessage(t *testing.T) {
 			t.Fatalf("expected non-blocking chat fallback: prompt=%q sources=%+v err=%v", prompt, sources, err)
 		}
 	})
+}
+
+func TestExtractRAGFilters(t *testing.T) {
+	filters := extractRAGFilters("Find clean songs with BPM over 110, under 3.5 minutes, from 2000 to 2010, and not played too often")
+	if filters.Explicit != "clean" || filters.BPMMin == nil || *filters.BPMMin != 110 ||
+		filters.DurationMax == nil || *filters.DurationMax != 210 ||
+		filters.YearMin == nil || *filters.YearMin != 2000 || filters.YearMax == nil || *filters.YearMax != 2010 ||
+		filters.PlayCountMax == nil || *filters.PlayCountMax != 20 {
+		t.Fatalf("unexpected extracted filters: %+v", filters)
+	}
+}
+
+func TestPrepareAIChatMessageIncludesAppliedFilters(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+	conf.Server.EnableRAG = true
+	conf.Server.RAGTopK = 5
+
+	prompt, _, err := prepareAIChatMessage(context.Background(), "explicit tracks with bpm above 120", func(_ context.Context, _ string, _ int, filters rag.SearchFilters) ([]rag.SongSearchResult, error) {
+		if filters.Explicit != "explicit" || filters.BPMMin == nil || *filters.BPMMin != 120 {
+			t.Fatalf("unexpected filters: %+v", filters)
+		}
+		return nil, nil
+	})
+	if err != nil || !strings.Contains(prompt, "Applied filters:\n{\"explicit\":\"explicit\",\"bpmMin\":120}") {
+		t.Fatalf("expected applied filters in prompt, prompt=%q err=%v", prompt, err)
+	}
 }

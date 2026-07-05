@@ -225,6 +225,7 @@ func (c *QdrantClient) Search(
 	ctx context.Context,
 	vector []float32,
 	topK int,
+	filters ...SearchFilters,
 ) ([]SongSearchResult, error) {
 	if len(vector) == 0 {
 		return nil, fmt.Errorf("query vector is empty")
@@ -232,12 +233,28 @@ func (c *QdrantClient) Search(
 	if topK <= 0 || topK > MaxSearchTopK {
 		return nil, fmt.Errorf("topK must be between 1 and %d", MaxSearchTopK)
 	}
-	body, err := json.Marshal(map[string]any{
+	requestBody := map[string]any{
 		"query":        vector,
 		"limit":        topK,
 		"with_payload": true,
 		"with_vector":  false,
-	})
+	}
+	searchFilters := SearchFilters{}
+	if len(filters) > 0 {
+		searchFilters = filters[0]
+	}
+	typeCondition := map[string]any{
+		"key":   "type",
+		"match": map[string]any{"value": "song"},
+	}
+	if filter := BuildQdrantFilter(searchFilters); filter != nil {
+		must, _ := filter["must"].([]any)
+		filter["must"] = append([]any{typeCondition}, must...)
+		requestBody["filter"] = filter
+	} else {
+		requestBody["filter"] = map[string]any{"must": []any{typeCondition}}
+	}
+	body, err := json.Marshal(requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("could not encode Qdrant search request: %w", err)
 	}
@@ -259,18 +276,8 @@ func (c *QdrantClient) Search(
 	var result struct {
 		Result struct {
 			Points []struct {
-				Score   float64 `json:"score"`
-				Payload struct {
-					SongID   string  `json:"songId"`
-					Title    string  `json:"title"`
-					Artist   string  `json:"artist"`
-					Album    string  `json:"album"`
-					Year     int     `json:"year"`
-					Genre    string  `json:"genre"`
-					Explicit bool    `json:"explicit"`
-					BPM      int     `json:"bpm"`
-					LUFS     float64 `json:"lufs"`
-				} `json:"payload"`
+				Score   float64     `json:"score"`
+				Payload IndexedSong `json:"payload"`
 			} `json:"points"`
 		} `json:"result"`
 	}
@@ -284,16 +291,24 @@ func (c *QdrantClient) Search(
 			continue
 		}
 		results = append(results, SongSearchResult{
-			SongID:   point.Payload.SongID,
-			Title:    point.Payload.Title,
-			Artist:   point.Payload.Artist,
-			Album:    point.Payload.Album,
-			Year:     point.Payload.Year,
-			Genre:    point.Payload.Genre,
-			Explicit: point.Payload.Explicit,
-			BPM:      point.Payload.BPM,
-			LUFS:     point.Payload.LUFS,
-			Score:    point.Score,
+			SongID:       point.Payload.SongID,
+			Title:        point.Payload.Title,
+			Artist:       point.Payload.Artist,
+			Album:        point.Payload.Album,
+			Year:         point.Payload.Year,
+			Genre:        point.Payload.Genre,
+			Explicit:     point.Payload.Explicit,
+			BPM:          point.Payload.BPM,
+			LUFS:         point.Payload.LUFS,
+			Duration:     point.Payload.Duration,
+			PlayCount:    point.Payload.PlayCount,
+			LastPlayedAt: point.Payload.LastPlayedAt,
+			HasLyrics:    point.Payload.HasLyrics,
+			HasGenre:     point.Payload.HasGenre,
+			HasYear:      point.Payload.HasYear,
+			HasBPM:       point.Payload.HasBPM,
+			HasLUFS:      point.Payload.HasLUFS,
+			Score:        point.Score,
 		})
 	}
 	return results, nil
@@ -360,6 +375,12 @@ func (c *QdrantClient) ListSongs(ctx context.Context, limit int) ([]IndexedSong,
 // the RAG index. It is also stored in each Qdrant payload as ragId.
 func StableSongPointID(songID string) string {
 	return "song:" + songID
+}
+
+// StablePlaylistPointID prevents playlist IDs from colliding with song IDs in
+// the shared collection.
+func StablePlaylistPointID(playlistID string) string {
+	return "playlist:" + playlistID
 }
 
 func qdrantPointID(logicalID string) string {

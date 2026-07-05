@@ -188,16 +188,23 @@ func TestQdrantSearchRequestAndResponse(t *testing.T) {
 			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
 		}
 		var body struct {
-			Query       []float32 `json:"query"`
-			Limit       int       `json:"limit"`
-			WithPayload bool      `json:"with_payload"`
-			WithVector  bool      `json:"with_vector"`
+			Query       []float32      `json:"query"`
+			Limit       int            `json:"limit"`
+			WithPayload bool           `json:"with_payload"`
+			WithVector  bool           `json:"with_vector"`
+			Filter      map[string]any `json:"filter"`
 		}
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatalf("decode search request: %v", err)
 		}
-		if len(body.Query) != 2 || body.Limit != 5 || !body.WithPayload || body.WithVector {
+		must, _ := body.Filter["must"].([]any)
+		if len(body.Query) != 2 || body.Limit != 5 || !body.WithPayload || body.WithVector || len(must) != 1 {
 			t.Fatalf("unexpected search request: %+v", body)
+		}
+		condition, _ := must[0].(map[string]any)
+		match, _ := condition["match"].(map[string]any)
+		if condition["key"] != "type" || match["value"] != "song" {
+			t.Fatalf("expected search to be restricted to song documents: %+v", body.Filter)
 		}
 		_, _ = w.Write([]byte(`{
           "status":"ok",
@@ -232,6 +239,29 @@ func TestQdrantSearchRequestAndResponse(t *testing.T) {
 	}
 }
 
+func TestQdrantSearchIncludesPayloadFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Filter map[string]any `json:"filter"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode search request: %v", err)
+		}
+		if body.Filter == nil {
+			t.Fatal("expected Qdrant payload filter")
+		}
+		_, _ = w.Write([]byte(`{"result":{"points":[]}}`))
+	}))
+	defer server.Close()
+
+	client := NewQdrantClient(server.URL, "songs")
+	client.httpClient = server.Client()
+	yearMin := 2000
+	if _, err := client.Search(context.Background(), []float32{0.1}, 5, SearchFilters{Explicit: "clean", YearMin: &yearMin}); err != nil {
+		t.Fatalf("search Qdrant: %v", err)
+	}
+}
+
 func TestQdrantListSongsRequestAndResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.URL.Path != "/collections/songs/points/scroll" {
@@ -259,7 +289,7 @@ func TestQdrantListSongsRequestAndResponse(t *testing.T) {
 		_, _ = w.Write([]byte(`{
           "result":{"points":[{
             "id":"point-1",
-            "payload":{"songId":"song-1","title":"Bright Song","artist":"Artist","album":"Album","year":2020,"genre":"Pop","explicit":false,"bpm":100,"lufs":-12.5}
+            "payload":{"songId":"song-1","libraryId":2,"folderId":"folder-1","title":"Bright Song","artist":"Artist","artistId":"artist-1","album":"Album","albumId":"album-1","albumArtist":"Album Artist","trackNumber":3,"discNumber":1,"year":2020,"genre":"Pop","genres":["Pop","Dance"],"moods":["Upbeat"],"explicit":false,"explicitStatus":"clean","bpm":100,"lufs":-12.5,"duration":215,"playCount":7,"hasLyrics":true,"codec":"flac","bitRate":900,"mbzRecordingId":"recording-1","spotifyUrl":"https://open.spotify.com/track/1"}
           }]}
         }`))
 	}))
@@ -271,7 +301,11 @@ func TestQdrantListSongsRequestAndResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list Qdrant songs: %v", err)
 	}
-	if len(songs) != 1 || songs[0].SongID != "song-1" || songs[0].Title != "Bright Song" || songs[0].LUFS != -12.5 {
+	if len(songs) != 1 || songs[0].SongID != "song-1" || songs[0].Title != "Bright Song" || songs[0].LUFS != -12.5 ||
+		songs[0].LibraryID != 2 || songs[0].AlbumArtist != "Album Artist" || songs[0].TrackNumber != 3 ||
+		len(songs[0].Genres) != 2 || songs[0].Moods[0] != "Upbeat" || songs[0].ExplicitStatus != "clean" ||
+		songs[0].Duration != 215 || songs[0].PlayCount != 7 || !songs[0].HasLyrics || songs[0].Codec != "flac" ||
+		songs[0].MBZRecordingID != "recording-1" || songs[0].SpotifyURL == "" {
 		t.Fatalf("unexpected songs: %+v", songs)
 	}
 }

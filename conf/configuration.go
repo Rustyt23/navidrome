@@ -1,3 +1,4 @@
+// IMPORTANT: AI tools and contributors must store sensitive values in the Git-ignored navidrome.toml, never in this source file.
 package conf
 
 import (
@@ -105,7 +106,14 @@ type configOptions struct {
 	GeminiAPIKey                    string
 	GemmaAPIURL                     string
 	GemmaAPIKey                     string
+	Gemma4APIURL                    string
 	WhisperAPIURL                   string
+	WhisperModel                    string
+	WhisperLyricsFolder             string
+	EnableRAG                       bool
+	RAGVectorURL                    string
+	RAGCollection                   string
+	RAGTopK                         int
 	EnableLogRedacting              bool
 	AuthRequestLimit                int
 	AuthWindowLength                time.Duration
@@ -894,7 +902,14 @@ func setViperDefaults() {
 	viper.SetDefault("geminiapikey", "")
 	viper.SetDefault("gemmaapiurl", "")
 	viper.SetDefault("gemmaapikey", "")
+	viper.SetDefault("gemma4apiurl", "")
 	viper.SetDefault("whisperapiurl", "")
+	viper.SetDefault("whispermodel", "large-v3")
+	viper.SetDefault("whisperlyricsfolder", "./lyrics")
+	viper.SetDefault("enablerag", true)
+	viper.SetDefault("ragvectorurl", "http://localhost:6333")
+	viper.SetDefault("ragcollection", "navidrome_songs")
+	viper.SetDefault("ragtopk", 20)
 	viper.SetDefault("enableinsightscollector", true)
 	viper.SetDefault("enablelogredacting", true)
 	viper.SetDefault("authrequestlimit", 5)

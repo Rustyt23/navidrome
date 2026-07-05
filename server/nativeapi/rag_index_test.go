@@ -8,14 +8,15 @@ import (
 	"testing"
 
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/server/nativeapi/rag"
 )
 
 func TestDecodeRAGIndexRequest(t *testing.T) {
-	payload, err := decodeRAGIndexRequest(bytes.NewBufferString(`{"limit":25,"force":true}`))
+	payload, err := decodeRAGIndexRequest(bytes.NewBufferString(`{"limit":25,"force":true,"includePlaylists":true,"playlistLimit":10}`))
 	if err != nil {
 		t.Fatalf("decode request: %v", err)
 	}
-	if payload.Limit != 25 || !payload.Force {
+	if payload.Limit != 25 || !payload.Force || !payload.IncludePlaylists || payload.PlaylistLimit != 10 {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
 
@@ -24,6 +25,19 @@ func TestDecodeRAGIndexRequest(t *testing.T) {
 	}
 	if _, err := decodeRAGIndexRequest(bytes.NewBufferString(`{"limit":1,"unknown":true}`)); err == nil {
 		t.Fatal("expected unknown field to fail")
+	}
+}
+
+func TestDecodeRAGIndexRequestCanIndexOnlyPlaylists(t *testing.T) {
+	payload, err := decodeRAGIndexRequest(bytes.NewBufferString(`{"includeSongs":false,"includePlaylists":true,"playlistLimit":100}`))
+	if err != nil {
+		t.Fatalf("decode playlist-only request: %v", err)
+	}
+	if payload.IncludeSongs == nil || *payload.IncludeSongs || !payload.IncludePlaylists || payload.PlaylistLimit != 100 {
+		t.Fatalf("unexpected playlist-only payload: %+v", payload)
+	}
+	if payload.Limit != rag.DefaultIndexLimit {
+		t.Fatalf("expected default song limit to remain valid, got %d", payload.Limit)
 	}
 }
 

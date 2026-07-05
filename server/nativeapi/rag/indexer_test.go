@@ -3,8 +3,10 @@ package rag
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/navidrome/navidrome/model"
 )
@@ -42,6 +44,30 @@ type fakeVectorStore struct {
 	payloads []map[string]any
 }
 
+type fakePlaylistRepository struct {
+	playlists model.Playlists
+	loaded    map[string]*model.Playlist
+}
+
+func (f *fakePlaylistRepository) GetAll(options ...model.QueryOptions) (model.Playlists, error) {
+	option := model.QueryOptions{}
+	if len(options) > 0 {
+		option = options[0]
+	}
+	if option.Offset >= len(f.playlists) {
+		return nil, nil
+	}
+	end := min(option.Offset+option.Max, len(f.playlists))
+	return f.playlists[option.Offset:end], nil
+}
+
+func (f *fakePlaylistRepository) GetWithTracks(id string, refresh, includeMissing bool) (*model.Playlist, error) {
+	if refresh || includeMissing {
+		return nil, errors.New("playlist indexing must use read-only load flags")
+	}
+	return f.loaded[id], nil
+}
+
 func (f *fakeVectorStore) PointExists(_ context.Context, logicalID string) (bool, error) {
 	return f.existing[logicalID], nil
 }
@@ -53,8 +79,30 @@ func (f *fakeVectorStore) UpsertPoint(_ context.Context, logicalID string, _ []f
 }
 
 func TestIndexSongsCountsAndPayload(t *testing.T) {
+	playedAt := time.Date(2026, time.July, 4, 12, 30, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
+	createdAt := time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC)
+	rgTrackGain := -7.2
 	repository := &fakeSongRepository{songs: model.MediaFiles{
-		{ID: "new", Title: "New song", Artist: "Artist", Album: "Album", Year: 2024, Genre: "Rock", ExplicitStatus: "e", BPM: 120, Tags: model.Tags{"lufs": {"-12.5"}}},
+		{
+			ID: "new", LibraryID: 2, FolderID: "folder-1", Title: "New song",
+			Artist: "Artist", ArtistID: "artist-1", Album: "Album", AlbumID: "album-1",
+			AlbumArtist: "Album Artist", AlbumArtistID: "album-artist-1",
+			TrackNumber: 3, DiscNumber: 1, Year: 2024, Date: "2024-01-02",
+			OriginalYear: 2023, ReleaseYear: 2024, Genre: "Rock", ExplicitStatus: "e",
+			BPM: 120, Duration: 215.5, Size: 123456, Suffix: "flac", Codec: "flac",
+			BitRate: 900, SampleRate: 48000, BitDepth: 24, Channels: 2,
+			Lyrics:      `[{"lang":"eng","line":[{"value":"hello"}]}]`,
+			Annotations: model.Annotations{PlayCount: 7, PlayDate: &playedAt, Rating: 4, Starred: true, AverageRating: 4.5},
+			CatalogNum:  "CAT-1", MbzRecordingID: "recording-1", MbzReleaseID: "release-1",
+			SpotifyConfidence: 0.98, SpotifyMatch: "New song", SpotifyArtist: "Artist",
+			SpotifyURL: "https://open.spotify.com/track/1", RGTrackGain: &rgTrackGain,
+			HasCoverArt: true, CreatedAt: createdAt,
+			Tags: model.Tags{
+				"lufs": {"-12.5"}, model.TagGenre: {"Rock", "Alternative"},
+				model.TagMood: {"Energetic"}, model.TagComposer: {"Composer"},
+				model.TagISRC: {"US-ABC-24-00001"}, model.TagRecordLabel: {"Label"},
+			},
+		},
 		{ID: "existing", Title: "Already indexed"},
 		{ID: "failed", Title: "Fails embedding"},
 	}}
@@ -75,22 +123,59 @@ func TestIndexSongsCountsAndPayload(t *testing.T) {
 	}
 	payload := store.payloads[0]
 	for key, expected := range map[string]any{
-		"songId": "new",
-		"type":   "song",
-		"title":  "New song",
-		"artist": "Artist",
-		"album":  "Album",
-		"year":   2024,
-		"genre":  "Rock",
-		"bpm":    120,
-		"lufs":   -12.5,
+		"songId":         "new",
+		"type":           "song",
+		"title":          "New song",
+		"artist":         "Artist",
+		"album":          "Album",
+		"albumArtist":    "Album Artist",
+		"artistId":       "artist-1",
+		"albumId":        "album-1",
+		"trackNumber":    3,
+		"year":           2024,
+		"genre":          "Rock, Alternative",
+		"genres":         []string{"Rock", "Alternative"},
+		"moods":          []string{"Energetic"},
+		"bpm":            120,
+		"lufs":           -12.5,
+		"duration":       float32(215.5),
+		"playCount":      int64(7),
+		"lastPlayedAt":   playedAt.UTC(),
+		"hasLyrics":      true,
+		"hasGenre":       true,
+		"hasYear":        true,
+		"hasBpm":         true,
+		"hasLufs":        true,
+		"explicitStatus": "explicit",
+		"codec":          "flac",
+		"bitDepth":       24,
+		"rating":         4,
+		"starred":        true,
+		"catalogNum":     "CAT-1",
+		"mbzRecordingId": "recording-1",
+		"spotifyUrl":     "https://open.spotify.com/track/1",
+		"hasMood":        true,
+		"hasReplayGain":  true,
 	} {
-		if payload[key] != expected {
+		if !reflect.DeepEqual(payload[key], expected) {
 			t.Errorf("expected payload %s=%v, got %v", key, expected, payload[key])
 		}
 	}
 	if payload["explicit"] != true {
 		t.Errorf("expected explicit payload, got %v", payload["explicit"])
+	}
+	for _, key := range []string{
+		"libraryId", "folderId", "albumArtistId", "discNumber", "date", "originalYear",
+		"releaseYear", "groupings", "composers", "lyricists", "recordLabels", "isrc",
+		"ratedAt", "starredAt", "averageRating", "size", "suffix", "bitRate", "sampleRate",
+		"channels", "mbzReleaseId", "mbzReleaseTrackId", "mbzAlbumId", "mbzReleaseGroupId",
+		"mbzArtistId", "mbzAlbumArtistId", "mbzAlbumType", "spotifyConfidence", "spotifyMatch",
+		"spotifyArtist", "rgAlbumGain", "rgAlbumPeak", "rgTrackGain", "rgTrackPeak", "hasCoverArt",
+		"missing", "createdAt", "updatedAt", "hasDate", "hasMusicBrainzIds", "hasSpotifyMetadata",
+	} {
+		if _, ok := payload[key]; !ok {
+			t.Errorf("expected expanded payload field %q", key)
+		}
 	}
 }
 
@@ -132,5 +217,35 @@ func TestIndexSongsRejectsLargeLimit(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected large limit to be rejected")
+	}
+}
+
+func TestIndexPlaylistsUsesStableIDAndPlaylistPayload(t *testing.T) {
+	playlist := &model.Playlist{
+		ID: "playlist-1", Name: "Retail Mix", OwnerName: "Owner", Public: true,
+		Tracks: model.PlaylistTracks{{MediaFile: model.MediaFile{
+			ID: "song-1", Title: "Song", Artist: "Artist", Genre: "Pop", BPM: 120,
+			Duration: 180, ExplicitStatus: "c", Tags: model.Tags{"lufs": {"-12.5"}},
+		}}},
+	}
+	repository := &fakePlaylistRepository{
+		playlists: model.Playlists{{ID: playlist.ID}},
+		loaded:    map[string]*model.Playlist{playlist.ID: playlist},
+	}
+	store := &fakeVectorStore{existing: map[string]bool{}}
+
+	result, err := IndexPlaylists(context.Background(), repository, fakeEmbedder{}, store, 10, false)
+	if err != nil {
+		t.Fatalf("index playlists: %v", err)
+	}
+	if result != (IndexResult{Indexed: 1}) {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(store.upserts) != 1 || store.upserts[0] != "playlist:playlist-1" {
+		t.Fatalf("unexpected playlist upserts: %#v", store.upserts)
+	}
+	payload := store.payloads[0]
+	if payload["type"] != "playlist" || payload["playlistId"] != "playlist-1" || payload["songCount"] != 1 || payload["explicitCount"] != 0 {
+		t.Fatalf("unexpected playlist payload: %#v", payload)
 	}
 }

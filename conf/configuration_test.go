@@ -305,9 +305,9 @@ var _ = Describe("Configuration", func() {
 	})
 
 	Describe("Gemma 3:4b configuration", func() {
-		It("uses the default Ollama API URL", func() {
+		It("does not embed a private API URL in the defaults", func() {
 			conf.Load(true)
-			Expect(conf.Server.Gemma4APIURL).To(Equal("http://34.172.168.194:8084/api/generate"))
+			Expect(conf.Server.Gemma4APIURL).To(BeEmpty())
 		})
 
 		It("loads ND_GEMMA4APIURL", func() {

@@ -11,6 +11,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   IconButton,
   LinearProgress,
   Menu,
@@ -34,6 +35,7 @@ import { httpClient } from '../dataProvider'
 const ADDED_SONGS_STORAGE_KEY = 'aiToolAddedSongs'
 const DEFAULT_AI_PROVIDER_STORAGE_KEY = 'aiToolDefaultProviderV3'
 const AI_TOOL_COLUMNS_STORAGE_KEY = 'aiToolVisibleColumns'
+const EXPLICIT_WORD_RULES_STORAGE_KEY = 'aiToolExplicitWordRules'
 const DEFAULT_AI_PROVIDER = 'gemma-3-4b'
 const DEFAULT_WHISPER_MODEL = 'large-v3'
 
@@ -92,6 +94,51 @@ const CHAT_DEFAULT_WIDTH = 360
 const CHAT_DEFAULT_HEIGHT = 520
 const DEFAULT_RAG_INDEX_LIMIT = 50
 const MAX_RAG_INDEX_LIMIT = 500
+const DEFAULT_EXPLICIT_INCLUDED_WORDS = [
+  'fuck',
+  'fucking',
+  'motherfucker',
+  'shit',
+  'bitch',
+  'cunt',
+  'nigga',
+  'nigger',
+  'pussy',
+  'dick',
+  'cock',
+]
+const DEFAULT_EXPLICIT_EXCLUDED_WORDS = [
+  'damn',
+  'hell',
+  'crap',
+  'ass',
+  'alcohol',
+  'drunk',
+  'weed',
+  'marijuana',
+  'kiss',
+  'kissing',
+  'sexy',
+  'gun',
+  'kill',
+]
+const DEFAULT_RAG_SEARCH_FILTERS = {
+  cleanOnly: false,
+  genre: '',
+  yearMin: '',
+  yearMax: '',
+  bpmMin: '',
+  bpmMax: '',
+  lufsMin: '',
+  lufsMax: '',
+  playCountMax: '',
+  durationMax: '',
+  hasLyrics: false,
+  hasGenre: false,
+  hasYear: false,
+  hasBpm: false,
+  hasLufs: false,
+}
 
 const defaultChatFrame = () => {
   if (typeof window === 'undefined') {
@@ -332,6 +379,26 @@ const useStyles = makeStyles((theme) => ({
   },
   ragSearchInput: {
     flex: '1 1 260px',
+  },
+  ragFilterControls: {
+    width: '100%',
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+  },
+  ragFilterInput: {
+    width: 130,
+  },
+  ragFilterCheckbox: {
+    marginRight: theme.spacing(1),
+    color: '#c9d1dc',
+  },
+  ragAppliedFilters: {
+    width: '100%',
+    color: '#c9d1dc',
+    fontSize: 12,
+    wordBreak: 'break-word',
   },
   ragSearchResults: {
     width: '100%',
@@ -755,6 +822,15 @@ const normalizeMetadataConfidence = (value) => {
   return Math.max(0, Math.min(100, Math.round(confidence)))
 }
 
+const parseExplicitWordList = (value) => [
+  ...new Set(
+    String(value || '')
+      .split(/[,\n]/)
+      .map((word) => word.trim().toLowerCase())
+      .filter(Boolean),
+  ),
+]
+
 const AiToolPage = () => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -810,13 +886,39 @@ const AiToolPage = () => {
   const [chatFrame, setChatFrame] = useState(defaultChatFrame)
   const [isNormalChatOpen, setIsNormalChatOpen] = useState(false)
   const [isNormalChatExpanded, setIsNormalChatExpanded] = useState(false)
-  const [normalChatFrame, setNormalChatFrame] = useState(
-    defaultNormalChatFrame,
-  )
+  const [normalChatFrame, setNormalChatFrame] = useState(defaultNormalChatFrame)
   const [lyricsLoadingId, setLyricsLoadingId] = useState('')
   const [lyricsDialogOpen, setLyricsDialogOpen] = useState(false)
   const [lyricsDialogTitle, setLyricsDialogTitle] = useState('')
   const [lyricsText, setLyricsText] = useState('')
+  const [lyricsDialogSong, setLyricsDialogSong] = useState(null)
+  const [explicitReasonSong, setExplicitReasonSong] = useState(null)
+  const [explicitRulesOpen, setExplicitRulesOpen] = useState(false)
+  const [explicitIncludedWords, setExplicitIncludedWords] = useState(() => {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem(EXPLICIT_WORD_RULES_STORAGE_KEY) || '{}',
+      )
+      return Array.isArray(saved.included)
+        ? saved.included.join(', ')
+        : DEFAULT_EXPLICIT_INCLUDED_WORDS.join(', ')
+    } catch {
+      return DEFAULT_EXPLICIT_INCLUDED_WORDS.join(', ')
+    }
+  })
+  const [explicitExcludedWords, setExplicitExcludedWords] = useState(() => {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem(EXPLICIT_WORD_RULES_STORAGE_KEY) || '{}',
+      )
+      return Array.isArray(saved.excluded)
+        ? saved.excluded.join(', ')
+        : DEFAULT_EXPLICIT_EXCLUDED_WORDS.join(', ')
+    } catch {
+      return DEFAULT_EXPLICIT_EXCLUDED_WORDS.join(', ')
+    }
+  })
+  const [isDeletingLyrics, setIsDeletingLyrics] = useState(false)
   const [isClassifyingExplicit, setIsClassifyingExplicit] = useState(false)
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
   const [isClearingMetadata, setIsClearingMetadata] = useState(false)
@@ -838,6 +940,7 @@ const AiToolPage = () => {
   const [rowActionAnchorEl, setRowActionAnchorEl] = useState(null)
   const [rowActionSong, setRowActionSong] = useState(null)
   const [jobProgress, setJobProgress] = useState(null)
+  const [progressClock, setProgressClock] = useState(() => Date.now())
   const [isStatusOpen, setIsStatusOpen] = useState(true)
   const [modelStatuses, setModelStatuses] = useState(() =>
     AI_SERVICES.map((service) => ({ ...service, online: null })),
@@ -846,9 +949,11 @@ const AiToolPage = () => {
   const [ragStatusError, setRAGStatusError] = useState('')
   const [isTogglingRAG, setIsTogglingRAG] = useState(false)
   const [isIndexingRAG, setIsIndexingRAG] = useState(false)
+  const [isRefreshingRAG, setIsRefreshingRAG] = useState(false)
   const [ragIndexLimit, setRAGIndexLimit] = useState(
     String(DEFAULT_RAG_INDEX_LIMIT),
   )
+  const [ragIncludePlaylists, setRAGIncludePlaylists] = useState(false)
   const [ragIndexMessage, setRAGIndexMessage] = useState('')
   const [ragIndexError, setRAGIndexError] = useState('')
   const [isRAGDocumentsOpen, setIsRAGDocumentsOpen] = useState(false)
@@ -857,8 +962,14 @@ const AiToolPage = () => {
   const [ragDocumentsCollection, setRAGDocumentsCollection] = useState('')
   const [ragDocumentsCount, setRAGDocumentsCount] = useState(0)
   const [ragDocumentsError, setRAGDocumentsError] = useState('')
+  const [ragDocumentDetails, setRAGDocumentDetails] = useState(null)
   const [ragSearchQuery, setRAGSearchQuery] = useState('')
   const [ragSearchResults, setRAGSearchResults] = useState([])
+  const [ragSearchFilters, setRAGSearchFilters] = useState(
+    DEFAULT_RAG_SEARCH_FILTERS,
+  )
+  const [ragAppliedFilters, setRAGAppliedFilters] = useState(null)
+  const [ragSearchCount, setRAGSearchCount] = useState(0)
   const [isSearchingRAG, setIsSearchingRAG] = useState(false)
   const [ragSearchError, setRAGSearchError] = useState('')
 
@@ -901,8 +1012,7 @@ const AiToolPage = () => {
       setRAGStatus((current) => ({
         ...current,
         enabled: json?.enabled === true,
-        vectorDbOnline:
-          json?.enabled === true ? current.vectorDbOnline : false,
+        vectorDbOnline: json?.enabled === true ? current.vectorDbOnline : false,
         collectionExists:
           json?.enabled === true ? current.collectionExists : false,
         indexedCount: json?.enabled === true ? current.indexedCount : 0,
@@ -931,8 +1041,8 @@ const AiToolPage = () => {
     }
   }
 
-  const indexRAGSongs = async () => {
-    if (!ragStatus?.enabled || isIndexingRAG) return
+  const indexRAGSongs = async (force = false) => {
+    if (!ragStatus?.enabled || isIndexingRAG || isRefreshingRAG) return
 
     if (!isRAGIndexLimitValid) {
       setRAGIndexError(
@@ -941,25 +1051,36 @@ const AiToolPage = () => {
       return
     }
 
-    setIsIndexingRAG(true)
+    if (force) setIsRefreshingRAG(true)
+    else setIsIndexingRAG(true)
     setRAGIndexMessage('')
     setRAGIndexError('')
     try {
       const { json } = await httpClient('/api/ai/rag/index', {
         method: 'POST',
-        body: JSON.stringify({ limit: parsedRAGIndexLimit, force: false }),
+        body: JSON.stringify({
+          limit: parsedRAGIndexLimit,
+          force,
+          ...(ragIncludePlaylists ? { includePlaylists: true } : {}),
+        }),
       })
+      const playlistMessage = json?.playlists
+        ? ` Playlists: indexed ${Number(json.playlists.indexed) || 0}, skipped ${
+            Number(json.playlists.skipped) || 0
+          }, failed ${Number(json.playlists.failed) || 0}.`
+        : ''
       setRAGIndexMessage(
-        `Indexed ${Number(json?.indexed) || 0}, skipped ${
+        `${force ? 'Refreshed' : 'Indexed'} ${Number(json?.indexed) || 0}, skipped ${
           Number(json?.skipped) || 0
-        }, failed ${Number(json?.failed) || 0}.`,
+        }, failed ${Number(json?.failed) || 0}.${playlistMessage}`,
       )
       if (json?.error) setRAGIndexError(json.error)
       await loadRAGStatus()
     } catch (error) {
       setRAGIndexError(error?.message || 'Could not index songs')
     } finally {
-      setIsIndexingRAG(false)
+      if (force) setIsRefreshingRAG(false)
+      else setIsIndexingRAG(false)
     }
   }
 
@@ -989,12 +1110,45 @@ const AiToolPage = () => {
     setIsSearchingRAG(true)
     setRAGSearchError('')
     setRAGSearchResults([])
+    setRAGAppliedFilters(null)
+    setRAGSearchCount(0)
     try {
+      const filters = {}
+      if (ragSearchFilters.cleanOnly) filters.explicit = 'clean'
+      if (ragSearchFilters.genre.trim()) {
+        filters.genre = ragSearchFilters.genre.trim()
+      }
+      ;[
+        'yearMin',
+        'yearMax',
+        'bpmMin',
+        'bpmMax',
+        'lufsMin',
+        'lufsMax',
+        'playCountMax',
+        'durationMax',
+      ].forEach((name) => {
+        const rawValue = ragSearchFilters[name].trim()
+        if (rawValue === '') return
+        const value = Number(rawValue)
+        if (Number.isFinite(value)) filters[name] = value
+      })
+      ;['hasLyrics', 'hasGenre', 'hasYear', 'hasBpm', 'hasLufs'].forEach(
+        (name) => {
+          if (ragSearchFilters[name]) filters[name] = true
+        },
+      )
       const { json } = await httpClient('/api/ai/rag/search', {
         method: 'POST',
-        body: JSON.stringify({ query, topK: ragStatus.topK || 20 }),
+        body: JSON.stringify({
+          query,
+          topK: ragStatus.topK || 20,
+          filters,
+        }),
       })
       setRAGSearchResults(Array.isArray(json?.results) ? json.results : [])
+      setRAGAppliedFilters(json?.appliedFilters || {})
+      setRAGSearchCount(Number(json?.count) || 0)
     } catch (error) {
       setRAGSearchError(error?.message || 'Could not search RAG')
     } finally {
@@ -1002,9 +1156,34 @@ const AiToolPage = () => {
     }
   }
 
+  const updateRAGSearchFilter = (name, value) => {
+    setRAGSearchFilters((current) => ({ ...current, [name]: value }))
+  }
+
+  const addedSongIdSet = useMemo(
+    () => new Set(addedSongs.map((song) => song.id)),
+    [addedSongs],
+  )
+
+  const selectableSongIds = useMemo(
+    () =>
+      availableSongs
+        .filter((song) => !addedSongIdSet.has(song.id))
+        .map((song) => song.id),
+    [availableSongs, addedSongIdSet],
+  )
+
+  const selectedSelectableSongCount = selectableSongIds.filter((id) =>
+    selectedSongIds.includes(id),
+  ).length
+
   const selectedSongs = useMemo(
-    () => availableSongs.filter((song) => selectedSongIds.includes(song.id)),
-    [availableSongs, selectedSongIds],
+    () =>
+      availableSongs.filter(
+        (song) =>
+          selectedSongIds.includes(song.id) && !addedSongIdSet.has(song.id),
+      ),
+    [availableSongs, selectedSongIds, addedSongIdSet],
   )
 
   const selectedAddedSongIdSet = useMemo(
@@ -1017,6 +1196,16 @@ const AiToolPage = () => {
     [addedSongs, selectedAddedSongIdSet],
   )
 
+  const selectedSongsWithLyrics = useMemo(
+    () => selectedAddedSongs.filter(hasSavedLyrics),
+    [selectedAddedSongs],
+  )
+
+  const selectedSongsMissingLyrics = useMemo(
+    () => selectedAddedSongs.filter((song) => !hasSavedLyrics(song)),
+    [selectedAddedSongs],
+  )
+
   const selectedAddedIds = useMemo(
     () => selectedAddedSongs.map((song) => song.id),
     [selectedAddedSongs],
@@ -1025,6 +1214,25 @@ const AiToolPage = () => {
   const jobProgressValue = jobProgress?.total
     ? Math.round((jobProgress.done / jobProgress.total) * 100)
     : 0
+  const lyricsElapsedSeconds =
+    jobProgress?.type === 'lyrics' && jobProgress.startedAt
+      ? Math.max(
+          0,
+          Math.floor(
+            ((jobProgress.finishedAt || progressClock) -
+              jobProgress.startedAt) /
+              1000,
+          ),
+        )
+      : 0
+  const lyricsTimingText =
+    jobProgress?.type !== 'lyrics'
+      ? ''
+      : jobProgress.status === 'complete'
+        ? `Whisper finished fetching lyrics in ${lyricsElapsedSeconds} seconds`
+        : jobProgress.status === 'stopped'
+          ? `Whisper stopped after ${lyricsElapsedSeconds} seconds`
+          : `Whisper running for ${lyricsElapsedSeconds} seconds`
   const isFetchJobRunning = Boolean(lyricsLoadingId) || isFetchingMetadata
 
   const selectedModelStatus = modelStatuses.find(
@@ -1122,11 +1330,7 @@ const AiToolPage = () => {
     if (!normalChatProviderOverridden) {
       setNormalChatProvider(defaultProvider)
     }
-  }, [
-    defaultProvider,
-    chatProviderOverridden,
-    normalChatProviderOverridden,
-  ])
+  }, [defaultProvider, chatProviderOverridden, normalChatProviderOverridden])
 
   useEffect(() => {
     localStorage.setItem(
@@ -1174,6 +1378,21 @@ const AiToolPage = () => {
   }, [loadRAGStatus])
 
   useEffect(() => {
+    if (
+      jobProgress?.type !== 'lyrics' ||
+      !['running', 'stopping'].includes(jobProgress.status)
+    )
+      return
+
+    setProgressClock(Date.now())
+    const interval = window.setInterval(
+      () => setProgressClock(Date.now()),
+      1000,
+    )
+    return () => window.clearInterval(interval)
+  }, [jobProgress?.type, jobProgress?.status, jobProgress?.startedAt])
+
+  useEffect(() => {
     if (!isChatOpen || !chatMessagesRef.current) return
 
     const messagesEl = chatMessagesRef.current
@@ -1185,12 +1404,7 @@ const AiToolPage = () => {
 
     const messagesEl = normalChatMessagesRef.current
     messagesEl.scrollTop = messagesEl.scrollHeight
-  }, [
-    normalMessages,
-    isNormalSending,
-    isNormalChatOpen,
-    isNormalChatExpanded,
-  ])
+  }, [normalMessages, isNormalSending, isNormalChatOpen, isNormalChatExpanded])
 
   useEffect(
     () => () => {
@@ -1445,6 +1659,9 @@ const AiToolPage = () => {
 
   const openAddSongsDialog = async () => {
     setSongDialogOpen(true)
+    setSelectedSongIds((current) =>
+      current.filter((id) => !addedSongIdSet.has(id)),
+    )
     if (availableSongs.length) return
 
     setSongsLoading(true)
@@ -1461,10 +1678,20 @@ const AiToolPage = () => {
   }
 
   const toggleSong = (songId) => {
+    if (addedSongIdSet.has(songId)) return
     setSelectedSongIds((prev) =>
       prev.includes(songId)
         ? prev.filter((id) => id !== songId)
         : [...prev, songId],
+    )
+  }
+
+  const toggleAllAvailableSongs = () => {
+    setSelectedSongIds(
+      selectableSongIds.length > 0 &&
+        selectedSelectableSongCount === selectableSongIds.length
+        ? []
+        : selectableSongIds,
     )
   }
 
@@ -1476,6 +1703,7 @@ const AiToolPage = () => {
       localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
       return nextSongs
     })
+    setSelectedSongIds([])
     setSongDialogOpen(false)
   }
 
@@ -1528,48 +1756,68 @@ const AiToolPage = () => {
   }
 
   const startProgress = (type, songs) => {
+    const startedAt = Date.now()
+    setProgressClock(startedAt)
     setJobProgress({
       type,
       currentTitle: songs[0]?.title || '',
       done: 0,
       total: songs.length,
       status: 'running',
+      startedAt,
+      finishedAt: null,
     })
   }
 
   const updateProgress = (type, song, done, total) => {
-    setJobProgress({
+    setJobProgress((prev) => ({
       type,
       currentTitle: song?.title || '',
       done,
       total,
       status: 'running',
-    })
+      startedAt: prev?.type === type ? prev.startedAt : Date.now(),
+      finishedAt: null,
+    }))
   }
 
   const finishProgress = (type, total) => {
-    setJobProgress({
+    const finishedAt = Date.now()
+    setProgressClock(finishedAt)
+    setJobProgress((prev) => ({
       type,
       currentTitle: 'Complete',
       done: total,
       total,
       status: 'complete',
-    })
+      startedAt: prev?.type === type ? prev.startedAt : finishedAt,
+      finishedAt,
+    }))
     if (progressTimeoutRef.current !== null) {
       window.clearTimeout(progressTimeoutRef.current)
     }
-    progressTimeoutRef.current = window.setTimeout(() => {
-      progressTimeoutRef.current = null
-      setJobProgress((prev) =>
-        prev?.type === type && prev?.status === 'complete' ? null : prev,
-      )
-    }, 1500)
+    progressTimeoutRef.current = window.setTimeout(
+      () => {
+        progressTimeoutRef.current = null
+        setJobProgress((prev) =>
+          prev?.type === type && prev?.status === 'complete' ? null : prev,
+        )
+      },
+      type === 'lyrics' ? 5000 : 1500,
+    )
   }
 
   const stopProgress = (type) => {
+    const finishedAt = Date.now()
+    setProgressClock(finishedAt)
     setJobProgress((prev) =>
       prev?.type === type
-        ? { ...prev, currentTitle: 'Stopped', status: 'stopped' }
+        ? {
+            ...prev,
+            currentTitle: 'Stopped',
+            status: 'stopped',
+            finishedAt,
+          }
         : prev,
     )
     if (progressTimeoutRef.current !== null) {
@@ -1648,14 +1896,22 @@ const AiToolPage = () => {
     )
       return
 
+    const songsToFetch = selectedAddedSongs.filter(
+      (song) => !hasSavedLyrics(song),
+    )
+    if (!songsToFetch.length) {
+      setToolError('All selected songs already have lyrics.')
+      return
+    }
+
     const abortController = new AbortController()
     jobAbortControllerRef.current = abortController
     setToolError('')
     setLyricsLoadingId('bulk')
-    startProgress('lyrics', selectedAddedSongs)
+    startProgress('lyrics', songsToFetch)
     try {
-      for (const [index, song] of selectedAddedSongs.entries()) {
-        updateProgress('lyrics', song, index, selectedAddedSongs.length)
+      for (const [index, song] of songsToFetch.entries()) {
+        updateProgress('lyrics', song, index, songsToFetch.length)
         await httpClient(`/api/ai/songs/${song.id}/lyrics/fetch`, {
           method: 'POST',
           signal: abortController.signal,
@@ -1670,9 +1926,9 @@ const AiToolPage = () => {
           )
           return nextSongs
         })
-        updateProgress('lyrics', song, index + 1, selectedAddedSongs.length)
+        updateProgress('lyrics', song, index + 1, songsToFetch.length)
       }
-      finishProgress('lyrics', selectedAddedSongs.length)
+      finishProgress('lyrics', songsToFetch.length)
     } catch (err) {
       if (abortController.signal.aborted || err?.name === 'AbortError') {
         stopProgress('lyrics')
@@ -1688,6 +1944,45 @@ const AiToolPage = () => {
     }
   }
 
+  const deleteLyricsForSongs = async (songs) => {
+    const songsToDelete = songs.filter(hasSavedLyrics)
+    if (!songsToDelete.length || isDeletingLyrics || isFetchJobRunning) return
+
+    setToolError('')
+    setIsDeletingLyrics(true)
+    try {
+      for (const song of songsToDelete) {
+        await httpClient(`/api/ai/songs/${song.id}/lyrics`, {
+          method: 'DELETE',
+        })
+      }
+      const deletedIDs = new Set(songsToDelete.map((song) => song.id))
+      setAddedSongs((prev) => {
+        const nextSongs = prev.map((song) =>
+          deletedIDs.has(song.id)
+            ? { ...song, lyrics: '', lyricsText: '' }
+            : song,
+        )
+        localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
+        return nextSongs
+      })
+      if (explicitReasonSong && deletedIDs.has(explicitReasonSong.id)) {
+        setExplicitReasonSong((song) =>
+          song ? { ...song, lyrics: '', lyricsText: '' } : song,
+        )
+      }
+      if (lyricsDialogSong && deletedIDs.has(lyricsDialogSong.id)) {
+        setLyricsDialogOpen(false)
+        setLyricsDialogSong(null)
+        setLyricsText('')
+      }
+    } catch (err) {
+      setToolError(err?.message || 'Could not delete lyrics')
+    } finally {
+      setIsDeletingLyrics(false)
+    }
+  }
+
   const showLyrics = async (song) => {
     if (!song?.id) return
 
@@ -1699,6 +1994,7 @@ const AiToolPage = () => {
       setLyricsDialogTitle(
         song.title || translate('menu.aiTool.lyrics', { _: 'Lyrics' }),
       )
+      setLyricsDialogSong(song)
       setLyricsText(payload.text || '')
       setLyricsDialogOpen(true)
     } catch (err) {
@@ -1720,6 +2016,23 @@ const AiToolPage = () => {
     setModelDialogSongs([])
   }
 
+  const saveExplicitWordRules = () => {
+    const included = parseExplicitWordList(explicitIncludedWords)
+    const excluded = parseExplicitWordList(explicitExcludedWords)
+    setExplicitIncludedWords(included.join(', '))
+    setExplicitExcludedWords(excluded.join(', '))
+    localStorage.setItem(
+      EXPLICIT_WORD_RULES_STORAGE_KEY,
+      JSON.stringify({ included, excluded }),
+    )
+    setExplicitRulesOpen(false)
+  }
+
+  const resetExplicitWordRules = () => {
+    setExplicitIncludedWords(DEFAULT_EXPLICIT_INCLUDED_WORDS.join(', '))
+    setExplicitExcludedWords(DEFAULT_EXPLICIT_EXCLUDED_WORDS.join(', '))
+  }
+
   const classifyExplicit = async (songs, provider) => {
     const songIds = songs.map((song) => song.id)
     if (!songIds.length || isClassifyingExplicit) return
@@ -1732,24 +2045,32 @@ const AiToolPage = () => {
         body: JSON.stringify({
           songIds,
           provider: normalizeAIProvider(provider),
+          includedWords: parseExplicitWordList(explicitIncludedWords),
+          excludedWords: parseExplicitWordList(explicitExcludedWords),
         }),
       })
-      const statuses = new Map(
-        (payload.songs || []).map((song) => [song.id, song.explicitStatus]),
+      const classifications = new Map(
+        (payload.songs || []).map((song) => [song.id, song]),
       )
       setAddedSongs((prev) => {
-        const nextSongs = prev.map((song) =>
-          statuses.has(song.id)
-            ? {
-                ...song,
-                explicitStatus: statuses.get(song.id) || '',
-                aiFields: {
-                  ...(song.aiFields || {}),
-                  explicitStatus: Boolean(statuses.get(song.id)),
-                },
-              }
-            : song,
-        )
+        const nextSongs = prev.map((song) => {
+          const classification = classifications.get(song.id)
+          if (!classification) return song
+          return {
+            ...song,
+            explicitStatus: classification.explicitStatus || '',
+            explicitReason: classification.reason || '',
+            explicitConfidence:
+              normalizeMetadataConfidence(classification.confidence) ?? 0,
+            explicitEvidence: Array.isArray(classification.evidence)
+              ? classification.evidence
+              : [],
+            aiFields: {
+              ...(song.aiFields || {}),
+              explicitStatus: Boolean(classification.explicitStatus),
+            },
+          }
+        })
         localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
         return nextSongs
       })
@@ -1898,6 +2219,8 @@ const AiToolPage = () => {
       await fetchLyrics(song)
     } else if (action === 'showLyrics') {
       await showLyrics(song)
+    } else if (action === 'deleteLyrics') {
+      await deleteLyricsForSongs([song])
     } else if (action === 'fetchMetadata') {
       openModelDialog('fetchMetadata', [song])
     } else if (action === 'removeSong') {
@@ -2105,20 +2428,49 @@ const AiToolPage = () => {
                   }}
                   error={ragIndexLimit !== '' && !isRAGIndexLimitValid}
                 />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={ragIncludePlaylists}
+                      onChange={(event) =>
+                        setRAGIncludePlaylists(event.target.checked)
+                      }
+                      color="primary"
+                    />
+                  }
+                  label="Include playlists"
+                />
                 <Button
                   size="small"
                   variant="outlined"
                   color="primary"
-                  onClick={indexRAGSongs}
+                  onClick={() => indexRAGSongs(false)}
                   disabled={
                     !ragStatus?.enabled ||
                     !isRAGIndexLimitValid ||
-                    isIndexingRAG
+                    isIndexingRAG ||
+                    isRefreshingRAG
                   }
                 >
                   {isIndexingRAG
                     ? 'Indexing…'
                     : `Index ${isRAGIndexLimitValid ? parsedRAGIndexLimit : ''} songs`}
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  onClick={() => indexRAGSongs(true)}
+                  disabled={
+                    !ragStatus?.enabled ||
+                    !isRAGIndexLimitValid ||
+                    isIndexingRAG ||
+                    isRefreshingRAG
+                  }
+                >
+                  {isRefreshingRAG
+                    ? 'Refreshing…'
+                    : `Refresh ${isRAGIndexLimitValid ? parsedRAGIndexLimit : ''} indexed songs`}
                 </Button>
                 <Button
                   size="small"
@@ -2176,12 +2528,94 @@ const AiToolPage = () => {
                   {isSearchingRAG ? 'Searching…' : 'Search RAG'}
                 </Button>
               </Box>
+              <Box
+                className={classes.ragFilterControls}
+                aria-label="RAG search filters"
+              >
+                <FormControlLabel
+                  className={classes.ragFilterCheckbox}
+                  control={
+                    <Checkbox
+                      checked={ragSearchFilters.cleanOnly}
+                      onChange={(event) =>
+                        updateRAGSearchFilter('cleanOnly', event.target.checked)
+                      }
+                    />
+                  }
+                  label="Clean only"
+                />
+                <TextField
+                  className={classes.ragFilterInput}
+                  label="Genre"
+                  variant="outlined"
+                  size="small"
+                  value={ragSearchFilters.genre}
+                  inputProps={{ 'aria-label': 'Genre' }}
+                  onChange={(event) =>
+                    updateRAGSearchFilter('genre', event.target.value)
+                  }
+                />
+                {[
+                  ['yearMin', 'Year min'],
+                  ['yearMax', 'Year max'],
+                  ['bpmMin', 'BPM min'],
+                  ['bpmMax', 'BPM max'],
+                  ['lufsMin', 'LUFS min'],
+                  ['lufsMax', 'LUFS max'],
+                  ['playCountMax', 'Max play count'],
+                  ['durationMax', 'Max duration (sec)'],
+                ].map(([name, label]) => (
+                  <TextField
+                    className={classes.ragFilterInput}
+                    key={name}
+                    label={label}
+                    type="number"
+                    variant="outlined"
+                    size="small"
+                    value={ragSearchFilters[name]}
+                    inputProps={{ 'aria-label': label }}
+                    onChange={(event) =>
+                      updateRAGSearchFilter(name, event.target.value)
+                    }
+                  />
+                ))}
+                {[
+                  ['hasLyrics', 'Has lyrics'],
+                  ['hasGenre', 'Has genre'],
+                  ['hasYear', 'Has year'],
+                  ['hasBpm', 'Has BPM'],
+                  ['hasLufs', 'Has LUFS'],
+                ].map(([name, label]) => (
+                  <FormControlLabel
+                    className={classes.ragFilterCheckbox}
+                    key={name}
+                    control={
+                      <Checkbox
+                        checked={ragSearchFilters[name]}
+                        onChange={(event) =>
+                          updateRAGSearchFilter(name, event.target.checked)
+                        }
+                      />
+                    }
+                    label={label}
+                  />
+                ))}
+              </Box>
               {ragSearchError ? (
                 <Typography
                   className={classes.ragStatusErrorText}
                   variant="body2"
                 >
                   {ragSearchError}
+                </Typography>
+              ) : null}
+              {ragAppliedFilters !== null ? (
+                <Typography
+                  className={classes.ragAppliedFilters}
+                  variant="body2"
+                >
+                  Applied filters: {JSON.stringify(ragAppliedFilters)} ·{' '}
+                  {ragSearchCount} result{ragSearchCount === 1 ? '' : 's'}
                 </Typography>
               ) : null}
               {ragSearchResults.length ? (
@@ -2241,8 +2675,17 @@ const AiToolPage = () => {
             <Button
               variant="outlined"
               color="primary"
+              onClick={() => setExplicitRulesOpen(true)}
+            >
+              Explicit word rules
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
               onClick={fetchSelectedLyrics}
-              disabled={!selectedAddedIds.length || isFetchJobRunning}
+              disabled={
+                selectedSongsMissingLyrics.length === 0 || isFetchJobRunning
+              }
             >
               {lyricsLoadingId ? (
                 <CircularProgress
@@ -2254,6 +2697,18 @@ const AiToolPage = () => {
               {lyricsLoadingId === 'bulk'
                 ? translate('menu.aiTool.fetchingLyrics', { _: 'Fetching...' })
                 : translate('menu.aiTool.fetchLyrics', { _: 'Fetch Lyrics' })}
+            </Button>
+            <Button
+              variant="outlined"
+              color="secondary"
+              onClick={() => deleteLyricsForSongs(selectedAddedSongs)}
+              disabled={
+                selectedSongsWithLyrics.length === 0 ||
+                isDeletingLyrics ||
+                isFetchJobRunning
+              }
+            >
+              {isDeletingLyrics ? 'Deleting lyrics…' : 'Delete Lyrics'}
             </Button>
             <Button
               variant="outlined"
@@ -2346,6 +2801,7 @@ const AiToolPage = () => {
                   <Typography variant="body2" className={classes.progressMeta}>
                     {jobProgress.done}/{jobProgress.total} done,{' '}
                     {Math.max(jobProgress.total - jobProgress.done, 0)} left
+                    {lyricsTimingText ? ` · ${lyricsTimingText}` : ''}
                   </Typography>
                   {isFetchJobRunning ? (
                     <Button
@@ -2375,6 +2831,7 @@ const AiToolPage = () => {
                 <TableRow>
                   <TableCell padding="checkbox">
                     <Checkbox
+                      inputProps={{ 'aria-label': 'Select all added songs' }}
                       checked={
                         addedSongs.length > 0 &&
                         selectedAddedIds.length === addedSongs.length
@@ -2502,18 +2959,34 @@ const AiToolPage = () => {
                     ) : null}
                     {isColumnVisible('explicit') ? (
                       <TableCell className={valueClass(song, 'explicitStatus')}>
-                        {formatExplicitStatus(song.explicitStatus)}
+                        {formatExplicitStatus(song.explicitStatus) ? (
+                          <Button
+                            size="small"
+                            color="primary"
+                            onClick={() => setExplicitReasonSong(song)}
+                          >
+                            {formatExplicitStatus(song.explicitStatus)}
+                          </Button>
+                        ) : null}
                       </TableCell>
                     ) : null}
                     {isColumnVisible('lyrics') ? (
                       <TableCell className={valueClass(song, 'lyrics')}>
-                        {hasSavedLyrics(song)
-                          ? translate('menu.aiTool.lyricsAvailable', {
+                        {hasSavedLyrics(song) ? (
+                          <Button
+                            size="small"
+                            color="primary"
+                            onClick={() => showLyrics(song)}
+                          >
+                            {translate('menu.aiTool.lyricsAvailable', {
                               _: 'Available',
-                            })
-                          : translate('menu.aiTool.lyricsMissing', {
-                              _: 'Missing',
                             })}
+                          </Button>
+                        ) : (
+                          translate('menu.aiTool.lyricsMissing', {
+                            _: 'Missing',
+                          })
+                        )}
                       </TableCell>
                     ) : null}
                     {isColumnVisible('duration') ? (
@@ -2606,8 +3079,21 @@ const AiToolPage = () => {
             ? translate('menu.aiTool.fetchingLyrics', { _: 'Fetching...' })
             : translate('menu.aiTool.fetchLyrics', { _: 'Fetch Lyrics' })}
         </MenuItem>
-        <MenuItem onClick={() => runRowAction('showLyrics')}>
+        <MenuItem
+          onClick={() => runRowAction('showLyrics')}
+          disabled={!hasSavedLyrics(rowActionSong)}
+        >
           {translate('menu.aiTool.showLyrics', { _: 'Show Lyrics' })}
+        </MenuItem>
+        <MenuItem
+          onClick={() => runRowAction('deleteLyrics')}
+          disabled={
+            !hasSavedLyrics(rowActionSong) ||
+            isDeletingLyrics ||
+            isFetchJobRunning
+          }
+        >
+          Delete Lyrics
         </MenuItem>
         <MenuItem
           onClick={() => runRowAction('fetchMetadata')}
@@ -2890,31 +3376,23 @@ const AiToolPage = () => {
       {isNormalChatOpen ? (
         <Box
           className={classes.chatWidget}
-          style={
-            isNormalChatExpanded ? expandedChatFrame() : normalChatFrame
-          }
+          style={isNormalChatExpanded ? expandedChatFrame() : normalChatFrame}
           role="dialog"
           aria-label="AI Chat"
         >
           <Box
             className={`${classes.chatResizeHandle} ${classes.chatResizeTopLeft}`}
-            onMouseDown={(event) =>
-              startNormalChatResize('top-left', event)
-            }
+            onMouseDown={(event) => startNormalChatResize('top-left', event)}
             title="Resize normal chat"
           />
           <Box
             className={`${classes.chatResizeHandle} ${classes.chatResizeTopRight}`}
-            onMouseDown={(event) =>
-              startNormalChatResize('top-right', event)
-            }
+            onMouseDown={(event) => startNormalChatResize('top-right', event)}
             title="Resize normal chat"
           />
           <Box
             className={`${classes.chatResizeHandle} ${classes.chatResizeBottomLeft}`}
-            onMouseDown={(event) =>
-              startNormalChatResize('bottom-left', event)
-            }
+            onMouseDown={(event) => startNormalChatResize('bottom-left', event)}
             title="Resize normal chat"
           />
           <Box
@@ -3039,9 +3517,7 @@ const AiToolPage = () => {
               size="small"
               value={normalChatProvider}
               onChange={(event) => {
-                setNormalChatProvider(
-                  normalizeAIProvider(event.target.value),
-                )
+                setNormalChatProvider(normalizeAIProvider(event.target.value))
                 setNormalChatProviderOverridden(true)
               }}
             >
@@ -3070,9 +3546,7 @@ const AiToolPage = () => {
                   : classes.chatSendButton
               }
               variant="contained"
-              onClick={
-                isNormalSending ? stopNormalMessage : sendNormalMessage
-              }
+              onClick={isNormalSending ? stopNormalMessage : sendNormalMessage}
               title={
                 isNormalSending ? 'Stop normal response' : 'Send normal message'
               }
@@ -3126,11 +3600,19 @@ const AiToolPage = () => {
                   <TableCell>Title</TableCell>
                   <TableCell>Artist</TableCell>
                   <TableCell>Album</TableCell>
+                  <TableCell>Album Artist</TableCell>
+                  <TableCell>Track</TableCell>
                   <TableCell>Year</TableCell>
                   <TableCell>Genre</TableCell>
                   <TableCell>Explicit</TableCell>
                   <TableCell>BPM</TableCell>
                   <TableCell>LUFS</TableCell>
+                  <TableCell>Duration</TableCell>
+                  <TableCell>Plays</TableCell>
+                  <TableCell>Last Played</TableCell>
+                  <TableCell>Lyrics</TableCell>
+                  <TableCell>Audio</TableCell>
+                  <TableCell>Details</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -3140,14 +3622,37 @@ const AiToolPage = () => {
                     <TableCell>{song.title || '—'}</TableCell>
                     <TableCell>{song.artist || '—'}</TableCell>
                     <TableCell>{song.album || '—'}</TableCell>
+                    <TableCell>{song.albumArtist || '—'}</TableCell>
+                    <TableCell>
+                      {song.trackNumber || '—'} / {song.discNumber || '—'}
+                    </TableCell>
                     <TableCell>{song.year || '—'}</TableCell>
                     <TableCell>{song.genre || '—'}</TableCell>
-                    <TableCell>{song.explicit ? 'Yes' : 'No'}</TableCell>
+                    <TableCell>
+                      {song.explicitStatus ||
+                        (song.explicit ? 'explicit' : 'clean')}
+                    </TableCell>
                     <TableCell>{song.bpm || '—'}</TableCell>
                     <TableCell>
                       {Number.isFinite(Number(song.lufs))
                         ? Number(song.lufs).toFixed(2)
                         : '—'}
+                    </TableCell>
+                    <TableCell>{formatDuration(song.duration)}</TableCell>
+                    <TableCell>{song.playCount || 0}</TableCell>
+                    <TableCell>{song.lastPlayedAt || '—'}</TableCell>
+                    <TableCell>{song.hasLyrics ? 'Yes' : 'No'}</TableCell>
+                    <TableCell>
+                      {song.codec || song.suffix || '—'}
+                      {song.bitRate ? ` · ${song.bitRate} kbps` : ''}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="small"
+                        onClick={() => setRAGDocumentDetails(song)}
+                      >
+                        View
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -3157,6 +3662,23 @@ const AiToolPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setIsRAGDocumentsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(ragDocumentDetails)}
+        onClose={() => setRAGDocumentDetails(null)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>Indexed song payload</DialogTitle>
+        <DialogContent dividers>
+          <Typography component="pre" style={{ whiteSpace: 'pre-wrap' }}>
+            {JSON.stringify(ragDocumentDetails, null, 2)}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRAGDocumentDetails(null)}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -3180,7 +3702,21 @@ const AiToolPage = () => {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell padding="checkbox" />
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      inputProps={{ 'aria-label': 'Select all new songs' }}
+                      checked={
+                        selectableSongIds.length > 0 &&
+                        selectedSelectableSongCount === selectableSongIds.length
+                      }
+                      indeterminate={
+                        selectedSelectableSongCount > 0 &&
+                        selectedSelectableSongCount < selectableSongIds.length
+                      }
+                      disabled={selectableSongIds.length === 0}
+                      onChange={toggleAllAvailableSongs}
+                    />
+                  </TableCell>
                   <TableCell>
                     {translate('resources.song.fields.title', { _: 'Title' })}
                   </TableCell>
@@ -3213,36 +3749,61 @@ const AiToolPage = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {availableSongs.map((song) => (
-                  <TableRow
-                    key={song.id}
-                    hover
-                    onClick={() => toggleSong(song.id)}
-                  >
-                    <TableCell padding="checkbox">
-                      <Checkbox checked={selectedSongIds.includes(song.id)} />
-                    </TableCell>
-                    <TableCell>{song.title || ''}</TableCell>
-                    <TableCell>{song.album || ''}</TableCell>
-                    <TableCell>{song.artist || ''}</TableCell>
-                    <TableCell>{song.year || ''}</TableCell>
-                    <TableCell>
-                      {formatExplicitStatus(song.explicitStatus)}
-                    </TableCell>
-                    <TableCell>
-                      {hasSavedLyrics(song)
-                        ? translate('menu.aiTool.lyricsAvailable', {
-                            _: 'Available',
-                          })
-                        : translate('menu.aiTool.lyricsMissing', {
+                {availableSongs.map((song) => {
+                  const alreadyAdded = addedSongIdSet.has(song.id)
+                  return (
+                    <TableRow
+                      key={song.id}
+                      hover={!alreadyAdded}
+                      onClick={() => toggleSong(song.id)}
+                    >
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          inputProps={{
+                            'aria-label': `Select ${song.title || 'song'}`,
+                          }}
+                          checked={
+                            !alreadyAdded && selectedSongIds.includes(song.id)
+                          }
+                          disabled={alreadyAdded}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {song.title || ''}
+                        {alreadyAdded ? ' (Already added)' : ''}
+                      </TableCell>
+                      <TableCell>{song.album || ''}</TableCell>
+                      <TableCell>{song.artist || ''}</TableCell>
+                      <TableCell>{song.year || ''}</TableCell>
+                      <TableCell>
+                        {formatExplicitStatus(song.explicitStatus)}
+                      </TableCell>
+                      <TableCell>
+                        {hasSavedLyrics(song) ? (
+                          <Button
+                            size="small"
+                            color="primary"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              showLyrics(song)
+                            }}
+                          >
+                            {translate('menu.aiTool.lyricsAvailable', {
+                              _: 'Available',
+                            })}
+                          </Button>
+                        ) : (
+                          translate('menu.aiTool.lyricsMissing', {
                             _: 'Missing',
-                          })}
-                    </TableCell>
-                    <TableCell>{formatDuration(song.duration)}</TableCell>
-                    <TableCell>{song.genre || ''}</TableCell>
-                    <TableCell>{song.aiGenre || '-'}</TableCell>
-                  </TableRow>
-                ))}
+                          })
+                        )}
+                      </TableCell>
+                      <TableCell>{formatDuration(song.duration)}</TableCell>
+                      <TableCell>{song.genre || ''}</TableCell>
+                      <TableCell>{song.aiGenre || '-'}</TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           )}
@@ -3255,8 +3816,101 @@ const AiToolPage = () => {
             color="primary"
             variant="contained"
             onClick={addSelectedSongs}
+            disabled={selectedSongs.length === 0}
           >
             {translate('menu.aiTool.addSelected', { _: 'Add selected songs' })}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(explicitReasonSong)}
+        onClose={() => setExplicitReasonSong(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          Why marked {formatExplicitStatus(explicitReasonSong?.explicitStatus)}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="subtitle1">
+            {explicitReasonSong?.title || 'Song'}
+          </Typography>
+          <Typography variant="body2" paragraph>
+            {explicitReasonSong?.explicitReason ||
+              'No classification reason is stored. Run Classify Explicit again to generate a reason.'}
+          </Typography>
+          <Typography variant="body2">
+            Confidence:{' '}
+            {explicitReasonSong?.explicitConfidence
+              ? `${explicitReasonSong.explicitConfidence}%`
+              : 'Not available'}
+          </Typography>
+          {explicitReasonSong?.explicitEvidence?.length ? (
+            <Box mt={2}>
+              <Typography variant="subtitle2">
+                Verified lyric evidence
+              </Typography>
+              {explicitReasonSong.explicitEvidence.map((evidence, index) => (
+                <Typography variant="body2" key={`${evidence}-${index}`}>
+                  “{evidence}”
+                </Typography>
+              ))}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExplicitReasonSong(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={explicitRulesOpen}
+        onClose={() => setExplicitRulesOpen(false)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>Explicit word rules</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" paragraph>
+            Explicit words are strong indicators. Excluded words do not mark a
+            song explicit by themselves. Separate entries with commas or new
+            lines.
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            minRows={5}
+            margin="normal"
+            variant="outlined"
+            label="Words categorised as explicit"
+            value={explicitIncludedWords}
+            inputProps={{ 'aria-label': 'Words categorised as explicit' }}
+            onChange={(event) => setExplicitIncludedWords(event.target.value)}
+          />
+          <TextField
+            fullWidth
+            multiline
+            minRows={5}
+            margin="normal"
+            variant="outlined"
+            label="Words excluded from explicit categorisation"
+            value={explicitExcludedWords}
+            inputProps={{
+              'aria-label': 'Words excluded from explicit categorisation',
+            }}
+            onChange={(event) => setExplicitExcludedWords(event.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={resetExplicitWordRules}>Reset defaults</Button>
+          <Button onClick={() => setExplicitRulesOpen(false)}>Cancel</Button>
+          <Button
+            color="primary"
+            variant="contained"
+            onClick={saveExplicitWordRules}
+          >
+            Save rules
           </Button>
         </DialogActions>
       </Dialog>

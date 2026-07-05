@@ -14,8 +14,16 @@ import (
 )
 
 type ragIndexRequest struct {
-	Limit int  `json:"limit"`
-	Force bool `json:"force"`
+	Limit            int   `json:"limit"`
+	Force            bool  `json:"force"`
+	IncludeSongs     *bool `json:"includeSongs,omitempty"`
+	IncludePlaylists bool  `json:"includePlaylists"`
+	PlaylistLimit    int   `json:"playlistLimit,omitempty"`
+}
+
+type ragIndexResponse struct {
+	rag.IndexResult
+	Playlists *rag.IndexResult `json:"playlists,omitempty"`
 }
 
 func (n *Router) addRAGAdminRoute(router chi.Router) {
@@ -56,21 +64,46 @@ func (n *Router) handleRAGIndex(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	result, err := rag.IndexSongs(
-		request.Context(),
-		n.ds.MediaFile(request.Context()),
-		rag.NewGeminiEmbedder(conf.Server.GeminiAPIKey),
-		qdrant,
-		payload.Limit,
-		payload.Force,
-	)
-	if err != nil {
-		writeRAGIndexError(w, http.StatusInternalServerError, err.Error())
-		return
+	result := rag.IndexResult{}
+	includeSongs := payload.IncludeSongs == nil || *payload.IncludeSongs
+	if includeSongs {
+		result, err = rag.IndexSongs(
+			request.Context(),
+			n.ds.MediaFile(request.Context()),
+			rag.NewGeminiEmbedder(conf.Server.GeminiAPIKey),
+			qdrant,
+			payload.Limit,
+			payload.Force,
+		)
+		if err != nil {
+			writeRAGIndexError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	response := ragIndexResponse{IndexResult: result}
+	if payload.IncludePlaylists {
+		playlistLimit := payload.PlaylistLimit
+		if playlistLimit == 0 {
+			playlistLimit = payload.Limit
+		}
+		playlistResult, playlistErr := rag.IndexPlaylists(
+			request.Context(),
+			n.ds.Playlist(request.Context()),
+			rag.NewGeminiEmbedder(conf.Server.GeminiAPIKey),
+			qdrant,
+			playlistLimit,
+			payload.Force,
+		)
+		if playlistErr != nil {
+			writeRAGIndexError(w, http.StatusInternalServerError, playlistErr.Error())
+			return
+		}
+		response.Playlists = &playlistResult
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func decodeRAGIndexRequest(reader io.Reader) (ragIndexRequest, error) {
@@ -82,6 +115,9 @@ func decodeRAGIndexRequest(reader io.Reader) (ragIndexRequest, error) {
 	}
 	if payload.Limit <= 0 || payload.Limit > rag.MaxIndexLimit {
 		return ragIndexRequest{}, fmt.Errorf("limit must be between 1 and %d", rag.MaxIndexLimit)
+	}
+	if payload.PlaylistLimit < 0 || payload.PlaylistLimit > rag.MaxIndexLimit {
+		return ragIndexRequest{}, fmt.Errorf("playlistLimit must be between 1 and %d when provided", rag.MaxIndexLimit)
 	}
 	return payload, nil
 }

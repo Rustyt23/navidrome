@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
@@ -42,13 +44,18 @@ type aiLyricsResponse struct {
 }
 
 type aiClassifyExplicitRequest struct {
-	SongIDs  []string `json:"songIds"`
-	Provider string   `json:"provider"`
+	SongIDs       []string `json:"songIds"`
+	Provider      string   `json:"provider"`
+	IncludedWords []string `json:"includedWords,omitempty"`
+	ExcludedWords []string `json:"excludedWords,omitempty"`
 }
 
 type aiClassifyExplicitSong struct {
-	ID             string `json:"id"`
-	ExplicitStatus string `json:"explicitStatus"`
+	ID             string   `json:"id"`
+	ExplicitStatus string   `json:"explicitStatus"`
+	Reason         string   `json:"reason,omitempty"`
+	Confidence     int      `json:"confidence,omitempty"`
+	Evidence       []string `json:"evidence,omitempty"`
 }
 
 type aiClassifyExplicitResponse struct {
@@ -326,6 +333,7 @@ func (g ollamaGemmaClient) Chat(ctx context.Context, message string) (string, er
 
 func (n *Router) addAIChatRoute(r chi.Router) {
 	r.Post("/ai/rag/search", n.handleRAGSearch)
+	r.Post("/ai/rag/playlist/analyze", n.handleRAGPlaylistAnalyze)
 
 	r.Get("/ai/rag/status", func(w http.ResponseWriter, request *http.Request) {
 		response := aiRAGStatusResponse{
@@ -481,6 +489,24 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 		_ = json.NewEncoder(w).Encode(aiLyricsResponse{Language: language, Text: text})
 	})
 
+	r.Delete("/ai/songs/{id}/lyrics", func(w http.ResponseWriter, req *http.Request) {
+		songID := strings.TrimSpace(chi.URLParam(req, "id"))
+		if songID == "" {
+			http.Error(w, "song id is required", http.StatusBadRequest)
+			return
+		}
+		if _, err := n.ds.MediaFile(req.Context()).Get(songID); err != nil {
+			http.Error(w, "song not found", http.StatusNotFound)
+			return
+		}
+		if err := deleteSongLyrics(n.ds.MediaFile(req.Context()), conf.Server.WhisperLyricsFolder, songID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
+	})
+
 	r.Post("/ai/classify-explicit", func(w http.ResponseWriter, req *http.Request) {
 		var payload aiClassifyExplicitRequest
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
@@ -506,7 +532,8 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		songs, err := classifyExplicit(req.Context(), n.ds.MediaFile(req.Context()), provider, payload.SongIDs)
+		rules := normalizeExplicitWordRules(payload.IncludedWords, payload.ExcludedWords)
+		songs, err := classifyExplicit(req.Context(), n.ds.MediaFile(req.Context()), provider, payload.SongIDs, rules)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -841,6 +868,20 @@ func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string
 }
 
 func saveWhisperLyricsFile(folder string, songID string, text string) error {
+	path, err := whisperLyricsFilePath(folder, songID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("could not create lyrics folder: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(text)+"\n"), 0o644); err != nil {
+		return fmt.Errorf("could not save lyrics file: %w", err)
+	}
+	return nil
+}
+
+func whisperLyricsFilePath(folder string, songID string) (string, error) {
 	folder = strings.TrimSpace(folder)
 	if folder == "" {
 		folder = "./lyrics"
@@ -860,14 +901,21 @@ func saveWhisperLyricsFile(folder string, songID string, text string) error {
 		}
 	}, strings.TrimSpace(songID))
 	if filename == "" {
-		return fmt.Errorf("could not save lyrics: song ID is empty")
+		return "", fmt.Errorf("could not save lyrics: song ID is empty")
 	}
-	if err := os.MkdirAll(folder, 0o755); err != nil {
-		return fmt.Errorf("could not create lyrics folder: %w", err)
+	return filepath.Join(folder, filename+".txt"), nil
+}
+
+func deleteSongLyrics(repo model.MediaFileRepository, folder, songID string) error {
+	path, err := whisperLyricsFilePath(folder, songID)
+	if err != nil {
+		return err
 	}
-	path := filepath.Join(folder, filename+".txt")
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(text)+"\n"), 0o644); err != nil {
-		return fmt.Errorf("could not save lyrics file: %w", err)
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("could not delete lyrics file: %w", err)
+	}
+	if err := repo.UpdateLyrics(songID, ""); err != nil {
+		return fmt.Errorf("could not delete lyrics: %w", err)
 	}
 	return nil
 }
@@ -897,9 +945,56 @@ func lyricsText(mf *model.MediaFile) (string, string) {
 	return out.String(), language
 }
 
-func classifyExplicit(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, songIDs []string) ([]aiClassifyExplicitSong, error) {
+type explicitWordRules struct {
+	Included []string
+	Excluded []string
+}
+
+type explicitClassificationResult struct {
+	Classification string
+	Confidence     int
+	Reason         string
+	Evidence       []string
+}
+
+var defaultExplicitWordRules = explicitWordRules{
+	Included: []string{"fuck", "fucking", "motherfucker", "shit", "bitch", "cunt", "nigga", "nigger", "pussy", "dick", "cock"},
+	Excluded: []string{"damn", "hell", "crap", "ass", "alcohol", "drunk", "weed", "marijuana", "kiss", "kissing", "sexy", "gun", "kill"},
+}
+
+func normalizeExplicitWordRules(included, excluded []string) explicitWordRules {
+	if included == nil && excluded == nil {
+		return defaultExplicitWordRules
+	}
+	normalize := func(values []string) []string {
+		result := make([]string, 0, min(len(values), 200))
+		seen := map[string]struct{}{}
+		for _, value := range values {
+			value = strings.ToLower(strings.TrimSpace(value))
+			if value == "" || len(value) > 80 {
+				continue
+			}
+			if _, ok := seen[value]; ok {
+				continue
+			}
+			seen[value] = struct{}{}
+			result = append(result, value)
+			if len(result) == 200 {
+				break
+			}
+		}
+		return result
+	}
+	return explicitWordRules{Included: normalize(included), Excluded: normalize(excluded)}
+}
+
+func classifyExplicit(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, songIDs []string, configuredRules ...explicitWordRules) ([]aiClassifyExplicitSong, error) {
 	results := make([]aiClassifyExplicitSong, 0, len(songIDs))
 	seen := map[string]struct{}{}
+	rules := defaultExplicitWordRules
+	if len(configuredRules) > 0 {
+		rules = configuredRules[0]
+	}
 
 	for _, rawID := range songIDs {
 		songID := strings.TrimSpace(rawID)
@@ -917,56 +1012,104 @@ func classifyExplicit(ctx context.Context, repo model.MediaFileRepository, provi
 			continue
 		}
 
-		status := strings.TrimSpace(mf.ExplicitStatus)
-		if status != "" {
-			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: status})
-			continue
-		}
+		existingStatus := strings.TrimSpace(mf.ExplicitStatus)
 
 		lyrics, _ := lyricsText(mf)
 		if strings.TrimSpace(lyrics) == "" {
-			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			results = append(results, aiClassifyExplicitSong{
+				ID: songID, ExplicitStatus: existingStatus,
+				Reason: "No saved lyrics were available, so the existing status was preserved.",
+			})
 			continue
 		}
 
-		classification, err := classifyLyricsExplicit(ctx, provider, lyrics)
+		classification, err := classifyLyricsExplicitDetailed(ctx, provider, lyrics, rules)
 		if err != nil {
-			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			results = append(results, aiClassifyExplicitSong{
+				ID: songID, ExplicitStatus: existingStatus,
+				Reason: "Classification failed, so the existing status was preserved.",
+			})
 			continue
 		}
-		status = explicitStatusCode(classification)
+		status := explicitStatusCode(classification.Classification)
 		if status == "" {
-			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			reason := "The new result did not meet the confidence and evidence requirements, so the existing status was preserved."
+			if classification.Reason != "" {
+				reason += " Provider assessment: " + classification.Reason
+			}
+			results = append(results, aiClassifyExplicitSong{
+				ID: songID, ExplicitStatus: existingStatus, Reason: reason,
+				Confidence: classification.Confidence, Evidence: classification.Evidence,
+			})
+			continue
+		}
+		if status == existingStatus {
+			results = append(results, aiClassifyExplicitSong{
+				ID: songID, ExplicitStatus: status, Reason: classification.Reason,
+				Confidence: classification.Confidence, Evidence: classification.Evidence,
+			})
 			continue
 		}
 		if err := repo.UpdateExplicitStatus(songID, status); err != nil {
-			results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: ""})
+			results = append(results, aiClassifyExplicitSong{
+				ID: songID, ExplicitStatus: existingStatus,
+				Reason: "The new result could not be saved, so the existing status was preserved.",
+			})
 			continue
 		}
 
-		results = append(results, aiClassifyExplicitSong{ID: songID, ExplicitStatus: status})
+		results = append(results, aiClassifyExplicitSong{
+			ID: songID, ExplicitStatus: status, Reason: classification.Reason,
+			Confidence: classification.Confidence, Evidence: classification.Evidence,
+		})
 	}
 
 	return results, nil
 }
 
-func classifyLyricsExplicit(ctx context.Context, provider aiChatProvider, lyrics string) (string, error) {
-	prompt := `Classify this song transcript or lyrics as exactly one value: explicit or clean.
+func classifyLyricsExplicit(ctx context.Context, provider aiChatProvider, lyrics string, configuredRules ...explicitWordRules) (string, error) {
+	rules := defaultExplicitWordRules
+	if len(configuredRules) > 0 {
+		rules = configuredRules[0]
+	}
+	result, err := classifyLyricsExplicitDetailed(ctx, provider, lyrics, rules)
+	return result.Classification, err
+}
+
+func classifyLyricsExplicitDetailed(ctx context.Context, provider aiChatProvider, lyrics string, rules explicitWordRules) (explicitClassificationResult, error) {
+	includedJSON, _ := json.Marshal(rules.Included)
+	excludedJSON, _ := json.Marshal(rules.Excluded)
+	prompt := `Classify the supplied song lyrics conservatively as explicit, clean, or unknown.
 
 Rules:
-- explicit = strong profanity, sexual content, explicit violence, drug abuse, hate speech, or adult themes
-- clean = no clear explicit content
+- explicit only when the lyrics contain clear, uncensored strong profanity, graphic or direct sexual language, hateful slurs, or graphic violence
+- clean when the lyrics are understandable and contain none of those explicit signals
+- unknown when the transcript is incomplete, corrupted, mostly non-lyrical, or the classification is uncertain
+- do not mark a song explicit solely for romance, kissing, alcohol, partying, mild insults, innuendo, vague adult themes, non-graphic drug references, or non-graphic references to violence
+- ignore transcription artifacts and explanatory text
+- evidence must contain exact short quotations copied from the supplied lyrics
+- configured explicit words are strong indicators when used with their normal explicit meaning
+- configured excluded words must not make a song explicit by themselves, but the surrounding phrase may still be explicit for another clear reason
 
-Return only one word: explicit or clean.
+Configured explicit words:
+` + string(includedJSON) + `
+
+Configured excluded words:
+` + string(excludedJSON) + `
+
+Return only valid JSON in this exact shape, without markdown:
+{"classification":"explicit|clean|unknown","confidence":0,"reason":"short explanation","evidence":["exact lyric quotation"]}
+
+Confidence must be a whole number from 0 to 100. For clean or unknown, evidence may be empty.
 
 Lyrics:
 ` + lyrics
 
 	answer, err := provider.Chat(ctx, prompt)
 	if err != nil {
-		return "", err
+		return explicitClassificationResult{}, err
 	}
-	return strings.ToLower(strings.TrimSpace(answer)), nil
+	return parseExplicitClassificationDetailed(answer, lyrics), nil
 }
 
 func explicitStatusCode(classification string) string {
@@ -977,18 +1120,108 @@ func explicitStatusCode(classification string) string {
 	if classification == "explicit" {
 		return "e"
 	}
+	return ""
+}
 
-	for _, token := range strings.FieldsFunc(classification, func(r rune) bool {
-		return r < 'a' || r > 'z'
-	}) {
-		switch token {
-		case "clean":
-			return "c"
-		case "explicit":
-			return "e"
+const (
+	minimumExplicitConfidence = 90
+	minimumCleanConfidence    = 80
+)
+
+func parseExplicitClassification(answer, lyrics string) string {
+	return parseExplicitClassificationDetailed(answer, lyrics).Classification
+}
+
+func parseExplicitClassificationDetailed(answer, lyrics string) explicitClassificationResult {
+	answer = strings.TrimSpace(answer)
+	if strings.EqualFold(strings.Trim(answer, ".`\"' \n\t"), "clean") {
+		// Conservative compatibility for providers that ignore the JSON format:
+		// accepting a clean verdict cannot create an explicit false positive.
+		return explicitClassificationResult{
+			Classification: "clean",
+			Reason:         "The provider returned a clean verdict and no explicit evidence.",
 		}
 	}
-	return ""
+
+	if strings.HasPrefix(answer, "```") {
+		answer = strings.TrimPrefix(answer, "```json")
+		answer = strings.TrimPrefix(answer, "```")
+		answer = strings.TrimSuffix(answer, "```")
+		answer = strings.TrimSpace(answer)
+	}
+	if start := strings.Index(answer, "{"); start >= 0 {
+		if end := strings.LastIndex(answer, "}"); end > start {
+			answer = answer[start : end+1]
+		}
+	}
+
+	var response struct {
+		Classification string      `json:"classification"`
+		Confidence     interface{} `json:"confidence"`
+		Reason         string      `json:"reason"`
+		Evidence       []string    `json:"evidence"`
+	}
+	if err := json.Unmarshal([]byte(answer), &response); err != nil {
+		return explicitClassificationResult{Reason: "The provider returned an invalid classification response."}
+	}
+
+	classification := strings.ToLower(strings.TrimSpace(response.Classification))
+	confidence := parseMetadataConfidence(response.Confidence)
+	result := explicitClassificationResult{
+		Confidence: confidence,
+		Reason:     strings.TrimSpace(response.Reason),
+		Evidence:   response.Evidence,
+	}
+	switch classification {
+	case "clean":
+		if confidence >= minimumCleanConfidence {
+			result.Classification = "clean"
+			if result.Reason == "" {
+				result.Reason = "No qualifying explicit language was found in the supplied lyrics."
+			}
+			return result
+		}
+	case "explicit":
+		verifiedEvidence := verifiableExplicitEvidence(lyrics, response.Evidence)
+		result.Evidence = verifiedEvidence
+		if confidence >= minimumExplicitConfidence && len(verifiedEvidence) > 0 {
+			result.Classification = "explicit"
+			if result.Reason == "" {
+				result.Reason = "The lyrics contain verified explicit language."
+			}
+			return result
+		}
+	}
+	if result.Reason == "" {
+		result.Reason = "The classification was uncertain or lacked verifiable lyric evidence."
+	}
+	return result
+}
+
+func hasVerifiableExplicitEvidence(lyrics string, evidence []string) bool {
+	return len(verifiableExplicitEvidence(lyrics, evidence)) > 0
+}
+
+func verifiableExplicitEvidence(lyrics string, evidence []string) []string {
+	normalizedLyrics := normalizeExplicitEvidence(lyrics)
+	verified := make([]string, 0, len(evidence))
+	for _, excerpt := range evidence {
+		normalizedExcerpt := normalizeExplicitEvidence(excerpt)
+		if len(normalizedExcerpt) >= 3 && strings.Contains(normalizedLyrics, normalizedExcerpt) {
+			verified = append(verified, strings.TrimSpace(excerpt))
+		}
+	}
+	return verified
+}
+
+func normalizeExplicitEvidence(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			return unicode.ToLower(r)
+		}
+		return ' '
+	}, value)
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, songIDs []string) ([]aiFetchMetadataSong, error) {
