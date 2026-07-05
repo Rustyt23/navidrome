@@ -115,6 +115,27 @@ const useStyles = makeStyles((theme) => ({
     color: theme.palette.error.main,
     marginBottom: theme.spacing(1.5),
   },
+  recommendationPanel: {
+    marginBottom: theme.spacing(2),
+    border: `1px solid ${theme.palette.divider}`,
+    boxShadow: 'none',
+  },
+  recommendationHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: theme.spacing(2),
+    marginBottom: theme.spacing(1.5),
+  },
+  recommendationButtons: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: theme.spacing(1),
+  },
+  recommendationTable: {
+    minWidth: 1150,
+    marginTop: theme.spacing(1.5),
+  },
 }))
 
 const formatDuration = (value) => {
@@ -134,6 +155,13 @@ const formatDate = (value) => {
 }
 
 const count = (value) => (Array.isArray(value) ? value.length : 0)
+
+const apiErrorMessage = (error, fallback) =>
+  error?.body?.error ||
+  error?.body?.message ||
+  error?.json?.error ||
+  error?.message ||
+  fallback
 
 const SummaryChips = ({ values }) => (
   <Box display="flex" flexWrap="wrap" style={{ gap: 6 }}>
@@ -351,6 +379,9 @@ const PlaylistAiToolPage = () => {
   const [isIndexing, setIsIndexing] = useState(false)
   const [indexMessage, setIndexMessage] = useState('')
   const [indexError, setIndexError] = useState('')
+  const [recommendations, setRecommendations] = useState(null)
+  const [recommendationLoading, setRecommendationLoading] = useState('')
+  const [recommendationError, setRecommendationError] = useState('')
 
   const loadPlaylists = useCallback(async () => {
     setLoading(true)
@@ -363,7 +394,7 @@ const PlaylistAiToolPage = () => {
       })
       setPlaylists(Array.isArray(response?.data) ? response.data : [])
     } catch (error) {
-      setLoadError(error?.message || 'Could not load playlists')
+      setLoadError(apiErrorMessage(error, 'Could not load playlists'))
     } finally {
       setLoading(false)
     }
@@ -374,6 +405,13 @@ const PlaylistAiToolPage = () => {
   }, [loadPlaylists])
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
+  const selectedPlaylist = useMemo(
+    () =>
+      selected.length === 1
+        ? playlists.find((playlist) => playlist.id === selected[0]) || null
+        : null,
+    [playlists, selected],
+  )
   const allSelected =
     playlists.length > 0 && selected.length === playlists.length
 
@@ -399,7 +437,7 @@ const PlaylistAiToolPage = () => {
     } catch (error) {
       setErrors((current) => ({
         ...current,
-        [playlist.id]: error?.message || 'Analysis failed',
+        [playlist.id]: apiErrorMessage(error, 'Analysis failed'),
       }))
     } finally {
       setAnalyzing((current) => ({ ...current, [playlist.id]: false }))
@@ -429,9 +467,43 @@ const PlaylistAiToolPage = () => {
       )
       if (result.error) setIndexError(result.error)
     } catch (error) {
-      setIndexError(error?.message || 'Could not index playlists')
+      setIndexError(apiErrorMessage(error, 'Could not index playlists'))
     } finally {
       setIsIndexing(false)
+    }
+  }
+
+  const getRecommendations = async (type) => {
+    if (recommendationLoading) return
+    const needsPlaylist = [
+      'playlist_expansion',
+      'playlist_replacements',
+    ].includes(type)
+    if (needsPlaylist && !selectedPlaylist) {
+      setRecommendationError(
+        'Select exactly one playlist for playlist recommendations.',
+      )
+      return
+    }
+
+    setRecommendationLoading(type)
+    setRecommendationError('')
+    try {
+      const { json } = await httpClient('/api/ai/rag/recommend', {
+        method: 'POST',
+        body: JSON.stringify({
+          type,
+          ...(needsPlaylist ? { playlistId: selectedPlaylist.id } : {}),
+          limit: 20,
+        }),
+      })
+      setRecommendations(json)
+    } catch (error) {
+      setRecommendationError(
+        apiErrorMessage(error, 'Could not load recommendations'),
+      )
+    } finally {
+      setRecommendationLoading('')
     }
   }
 
@@ -484,6 +556,148 @@ const PlaylistAiToolPage = () => {
       {indexError ? (
         <Typography className={classes.error}>{indexError}</Typography>
       ) : null}
+      <Card className={classes.recommendationPanel} variant="outlined">
+        <CardContent>
+          <Box className={classes.recommendationHeader}>
+            <Box>
+              <Typography variant="h6">Recommendations</Typography>
+              <Typography variant="body2" color="textSecondary">
+                Select one playlist for replacements or expansion. Suggestions
+                are read-only and are never applied automatically.
+              </Typography>
+            </Box>
+            {selectedPlaylist ? (
+              <Chip
+                size="small"
+                color="primary"
+                label={`Selected: ${selectedPlaylist.name}`}
+              />
+            ) : null}
+          </Box>
+          <Box className={classes.recommendationButtons}>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={() => getRecommendations('playlist_replacements')}
+              disabled={!selectedPlaylist || Boolean(recommendationLoading)}
+            >
+              Get Recommendations
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={() => getRecommendations('underused_songs')}
+              disabled={Boolean(recommendationLoading)}
+            >
+              Underused Songs
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={() => getRecommendations('overplayed_songs')}
+              disabled={Boolean(recommendationLoading)}
+            >
+              Overplayed Songs
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={() => getRecommendations('playlist_expansion')}
+              disabled={!selectedPlaylist || Boolean(recommendationLoading)}
+            >
+              Suggest More Songs
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={() => getRecommendations('retail_safe_songs')}
+              disabled={Boolean(recommendationLoading)}
+            >
+              Retail-safe Picks
+            </Button>
+            {recommendationLoading ? <CircularProgress size={24} /> : null}
+          </Box>
+          {recommendationError ? (
+            <Typography className={classes.error} variant="body2">
+              {recommendationError}
+            </Typography>
+          ) : null}
+          {recommendations ? (
+            <Box>
+              <Typography className={classes.subtitle} variant="body2">
+                {recommendations.summary} ({recommendations.count || 0} results)
+              </Typography>
+              <TableContainer>
+                <Table
+                  size="small"
+                  className={classes.recommendationTable}
+                  aria-label="Recommendation results"
+                >
+                  <TableHead className={classes.tableHead}>
+                    <TableRow>
+                      {[
+                        'Song',
+                        'Artist',
+                        'Genre',
+                        'Year',
+                        'Score',
+                        'Reason',
+                        'Play count',
+                        'Explicit',
+                        'BPM',
+                        'LUFS',
+                      ].map((label) => (
+                        <TableCell key={label}>{label}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {recommendations.results?.length ? (
+                      recommendations.results.map((song) => (
+                        <TableRow key={song.songId}>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {song.title}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              {song.album || 'Unknown album'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{song.artist}</TableCell>
+                          <TableCell>{song.genre || '—'}</TableCell>
+                          <TableCell>{song.year || '—'}</TableCell>
+                          <TableCell>
+                            {Number(song.score || 0).toFixed(3)}
+                          </TableCell>
+                          <TableCell className={classes.summary}>
+                            {song.reason}
+                          </TableCell>
+                          <TableCell>{song.playCount || 0}</TableCell>
+                          <TableCell>
+                            {song.explicit ? 'Explicit' : 'Clean'}
+                          </TableCell>
+                          <TableCell>{song.bpm || '—'}</TableCell>
+                          <TableCell>
+                            {Number.isFinite(Number(song.lufs))
+                              ? Number(song.lufs).toFixed(1)
+                              : '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={10} className={classes.empty}>
+                          No matching recommendations found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          ) : null}
+        </CardContent>
+      </Card>
       <TableContainer className={classes.tableContainer}>
         <Table
           size="small"

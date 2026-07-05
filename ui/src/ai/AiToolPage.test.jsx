@@ -137,6 +137,29 @@ describe('AiToolPage AI actions', () => {
     expect(mockHttpClient).toHaveBeenCalledWith('/api/ai/rag/status')
   })
 
+  it('collapses the complete AI model and RAG status section', async () => {
+    renderPage('/api/unused', () => Promise.resolve({ json: {} }))
+
+    const toggle = await screen.findByRole('button', {
+      name: /AI model and RAG status/,
+    })
+    expect(screen.getByRole('region', { name: 'RAG status' })).toBeVisible()
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('region', { name: 'RAG status' }),
+      ).not.toBeInTheDocument(),
+    )
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(
+      await screen.findByRole('region', { name: 'RAG status' }),
+    ).toBeVisible()
+  })
+
   it('shows Qdrant offline and its error message', async () => {
     renderPage('/api/unused', () => Promise.resolve({ json: {} }), {
       ...defaultRAGStatus,
@@ -482,6 +505,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
     const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
     fireEvent.change(
       within(ragDialog).getByPlaceholderText('Ask RAG about your library...'),
@@ -539,6 +563,7 @@ describe('AiToolPage AI actions', () => {
       }),
     )
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
     const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
     fireEvent.change(
       within(ragDialog).getByPlaceholderText('Ask RAG about your library...'),
@@ -626,6 +651,31 @@ describe('AiToolPage AI actions', () => {
     } finally {
       now.mockRestore()
     }
+  })
+
+  it('shows transcription coverage and flags a truncated fetch', async () => {
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify([songs[0]]))
+    renderPage('/api/ai/songs/song-1/lyrics/fetch', () =>
+      Promise.resolve({
+        json: {
+          language: 'eng',
+          text: 'partial lyrics',
+          coverage: 0.6,
+          transcribedSeconds: 120,
+          totalSeconds: 200,
+          truncated: true,
+        },
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
+
+    const coverage = await screen.findByText('60% ⚠')
+    expect(coverage).toBeInTheDocument()
+    expect(coverage).toHaveAttribute(
+      'title',
+      expect.stringContaining('02:00 of 03:20 transcribed'),
+    )
   })
 
   it('deletes lyrics for selected songs in bulk', async () => {
@@ -817,10 +867,100 @@ describe('AiToolPage AI actions', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getAllByText('91% confidence')).toHaveLength(2)
-      expect(screen.getAllByText('82% confidence')).toHaveLength(2)
-      expect(screen.getAllByText('73% confidence')).toHaveLength(2)
+      expect(screen.getAllByText('91%')).toHaveLength(2)
+      expect(screen.getAllByText('82%')).toHaveLength(2)
+      expect(screen.getAllByText('73%')).toHaveLength(2)
     })
+  })
+
+  it('shows all three fetched genres in their own columns', async () => {
+    renderPage('/api/ai/fetch-metadata', (_url, options) => {
+      const request = JSON.parse(options.body)
+      return Promise.resolve({
+        json: {
+          songs: [
+            {
+              id: request.songIds[0],
+              spotifyGenre: 'Indie Pop',
+              musicBrainzGenre: 'Dream Pop',
+              aiGenre: 'Shoegaze',
+              genreConfidence: 100,
+            },
+          ],
+        },
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
+    )
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Indie Pop').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Dream Pop').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Shoegaze').length).toBeGreaterThan(0)
+    })
+    // Column headers exist for each source.
+    expect(screen.getAllByText('Spotify Genre').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('MusicBrainz Genre').length).toBeGreaterThan(0)
+  })
+
+  it('keeps the RAG chat closed until opened', async () => {
+    renderPage('/api/unused', () => Promise.resolve({ json: {} }))
+
+    await screen.findByRole('button', { name: 'Open RAG' })
+    expect(
+      screen.queryByRole('dialog', { name: 'RAG' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('explains how a confidence score was resolved when clicked', async () => {
+    renderPage('/api/ai/fetch-metadata', (_url, options) => {
+      const request = JSON.parse(options.body)
+      return Promise.resolve({
+        json: {
+          songs: [
+            {
+              id: request.songIds[0],
+              album: 'Discovery',
+              albumConfidence: 100,
+              confidenceBreakdown: {
+                album: {
+                  source: 'verified',
+                  spotify: 'Discovery',
+                  musicBrainz: 'Discovery',
+                  ai: '',
+                  confidence: 100,
+                },
+                year: { source: 'none', confidence: 0 },
+                genre: { source: 'none', confidence: 0 },
+              },
+            },
+          ],
+        },
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
+    )
+
+    const badge = await screen.findByText('100%')
+    fireEvent.click(badge)
+
+    const breakdownDialog = await screen.findByRole('dialog')
+    expect(
+      within(breakdownDialog).getByText(/How the Album confidence was/i),
+    ).toBeInTheDocument()
+    expect(
+      within(breakdownDialog).getByText(/Two independent sources agree/i),
+    ).toBeInTheDocument()
+    expect(within(breakdownDialog).getByText('Spotify')).toBeInTheDocument()
+    expect(within(breakdownDialog).getByText('MusicBrainz')).toBeInTheDocument()
   })
 
   it('clears only AI-fetched metadata for selected songs', async () => {
@@ -942,5 +1082,52 @@ describe('AiToolPage AI actions', () => {
     expect(
       screen.getByRole('columnheader', { name: 'Genre Confidence' }),
     ).toBeInTheDocument()
+  })
+
+  it('hides and shows confidence columns from the toolbar', () => {
+    renderPage('/api/unused', () => Promise.resolve({ json: {} }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Confidence' }))
+    expect(
+      screen.queryByRole('columnheader', { name: 'Album Confidence' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('columnheader', { name: 'Year Confidence' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('columnheader', { name: 'Genre Confidence' }),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Confidence' }))
+    expect(
+      screen.getByRole('columnheader', { name: 'Album Confidence' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Year Confidence' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Genre Confidence' }),
+    ).toBeInTheDocument()
+  })
+
+  it('collapses and expands the song tools toolbar', async () => {
+    renderPage('/api/unused', () => Promise.resolve({ json: {} }))
+
+    const toggle = screen.getByRole('button', { name: /Song tools/ })
+    expect(screen.getByRole('button', { name: 'Add songs' })).toBeVisible()
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Add songs' }),
+      ).not.toBeInTheDocument(),
+    )
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(
+      await screen.findByRole('button', { name: 'Add songs' }),
+    ).toBeVisible()
   })
 })

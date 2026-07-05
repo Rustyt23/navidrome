@@ -193,6 +193,32 @@ func (m *MockMediaFileRepo) ClearAIMetadata(id string, album bool, year bool) er
 	return model.ErrNotFound
 }
 
+func (m *MockMediaFileRepo) UpdateMissingMetadata(id string, album *string, year *int, genre *string, recordingMBID *string, releaseMBID *string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	mf, ok := m.Data[id]
+	if !ok {
+		return model.ErrNotFound
+	}
+	if album != nil {
+		mf.Album = *album
+	}
+	if year != nil {
+		mf.Year = *year
+	}
+	if genre != nil {
+		mf.Genre = *genre
+	}
+	if recordingMBID != nil {
+		mf.MbzRecordingID = *recordingMBID
+	}
+	if releaseMBID != nil {
+		mf.MbzReleaseID = *releaseMBID
+	}
+	return nil
+}
+
 func (m *MockMediaFileRepo) UpdateLyrics(id string, lyrics string) error {
 	if m.Err {
 		return errors.New("error")

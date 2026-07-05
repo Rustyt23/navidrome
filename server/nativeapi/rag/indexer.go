@@ -328,6 +328,10 @@ func playlistPayload(playlist model.Playlist) map[string]any {
 	for _, item := range stats.Artists {
 		artists = append(artists, item.Name)
 	}
+	moods := make([]string, 0, len(stats.Moods))
+	for _, item := range stats.Moods {
+		moods = append(moods, item.Name)
+	}
 	return map[string]any{
 		"type":          "playlist",
 		"playlistId":    playlist.ID,
@@ -339,6 +343,7 @@ func playlistPayload(playlist model.Playlist) map[string]any {
 		"songCount":     len(tracks),
 		"duration":      playlistDuration(&playlist, tracks),
 		"genres":        genres,
+		"moods":         moods,
 		"artists":       artists,
 		"explicitCount": len(stats.ExplicitSongs),
 		"bpmAverage":    stats.BPM.Average,

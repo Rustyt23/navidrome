@@ -20,6 +20,7 @@ import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import FolderIcon from '@material-ui/icons/Folder'
 import ExtensionIcon from '@material-ui/icons/Extension'
 import PlaylistPlayIcon from '@material-ui/icons/PlaylistPlay'
+import DashboardOutlinedIcon from '@material-ui/icons/DashboardOutlined'
 import { useHistory, useLocation } from 'react-router-dom'
 import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
@@ -431,8 +432,19 @@ const Menu = ({ dense = false }) => {
     <MenuItemLink
       to="/ai-tool"
       activeClassName={classes.active}
-      primaryText={translate('menu.aiTool.name', { _: 'AI Tool' })}
+      primaryText={translate('menu.aiTool.name', { _: 'Ai_tool_songs' })}
       leftIcon={<ExtensionIcon />}
+      sidebarIsOpen={open}
+      dense={dense}
+    />
+  )
+
+  const renderAiDashboardMenuItem = () => (
+    <MenuItemLink
+      to="/ai-dashboard"
+      activeClassName={classes.active}
+      primaryText={translate('menu.aiDashboard.name', { _: 'AI Dashboard' })}
+      leftIcon={<DashboardOutlinedIcon />}
       sidebarIsOpen={open}
       dense={dense}
     />
@@ -490,6 +502,7 @@ const Menu = ({ dense = false }) => {
       {config.devSidebarPlaylists && open ? (
         <>
           {renderRetailPlayerMenu()}
+          {renderAiDashboardMenuItem()}
           {renderAiToolMenuItem()}
           {renderPlaylistAiToolMenuItem()}
           <Divider />
@@ -510,6 +523,7 @@ const Menu = ({ dense = false }) => {
       ) : (
         <>
           {renderRetailPlayerMenu()}
+          {renderAiDashboardMenuItem()}
           {renderAiToolMenuItem()}
           {renderPlaylistAiToolMenuItem()}
           {resources

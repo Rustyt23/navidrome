@@ -309,3 +309,26 @@ func TestQdrantListSongsRequestAndResponse(t *testing.T) {
 		t.Fatalf("unexpected songs: %+v", songs)
 	}
 }
+
+func TestQdrantCountDocumentsByType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/collections/library/points/count" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode count request: %v", err)
+		}
+		if body["exact"] != true || body["filter"] == nil {
+			t.Fatalf("expected exact filtered count request: %#v", body)
+		}
+		_, _ = w.Write([]byte(`{"result":{"count":42},"status":"ok"}`))
+	}))
+	defer server.Close()
+	client := NewQdrantClient(server.URL, "library")
+	client.httpClient = server.Client()
+	count, err := client.CountDocumentsByType(context.Background(), "song")
+	if err != nil || count != 42 {
+		t.Fatalf("unexpected count=%d err=%v", count, err)
+	}
+}

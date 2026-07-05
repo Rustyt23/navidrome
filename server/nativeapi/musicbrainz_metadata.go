@@ -1349,6 +1349,7 @@ type spotifyTrack struct {
 	Name       string `json:"name"`
 	DurationMS int    `json:"duration_ms"`
 	Artists    []struct {
+		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"artists"`
 	Album struct {
@@ -1508,6 +1509,119 @@ func (j *spotifyMetadataJob) searchBestTrack(ctx context.Context, token string, 
 		return track, confidence, nil
 	}
 	return retryTrack, retryConfidence, nil
+}
+
+// spotifyLookupResult carries the read-only metadata Spotify can provide for a
+// track: album name, release year, the primary artist's genres, and the match
+// confidence for the search.
+type spotifyLookupResult struct {
+	Album      string
+	Year       int
+	Genre      string
+	Confidence float64
+	Found      bool
+}
+
+// lookupMetadata searches Spotify for the best-matching track and returns its
+// album, release year, primary-artist genres, and match confidence. It is
+// read-only and never writes to the database.
+func (j *spotifyMetadataJob) lookupMetadata(ctx context.Context, mf model.MediaFile) (spotifyLookupResult, error) {
+	if strings.TrimSpace(mf.Title) == "" || strings.TrimSpace(mf.Artist) == "" {
+		return spotifyLookupResult{}, nil
+	}
+	token, err := j.getToken(ctx)
+	if err != nil {
+		return spotifyLookupResult{}, err
+	}
+	track, confidence, err := j.searchBestTrack(ctx, token, mf)
+	if err != nil && errors.Is(err, errSpotifyTokenExpired) {
+		if token, err = j.refreshToken(ctx); err == nil {
+			track, confidence, err = j.searchBestTrack(ctx, token, mf)
+		}
+	}
+	if err != nil {
+		return spotifyLookupResult{}, err
+	}
+	if track == nil {
+		return spotifyLookupResult{}, nil
+	}
+
+	result := spotifyLookupResult{
+		Album:      strings.TrimSpace(track.Album.Name),
+		Year:       spotifyReleaseYear(track.Album.ReleaseDate),
+		Confidence: confidence,
+		Found:      true,
+	}
+	// Spotify genres are attached to the artist, not the track, so they require
+	// a second lookup. This is best-effort; a failure just leaves genre empty.
+	if genre := j.primaryArtistGenre(ctx, token, track); genre != "" {
+		result.Genre = genre
+	}
+	return result, nil
+}
+
+func (j *spotifyMetadataJob) primaryArtistGenre(ctx context.Context, token string, track *spotifyTrack) string {
+	artistID := ""
+	for _, artist := range track.Artists {
+		if strings.TrimSpace(artist.ID) != "" {
+			artistID = strings.TrimSpace(artist.ID)
+			break
+		}
+	}
+	if artistID == "" {
+		return ""
+	}
+	genres, err := j.fetchArtistGenres(ctx, token, artistID)
+	if err != nil {
+		log.Debug(ctx, "Could not fetch Spotify artist genres", "artistId", artistID, "err", err)
+		return ""
+	}
+	if len(genres) > 2 {
+		genres = genres[:2]
+	}
+	titled := make([]string, 0, len(genres))
+	for _, genre := range genres {
+		if genre = strings.TrimSpace(genre); genre != "" {
+			titled = append(titled, titleCaseGenre(genre))
+		}
+	}
+	return strings.Join(titled, ", ")
+}
+
+func (j *spotifyMetadataJob) fetchArtistGenres(ctx context.Context, token, artistID string) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.spotify.com/v1/artists/"+url.PathEscape(artistID), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("spotify artist status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var payload struct {
+		Genres []string `json:"genres"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Genres, nil
+}
+
+// titleCaseGenre upper-cases the first letter of each word so lowercase Spotify
+// genres (e.g. "indie pop") display consistently with the rest of the UI.
+func titleCaseGenre(genre string) string {
+	words := strings.Fields(strings.ToLower(genre))
+	for i, word := range words {
+		runes := []rune(word)
+		runes[0] = unicode.ToUpper(runes[0])
+		words[i] = string(runes)
+	}
+	return strings.Join(words, " ")
 }
 
 func (j *spotifyMetadataJob) fetchAndSetCoverFromURL(ctx context.Context, ds model.DataStore, songID, spotifyURL string) (spotifyConfidenceEntry, error) {

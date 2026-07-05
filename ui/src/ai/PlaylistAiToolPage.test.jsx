@@ -83,6 +83,28 @@ const analysis = {
   recommendations: ['Review the explicit-risk song.'],
 }
 
+const recommendationResponse = {
+  type: 'underused_songs',
+  summary: 'Clean songs with low play counts.',
+  count: 1,
+  results: [
+    {
+      songId: 'underused-1',
+      title: 'Hidden Gem',
+      artist: 'New Artist',
+      album: 'New Album',
+      genre: 'Pop',
+      year: 2024,
+      explicit: false,
+      bpm: 118,
+      lufs: -12.2,
+      playCount: 3,
+      score: 0.91,
+      reason: 'Underused clean track with 3 plays and complete metadata',
+    },
+  ],
+}
+
 describe('PlaylistAiToolPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -135,6 +157,49 @@ describe('PlaylistAiToolPage', () => {
     expect(
       await screen.findByText('Indexed 1 playlists, skipped 0, failed 0.'),
     ).toBeInTheDocument()
+  })
+
+  it('renders recommendation controls and read-only results', async () => {
+    mockHttpClient.mockResolvedValueOnce({ json: recommendationResponse })
+    render(<PlaylistAiToolPage />)
+
+    expect(await screen.findByText('Store Mix')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Get Recommendations' }),
+    ).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Underused Songs' }))
+
+    await waitFor(() =>
+      expect(mockHttpClient).toHaveBeenCalledWith('/api/ai/rag/recommend', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'underused_songs', limit: 20 }),
+      }),
+    )
+    const table = await screen.findByRole('table', {
+      name: 'Recommendation results',
+    })
+    expect(within(table).getByText('Hidden Gem')).toBeInTheDocument()
+    expect(within(table).getByText('0.910')).toBeInTheDocument()
+    expect(within(table).getByText('Clean')).toBeInTheDocument()
+    expect(
+      within(table).queryByRole('button', { name: /add|replace|remove/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the backend reason when recommendations are unavailable', async () => {
+    mockHttpClient.mockRejectedValueOnce({
+      message: 'Service Unavailable',
+      body: { error: 'Qdrant unavailable: connection refused' },
+    })
+    render(<PlaylistAiToolPage />)
+
+    expect(await screen.findByText('Store Mix')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retail-safe Picks' }))
+
+    expect(
+      await screen.findByText('Qdrant unavailable: connection refused'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Service Unavailable')).not.toBeInTheDocument()
   })
 
   it('analyzes a playlist and renders its report', async () => {

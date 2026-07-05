@@ -371,6 +371,48 @@ func (c *QdrantClient) ListSongs(ctx context.Context, limit int) ([]IndexedSong,
 	return songs, nil
 }
 
+// CountDocumentsByType returns an exact filtered point count without loading
+// vectors or payloads. This keeps playlist points from inflating song coverage.
+func (c *QdrantClient) CountDocumentsByType(ctx context.Context, documentType string) (int64, error) {
+	documentType = strings.TrimSpace(documentType)
+	if documentType == "" {
+		return 0, fmt.Errorf("document type is empty")
+	}
+	body, err := json.Marshal(map[string]any{
+		"exact": true,
+		"filter": map[string]any{
+			"must": []any{map[string]any{
+				"key": "type", "match": map[string]any{"value": documentType},
+			}},
+		},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("could not encode Qdrant count request: %w", err)
+	}
+	response, err := c.do(
+		ctx,
+		http.MethodPost,
+		"/collections/"+url.PathEscape(c.collection)+"/points/count",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	if err := qdrantResponseError(response); err != nil {
+		return 0, err
+	}
+	var result struct {
+		Result struct {
+			Count int64 `json:"count"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("invalid Qdrant count response: %w", err)
+	}
+	return result.Result.Count, nil
+}
+
 // StableSongPointID is the provider-independent point identity required by
 // the RAG index. It is also stored in each Qdrant payload as ragId.
 func StableSongPointID(songID string) string {

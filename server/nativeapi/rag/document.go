@@ -79,6 +79,7 @@ func DocumentFromPlaylist(playlist model.Playlist) RAGDocument {
 	lines = append(lines, fmt.Sprintf("Song count: %d", len(tracks)))
 	lines = append(lines, fmt.Sprintf("Duration: %.0f seconds", playlistDuration(&playlist, tracks)))
 	appendSummaryLine(&lines, "Genres", stats.Genres)
+	appendSummaryLine(&lines, "Moods", stats.Moods)
 	appendSummaryLine(&lines, "Artists", stats.Artists)
 	lines = append(lines, fmt.Sprintf(
 		"Explicit summary: %d explicit, %d non-explicit or unknown",

@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server/nativeapi/rag"
 )
@@ -39,8 +42,13 @@ type aiChatResponse struct {
 }
 
 type aiLyricsResponse struct {
-	Language string `json:"language"`
-	Text     string `json:"text"`
+	Language           string  `json:"language"`
+	Text               string  `json:"text"`
+	Coverage           float64 `json:"coverage,omitempty"`
+	TranscribedSeconds float64 `json:"transcribedSeconds,omitempty"`
+	TotalSeconds       float64 `json:"totalSeconds,omitempty"`
+	SegmentCount       int     `json:"segmentCount,omitempty"`
+	Truncated          bool    `json:"truncated,omitempty"`
 }
 
 type aiClassifyExplicitRequest struct {
@@ -69,13 +77,37 @@ type aiFetchMetadataRequest struct {
 }
 
 type aiFetchMetadataSong struct {
-	ID              string `json:"id"`
-	Album           string `json:"album,omitempty"`
-	Year            int    `json:"year,omitempty"`
-	AIGenre         string `json:"aiGenre,omitempty"`
-	AlbumConfidence int    `json:"albumConfidence"`
-	YearConfidence  int    `json:"yearConfidence"`
-	GenreConfidence int    `json:"genreConfidence"`
+	ID                  string                         `json:"id"`
+	Album               string                         `json:"album,omitempty"`
+	Year                int                            `json:"year,omitempty"`
+	AIGenre             string                         `json:"aiGenre,omitempty"`
+	SpotifyGenre        string                         `json:"spotifyGenre,omitempty"`
+	MusicBrainzGenre    string                         `json:"musicBrainzGenre,omitempty"`
+	AlbumConfidence     int                            `json:"albumConfidence"`
+	YearConfidence      int                            `json:"yearConfidence"`
+	GenreConfidence     int                            `json:"genreConfidence"`
+	ConfidenceBreakdown *aiMetadataConfidenceBreakdown `json:"confidenceBreakdown,omitempty"`
+}
+
+// aiMetadataConfidenceBreakdown explains, per field, how the value and its
+// confidence were derived from the available sources, so the UI can show it when
+// a score is clicked.
+type aiMetadataConfidenceBreakdown struct {
+	Album aiMetadataFieldExplanation `json:"album"`
+	Year  aiMetadataFieldExplanation `json:"year"`
+	Genre aiMetadataFieldExplanation `json:"genre"`
+}
+
+// aiMetadataFieldExplanation describes how a single metadata field was resolved.
+// Source is one of: "verified" (two sources agree), "spotify", "musicbrainz",
+// "ai-only" (only the language model provided it), "conflict" (the stored value
+// disagrees with the sources), or "none".
+type aiMetadataFieldExplanation struct {
+	Source      string `json:"source"`
+	Spotify     string `json:"spotify,omitempty"`
+	MusicBrainz string `json:"musicBrainz,omitempty"`
+	AI          string `json:"ai,omitempty"`
+	Confidence  int    `json:"confidence"`
 }
 
 type aiFetchMetadataResponse struct {
@@ -100,10 +132,24 @@ type geminiSongMetadata struct {
 	Album           string `json:"album"`
 	Year            int    `json:"year"`
 	Genre           string `json:"genre"`
+	MatchedTitle    string `json:"matchedTitle"`
+	MatchedArtist   string `json:"matchedArtist"`
 	AlbumConfidence int    `json:"albumConfidence"`
 	YearConfidence  int    `json:"yearConfidence"`
 	GenreConfidence int    `json:"genreConfidence"`
 }
+
+// Confidence scores by how a field was resolved. AI-only values score low
+// because a language model recalling metadata from memory cannot be trusted
+// without an independent cross-check; Spotify and MusicBrainz are external
+// sources, and agreement between any two sources is treated as verified.
+const (
+	metadataConfidenceVerified      = 100 // two independent sources agree
+	metadataConfidenceAuthoritative = 85  // taken from MusicBrainz alone
+	metadataConfidenceSpotify       = 80  // taken from Spotify alone
+	metadataConfidenceConflict      = 55  // stored value disagrees with sources
+	metadataConfidenceAIOnly        = 35  // language-model guess, unverified
+)
 
 type aiChatProvider interface {
 	Chat(ctx context.Context, message string) (string, error)
@@ -334,6 +380,8 @@ func (g ollamaGemmaClient) Chat(ctx context.Context, message string) (string, er
 func (n *Router) addAIChatRoute(r chi.Router) {
 	r.Post("/ai/rag/search", n.handleRAGSearch)
 	r.Post("/ai/rag/playlist/analyze", n.handleRAGPlaylistAnalyze)
+	r.Post("/ai/rag/recommend", n.handleRAGRecommendation)
+	r.Get("/ai/rag/reports/dashboard", n.handleRAGDashboardReport)
 
 	r.Get("/ai/rag/status", func(w http.ResponseWriter, request *http.Request) {
 		response := aiRAGStatusResponse{
@@ -436,15 +484,46 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			return
 		}
 
-		lyrics, err := fetchWhisperLyrics(
-			req.Context(),
-			whisperURL,
-			mf.AbsolutePath(),
-			selectedWhisperModel(),
-		)
+		// Bound the transcription by the song length so a stuck Whisper worker
+		// can't hang the request forever, while still allowing slow CPU models.
+		songDuration := float64(mf.Duration)
+		fetchCtx, cancel := context.WithTimeout(req.Context(), whisperTimeoutForDuration(songDuration))
+		defer cancel()
+
+		result, err := fetchWhisperLyrics(fetchCtx, whisperURL, mf.AbsolutePath(), selectedWhisperModel(), 0)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
+		}
+		coverage, transcribed, total, truncated := whisperCoverage(result, songDuration)
+
+		// Whisper frequently stops early on music (silence/instrumental fools its
+		// end-of-speech detection). When coverage looks truncated, retry once with
+		// a higher temperature, which is the documented way to break it out of an
+		// early stop, and keep whichever attempt transcribed more of the song.
+		if truncated {
+			if retry, rerr := fetchWhisperLyrics(fetchCtx, whisperURL, mf.AbsolutePath(), selectedWhisperModel(), 0.4); rerr == nil {
+				rCoverage, rTranscribed, rTotal, rTruncated := whisperCoverage(retry, songDuration)
+				if rCoverage > coverage {
+					result, coverage, transcribed, total, truncated = retry, rCoverage, rTranscribed, rTotal, rTruncated
+				}
+			} else {
+				log.Warn(req.Context(), "Whisper retry after suspected truncation failed", "songId", songID, rerr)
+			}
+		}
+
+		lyrics := aiLyricsResponse{
+			Language:           result.Language,
+			Text:               result.Text,
+			Coverage:           coverage,
+			TranscribedSeconds: transcribed,
+			TotalSeconds:       total,
+			SegmentCount:       result.SegmentCount,
+			Truncated:          truncated,
+		}
+		if truncated {
+			log.Info(req.Context(), "Whisper transcription looks truncated",
+				"songId", songID, "coverage", coverage, "transcribedSeconds", transcribed, "totalSeconds", total)
 		}
 
 		structured, err := model.ToLyrics(lyrics.Language, lyrics.Text)
@@ -554,11 +633,9 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			return
 		}
 
-		selectedProvider := strings.TrimSpace(payload.Provider)
-		if selectedProvider == "" {
-			selectedProvider = "gemini-3.5"
-		}
-		providerSpec := aiChatProviderSpec(selectedProvider, "")
+		// Genre is fetched from the AI via Gemini 2.5 so it can be compared against
+		// Spotify and MusicBrainz for a consensus, regardless of the UI selection.
+		providerSpec := aiChatProviderSpec("gemini-2.5", "")
 		if providerSpec.ID == "" {
 			http.Error(w, "unsupported AI provider", http.StatusBadRequest)
 			return
@@ -568,7 +645,19 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		songs, err := fetchSongMetadata(req.Context(), n.ds.MediaFile(req.Context()), provider, payload.SongIDs)
+		var verify metadataVerifier
+		if n.metadataJob != nil {
+			verify = func(_ context.Context, title, artist string) (metadataResult, error) {
+				return n.metadataJob.fetchMetadata(title, artist)
+			}
+		}
+		var spotify spotifyLookupFunc
+		if n.spotifyJob != nil && spotifyConfigured() {
+			spotify = func(ctx context.Context, mf model.MediaFile) (spotifyLookupResult, error) {
+				return n.spotifyJob.lookupMetadata(ctx, mf)
+			}
+		}
+		songs, err := fetchSongMetadata(req.Context(), n.ds.MediaFile(req.Context()), provider, verify, spotify, payload.SongIDs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -809,10 +898,71 @@ func probeGeminiModel(ctx context.Context, client *http.Client, apiKey string, m
 	return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusBadRequest
 }
 
-func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string, whisperModel string) (aiLyricsResponse, error) {
+// Coverage below this fraction of the song, with a meaningful chunk of audio
+// left, is treated as a likely truncated transcription.
+const whisperTruncationThreshold = 0.75
+const whisperTruncationMinGapSeconds = 20.0
+
+// whisperResult is the transcription plus the timing metadata used to measure
+// how much of the song was actually transcribed.
+type whisperResult struct {
+	Language       string
+	Text           string
+	Duration       float64 // total audio duration reported by Whisper (0 if absent)
+	LastSegmentEnd float64 // end time of the last transcribed segment
+	SegmentCount   int
+}
+
+// whisperTimeoutForDuration scales the request timeout with the song length so
+// slow CPU transcription is allowed to finish, while still bounding the request.
+func whisperTimeoutForDuration(duration float64) time.Duration {
+	timeout := time.Duration(duration*6) * time.Second
+	if timeout < 5*time.Minute {
+		timeout = 5 * time.Minute
+	}
+	if timeout > 30*time.Minute {
+		timeout = 30 * time.Minute
+	}
+	return timeout
+}
+
+// whisperCoverage reports how much of the song was transcribed. It prefers the
+// duration Whisper returns, falling back to the song's stored duration, and only
+// flags truncation when segment timing is available.
+func whisperCoverage(result whisperResult, songDuration float64) (coverage, transcribed, total float64, truncated bool) {
+	total = result.Duration
+	if total <= 0 {
+		total = songDuration
+	}
+	transcribed = result.LastSegmentEnd
+	if total > 0 && result.SegmentCount > 0 && transcribed > 0 {
+		coverage = clampUnit(transcribed / total)
+		truncated = coverage < whisperTruncationThreshold && (total-transcribed) > whisperTruncationMinGapSeconds
+	}
+	return coverage, transcribed, total, truncated
+}
+
+// errWhisperRejectedTuning signals that the server rejected the request, most
+// likely because of the optional tuning fields, so it is worth retrying with a
+// minimal request.
+var errWhisperRejectedTuning = errors.New("whisper rejected tuning fields")
+
+func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string, whisperModel string, temperature float64) (whisperResult, error) {
+	// First try with the anti-truncation tuning fields. If the server rejects
+	// them (some minimal OpenAI-compatible servers 4xx on unknown fields), fall
+	// back to a plain request so lyrics + coverage still work everywhere.
+	result, err := postWhisperTranscription(ctx, whisperURL, audioPath, whisperModel, temperature, true)
+	if err != nil && errors.Is(err, errWhisperRejectedTuning) {
+		log.Debug(ctx, "Whisper rejected tuning fields; retrying with a minimal request", "err", err)
+		return postWhisperTranscription(ctx, whisperURL, audioPath, whisperModel, temperature, false)
+	}
+	return result, err
+}
+
+func postWhisperTranscription(ctx context.Context, whisperURL string, audioPath string, whisperModel string, temperature float64, withTuning bool) (whisperResult, error) {
 	file, err := os.Open(audioPath)
 	if err != nil {
-		return aiLyricsResponse{}, fmt.Errorf("could not open audio file: %w", err)
+		return whisperResult{}, fmt.Errorf("could not open audio file: %w", err)
 	}
 	defer file.Close()
 
@@ -820,51 +970,91 @@ func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string
 	writer := multipart.NewWriter(&body)
 	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
 	if err != nil {
-		return aiLyricsResponse{}, fmt.Errorf("could not prepare audio upload: %w", err)
+		return whisperResult{}, fmt.Errorf("could not prepare audio upload: %w", err)
 	}
 	if _, err := io.Copy(part, file); err != nil {
-		return aiLyricsResponse{}, fmt.Errorf("could not read audio file: %w", err)
+		return whisperResult{}, fmt.Errorf("could not read audio file: %w", err)
 	}
 	if strings.TrimSpace(whisperModel) != "" {
 		if err := writer.WriteField("model", strings.TrimSpace(whisperModel)); err != nil {
-			return aiLyricsResponse{}, fmt.Errorf("could not add Whisper model: %w", err)
+			return whisperResult{}, fmt.Errorf("could not add Whisper model: %w", err)
+		}
+	}
+	// verbose_json returns per-segment timestamps and total duration, which is
+	// what makes coverage measurable. It is part of the standard OpenAI audio
+	// API, so it is always sent.
+	whisperFields := map[string]string{
+		"response_format": "verbose_json",
+		"temperature":     strconv.FormatFloat(temperature, 'f', -1, 64),
+	}
+	// These reduce Whisper's mid-song "collapse" but are faster-whisper
+	// extensions, so they are only sent on the first attempt.
+	if withTuning {
+		whisperFields["vad_filter"] = "true"
+		whisperFields["condition_on_previous_text"] = "false"
+	}
+	for field, value := range whisperFields {
+		if err := writer.WriteField(field, value); err != nil {
+			return whisperResult{}, fmt.Errorf("could not add Whisper field %q: %w", field, err)
 		}
 	}
 	if err := writer.Close(); err != nil {
-		return aiLyricsResponse{}, fmt.Errorf("could not finish audio upload: %w", err)
+		return whisperResult{}, fmt.Errorf("could not finish audio upload: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, whisperURL, &body)
 	if err != nil {
-		return aiLyricsResponse{}, fmt.Errorf("invalid Whisper API URL: %w", err)
+		return whisperResult{}, fmt.Errorf("invalid Whisper API URL: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
 
 	httpResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return aiLyricsResponse{}, fmt.Errorf("failed to contact Whisper API: %w", err)
+		return whisperResult{}, fmt.Errorf("failed to contact Whisper API: %w", err)
 	}
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode >= http.StatusBadRequest {
 		errBody, _ := io.ReadAll(httpResp.Body)
-		return aiLyricsResponse{}, fmt.Errorf("Whisper API error: %s", strings.TrimSpace(string(errBody)))
+		message := strings.TrimSpace(string(errBody))
+		if withTuning && httpResp.StatusCode < http.StatusInternalServerError {
+			return whisperResult{}, fmt.Errorf("%w: HTTP %d: %s", errWhisperRejectedTuning, httpResp.StatusCode, message)
+		}
+		return whisperResult{}, fmt.Errorf("Whisper API error: %s", message)
 	}
 
-	var lyrics aiLyricsResponse
-	if err := json.NewDecoder(httpResp.Body).Decode(&lyrics); err != nil {
-		return aiLyricsResponse{}, fmt.Errorf("invalid Whisper API response: %w", err)
+	var payload struct {
+		Language string  `json:"language"`
+		Text     string  `json:"text"`
+		Duration float64 `json:"duration"`
+		Segments []struct {
+			Start float64 `json:"start"`
+			End   float64 `json:"end"`
+		} `json:"segments"`
 	}
-	lyrics.Language = strings.TrimSpace(lyrics.Language)
-	lyrics.Text = strings.TrimSpace(lyrics.Text)
-	if lyrics.Language == "" {
-		lyrics.Language = "xxx"
-	}
-	if lyrics.Text == "" {
-		return aiLyricsResponse{}, fmt.Errorf("Whisper API returned empty lyrics")
+	if err := json.NewDecoder(httpResp.Body).Decode(&payload); err != nil {
+		return whisperResult{}, fmt.Errorf("invalid Whisper API response: %w", err)
 	}
 
-	return lyrics, nil
+	result := whisperResult{
+		Language:     strings.TrimSpace(payload.Language),
+		Text:         strings.TrimSpace(payload.Text),
+		Duration:     payload.Duration,
+		SegmentCount: len(payload.Segments),
+	}
+	for _, segment := range payload.Segments {
+		if segment.End > result.LastSegmentEnd {
+			result.LastSegmentEnd = segment.End
+		}
+	}
+	if result.Language == "" {
+		result.Language = "xxx"
+	}
+	if result.Text == "" {
+		return whisperResult{}, fmt.Errorf("Whisper API returned empty lyrics")
+	}
+
+	return result, nil
 }
 
 func saveWhisperLyricsFile(folder string, songID string, text string) error {
@@ -1016,6 +1206,25 @@ func classifyExplicit(ctx context.Context, repo model.MediaFileRepository, provi
 
 		lyrics, _ := lyricsText(mf)
 		if strings.TrimSpace(lyrics) == "" {
+			if marker := explicitTitleMarker(mf); marker != "" {
+				markerStatus := explicitStatusCode(marker)
+				reason := "Derived from the explicit tag in the track's title or album because no lyrics were available."
+				if markerStatus != "" && markerStatus != existingStatus {
+					if err := repo.UpdateExplicitStatus(songID, markerStatus); err != nil {
+						results = append(results, aiClassifyExplicitSong{
+							ID: songID, ExplicitStatus: existingStatus,
+							Reason: "A title/album explicit tag was found but could not be saved, so the existing status was preserved.",
+						})
+						continue
+					}
+				}
+				if markerStatus != "" {
+					results = append(results, aiClassifyExplicitSong{
+						ID: songID, ExplicitStatus: markerStatus, Reason: reason,
+					})
+					continue
+				}
+			}
 			results = append(results, aiClassifyExplicitSong{
 				ID: songID, ExplicitStatus: existingStatus,
 				Reason: "No saved lyrics were available, so the existing status was preserved.",
@@ -1109,7 +1318,46 @@ Lyrics:
 	if err != nil {
 		return explicitClassificationResult{}, err
 	}
-	return parseExplicitClassificationDetailed(answer, lyrics), nil
+	result := parseExplicitClassificationDetailed(answer, lyrics)
+	return applyDeterministicExplicitEvidence(result, lyrics, rules), nil
+}
+
+// applyDeterministicExplicitEvidence overrides the model's verdict to explicit
+// when the lyrics contain uncensored or lightly obfuscated configured explicit
+// words. This is a conservative, high-precision backstop: the configured words
+// are strong profanity/slurs whose plain presence is essentially always
+// explicit, so it fixes confident false-clean verdicts without adding model
+// guesswork.
+func applyDeterministicExplicitEvidence(result explicitClassificationResult, lyrics string, rules explicitWordRules) explicitClassificationResult {
+	terms := newExplicitMatcher(rules).matches(lyrics)
+	if len(terms) == 0 {
+		return result
+	}
+	result.Classification = "explicit"
+	if result.Confidence < minimumExplicitConfidence {
+		result.Confidence = minimumExplicitConfidence
+	}
+	result.Evidence = dedupeExplicitEvidence(append(result.Evidence, terms...))
+	result.Reason = "The lyrics contain explicit language: " + strings.Join(terms, ", ") + "."
+	return result
+}
+
+func dedupeExplicitEvidence(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func explicitStatusCode(classification string) string {
@@ -1224,7 +1472,150 @@ func normalizeExplicitEvidence(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
-func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, songIDs []string) ([]aiFetchMetadataSong, error) {
+// Leetspeak substitutions and masking characters commonly used to obscure
+// profanity in lyric transcripts (e.g. "f**k", "sh1t", "b!tch").
+var explicitLeetVariants = map[rune]string{
+	'a': "@4", 'b': "8", 'e': "3", 'g': "9", 'i': "1!",
+	'l': "1", 'o': "0", 's': "5$", 't': "7",
+}
+
+// Characters used to censor interior letters. Kept literal inside a regex
+// character class; '-' is placed last so it is not read as a range.
+const explicitMaskChars = `*#@$%!.+_-`
+
+// explicitMatcher deterministically finds configured explicit words in lyrics,
+// both uncensored and lightly obfuscated. It is a backstop that does not depend
+// on the model's own judgment, closing the "confident false clean" gap.
+type explicitMatcher struct {
+	plain      *regexp.Regexp
+	obfuscated []*regexp.Regexp
+}
+
+func newExplicitMatcher(rules explicitWordRules) *explicitMatcher {
+	m := &explicitMatcher{}
+	plainAlternatives := make([]string, 0, len(rules.Included))
+	for _, word := range rules.Included {
+		word = strings.ToLower(strings.TrimSpace(word))
+		if word == "" {
+			continue
+		}
+		plainAlternatives = append(plainAlternatives, regexp.QuoteMeta(word))
+		if pattern := obfuscatedWordPattern(word); pattern != "" {
+			if re, err := regexp.Compile(pattern); err == nil {
+				m.obfuscated = append(m.obfuscated, re)
+			}
+		}
+	}
+	if len(plainAlternatives) > 0 {
+		m.plain = regexp.MustCompile(`(?i)\b(?:` + strings.Join(plainAlternatives, "|") + `)\b`)
+	}
+	return m
+}
+
+// obfuscatedWordPattern builds a regex that matches a censored spelling of word.
+// The first and last letters must be present (leetspeak allowed); interior
+// letters may be replaced by leetspeak or a masking character. Only ASCII words
+// of length >= 3 are supported; anything else returns "" and relies on the
+// plain matcher.
+func obfuscatedWordPattern(word string) string {
+	runes := []rune(word)
+	if len(runes) < 3 {
+		return ""
+	}
+	for _, r := range runes {
+		if r < 'a' || r > 'z' {
+			return ""
+		}
+	}
+	var b strings.Builder
+	b.WriteString(`(?i)\b`)
+	for i, r := range runes {
+		b.WriteByte('[')
+		b.WriteRune(r)
+		b.WriteString(explicitLeetVariants[r])
+		if i != 0 && i != len(runes)-1 {
+			b.WriteString(explicitMaskChars)
+		}
+		b.WriteByte(']')
+	}
+	b.WriteString(`\b`)
+	return b.String()
+}
+
+// matches returns the distinct explicit terms found in the lyrics. Obfuscated
+// hits are only reported when they actually contain a non-letter, so that plain
+// spellings are attributed to the plain matcher and innocuous words never match.
+func (m *explicitMatcher) matches(lyrics string) []string {
+	if m == nil || strings.TrimSpace(lyrics) == "" {
+		return nil
+	}
+	found := make([]string, 0, 4)
+	seen := map[string]struct{}{}
+	add := func(term string) {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			return
+		}
+		key := strings.ToLower(term)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		found = append(found, term)
+	}
+	if m.plain != nil {
+		for _, hit := range m.plain.FindAllString(lyrics, -1) {
+			add(hit)
+		}
+	}
+	for _, re := range m.obfuscated {
+		for _, hit := range re.FindAllString(lyrics, -1) {
+			if containsNonLetter(hit) {
+				add(hit)
+			}
+		}
+	}
+	return found
+}
+
+func containsNonLetter(value string) bool {
+	for _, r := range value {
+		if !unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	explicitTitleMarkerRegex = regexp.MustCompile(`(?i)[\[(]\s*explicit\s*[\])]`)
+	cleanTitleMarkerRegex    = regexp.MustCompile(`(?i)[\[(]\s*clean\s*[\])]|\b(?:radio edit|clean version)\b`)
+)
+
+// explicitTitleMarker reads the distributor-supplied explicit/clean tag that is
+// often embedded in a track's title or album (e.g. "Song [Explicit]"). These
+// markers are highly reliable and used as a fallback when lyrics are missing.
+func explicitTitleMarker(mf *model.MediaFile) string {
+	haystack := mf.Title + " " + mf.Album
+	if explicitTitleMarkerRegex.MatchString(haystack) {
+		return "explicit"
+	}
+	if cleanTitleMarkerRegex.MatchString(haystack) {
+		return "clean"
+	}
+	return ""
+}
+
+// metadataVerifier looks up authoritative metadata (MusicBrainz) for a track so
+// answers can be cross-checked. It returns an empty result and no error when
+// there is no confident match.
+type metadataVerifier func(ctx context.Context, title, artist string) (metadataResult, error)
+
+// spotifyLookupFunc looks up Spotify metadata (album, year, artist genres) for a
+// track. Spotify is the primary source for album and year.
+type spotifyLookupFunc func(ctx context.Context, mf model.MediaFile) (spotifyLookupResult, error)
+
+func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, verify metadataVerifier, spotify spotifyLookupFunc, songIDs []string) ([]aiFetchMetadataSong, error) {
 	results := make([]aiFetchMetadataSong, 0, len(songIDs))
 	seen := map[string]struct{}{}
 
@@ -1245,47 +1636,298 @@ func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, prov
 			continue
 		}
 
-		metadata, err := fetchGeminiSongMetadata(ctx, provider, mf)
-		if err != nil {
-			results = append(results, result)
-			continue
-		}
-
-		var album *string
-		var year *int
-		if metadata.Album != "" && strings.EqualFold(strings.TrimSpace(metadata.Album), strings.TrimSpace(mf.Album)) {
-			result.AlbumConfidence = metadata.AlbumConfidence
-		}
-		if metadata.Year > 0 && metadata.Year == mf.Year {
-			result.YearConfidence = metadata.YearConfidence
-		}
-		if albumNeedsFetch(mf.Album) && metadata.Album != "" {
-			album = &metadata.Album
-			result.Album = metadata.Album
-			result.AlbumConfidence = metadata.AlbumConfidence
-		}
-		if yearNeedsFetch(mf.Year) && metadata.Year > 0 {
-			year = &metadata.Year
-			result.Year = metadata.Year
-			result.YearConfidence = metadata.YearConfidence
-		}
-		if album != nil || year != nil {
-			if err := repo.UpdateMissingMetadata(songID, album, year, nil, nil, nil); err != nil {
-				result.Album = ""
-				result.Year = 0
-				result.AlbumConfidence = 0
-				result.YearConfidence = 0
+		// 1. Spotify — primary source for album and year (also artist genres).
+		var sp spotifyLookupResult
+		if spotify != nil {
+			if r, spErr := spotify(ctx, *mf); spErr == nil {
+				sp = r
+			} else {
+				log.Debug(ctx, "Spotify metadata lookup unavailable", "songId", songID, "err", spErr)
 			}
 		}
 
-		result.AIGenre = metadata.Genre
-		if result.AIGenre != "" {
-			result.GenreConfidence = metadata.GenreConfidence
+		// 2. MusicBrainz — independent cross-check / fallback.
+		var mb metadataResult
+		if verify != nil {
+			if r, mbErr := verify(ctx, mf.Title, mf.Artist); mbErr == nil {
+				mb = r
+			} else {
+				log.Debug(ctx, "MusicBrainz lookup unavailable", "songId", songID, "err", mbErr)
+			}
 		}
+
+		// 3. AI — always queried so its genre can take part in the genre
+		// consensus, and used as a fallback for a missing album/year. The prompt
+		// is enriched with the album/year we already found so the model can
+		// identify the genre from the full title/artist/album/year context.
+		var ai geminiSongMetadata
+		if provider != nil {
+			promptMF := *mf
+			if resolved := firstNonEmpty(sp.Album, mb.Album); resolved != "" {
+				promptMF.Album = resolved
+			}
+			if sp.Year > 0 {
+				promptMF.Year = sp.Year
+			} else if mb.Year > 0 {
+				promptMF.Year = mb.Year
+			}
+			if aiMeta, aiErr := fetchGeminiSongMetadata(ctx, provider, &promptMF); aiErr == nil {
+				ai = aiMeta
+			} else {
+				log.Debug(ctx, "AI metadata lookup failed", "songId", songID, "err", aiErr)
+			}
+		}
+
+		breakdown := &aiMetadataConfidenceBreakdown{}
+
+		// --- Album (Spotify -> MusicBrainz -> AI). ---
+		fillAlbum, _, albumConf, albumExpl := resolveMetadataField(
+			strings.TrimSpace(mf.Album), !albumNeedsFetch(mf.Album),
+			sp.Album, mb.Album, ai.Album, metadataValuesMatch)
+		var album *string
+		if fillAlbum != "" {
+			album = &fillAlbum
+			result.Album = fillAlbum
+		}
+		result.AlbumConfidence = albumConf
+		breakdown.Album = albumExpl
+
+		// --- Year (Spotify -> MusicBrainz -> AI). ---
+		fillYear, _, yearConf, yearExpl := resolveMetadataField(
+			yearAsString(mf.Year), !yearNeedsFetch(mf.Year),
+			yearAsString(sp.Year), yearAsString(mb.Year), yearAsString(ai.Year), metadataValuesMatch)
+		var year *int
+		if fillYear != "" {
+			if y, convErr := strconv.Atoi(fillYear); convErr == nil {
+				year = &y
+				result.Year = y
+			}
+		}
+		result.YearConfidence = yearConf
+		breakdown.Year = yearExpl
+
+		if album != nil || year != nil {
+			if err := repo.UpdateMissingMetadata(songID, album, year, nil, nil, nil); err != nil {
+				result.Album, result.Year = "", 0
+				result.AlbumConfidence, result.YearConfidence = 0, 0
+				breakdown.Album, breakdown.Year = aiMetadataFieldExplanation{}, aiMetadataFieldExplanation{}
+			}
+		}
+
+		// --- Genre: fetched from all three sources and shown per source; the
+		// consensus among them drives the confidence score. ---
+		_, genreConf, genreExpl := resolveGenreConsensus(sp.Genre, mb.Genre, ai.Genre)
+		result.SpotifyGenre = titleCaseGenreList(genreExpl.Spotify)
+		result.MusicBrainzGenre = titleCaseGenreList(genreExpl.MusicBrainz)
+		result.AIGenre = titleCaseGenreList(genreExpl.AI)
+		result.GenreConfidence = genreConf
+		breakdown.Genre = genreExpl
+
+		result.ConfidenceBreakdown = breakdown
 		results = append(results, result)
 	}
 
 	return results, nil
+}
+
+// resolveMetadataField picks the best value for a field across Spotify,
+// MusicBrainz, and AI, and returns an honest confidence with a per-source
+// explanation.
+//
+// If the track already has a valid value (existingValid), that value is kept
+// (fill is empty) and scored by whether the sources agree with it. Otherwise the
+// first available source in priority order (Spotify, then MusicBrainz, then AI)
+// is chosen; agreement from a second source promotes it to "verified".
+//
+// matches compares two values tolerant of formatting differences.
+func resolveMetadataField(existing string, existingValid bool, spotify, musicBrainz, ai string, matches func(string, string) bool) (fill string, value string, confidence int, expl aiMetadataFieldExplanation) {
+	spotify = strings.TrimSpace(spotify)
+	musicBrainz = strings.TrimSpace(musicBrainz)
+	ai = strings.TrimSpace(ai)
+	expl = aiMetadataFieldExplanation{Spotify: spotify, MusicBrainz: musicBrainz, AI: ai}
+
+	if existingValid {
+		value = strings.TrimSpace(existing)
+		switch {
+		case anyMatches(value, matches, spotify, musicBrainz, ai):
+			expl.Source, confidence = "verified", metadataConfidenceVerified
+		case spotify != "" || musicBrainz != "" || ai != "":
+			expl.Source, confidence = "conflict", metadataConfidenceConflict
+		default:
+			expl.Source, confidence = "none", 0
+		}
+		expl.Confidence = confidence
+		return "", value, confidence, expl
+	}
+
+	var source string
+	switch {
+	case spotify != "":
+		value, source = spotify, "spotify"
+	case musicBrainz != "":
+		value, source = musicBrainz, "musicbrainz"
+	case ai != "":
+		value, source = ai, "ai-only"
+	default:
+		expl.Source, expl.Confidence = "none", 0
+		return "", "", 0, expl
+	}
+
+	agrees := false
+	for candidateSource, candidate := range map[string]string{"spotify": spotify, "musicbrainz": musicBrainz, "ai-only": ai} {
+		if candidateSource == source || candidate == "" {
+			continue
+		}
+		if matches(value, candidate) {
+			agrees = true
+			break
+		}
+	}
+	switch {
+	case agrees:
+		expl.Source, confidence = "verified", metadataConfidenceVerified
+	case source == "spotify":
+		expl.Source, confidence = "spotify", metadataConfidenceSpotify
+	case source == "musicbrainz":
+		expl.Source, confidence = "musicbrainz", metadataConfidenceAuthoritative
+	default:
+		expl.Source, confidence = "ai-only", metadataConfidenceAIOnly
+	}
+	expl.Confidence = confidence
+	return value, value, confidence, expl
+}
+
+func anyMatches(value string, matches func(string, string) bool, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate) != "" && matches(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func yearAsString(year int) string {
+	if year <= 0 {
+		return ""
+	}
+	return strconv.Itoa(year)
+}
+
+// spotifyConfigured reports whether Spotify credentials are available so the
+// metadata lookup can authenticate.
+func spotifyConfigured() bool {
+	if strings.TrimSpace(conf.Server.Spotify.Token) != "" {
+		return true
+	}
+	return strings.TrimSpace(conf.Server.Spotify.ID) != "" && strings.TrimSpace(conf.Server.Spotify.Secret) != ""
+}
+
+// metadataValuesMatch compares two metadata strings tolerant of punctuation,
+// case, and small differences (e.g. "Discovery" vs "Discovery (Deluxe)").
+func metadataValuesMatch(a, b string) bool {
+	na, nb := normalizeMBString(a), normalizeMBString(b)
+	if na == "" || nb == "" {
+		return false
+	}
+	if na == nb || strings.Contains(na, nb) || strings.Contains(nb, na) {
+		return true
+	}
+	return stringSimilarity(na, nb) >= 0.9
+}
+
+// genresOverlap reports whether any genre token is shared between two genre
+// strings, which may be comma-separated lists.
+func genresOverlap(a, b string) bool {
+	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
+		return false
+	}
+	for _, ga := range strings.Split(a, ",") {
+		for _, gb := range strings.Split(b, ",") {
+			if metadataValuesMatch(ga, gb) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// resolveGenreConsensus combines the genre reported by Spotify, MusicBrainz, and
+// the AI and prefers the genre that more than one source agrees on. Spotify's
+// genre is artist-level and not always accurate, so a single source is only used
+// when there is no agreement; in that case Spotify is trusted last.
+func resolveGenreConsensus(spotify, musicBrainz, ai string) (string, int, aiMetadataFieldExplanation) {
+	spotify = strings.TrimSpace(spotify)
+	musicBrainz = strings.TrimSpace(musicBrainz)
+	ai = strings.TrimSpace(ai)
+	expl := aiMetadataFieldExplanation{Spotify: spotify, MusicBrainz: musicBrainz, AI: ai}
+
+	type tokenInfo struct {
+		display string
+		sources map[string]bool
+	}
+	tokens := map[string]*tokenInfo{}
+	order := make([]string, 0, 6)
+	addTokens := func(source, genre string) {
+		for _, raw := range strings.Split(genre, ",") {
+			raw = strings.TrimSpace(raw)
+			key := normalizeMBString(raw)
+			if key == "" {
+				continue
+			}
+			info, ok := tokens[key]
+			if !ok {
+				info = &tokenInfo{display: titleCaseGenre(raw), sources: map[string]bool{}}
+				tokens[key] = info
+				order = append(order, key)
+			}
+			info.sources[source] = true
+		}
+	}
+	addTokens("spotify", spotify)
+	addTokens("musicbrainz", musicBrainz)
+	addTokens("ai", ai)
+
+	// A genre token confirmed by two or more sources is the consensus.
+	common := make([]string, 0, 2)
+	for _, key := range order {
+		if len(tokens[key].sources) >= 2 {
+			common = append(common, tokens[key].display)
+		}
+	}
+	if len(common) > 0 {
+		if len(common) > 2 {
+			common = common[:2]
+		}
+		expl.Source, expl.Confidence = "verified", metadataConfidenceVerified
+		return strings.Join(common, ", "), metadataConfidenceVerified, expl
+	}
+
+	// No agreement: fall back to a single source, trusting Spotify's genre last.
+	switch {
+	case musicBrainz != "":
+		expl.Source, expl.Confidence = "musicbrainz", metadataConfidenceAuthoritative
+		return titleCaseGenreList(musicBrainz), metadataConfidenceAuthoritative, expl
+	case ai != "":
+		expl.Source, expl.Confidence = "ai-only", metadataConfidenceAIOnly
+		return titleCaseGenreList(ai), metadataConfidenceAIOnly, expl
+	case spotify != "":
+		expl.Source, expl.Confidence = "spotify", metadataConfidenceSpotify
+		return titleCaseGenreList(spotify), metadataConfidenceSpotify, expl
+	default:
+		expl.Source, expl.Confidence = "none", 0
+		return "", 0, expl
+	}
+}
+
+func titleCaseGenreList(genre string) string {
+	parts := strings.Split(genre, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, titleCaseGenre(part))
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 func clearAIMetadata(repo model.MediaFileRepository, songs []aiClearMetadataSong) ([]string, error) {
@@ -1319,12 +1961,18 @@ func fetchGeminiSongMetadata(ctx context.Context, provider aiChatProvider, mf *m
 
 func songMetadataPrompt(mf *model.MediaFile, lyrics string) string {
 	var b strings.Builder
-	b.WriteString(`Find the most likely album, release year, and concise genre for this song.
+	b.WriteString(`Identify this exact song, then return its authoritative album, original release year, and genre.
 
 Return only valid JSON in this exact shape:
-{"album":"album name or empty string","albumConfidence":0,"year":0,"yearConfidence":0,"genre":"genre or empty string","genreConfidence":0}
+{"matchedTitle":"canonical song title or empty string","matchedArtist":"canonical primary artist or empty string","album":"album name or empty string","albumConfidence":0,"year":0,"yearConfidence":0,"genre":"genre or empty string","genreConfidence":0}
 
-Confidence values must be whole numbers from 0 to 100 for each individual field. If current metadata is supplied and appears correct, return it unchanged and score it. Use 0 or an empty string when you are not confident. Do not include markdown.
+Rules:
+- matchedTitle and matchedArtist are the canonical title and primary artist of the song you actually identified. Leave them empty if you cannot confidently identify the song; in that case leave all other fields empty too. Do not guess or invent a song.
+- album is the original studio album the track first appeared on. Prefer the original release over compilations, greatest-hits, deluxe reissues, or single/EP releases unless the track only ever appeared there.
+- year is the four-digit year of the original release (not a remaster or reissue).
+- genre is the single most specific primary genre (at most two, comma-separated). Avoid vague catch-alls like "Music" or "Pop" when a more specific genre applies.
+- Each *Confidence value is a whole number from 0 to 100 describing how sure you are of that specific field for the identified song.
+- If current metadata is supplied and is correct, return it unchanged. Use 0 or an empty string wherever you are not confident. Do not include markdown.
 
 Song:
 `)
@@ -1363,6 +2011,8 @@ func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
 		Album           string      `json:"album"`
 		Year            interface{} `json:"year"`
 		Genre           string      `json:"genre"`
+		MatchedTitle    string      `json:"matchedTitle"`
+		MatchedArtist   string      `json:"matchedArtist"`
 		AlbumConfidence interface{} `json:"albumConfidence"`
 		YearConfidence  interface{} `json:"yearConfidence"`
 		GenreConfidence interface{} `json:"genreConfidence"`
@@ -1376,6 +2026,8 @@ func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
 	metadata := geminiSongMetadata{
 		Album:           strings.TrimSpace(raw.Album),
 		Genre:           strings.TrimSpace(raw.Genre),
+		MatchedTitle:    strings.TrimSpace(raw.MatchedTitle),
+		MatchedArtist:   strings.TrimSpace(raw.MatchedArtist),
 		AlbumConfidence: metadataConfidenceOr(raw.AlbumConfidence, legacyConfidence),
 		YearConfidence:  metadataConfidenceOr(raw.YearConfidence, legacyConfidence),
 		GenreConfidence: metadataConfidenceOr(raw.GenreConfidence, legacyConfidence),
@@ -1398,6 +2050,16 @@ func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
 		metadata.GenreConfidence = 0
 	}
 	return metadata, nil
+}
+
+func clampUnit(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 func metadataConfidenceOr(value interface{}, fallback int) int {

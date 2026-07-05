@@ -61,15 +61,18 @@ type PlaylistExplicitRisk struct {
 }
 
 type PlaylistReplacementSong struct {
-	SongID   string  `json:"songId"`
-	Title    string  `json:"title"`
-	Artist   string  `json:"artist"`
-	Album    string  `json:"album"`
-	Genre    string  `json:"genre"`
-	BPM      int     `json:"bpm"`
-	LUFS     float64 `json:"lufs"`
-	Duration float64 `json:"duration"`
-	Score    float64 `json:"score"`
+	SongID    string  `json:"songId"`
+	Title     string  `json:"title"`
+	Artist    string  `json:"artist"`
+	Album     string  `json:"album"`
+	Genre     string  `json:"genre"`
+	Year      int     `json:"year"`
+	Explicit  bool    `json:"explicit"`
+	BPM       int     `json:"bpm"`
+	LUFS      float64 `json:"lufs"`
+	Duration  float64 `json:"duration"`
+	PlayCount int64   `json:"playCount"`
+	Score     float64 `json:"score"`
 }
 
 type PlaylistReplacementSuggestion struct {
@@ -113,6 +116,7 @@ type playlistNumericSummary struct {
 
 type playlistStats struct {
 	Genres        []PlaylistSummaryItem
+	Moods         []PlaylistSummaryItem
 	Artists       []PlaylistSummaryItem
 	ExplicitSongs []PlaylistSongReference
 	BPM           playlistNumericSummary
@@ -157,6 +161,8 @@ func AnalyzePlaylist(ctx context.Context, playlist *model.Playlist, search Repla
 func summarizePlaylist(tracks model.MediaFiles) playlistStats {
 	genreCounts := map[string]int{}
 	genreNames := map[string]string{}
+	moodCounts := map[string]int{}
+	moodNames := map[string]string{}
 	artistCounts := map[string]int{}
 	artistNames := map[string]string{}
 	bpmValues := make([]float64, 0, len(tracks))
@@ -171,6 +177,9 @@ func summarizePlaylist(tracks model.MediaFiles) playlistStats {
 		for _, genre := range genres {
 			countName(genreCounts, genreNames, genre)
 		}
+		for _, mood := range cleanTagValues(song.Tags.Values(model.TagMood)) {
+			countName(moodCounts, moodNames, mood)
+		}
 		countName(artistCounts, artistNames, song.Artist)
 		if song.ExplicitStatus == "e" || strings.EqualFold(song.ExplicitStatus, "explicit") {
 			stats.ExplicitSongs = append(stats.ExplicitSongs, songReference(song))
@@ -184,6 +193,7 @@ func summarizePlaylist(tracks model.MediaFiles) playlistStats {
 	}
 
 	stats.Genres = countedSummary(genreCounts, genreNames, len(tracks))
+	stats.Moods = countedSummary(moodCounts, moodNames, len(tracks))
 	stats.Artists = countedSummary(artistCounts, artistNames, len(tracks))
 	stats.BPM = numericSummary(bpmValues, len(tracks))
 	stats.LUFS = numericSummary(lufsValues, len(tracks))
@@ -515,8 +525,9 @@ func suggestPlaylistReplacements(
 			seen[result.SongID] = struct{}{}
 			options = append(options, PlaylistReplacementSong{
 				SongID: result.SongID, Title: result.Title, Artist: result.Artist,
-				Album: result.Album, Genre: result.Genre, BPM: result.BPM, LUFS: result.LUFS,
-				Duration: result.Duration, Score: result.Score,
+				Album: result.Album, Genre: result.Genre, Year: result.Year, Explicit: result.Explicit,
+				BPM: result.BPM, LUFS: result.LUFS, Duration: result.Duration,
+				PlayCount: result.PlayCount, Score: result.Score,
 			})
 			if len(options) == 3 {
 				break

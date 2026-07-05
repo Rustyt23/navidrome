@@ -50,6 +50,8 @@ const AI_TOOL_COLUMNS = [
   { id: 'lyrics', label: 'Lyrics' },
   { id: 'duration', label: 'Time' },
   { id: 'genre', label: 'Genre' },
+  { id: 'spotifyGenre', label: 'Spotify Genre' },
+  { id: 'musicBrainzGenre', label: 'MusicBrainz Genre' },
   { id: 'aiGenre', label: 'AI Genre' },
   { id: 'genreConfidence', label: 'Genre Confidence' },
 ]
@@ -241,6 +243,48 @@ const useStyles = makeStyles((theme) => ({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: theme.spacing(1),
+    '& .MuiButton-root': {
+      minWidth: 'auto',
+      minHeight: 32,
+      padding: theme.spacing(0.5, 1.25),
+      borderRadius: 7,
+      fontSize: 12,
+      fontWeight: 600,
+      lineHeight: 1.25,
+      letterSpacing: 0.15,
+      textTransform: 'none',
+    },
+    '& .MuiButton-startIcon': {
+      marginRight: theme.spacing(0.5),
+    },
+  },
+  songToolsPanel: {
+    width: '100%',
+    marginTop: theme.spacing(1.5),
+    borderRadius: 8,
+    border: '1px solid rgba(255, 255, 255, 0.12)',
+    background: '#151f2d',
+    overflow: 'hidden',
+  },
+  songToolsHeader: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: theme.spacing(1, 1.5),
+    color: '#f7f8fb',
+    cursor: 'pointer',
+    background: 'transparent',
+    border: 0,
+    textAlign: 'left',
+    font: 'inherit',
+  },
+  songToolsSummary: {
+    color: '#c9d1dc',
+    fontSize: 13,
+  },
+  songToolsActions: {
+    padding: theme.spacing(0, 1.5, 1.25),
   },
   providerToolbar: {
     display: 'flex',
@@ -297,6 +341,9 @@ const useStyles = makeStyles((theme) => ({
     gap: theme.spacing(1),
     padding: theme.spacing(0, 1.5, 1.5),
   },
+  serviceStatusContent: {
+    width: '100%',
+  },
   serviceStatusItem: {
     display: 'flex',
     alignItems: 'center',
@@ -316,7 +363,7 @@ const useStyles = makeStyles((theme) => ({
     fontSize: 12,
   },
   ragStatusCard: {
-    width: '100%',
+    width: `calc(100% - ${theme.spacing(3)}px)`,
     display: 'flex',
     alignItems: 'center',
     flexWrap: 'wrap',
@@ -326,6 +373,8 @@ const useStyles = makeStyles((theme) => ({
     border: '1px solid rgba(255, 255, 255, 0.12)',
     color: '#f7f8fb',
     background: '#151f2d',
+    margin: theme.spacing(0, 1.5, 1.5),
+    boxSizing: 'border-box',
   },
   ragStatusTitle: {
     fontWeight: 600,
@@ -488,7 +537,7 @@ const useStyles = makeStyles((theme) => ({
     whiteSpace: 'nowrap',
   },
   confidenceColumn: {
-    minWidth: 130,
+    minWidth: 96,
     whiteSpace: 'nowrap',
   },
   columnMenuTitle: {
@@ -815,6 +864,21 @@ const hasSavedLyrics = (song) => {
   return lyrics !== '' && lyrics !== '[]'
 }
 
+// Pulls the Whisper coverage metadata out of a lyrics-fetch response so it can
+// be stored on the song and shown in the table.
+const lyricsCoverageFields = (json) => {
+  if (!json || typeof json !== 'object') return {}
+  const fields = {}
+  if (typeof json.coverage === 'number') fields.lyricsCoverage = json.coverage
+  if (typeof json.truncated === 'boolean')
+    fields.lyricsTruncated = json.truncated
+  if (typeof json.transcribedSeconds === 'number')
+    fields.lyricsTranscribedSeconds = json.transcribedSeconds
+  if (typeof json.totalSeconds === 'number')
+    fields.lyricsTotalSeconds = json.totalSeconds
+  return fields
+}
+
 const normalizeMetadataConfidence = (value) => {
   if (value === null || value === undefined || value === '') return null
   const confidence = Number(value)
@@ -881,7 +945,7 @@ const AiToolPage = () => {
   const [chatError, setChatError] = useState('')
   const [normalChatError, setNormalChatError] = useState('')
   const [toolError, setToolError] = useState('')
-  const [isChatOpen, setIsChatOpen] = useState(true)
+  const [isChatOpen, setIsChatOpen] = useState(false)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [chatFrame, setChatFrame] = useState(defaultChatFrame)
   const [isNormalChatOpen, setIsNormalChatOpen] = useState(false)
@@ -893,6 +957,7 @@ const AiToolPage = () => {
   const [lyricsText, setLyricsText] = useState('')
   const [lyricsDialogSong, setLyricsDialogSong] = useState(null)
   const [explicitReasonSong, setExplicitReasonSong] = useState(null)
+  const [confidenceDetail, setConfidenceDetail] = useState(null)
   const [explicitRulesOpen, setExplicitRulesOpen] = useState(false)
   const [explicitIncludedWords, setExplicitIncludedWords] = useState(() => {
     try {
@@ -942,6 +1007,7 @@ const AiToolPage = () => {
   const [jobProgress, setJobProgress] = useState(null)
   const [progressClock, setProgressClock] = useState(() => Date.now())
   const [isStatusOpen, setIsStatusOpen] = useState(true)
+  const [isSongToolsOpen, setIsSongToolsOpen] = useState(true)
   const [modelStatuses, setModelStatuses] = useState(() =>
     AI_SERVICES.map((service) => ({ ...service, online: null })),
   )
@@ -1253,6 +1319,9 @@ const AiToolPage = () => {
   const isAIValue = (song, field) => {
     if (song.aiFields?.[field]) return true
     if (field === 'aiGenre') return !isUnknownValue(song.aiGenre)
+    if (field === 'spotifyGenre') return !isUnknownValue(song.spotifyGenre)
+    if (field === 'musicBrainzGenre')
+      return !isUnknownValue(song.musicBrainzGenre)
     if (field === 'lyrics') return hasSavedLyrics(song)
     if (field === 'explicitStatus')
       return Boolean(formatExplicitStatus(song.explicitStatus))
@@ -1269,19 +1338,133 @@ const AiToolPage = () => {
   const valueClass = (song, field) =>
     isAIValue(song, field) ? classes.valueAI : classes.valueExisting
 
-  const renderMetadataConfidence = (value) => {
+  const renderMetadataConfidence = (value, song, field) => {
     const confidence = normalizeMetadataConfidence(value)
     if (confidence === null) return null
     const color =
       confidence >= 80 ? '#3ddc84' : confidence >= 50 ? '#ffcb6b' : '#ff8fc6'
+    const breakdown = song?.metadataConfidenceBreakdown
+    const open = () =>
+      setConfidenceDetail({ song, field, value: confidence, breakdown })
     return (
       <Typography
         component="span"
+        role="button"
+        tabIndex={0}
         className={classes.confidenceBadge}
-        style={{ color }}
+        style={{
+          color,
+          cursor: 'pointer',
+        }}
+        title="Click to see how this score was calculated"
+        onClick={open}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            open()
+          }
+        }}
       >
-        {confidence}% confidence
+        {confidence}%
       </Typography>
+    )
+  }
+
+  const renderLyricsCoverage = (song) => {
+    const coverage = song?.lyricsCoverage
+    if (typeof coverage !== 'number' || coverage <= 0) return null
+    const pct = Math.round(coverage * 100)
+    const truncated = Boolean(song.lyricsTruncated)
+    const color = truncated ? '#ff8fc6' : pct >= 90 ? '#3ddc84' : '#ffcb6b'
+    const detail =
+      song.lyricsTranscribedSeconds && song.lyricsTotalSeconds
+        ? `${formatDuration(song.lyricsTranscribedSeconds)} of ${formatDuration(
+            song.lyricsTotalSeconds,
+          )} transcribed`
+        : `${pct}% transcribed`
+    return (
+      <Typography
+        component="span"
+        variant="caption"
+        style={{ color, whiteSpace: 'nowrap' }}
+        title={
+          truncated
+            ? `Possibly truncated — ${detail}. Try fetching lyrics again.`
+            : detail
+        }
+      >
+        {pct}%{truncated ? ' ⚠' : ''}
+      </Typography>
+    )
+  }
+
+  const confidenceFieldLabel = (field) =>
+    field === 'album' ? 'Album' : field === 'year' ? 'Year' : 'Genre'
+
+  const CONFIDENCE_SOURCE_TEXT = {
+    verified: 'Two independent sources agree on this value — verified.',
+    spotify: 'Taken from Spotify (primary source for album and year).',
+    musicbrainz: 'Taken from MusicBrainz.',
+    conflict:
+      'The stored value disagrees with the sources — treat with caution and prefer the source value below.',
+    'ai-only':
+      'From the AI only. Neither Spotify nor MusicBrainz could confirm it, so the score is intentionally low.',
+    none: 'No value was available for this field.',
+  }
+
+  const renderConfidenceBreakdown = (detail) => {
+    const { field, value, breakdown } = detail
+    const explanation = breakdown?.[field]
+    if (!explanation) {
+      return (
+        <Box>
+          <Typography variant="body2" paragraph>
+            This {confidenceFieldLabel(field).toLowerCase()} confidence is{' '}
+            <strong>{value}%</strong>.
+          </Typography>
+          <Typography variant="body2" color="textSecondary">
+            The detailed breakdown isn’t stored for this row because it was
+            fetched with an earlier version. Run{' '}
+            <strong>Fetch AI Metadata</strong> again to see how it was resolved.
+          </Typography>
+        </Box>
+      )
+    }
+    const source = explanation.source || 'none'
+    return (
+      <Box>
+        <Typography variant="body2" paragraph>
+          {CONFIDENCE_SOURCE_TEXT[source] || CONFIDENCE_SOURCE_TEXT.none}
+        </Typography>
+        <Table size="small">
+          <TableBody>
+            <TableRow>
+              <TableCell>Spotify</TableCell>
+              <TableCell align="right">
+                {explanation.spotify || 'No match'}
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>MusicBrainz</TableCell>
+              <TableCell align="right">
+                {explanation.musicBrainz || 'No match'}
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>AI</TableCell>
+              <TableCell align="right">{explanation.ai || '—'}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>
+                <strong>Confidence</strong>
+              </TableCell>
+              <TableCell align="right">
+                <strong>{value}%</strong>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </Box>
     )
   }
 
@@ -1299,7 +1482,7 @@ const AiToolPage = () => {
   }
 
   const toggleAllConfidenceColumns = () => {
-    const visible = !allConfidenceColumnsVisible
+    const visible = !someConfidenceColumnsVisible
     setVisibleColumns((current) => ({
       ...current,
       ...Object.fromEntries(
@@ -1444,6 +1627,8 @@ const AiToolPage = () => {
               ...song,
               ...current,
               aiGenre: song.aiGenre || '',
+              spotifyGenre: song.spotifyGenre || '',
+              musicBrainzGenre: song.musicBrainzGenre || '',
             }
           })
 
@@ -1859,13 +2044,19 @@ const AiToolPage = () => {
     setLyricsLoadingId(song.id)
     startProgress('lyrics', [song])
     try {
-      await httpClient(`/api/ai/songs/${song.id}/lyrics/fetch`, {
-        method: 'POST',
-        signal: abortController.signal,
-      })
+      const { json } = await httpClient(
+        `/api/ai/songs/${song.id}/lyrics/fetch`,
+        {
+          method: 'POST',
+          signal: abortController.signal,
+        },
+      )
+      const coverage = lyricsCoverageFields(json)
       setAddedSongs((prev) => {
         const nextSongs = prev.map((item) =>
-          item.id === song.id ? { ...item, lyrics: 'saved' } : item,
+          item.id === song.id
+            ? { ...item, lyrics: 'saved', ...coverage }
+            : item,
         )
         localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
         return nextSongs
@@ -1912,13 +2103,19 @@ const AiToolPage = () => {
     try {
       for (const [index, song] of songsToFetch.entries()) {
         updateProgress('lyrics', song, index, songsToFetch.length)
-        await httpClient(`/api/ai/songs/${song.id}/lyrics/fetch`, {
-          method: 'POST',
-          signal: abortController.signal,
-        })
+        const { json } = await httpClient(
+          `/api/ai/songs/${song.id}/lyrics/fetch`,
+          {
+            method: 'POST',
+            signal: abortController.signal,
+          },
+        )
+        const coverage = lyricsCoverageFields(json)
         setAddedSongs((prev) => {
           const nextSongs = prev.map((item) =>
-            item.id === song.id ? { ...item, lyrics: 'saved' } : item,
+            item.id === song.id
+              ? { ...item, lyrics: 'saved', ...coverage }
+              : item,
           )
           localStorage.setItem(
             ADDED_SONGS_STORAGE_KEY,
@@ -2113,18 +2310,29 @@ const AiToolPage = () => {
               album: update.album || item.album,
               year: update.year || item.year,
               aiGenre: update.aiGenre || item.aiGenre || '',
+              spotifyGenre: update.spotifyGenre || item.spotifyGenre || '',
+              musicBrainzGenre:
+                update.musicBrainzGenre || item.musicBrainzGenre || '',
               metadataConfidence: {
                 ...(item.metadataConfidence || {}),
                 album: normalizeMetadataConfidence(update.albumConfidence) ?? 0,
                 year: normalizeMetadataConfidence(update.yearConfidence) ?? 0,
                 genre: normalizeMetadataConfidence(update.genreConfidence) ?? 0,
               },
+              metadataConfidenceBreakdown:
+                update.confidenceBreakdown || item.metadataConfidenceBreakdown,
               aiFields: {
                 ...(item.aiFields || {}),
                 album: Boolean(update.album) || Boolean(item.aiFields?.album),
                 year: Boolean(update.year) || Boolean(item.aiFields?.year),
                 aiGenre:
                   Boolean(update.aiGenre) || Boolean(item.aiFields?.aiGenre),
+                spotifyGenre:
+                  Boolean(update.spotifyGenre) ||
+                  Boolean(item.aiFields?.spotifyGenre),
+                musicBrainzGenre:
+                  Boolean(update.musicBrainzGenre) ||
+                  Boolean(item.aiFields?.musicBrainzGenre),
               },
             }
           })
@@ -2177,12 +2385,17 @@ const AiToolPage = () => {
                 album: song.aiFields?.album ? '[Unknown Album]' : song.album,
                 year: song.aiFields?.year ? 0 : song.year,
                 aiGenre: '',
+                spotifyGenre: '',
+                musicBrainzGenre: '',
                 metadataConfidence: {},
+                metadataConfidenceBreakdown: undefined,
                 aiFields: {
                   ...(song.aiFields || {}),
                   album: false,
                   year: false,
                   aiGenre: false,
+                  spotifyGenre: false,
+                  musicBrainzGenre: false,
                 },
               }
             : song,
@@ -2280,512 +2493,572 @@ const AiToolPage = () => {
                 onClick={() => setIsStatusOpen((open) => !open)}
                 aria-expanded={isStatusOpen}
               >
-                <Typography component="span">AI model status</Typography>
+                <Typography component="span">
+                  AI model and RAG status
+                </Typography>
                 <Typography
                   component="span"
                   className={classes.serviceStatusSummary}
                 >
                   {areStatusesChecking
                     ? 'Checking…'
-                    : `${onlineServiceCount}/${AI_SERVICES.length} online`}{' '}
+                    : `${onlineServiceCount}/${AI_SERVICES.length} online · RAG ${
+                        ragStatus?.enabled ? 'enabled' : 'disabled'
+                      }`}{' '}
                   {isStatusOpen ? '−' : '+'}
                 </Typography>
               </button>
               <Collapse in={isStatusOpen}>
-                <Box className={classes.serviceStatusList}>
-                  {modelStatuses.map((service) => {
-                    const statusLabel =
-                      service.online === null
-                        ? 'Checking…'
-                        : service.online
-                          ? 'Online'
-                          : 'Offline'
-                    return (
-                      <Box
-                        className={classes.serviceStatusItem}
-                        key={service.id}
-                      >
-                        <Typography
-                          className={classes.serviceStatusName}
-                          variant="body2"
+                <Box className={classes.serviceStatusContent}>
+                  <Box className={classes.serviceStatusList}>
+                    {modelStatuses.map((service) => {
+                      const statusLabel =
+                        service.online === null
+                          ? 'Checking…'
+                          : service.online
+                            ? 'Online'
+                            : 'Offline'
+                      return (
+                        <Box
+                          className={classes.serviceStatusItem}
+                          key={service.id}
                         >
-                          {service.label}
-                        </Typography>
-                        <Typography
-                          component="span"
-                          className={classes.serviceStatusValue}
-                          style={{
-                            color:
-                              service.online === true
-                                ? '#3ddc84'
-                                : service.online === false
-                                  ? '#ff8fc6'
-                                  : '#c9d1dc',
-                          }}
-                        >
-                          <span
-                            className={`${classes.statusDot} ${
-                              service.online === true
-                                ? classes.statusDotOnline
-                                : service.online === false
-                                  ? classes.statusDotOffline
-                                  : ''
-                            }`}
-                          />
-                          {statusLabel}
-                        </Typography>
+                          <Typography
+                            className={classes.serviceStatusName}
+                            variant="body2"
+                          >
+                            {service.label}
+                          </Typography>
+                          <Typography
+                            component="span"
+                            className={classes.serviceStatusValue}
+                            style={{
+                              color:
+                                service.online === true
+                                  ? '#3ddc84'
+                                  : service.online === false
+                                    ? '#ff8fc6'
+                                    : '#c9d1dc',
+                            }}
+                          >
+                            <span
+                              className={`${classes.statusDot} ${
+                                service.online === true
+                                  ? classes.statusDotOnline
+                                  : service.online === false
+                                    ? classes.statusDotOffline
+                                    : ''
+                              }`}
+                            />
+                            {statusLabel}
+                          </Typography>
+                        </Box>
+                      )
+                    })}
+                  </Box>
+                  <Box
+                    className={classes.ragStatusCard}
+                    role="region"
+                    aria-label="RAG status"
+                  >
+                    <Typography
+                      className={classes.ragStatusTitle}
+                      variant="body2"
+                    >
+                      RAG status
+                    </Typography>
+                    <Typography
+                      component="span"
+                      className={`${classes.ragStatusBadge} ${
+                        ragStatus?.enabled
+                          ? classes.ragStatusEnabled
+                          : classes.ragStatusDisabled
+                      }`}
+                    >
+                      {ragStatus
+                        ? ragStatus.enabled
+                          ? 'Enabled'
+                          : 'Disabled'
+                        : ragStatusError
+                          ? 'Unavailable'
+                          : 'Loading…'}
+                    </Typography>
+                    <Button
+                      className={classes.ragToggleButton}
+                      size="small"
+                      variant="outlined"
+                      color="primary"
+                      onClick={toggleRAG}
+                      disabled={!ragStatus || isTogglingRAG}
+                    >
+                      {isTogglingRAG
+                        ? 'Updating…'
+                        : ragStatus?.enabled
+                          ? 'Disable RAG'
+                          : 'Enable RAG'}
+                    </Button>
+                    {ragStatus ? (
+                      <Box className={classes.ragStatusDetails}>
+                        <span>
+                          Vector DB:{' '}
+                          <strong
+                            className={
+                              ragStatus.vectorDbOnline
+                                ? classes.ragStatusEnabled
+                                : classes.ragStatusDisabled
+                            }
+                          >
+                            {ragStatus.vectorDbOnline ? 'Online' : 'Offline'}
+                          </strong>
+                        </span>
+                        <span>Vector URL: {ragStatus.vectorUrl}</span>
+                        <span>Collection: {ragStatus.collection}</span>
+                        <span>
+                          Collection status:{' '}
+                          <strong
+                            className={
+                              ragStatus.collectionExists
+                                ? classes.ragStatusEnabled
+                                : classes.ragStatusDisabled
+                            }
+                          >
+                            {ragStatus.collectionExists ? 'Exists' : 'Missing'}
+                          </strong>
+                        </span>
+                        <span>Indexed: {ragStatus.indexedCount}</span>
+                        <span>Top K: {ragStatus.topK}</span>
                       </Box>
-                    )
-                  })}
+                    ) : null}
+                    <Box className={classes.ragIndexControls}>
+                      <TextField
+                        id="rag-index-limit"
+                        className={classes.ragIndexLimitInput}
+                        variant="outlined"
+                        size="small"
+                        type="number"
+                        label="Songs to index"
+                        value={ragIndexLimit}
+                        onChange={(event) =>
+                          setRAGIndexLimit(event.target.value)
+                        }
+                        inputProps={{
+                          min: 1,
+                          max: MAX_RAG_INDEX_LIMIT,
+                          step: 1,
+                          'aria-label': 'Songs to index',
+                        }}
+                        error={ragIndexLimit !== '' && !isRAGIndexLimitValid}
+                      />
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={ragIncludePlaylists}
+                            onChange={(event) =>
+                              setRAGIncludePlaylists(event.target.checked)
+                            }
+                            color="primary"
+                          />
+                        }
+                        label="Include playlists"
+                      />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        onClick={() => indexRAGSongs(false)}
+                        disabled={
+                          !ragStatus?.enabled ||
+                          !isRAGIndexLimitValid ||
+                          isIndexingRAG ||
+                          isRefreshingRAG
+                        }
+                      >
+                        {isIndexingRAG
+                          ? 'Indexing…'
+                          : `Index ${isRAGIndexLimitValid ? parsedRAGIndexLimit : ''} songs`}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        onClick={() => indexRAGSongs(true)}
+                        disabled={
+                          !ragStatus?.enabled ||
+                          !isRAGIndexLimitValid ||
+                          isIndexingRAG ||
+                          isRefreshingRAG
+                        }
+                      >
+                        {isRefreshingRAG
+                          ? 'Refreshing…'
+                          : `Refresh ${isRAGIndexLimitValid ? parsedRAGIndexLimit : ''} indexed songs`}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        onClick={openRAGDocuments}
+                        disabled={
+                          !ragStatus?.enabled ||
+                          !ragStatus?.vectorDbOnline ||
+                          !ragStatus?.collectionExists
+                        }
+                      >
+                        View indexed songs
+                      </Button>
+                      <Typography
+                        className={classes.ragIndexHint}
+                        variant="body2"
+                      >
+                        Already indexed songs are skipped.
+                      </Typography>
+                    </Box>
+                    {ragIndexMessage ? (
+                      <Typography
+                        className={classes.ragIndexMessage}
+                        variant="body2"
+                      >
+                        {ragIndexMessage}
+                      </Typography>
+                    ) : null}
+                    {ragIndexError ? (
+                      <Typography
+                        className={classes.ragStatusErrorText}
+                        variant="body2"
+                      >
+                        {ragIndexError}
+                      </Typography>
+                    ) : null}
+                    <Box className={classes.ragSearchControls}>
+                      <TextField
+                        className={classes.ragSearchInput}
+                        variant="outlined"
+                        size="small"
+                        value={ragSearchQuery}
+                        onChange={(event) =>
+                          setRAGSearchQuery(event.target.value)
+                        }
+                        onKeyPress={(event) => {
+                          if (event.key === 'Enter') searchRAGSongs()
+                        }}
+                        placeholder="Test RAG search"
+                      />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        onClick={searchRAGSongs}
+                        disabled={
+                          !ragStatus?.enabled ||
+                          !ragSearchQuery.trim() ||
+                          isSearchingRAG
+                        }
+                      >
+                        {isSearchingRAG ? 'Searching…' : 'Search RAG'}
+                      </Button>
+                    </Box>
+                    <Box
+                      className={classes.ragFilterControls}
+                      aria-label="RAG search filters"
+                    >
+                      <FormControlLabel
+                        className={classes.ragFilterCheckbox}
+                        control={
+                          <Checkbox
+                            checked={ragSearchFilters.cleanOnly}
+                            onChange={(event) =>
+                              updateRAGSearchFilter(
+                                'cleanOnly',
+                                event.target.checked,
+                              )
+                            }
+                          />
+                        }
+                        label="Clean only"
+                      />
+                      <TextField
+                        className={classes.ragFilterInput}
+                        label="Genre"
+                        variant="outlined"
+                        size="small"
+                        value={ragSearchFilters.genre}
+                        inputProps={{ 'aria-label': 'Genre' }}
+                        onChange={(event) =>
+                          updateRAGSearchFilter('genre', event.target.value)
+                        }
+                      />
+                      {[
+                        ['yearMin', 'Year min'],
+                        ['yearMax', 'Year max'],
+                        ['bpmMin', 'BPM min'],
+                        ['bpmMax', 'BPM max'],
+                        ['lufsMin', 'LUFS min'],
+                        ['lufsMax', 'LUFS max'],
+                        ['playCountMax', 'Max play count'],
+                        ['durationMax', 'Max duration (sec)'],
+                      ].map(([name, label]) => (
+                        <TextField
+                          className={classes.ragFilterInput}
+                          key={name}
+                          label={label}
+                          type="number"
+                          variant="outlined"
+                          size="small"
+                          value={ragSearchFilters[name]}
+                          inputProps={{ 'aria-label': label }}
+                          onChange={(event) =>
+                            updateRAGSearchFilter(name, event.target.value)
+                          }
+                        />
+                      ))}
+                      {[
+                        ['hasLyrics', 'Has lyrics'],
+                        ['hasGenre', 'Has genre'],
+                        ['hasYear', 'Has year'],
+                        ['hasBpm', 'Has BPM'],
+                        ['hasLufs', 'Has LUFS'],
+                      ].map(([name, label]) => (
+                        <FormControlLabel
+                          className={classes.ragFilterCheckbox}
+                          key={name}
+                          control={
+                            <Checkbox
+                              checked={ragSearchFilters[name]}
+                              onChange={(event) =>
+                                updateRAGSearchFilter(
+                                  name,
+                                  event.target.checked,
+                                )
+                              }
+                            />
+                          }
+                          label={label}
+                        />
+                      ))}
+                    </Box>
+                    {ragSearchError ? (
+                      <Typography
+                        className={classes.ragStatusErrorText}
+                        variant="body2"
+                      >
+                        {ragSearchError}
+                      </Typography>
+                    ) : null}
+                    {ragAppliedFilters !== null ? (
+                      <Typography
+                        className={classes.ragAppliedFilters}
+                        variant="body2"
+                      >
+                        Applied filters: {JSON.stringify(ragAppliedFilters)} ·{' '}
+                        {ragSearchCount} result{ragSearchCount === 1 ? '' : 's'}
+                      </Typography>
+                    ) : null}
+                    {ragSearchResults.length ? (
+                      <Box className={classes.ragSearchResults}>
+                        {ragSearchResults.map((result, index) => (
+                          <Box
+                            className={classes.ragSearchResult}
+                            key={`${result.songId || 'song'}-${index}`}
+                          >
+                            {result.title || 'Unknown title'} —{' '}
+                            {result.artist || 'Unknown artist'} · score{' '}
+                            {Number(result.score || 0).toFixed(3)} ·{' '}
+                            {result.genre || 'Unknown genre'} ·{' '}
+                            {result.explicit ? 'Explicit' : 'Clean'}
+                          </Box>
+                        ))}
+                      </Box>
+                    ) : null}
+                    {ragStatus?.error || ragStatusError ? (
+                      <Typography
+                        className={classes.ragStatusErrorText}
+                        variant="body2"
+                      >
+                        {ragStatus?.error || ragStatusError}
+                      </Typography>
+                    ) : null}
+                  </Box>
                 </Box>
               </Collapse>
             </Box>
-            <Box
-              className={classes.ragStatusCard}
-              role="region"
-              aria-label="RAG status"
-            >
-              <Typography className={classes.ragStatusTitle} variant="body2">
-                RAG status
-              </Typography>
-              <Typography
-                component="span"
-                className={`${classes.ragStatusBadge} ${
-                  ragStatus?.enabled
-                    ? classes.ragStatusEnabled
-                    : classes.ragStatusDisabled
-                }`}
-              >
-                {ragStatus
-                  ? ragStatus.enabled
-                    ? 'Enabled'
-                    : 'Disabled'
-                  : ragStatusError
-                    ? 'Unavailable'
-                    : 'Loading…'}
-              </Typography>
-              <Button
-                className={classes.ragToggleButton}
-                size="small"
-                variant="outlined"
-                color="primary"
-                onClick={toggleRAG}
-                disabled={!ragStatus || isTogglingRAG}
-              >
-                {isTogglingRAG
-                  ? 'Updating…'
-                  : ragStatus?.enabled
-                    ? 'Disable RAG'
-                    : 'Enable RAG'}
-              </Button>
-              {ragStatus ? (
-                <Box className={classes.ragStatusDetails}>
-                  <span>
-                    Vector DB:{' '}
-                    <strong
-                      className={
-                        ragStatus.vectorDbOnline
-                          ? classes.ragStatusEnabled
-                          : classes.ragStatusDisabled
-                      }
-                    >
-                      {ragStatus.vectorDbOnline ? 'Online' : 'Offline'}
-                    </strong>
-                  </span>
-                  <span>Vector URL: {ragStatus.vectorUrl}</span>
-                  <span>Collection: {ragStatus.collection}</span>
-                  <span>
-                    Collection status:{' '}
-                    <strong
-                      className={
-                        ragStatus.collectionExists
-                          ? classes.ragStatusEnabled
-                          : classes.ragStatusDisabled
-                      }
-                    >
-                      {ragStatus.collectionExists ? 'Exists' : 'Missing'}
-                    </strong>
-                  </span>
-                  <span>Indexed: {ragStatus.indexedCount}</span>
-                  <span>Top K: {ragStatus.topK}</span>
-                </Box>
-              ) : null}
-              <Box className={classes.ragIndexControls}>
-                <TextField
-                  id="rag-index-limit"
-                  className={classes.ragIndexLimitInput}
-                  variant="outlined"
-                  size="small"
-                  type="number"
-                  label="Songs to index"
-                  value={ragIndexLimit}
-                  onChange={(event) => setRAGIndexLimit(event.target.value)}
-                  inputProps={{
-                    min: 1,
-                    max: MAX_RAG_INDEX_LIMIT,
-                    step: 1,
-                    'aria-label': 'Songs to index',
-                  }}
-                  error={ragIndexLimit !== '' && !isRAGIndexLimitValid}
-                />
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={ragIncludePlaylists}
-                      onChange={(event) =>
-                        setRAGIncludePlaylists(event.target.checked)
-                      }
-                      color="primary"
-                    />
-                  }
-                  label="Include playlists"
-                />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="primary"
-                  onClick={() => indexRAGSongs(false)}
-                  disabled={
-                    !ragStatus?.enabled ||
-                    !isRAGIndexLimitValid ||
-                    isIndexingRAG ||
-                    isRefreshingRAG
-                  }
-                >
-                  {isIndexingRAG
-                    ? 'Indexing…'
-                    : `Index ${isRAGIndexLimitValid ? parsedRAGIndexLimit : ''} songs`}
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="primary"
-                  onClick={() => indexRAGSongs(true)}
-                  disabled={
-                    !ragStatus?.enabled ||
-                    !isRAGIndexLimitValid ||
-                    isIndexingRAG ||
-                    isRefreshingRAG
-                  }
-                >
-                  {isRefreshingRAG
-                    ? 'Refreshing…'
-                    : `Refresh ${isRAGIndexLimitValid ? parsedRAGIndexLimit : ''} indexed songs`}
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="primary"
-                  onClick={openRAGDocuments}
-                  disabled={
-                    !ragStatus?.enabled ||
-                    !ragStatus?.vectorDbOnline ||
-                    !ragStatus?.collectionExists
-                  }
-                >
-                  View indexed songs
-                </Button>
-                <Typography className={classes.ragIndexHint} variant="body2">
-                  Already indexed songs are skipped.
-                </Typography>
-              </Box>
-              {ragIndexMessage ? (
-                <Typography className={classes.ragIndexMessage} variant="body2">
-                  {ragIndexMessage}
-                </Typography>
-              ) : null}
-              {ragIndexError ? (
-                <Typography
-                  className={classes.ragStatusErrorText}
-                  variant="body2"
-                >
-                  {ragIndexError}
-                </Typography>
-              ) : null}
-              <Box className={classes.ragSearchControls}>
-                <TextField
-                  className={classes.ragSearchInput}
-                  variant="outlined"
-                  size="small"
-                  value={ragSearchQuery}
-                  onChange={(event) => setRAGSearchQuery(event.target.value)}
-                  onKeyPress={(event) => {
-                    if (event.key === 'Enter') searchRAGSongs()
-                  }}
-                  placeholder="Test RAG search"
-                />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="primary"
-                  onClick={searchRAGSongs}
-                  disabled={
-                    !ragStatus?.enabled ||
-                    !ragSearchQuery.trim() ||
-                    isSearchingRAG
-                  }
-                >
-                  {isSearchingRAG ? 'Searching…' : 'Search RAG'}
-                </Button>
-              </Box>
-              <Box
-                className={classes.ragFilterControls}
-                aria-label="RAG search filters"
-              >
-                <FormControlLabel
-                  className={classes.ragFilterCheckbox}
-                  control={
-                    <Checkbox
-                      checked={ragSearchFilters.cleanOnly}
-                      onChange={(event) =>
-                        updateRAGSearchFilter('cleanOnly', event.target.checked)
-                      }
-                    />
-                  }
-                  label="Clean only"
-                />
-                <TextField
-                  className={classes.ragFilterInput}
-                  label="Genre"
-                  variant="outlined"
-                  size="small"
-                  value={ragSearchFilters.genre}
-                  inputProps={{ 'aria-label': 'Genre' }}
-                  onChange={(event) =>
-                    updateRAGSearchFilter('genre', event.target.value)
-                  }
-                />
-                {[
-                  ['yearMin', 'Year min'],
-                  ['yearMax', 'Year max'],
-                  ['bpmMin', 'BPM min'],
-                  ['bpmMax', 'BPM max'],
-                  ['lufsMin', 'LUFS min'],
-                  ['lufsMax', 'LUFS max'],
-                  ['playCountMax', 'Max play count'],
-                  ['durationMax', 'Max duration (sec)'],
-                ].map(([name, label]) => (
-                  <TextField
-                    className={classes.ragFilterInput}
-                    key={name}
-                    label={label}
-                    type="number"
-                    variant="outlined"
-                    size="small"
-                    value={ragSearchFilters[name]}
-                    inputProps={{ 'aria-label': label }}
-                    onChange={(event) =>
-                      updateRAGSearchFilter(name, event.target.value)
-                    }
-                  />
-                ))}
-                {[
-                  ['hasLyrics', 'Has lyrics'],
-                  ['hasGenre', 'Has genre'],
-                  ['hasYear', 'Has year'],
-                  ['hasBpm', 'Has BPM'],
-                  ['hasLufs', 'Has LUFS'],
-                ].map(([name, label]) => (
-                  <FormControlLabel
-                    className={classes.ragFilterCheckbox}
-                    key={name}
-                    control={
-                      <Checkbox
-                        checked={ragSearchFilters[name]}
-                        onChange={(event) =>
-                          updateRAGSearchFilter(name, event.target.checked)
-                        }
-                      />
-                    }
-                    label={label}
-                  />
-                ))}
-              </Box>
-              {ragSearchError ? (
-                <Typography
-                  className={classes.ragStatusErrorText}
-                  variant="body2"
-                >
-                  {ragSearchError}
-                </Typography>
-              ) : null}
-              {ragAppliedFilters !== null ? (
-                <Typography
-                  className={classes.ragAppliedFilters}
-                  variant="body2"
-                >
-                  Applied filters: {JSON.stringify(ragAppliedFilters)} ·{' '}
-                  {ragSearchCount} result{ragSearchCount === 1 ? '' : 's'}
-                </Typography>
-              ) : null}
-              {ragSearchResults.length ? (
-                <Box className={classes.ragSearchResults}>
-                  {ragSearchResults.map((result, index) => (
-                    <Box
-                      className={classes.ragSearchResult}
-                      key={`${result.songId || 'song'}-${index}`}
-                    >
-                      {result.title || 'Unknown title'} —{' '}
-                      {result.artist || 'Unknown artist'} · score{' '}
-                      {Number(result.score || 0).toFixed(3)} ·{' '}
-                      {result.genre || 'Unknown genre'} ·{' '}
-                      {result.explicit ? 'Explicit' : 'Clean'}
-                    </Box>
-                  ))}
-                </Box>
-              ) : null}
-              {ragStatus?.error || ragStatusError ? (
-                <Typography
-                  className={classes.ragStatusErrorText}
-                  variant="body2"
-                >
-                  {ragStatus?.error || ragStatusError}
-                </Typography>
-              ) : null}
-            </Box>
           </Box>
-          <Box className={classes.tableActions}>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={openAddSongsDialog}
+          <Box className={classes.songToolsPanel}>
+            <button
+              type="button"
+              className={classes.songToolsHeader}
+              onClick={() => setIsSongToolsOpen((open) => !open)}
+              aria-expanded={isSongToolsOpen}
             >
-              {translate('menu.aiTool.addSongs', { _: 'Add songs' })}
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={() =>
-                openModelDialog('classifyExplicit', selectedAddedSongs)
-              }
-              disabled={
-                !selectedAddedIds.length ||
-                isClassifyingExplicit ||
-                isFetchJobRunning
-              }
-            >
-              {isClassifyingExplicit
-                ? translate('menu.aiTool.classifyingExplicit', {
-                    _: 'Classifying...',
-                  })
-                : translate('menu.aiTool.classifyExplicit', {
-                    _: 'Classify Explicit',
-                  })}
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={() => setExplicitRulesOpen(true)}
-            >
-              Explicit word rules
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={fetchSelectedLyrics}
-              disabled={
-                selectedSongsMissingLyrics.length === 0 || isFetchJobRunning
-              }
-            >
-              {lyricsLoadingId ? (
-                <CircularProgress
-                  size={14}
-                  color="inherit"
-                  className={classes.buttonProgress}
-                />
-              ) : null}
-              {lyricsLoadingId === 'bulk'
-                ? translate('menu.aiTool.fetchingLyrics', { _: 'Fetching...' })
-                : translate('menu.aiTool.fetchLyrics', { _: 'Fetch Lyrics' })}
-            </Button>
-            <Button
-              variant="outlined"
-              color="secondary"
-              onClick={() => deleteLyricsForSongs(selectedAddedSongs)}
-              disabled={
-                selectedSongsWithLyrics.length === 0 ||
-                isDeletingLyrics ||
-                isFetchJobRunning
-              }
-            >
-              {isDeletingLyrics ? 'Deleting lyrics…' : 'Delete Lyrics'}
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={() =>
-                openModelDialog('fetchMetadata', selectedAddedSongs)
-              }
-              disabled={
-                !selectedAddedIds.length ||
-                isFetchJobRunning ||
-                isClassifyingExplicit
-              }
-            >
-              {isFetchingMetadata ? (
-                <CircularProgress
-                  size={14}
-                  color="inherit"
-                  className={classes.buttonProgress}
-                />
-              ) : null}
-              {isFetchingMetadata
-                ? translate('menu.aiTool.fetchingMetadata', {
-                    _: 'Fetching...',
-                  })
-                : translate('menu.aiTool.fetchAIMetadata', {
-                    _: 'Fetch AI Metadata',
-                  })}
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={(event) => setColumnMenuAnchorEl(event.currentTarget)}
-              startIcon={<ViewColumnIcon />}
-            >
-              {translate('ra.toggleFieldsMenu.columnsToDisplay', {
-                _: 'Columns',
-              })}
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={clearFetchedMetadata}
-              disabled={
-                !selectedAddedIds.length ||
-                isClearingMetadata ||
-                isFetchJobRunning ||
-                isClassifyingExplicit
-              }
-            >
-              {isClearingMetadata ? (
-                <CircularProgress
-                  size={14}
-                  color="inherit"
-                  className={classes.buttonProgress}
-                />
-              ) : null}
-              {isClearingMetadata
-                ? translate('menu.aiTool.clearingMetadata', {
-                    _: 'Clearing...',
-                  })
-                : translate('menu.aiTool.clearFetchedMetadata', {
-                    _: 'Clear Fetched Metadata',
-                  })}
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={removeSelectedSongs}
-              disabled={!selectedAddedIds.length}
-            >
-              {translate('ra.action.remove', { _: 'Remove' })}
-            </Button>
-            {selectedAddedIds.length ? (
-              <Typography variant="body2">
-                {selectedAddedIds.length} selected
+              <Typography component="span">Song tools</Typography>
+              <Typography component="span" className={classes.songToolsSummary}>
+                {selectedAddedIds.length
+                  ? `${selectedAddedIds.length} selected · `
+                  : ''}
+                {isSongToolsOpen ? '−' : '+'}
               </Typography>
-            ) : null}
+            </button>
+            <Collapse in={isSongToolsOpen}>
+              <Box
+                className={`${classes.tableActions} ${classes.songToolsActions}`}
+              >
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={openAddSongsDialog}
+                >
+                  {translate('menu.aiTool.addSongs', { _: 'Add songs' })}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={() =>
+                    openModelDialog('classifyExplicit', selectedAddedSongs)
+                  }
+                  disabled={
+                    !selectedAddedIds.length ||
+                    isClassifyingExplicit ||
+                    isFetchJobRunning
+                  }
+                >
+                  {isClassifyingExplicit
+                    ? translate('menu.aiTool.classifyingExplicit', {
+                        _: 'Classifying...',
+                      })
+                    : translate('menu.aiTool.classifyExplicit', {
+                        _: 'Classify Explicit',
+                      })}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={() => setExplicitRulesOpen(true)}
+                >
+                  Explicit word rules
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={fetchSelectedLyrics}
+                  disabled={
+                    selectedSongsMissingLyrics.length === 0 || isFetchJobRunning
+                  }
+                >
+                  {lyricsLoadingId ? (
+                    <CircularProgress
+                      size={14}
+                      color="inherit"
+                      className={classes.buttonProgress}
+                    />
+                  ) : null}
+                  {lyricsLoadingId === 'bulk'
+                    ? translate('menu.aiTool.fetchingLyrics', {
+                        _: 'Fetching...',
+                      })
+                    : translate('menu.aiTool.fetchLyrics', {
+                        _: 'Fetch Lyrics',
+                      })}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  onClick={() => deleteLyricsForSongs(selectedAddedSongs)}
+                  disabled={
+                    selectedSongsWithLyrics.length === 0 ||
+                    isDeletingLyrics ||
+                    isFetchJobRunning
+                  }
+                >
+                  {isDeletingLyrics ? 'Deleting lyrics…' : 'Delete Lyrics'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={() =>
+                    openModelDialog('fetchMetadata', selectedAddedSongs)
+                  }
+                  disabled={
+                    !selectedAddedIds.length ||
+                    isFetchJobRunning ||
+                    isClassifyingExplicit
+                  }
+                >
+                  {isFetchingMetadata ? (
+                    <CircularProgress
+                      size={14}
+                      color="inherit"
+                      className={classes.buttonProgress}
+                    />
+                  ) : null}
+                  {isFetchingMetadata
+                    ? translate('menu.aiTool.fetchingMetadata', {
+                        _: 'Fetching...',
+                      })
+                    : translate('menu.aiTool.fetchAIMetadata', {
+                        _: 'Fetch AI Metadata',
+                      })}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={(event) =>
+                    setColumnMenuAnchorEl(event.currentTarget)
+                  }
+                  startIcon={<ViewColumnIcon />}
+                >
+                  {translate('ra.toggleFieldsMenu.columnsToDisplay', {
+                    _: 'Columns',
+                  })}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={toggleAllConfidenceColumns}
+                >
+                  {someConfidenceColumnsVisible
+                    ? 'Hide Confidence'
+                    : 'Show Confidence'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={clearFetchedMetadata}
+                  disabled={
+                    !selectedAddedIds.length ||
+                    isClearingMetadata ||
+                    isFetchJobRunning ||
+                    isClassifyingExplicit
+                  }
+                >
+                  {isClearingMetadata ? (
+                    <CircularProgress
+                      size={14}
+                      color="inherit"
+                      className={classes.buttonProgress}
+                    />
+                  ) : null}
+                  {isClearingMetadata
+                    ? translate('menu.aiTool.clearingMetadata', {
+                        _: 'Clearing...',
+                      })
+                    : translate('menu.aiTool.clearFetchedMetadata', {
+                        _: 'Clear Fetched Metadata',
+                      })}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={removeSelectedSongs}
+                  disabled={!selectedAddedIds.length}
+                >
+                  {translate('ra.action.remove', { _: 'Remove' })}
+                </Button>
+                {selectedAddedIds.length ? (
+                  <Typography variant="body2">
+                    {selectedAddedIds.length} selected
+                  </Typography>
+                ) : null}
+              </Box>
+            </Collapse>
           </Box>
 
           {jobProgress ? (
@@ -2899,6 +3172,12 @@ const AiToolPage = () => {
                       {translate('resources.song.fields.genre', { _: 'Genre' })}
                     </TableCell>
                   ) : null}
+                  {isColumnVisible('spotifyGenre') ? (
+                    <TableCell>Spotify Genre</TableCell>
+                  ) : null}
+                  {isColumnVisible('musicBrainzGenre') ? (
+                    <TableCell>MusicBrainz Genre</TableCell>
+                  ) : null}
                   {isColumnVisible('aiGenre') ? (
                     <TableCell>
                       {translate('menu.aiTool.aiGenre', { _: 'AI Genre' })}
@@ -2937,6 +3216,8 @@ const AiToolPage = () => {
                       <TableCell className={classes.confidenceColumn}>
                         {renderMetadataConfidence(
                           song.metadataConfidence?.album,
+                          song,
+                          'album',
                         ) || '—'}
                       </TableCell>
                     ) : null}
@@ -2954,6 +3235,8 @@ const AiToolPage = () => {
                       <TableCell className={classes.confidenceColumn}>
                         {renderMetadataConfidence(
                           song.metadataConfidence?.year,
+                          song,
+                          'year',
                         ) || '—'}
                       </TableCell>
                     ) : null}
@@ -2973,15 +3256,22 @@ const AiToolPage = () => {
                     {isColumnVisible('lyrics') ? (
                       <TableCell className={valueClass(song, 'lyrics')}>
                         {hasSavedLyrics(song) ? (
-                          <Button
-                            size="small"
-                            color="primary"
-                            onClick={() => showLyrics(song)}
+                          <Box
+                            display="flex"
+                            alignItems="center"
+                            style={{ gap: 4 }}
                           >
-                            {translate('menu.aiTool.lyricsAvailable', {
-                              _: 'Available',
-                            })}
-                          </Button>
+                            <Button
+                              size="small"
+                              color="primary"
+                              onClick={() => showLyrics(song)}
+                            >
+                              {translate('menu.aiTool.lyricsAvailable', {
+                                _: 'Available',
+                              })}
+                            </Button>
+                            {renderLyricsCoverage(song)}
+                          </Box>
                         ) : (
                           translate('menu.aiTool.lyricsMissing', {
                             _: 'Missing',
@@ -2999,6 +3289,16 @@ const AiToolPage = () => {
                         {song.genre || ''}
                       </TableCell>
                     ) : null}
+                    {isColumnVisible('spotifyGenre') ? (
+                      <TableCell className={valueClass(song, 'spotifyGenre')}>
+                        {song.spotifyGenre || '-'}
+                      </TableCell>
+                    ) : null}
+                    {isColumnVisible('musicBrainzGenre') ? (
+                      <TableCell className={valueClass(song, 'musicBrainzGenre')}>
+                        {song.musicBrainzGenre || '-'}
+                      </TableCell>
+                    ) : null}
                     {isColumnVisible('aiGenre') ? (
                       <TableCell className={valueClass(song, 'aiGenre')}>
                         {song.aiGenre || '-'}
@@ -3008,6 +3308,8 @@ const AiToolPage = () => {
                       <TableCell className={classes.confidenceColumn}>
                         {renderMetadataConfidence(
                           song.metadataConfidence?.genre,
+                          song,
+                          'genre',
                         ) || '—'}
                       </TableCell>
                     ) : null}
@@ -3862,6 +4164,28 @@ const AiToolPage = () => {
         <DialogActions>
           <Button onClick={() => setExplicitReasonSong(null)}>Close</Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(confidenceDetail)}
+        onClose={() => setConfidenceDetail(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        {confidenceDetail ? (
+          <>
+            <DialogTitle>
+              How the {confidenceFieldLabel(confidenceDetail.field)} confidence
+              was calculated
+            </DialogTitle>
+            <DialogContent>
+              {renderConfidenceBreakdown(confidenceDetail)}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfidenceDetail(null)}>Close</Button>
+            </DialogActions>
+          </>
+        ) : null}
       </Dialog>
 
       <Dialog
