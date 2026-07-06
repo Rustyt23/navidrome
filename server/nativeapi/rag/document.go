@@ -166,9 +166,16 @@ func appendValuesLine(lines *[]string, label string, values []string) {
 }
 
 func appendLyrics(lines *[]string, song model.MediaFile) {
+	if text := LyricsText(song); text != "" {
+		*lines = append(*lines, "Lyrics:\n"+text)
+	}
+}
+
+// LyricsText flattens structured lyrics into searchable lines.
+func LyricsText(song model.MediaFile) string {
 	lyrics, err := song.StructuredLyrics()
 	if err != nil {
-		return
+		return ""
 	}
 
 	values := make([]string, 0)
@@ -179,7 +186,5 @@ func appendLyrics(lines *[]string, song model.MediaFile) {
 			}
 		}
 	}
-	if len(values) > 0 {
-		*lines = append(*lines, "Lyrics:\n"+strings.Join(values, "\n"))
-	}
+	return strings.Join(values, "\n")
 }

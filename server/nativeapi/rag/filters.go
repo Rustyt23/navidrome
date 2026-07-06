@@ -11,13 +11,16 @@ import (
 type SearchFilters struct {
 	Explicit     string   `json:"explicit,omitempty"`
 	Genre        string   `json:"genre,omitempty"`
+	Mood         string   `json:"mood,omitempty"`
 	YearMin      *int     `json:"yearMin,omitempty"`
 	YearMax      *int     `json:"yearMax,omitempty"`
 	BPMMin       *float64 `json:"bpmMin,omitempty"`
 	BPMMax       *float64 `json:"bpmMax,omitempty"`
 	LUFSMin      *float64 `json:"lufsMin,omitempty"`
 	LUFSMax      *float64 `json:"lufsMax,omitempty"`
+	PlayCountMin *int64   `json:"playCountMin,omitempty"`
 	PlayCountMax *int64   `json:"playCountMax,omitempty"`
+	DurationMin  *float64 `json:"durationMin,omitempty"`
 	DurationMax  *float64 `json:"durationMax,omitempty"`
 	HasLyrics    *bool    `json:"hasLyrics,omitempty"`
 	HasGenre     *bool    `json:"hasGenre,omitempty"`
@@ -30,6 +33,7 @@ type SearchFilters struct {
 func NormalizeSearchFilters(filters SearchFilters) (SearchFilters, error) {
 	filters.Explicit = strings.ToLower(strings.TrimSpace(filters.Explicit))
 	filters.Genre = strings.TrimSpace(filters.Genre)
+	filters.Mood = strings.TrimSpace(filters.Mood)
 	if filters.Explicit != "" && filters.Explicit != "clean" && filters.Explicit != "explicit" {
 		return SearchFilters{}, fmt.Errorf("explicit must be clean or explicit")
 	}
@@ -42,11 +46,17 @@ func NormalizeSearchFilters(filters SearchFilters) (SearchFilters, error) {
 	if filters.LUFSMin != nil && filters.LUFSMax != nil && *filters.LUFSMin > *filters.LUFSMax {
 		return SearchFilters{}, fmt.Errorf("lufsMin must not exceed lufsMax")
 	}
-	if filters.PlayCountMax != nil && *filters.PlayCountMax < 0 {
-		return SearchFilters{}, fmt.Errorf("playCountMax must not be negative")
+	if (filters.PlayCountMin != nil && *filters.PlayCountMin < 0) || (filters.PlayCountMax != nil && *filters.PlayCountMax < 0) {
+		return SearchFilters{}, fmt.Errorf("play count filters must not be negative")
 	}
-	if filters.DurationMax != nil && *filters.DurationMax < 0 {
-		return SearchFilters{}, fmt.Errorf("durationMax must not be negative")
+	if filters.PlayCountMin != nil && filters.PlayCountMax != nil && *filters.PlayCountMin > *filters.PlayCountMax {
+		return SearchFilters{}, fmt.Errorf("playCountMin must not exceed playCountMax")
+	}
+	if (filters.DurationMin != nil && *filters.DurationMin < 0) || (filters.DurationMax != nil && *filters.DurationMax < 0) {
+		return SearchFilters{}, fmt.Errorf("duration filters must not be negative")
+	}
+	if filters.DurationMin != nil && filters.DurationMax != nil && *filters.DurationMin > *filters.DurationMax {
+		return SearchFilters{}, fmt.Errorf("durationMin must not exceed durationMax")
 	}
 	return filters, nil
 }
@@ -75,7 +85,10 @@ func BuildQdrantFilter(filters SearchFilters) map[string]any {
 		addMatch("explicit", true)
 	}
 	if filters.Genre != "" {
-		addMatch("genre", filters.Genre)
+		addMatch("genres", filters.Genre)
+	}
+	if filters.Mood != "" {
+		addMatch("moods", filters.Mood)
 	}
 	for _, exact := range []struct {
 		key   string
@@ -119,12 +132,23 @@ func BuildQdrantFilter(filters SearchFilters) map[string]any {
 	}
 	addRange("lufs", lufsRange)
 
+	playCountRange := map[string]any{}
+	if filters.PlayCountMin != nil {
+		playCountRange["gte"] = *filters.PlayCountMin
+	}
 	if filters.PlayCountMax != nil {
-		addRange("playCount", map[string]any{"lte": *filters.PlayCountMax})
+		playCountRange["lte"] = *filters.PlayCountMax
+	}
+	addRange("playCount", playCountRange)
+
+	durationRange := map[string]any{}
+	if filters.DurationMin != nil {
+		durationRange["gte"] = *filters.DurationMin
 	}
 	if filters.DurationMax != nil {
-		addRange("duration", map[string]any{"lte": *filters.DurationMax})
+		durationRange["lte"] = *filters.DurationMax
 	}
+	addRange("duration", durationRange)
 
 	if len(must) == 0 {
 		return nil

@@ -26,11 +26,17 @@ import (
 	"github.com/navidrome/navidrome/server/nativeapi/rag"
 )
 
+type aiChatTurn struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 type aiChatRequest struct {
-	Message  string `json:"message"`
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	UseRAG   *bool  `json:"useRag,omitempty"`
+	Message  string       `json:"message"`
+	Provider string       `json:"provider"`
+	Model    string       `json:"model"`
+	UseRAG   *bool        `json:"useRag,omitempty"`
+	History  []aiChatTurn `json:"history,omitempty"`
 }
 
 type aiChatResponse struct {
@@ -179,6 +185,11 @@ type aiRAGStatusResponse struct {
 	VectorDBOnline   bool   `json:"vectorDbOnline"`
 	CollectionExists bool   `json:"collectionExists"`
 	IndexedCount     int64  `json:"indexedCount"`
+	ReindexRequired  bool   `json:"reindexRequired,omitempty"`
+	EmbeddingBackend string `json:"embeddingBackend"`
+	EmbeddingModel   string `json:"embeddingModel"`
+	EmbeddingLocal   bool   `json:"embeddingLocal"`
+	OfflineMode      bool   `json:"offlineMode"`
 	Error            string `json:"error,omitempty"`
 }
 
@@ -246,10 +257,21 @@ func (g geminiClient) Chat(ctx context.Context, message string) (string, error) 
 		url.PathEscape(g.model),
 		url.QueryEscape(g.apiKey),
 	)
-	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(body))
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	httpResp, err := g.client.Do(httpReq)
+	client := g.client
+	if client == nil {
+		client = &http.Client{Timeout: gemmaChatTimeout}
+	}
+	httpResp, err := rag.DoWithRetry(ctx, client, "gemini_chat", rag.HTTPClientOptions{
+		MaxRetries:   conf.Server.RAGRetryMax,
+		RetryBackoff: conf.Server.RAGRetryBackoff,
+	}, func() (*http.Request, error) {
+		httpReq, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		return httpReq, nil
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to contact AI provider: %w", err)
 	}
@@ -379,25 +401,39 @@ func (g ollamaGemmaClient) Chat(ctx context.Context, message string) (string, er
 
 func (n *Router) addAIChatRoute(r chi.Router) {
 	r.Post("/ai/rag/search", n.handleRAGSearch)
+	r.Post("/ai/rag/lyrics/search", n.handleRAGLyricSearch)
+	r.Get("/ai/rag/duplicates", n.handleRAGDuplicates)
 	r.Post("/ai/rag/playlist/analyze", n.handleRAGPlaylistAnalyze)
 	r.Post("/ai/rag/recommend", n.handleRAGRecommendation)
 	r.Get("/ai/rag/reports/dashboard", n.handleRAGDashboardReport)
 
 	r.Get("/ai/rag/status", func(w http.ResponseWriter, request *http.Request) {
+		backend, model, local := ragEmbeddingStatus()
 		response := aiRAGStatusResponse{
-			Enabled:    ragEnabled(),
-			VectorURL:  conf.Server.RAGVectorURL,
-			Collection: conf.Server.RAGCollection,
-			TopK:       conf.Server.RAGTopK,
+			Enabled:          ragEnabled(),
+			VectorURL:        conf.Server.RAGVectorURL,
+			Collection:       conf.Server.RAGCollection,
+			TopK:             conf.Server.RAGTopK,
+			EmbeddingBackend: backend,
+			EmbeddingModel:   model,
+			EmbeddingLocal:   local,
+			OfflineMode:      conf.Server.RAGOffline,
 		}
 		if response.Enabled {
+			if conf.Server.RAGOffline && strings.TrimSpace(conf.Server.RAGEmbeddingURL) == "" {
+				response.Error = "RAG offline mode requires RAGEmbeddingURL"
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(response)
+				return
+			}
 			ctx, cancel := context.WithTimeout(request.Context(), 5*time.Second)
 			defer cancel()
 
-			qdrantStatus := rag.NewQdrantClient(response.VectorURL, response.Collection).Status(ctx, true)
+			qdrantStatus := newRAGQdrantClient().Status(ctx, true)
 			response.VectorDBOnline = qdrantStatus.VectorDBOnline
 			response.CollectionExists = qdrantStatus.CollectionExists
 			response.IndexedCount = qdrantStatus.IndexedCount
+			response.ReindexRequired = qdrantStatus.ReindexRequired
 			response.Error = qdrantStatus.Error
 		}
 
@@ -432,6 +468,16 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			writeAIChatError(w, http.StatusBadRequest, "unsupported AI provider")
 			return
 		}
+		if shouldUseRAG(payload) && conf.Server.RAGOffline {
+			if strings.TrimSpace(conf.Server.RAGEmbeddingURL) == "" {
+				writeAIChatError(w, http.StatusServiceUnavailable, "RAG offline mode requires RAGEmbeddingURL")
+				return
+			}
+			if providerSpec.ID != "gemma-3-4b" {
+				writeAIChatError(w, http.StatusBadRequest, "RAG offline mode requires the local Gemma 3:4b chat provider")
+				return
+			}
+		}
 
 		provider, err := newAIChatProvider(providerSpec)
 		if err != nil {
@@ -442,7 +488,7 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 		var sources []rag.SongSearchResult
 		ragError := ""
 		if shouldUseRAG(payload) {
-			chatMessage, sources, err = prepareAIChatMessage(req.Context(), payload.Message, searchRAG)
+			chatMessage, sources, err = prepareAIChatMessageWithFeatures(req.Context(), payload.Message, payload.History, provider, searchRAG, n.ragChatFeatures())
 			if err != nil {
 				ragError = err.Error()
 				chatMessage = payload.Message
@@ -729,7 +775,7 @@ func newAIChatProvider(spec aiProviderSpec) (aiChatProvider, error) {
 		return geminiClient{
 			apiKey: apiKey,
 			model:  spec.Model,
-			client: http.DefaultClient,
+			client: &http.Client{Timeout: gemmaChatTimeout},
 		}, nil
 	case "gemma-26b":
 		apiURL, apiKey := gemmaCredentials()

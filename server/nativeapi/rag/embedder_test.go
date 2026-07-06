@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGeminiEmbedderMissingAPIKey(t *testing.T) {
@@ -86,5 +87,28 @@ func TestGeminiEmbedderRejectsUnexpectedDimensions(t *testing.T) {
 	_, err := embedder.EmbedText(context.Background(), "song text")
 	if err == nil || !strings.Contains(err.Error(), "returned 3 dimensions; expected 768") {
 		t.Fatalf("expected dimension error, got %v", err)
+	}
+}
+
+func TestGeminiEmbedderRetriesRateLimit(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		values := make([]float32, GeminiEmbeddingDimensions)
+		_ = json.NewEncoder(w).Encode(map[string]any{"embedding": map[string]any{"values": values}})
+	}))
+	defer server.Close()
+
+	embedder := NewGeminiEmbedder("test-key", HTTPClientOptions{
+		Timeout: time.Second, MaxRetries: 1, RetryBackoff: time.Millisecond,
+	})
+	embedder.endpoint = server.URL
+	embedder.httpClient = server.Client()
+	if _, err := embedder.EmbedText(context.Background(), "song text"); err != nil || attempts != 2 {
+		t.Fatalf("expected Gemini rate-limit retry, attempts=%d err=%v", attempts, err)
 	}
 }

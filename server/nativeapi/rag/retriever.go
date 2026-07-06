@@ -40,6 +40,8 @@ type SongSearchResult struct {
 	HasBPM       bool       `json:"hasBpm"`
 	HasLUFS      bool       `json:"hasLufs"`
 	Score        float64    `json:"score"`
+	LyricSnippet string     `json:"lyricSnippet,omitempty"`
+	LyricsText   string     `json:"-"`
 }
 
 // IndexedSong is the song payload stored in Qdrant without its vector.
@@ -122,6 +124,7 @@ type IndexedSong struct {
 	HasReplayGain      bool       `json:"hasReplayGain"`
 	HasMusicBrainzIDs  bool       `json:"hasMusicBrainzIds"`
 	HasSpotifyMetadata bool       `json:"hasSpotifyMetadata"`
+	LyricsText         string     `json:"lyricsText,omitempty"`
 }
 
 // VectorSearcher is the provider-independent search boundary used by Phase 1.
@@ -138,7 +141,9 @@ func SearchSongs(
 	topK int,
 	filters ...SearchFilters,
 ) ([]SongSearchResult, error) {
+	embeddingStarted := time.Now()
 	vector, err := embedder.EmbedText(ctx, query)
+	observeRAGOperation("query_embedding", embeddingStarted, err)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +151,20 @@ func SearchSongs(
 	if len(filters) > 0 {
 		searchFilters = filters[0]
 	}
-	return searcher.Search(ctx, vector, topK, searchFilters)
+
+	// Fetch a wider candidate set than requested, then fuse the dense ranking
+	// with a lexical ranking (hybrid retrieval) so exact matches are not lost.
+	candidateK := topK
+	if topK > 0 && topK < MaxSearchTopK {
+		candidateK = min(topK*3, MaxSearchTopK)
+	}
+	searchStarted := time.Now()
+	results, err := searcher.Search(ctx, vector, candidateK, searchFilters)
+	observeRAGOperation("vector_search", searchStarted, err)
+	if err != nil {
+		return nil, err
+	}
+	return hybridRerank(query, results, topK), nil
 }
 
 var _ VectorSearcher = (*QdrantClient)(nil)

@@ -2,6 +2,8 @@ package rag
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +16,10 @@ const (
 	DefaultIndexLimit = 50
 	MaxIndexLimit     = 500
 	indexPageSize     = 50
+	embedBatchSize    = 32
+	// syncScanCap bounds a full-library sync so a runaway library can never loop
+	// unbounded.
+	syncScanCap = 200000
 )
 
 // Indexer defines a provider-independent document-indexing boundary.
@@ -38,9 +44,13 @@ type PlaylistRepository interface {
 type VectorStore interface {
 	PointExists(ctx context.Context, logicalID string) (bool, error)
 	UpsertPoint(ctx context.Context, logicalID string, vector []float32, payload map[string]any) error
+	UpsertPoints(ctx context.Context, points []PointUpsert) error
+	ExistingContentHashes(ctx context.Context, logicalIDs []string) (map[string]string, error)
+	DeletePoints(ctx context.Context, logicalIDs []string) error
+	AllIndexedSongIDs(ctx context.Context, maxTotal int) ([]string, error)
 }
 
-// IndexResult is returned by the first bounded song indexing operation.
+// IndexResult is returned by the bounded song indexing operation.
 type IndexResult struct {
 	Indexed int    `json:"indexed"`
 	Skipped int    `json:"skipped"`
@@ -48,10 +58,17 @@ type IndexResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// IndexSongs indexes up to MaxIndexLimit new songs and writes only their
-// derived vectors to the configured vector store. Existing points are skipped
-// while the library is scanned in bounded pages. It never updates Navidrome
-// records.
+// SyncResult extends IndexResult with the number of orphaned points removed when
+// syncing the whole library.
+type SyncResult struct {
+	IndexResult
+	Deleted int `json:"deleted"`
+}
+
+// IndexSongs indexes up to `limit` songs that are new or whose content changed
+// since they were last indexed, embedding them in batches and writing only their
+// derived vectors and payloads. Unchanged songs are skipped via a bulk content
+// hash comparison. It never updates Navidrome records.
 func IndexSongs(
 	ctx context.Context,
 	repository SongRepository,
@@ -59,6 +76,7 @@ func IndexSongs(
 	store VectorStore,
 	limit int,
 	force bool,
+	embedderTag string,
 ) (IndexResult, error) {
 	result := IndexResult{}
 	if limit <= 0 {
@@ -69,12 +87,45 @@ func IndexSongs(
 	}
 
 	for offset := 0; result.Indexed+result.Failed < limit; {
-		pageSize := min(indexPageSize, limit-result.Indexed-result.Failed)
 		songs, err := repository.GetAll(model.QueryOptions{
-			Sort:   "id",
-			Order:  "ASC",
-			Max:    pageSize,
-			Offset: offset,
+			Sort: "id", Order: "ASC", Max: indexPageSize, Offset: offset,
+		})
+		if err != nil {
+			return result, fmt.Errorf("could not read songs: %w", err)
+		}
+		if len(songs) == 0 {
+			break
+		}
+		offset += len(songs)
+
+		budget := limit - (result.Indexed + result.Failed)
+		if err := indexSongPage(ctx, songs, embedder, store, force, embedderTag, budget, &result); err != nil {
+			return result, err
+		}
+		if len(songs) < indexPageSize {
+			break
+		}
+	}
+
+	return result, nil
+}
+
+// SyncSongs brings the vector store in line with the current library: it indexes
+// new and changed songs across the whole library and removes points for songs
+// that no longer exist. It is the operation to run after a library scan.
+func SyncSongs(
+	ctx context.Context,
+	repository SongRepository,
+	embedder Embedder,
+	store VectorStore,
+	embedderTag string,
+) (SyncResult, error) {
+	result := SyncResult{}
+	currentIDs := make(map[string]struct{}, 1024)
+
+	for offset := 0; offset < syncScanCap; {
+		songs, err := repository.GetAll(model.QueryOptions{
+			Sort: "id", Order: "ASC", Max: indexPageSize, Offset: offset,
 		})
 		if err != nil {
 			return result, fmt.Errorf("could not read songs: %w", err)
@@ -85,51 +136,152 @@ func IndexSongs(
 		offset += len(songs)
 
 		for i := range songs {
-			song := songs[i]
-			logicalID := StableSongPointID(song.ID)
-			if !force {
-				exists, err := store.PointExists(ctx, logicalID)
-				if err != nil {
-					recordIndexFailure(&result, fmt.Errorf("could not check song %q in Qdrant: %w", song.ID, err))
-					if result.Indexed+result.Failed == limit {
-						break
-					}
-					continue
-				}
-				if exists {
-					result.Skipped++
-					continue
-				}
-			}
-
-			document := DocumentFromMediaFile(song)
-			vector, err := embedder.EmbedText(ctx, document.Text)
-			if err != nil {
-				recordIndexFailure(&result, fmt.Errorf("could not embed song %q: %w", song.ID, err))
-				if result.Indexed+result.Failed == limit {
-					break
-				}
-				continue
-			}
-			if err := store.UpsertPoint(ctx, logicalID, vector, songPayload(song)); err != nil {
-				recordIndexFailure(&result, fmt.Errorf("could not upsert song %q: %w", song.ID, err))
-				if result.Indexed+result.Failed == limit {
-					break
-				}
-				continue
-			}
-			result.Indexed++
-			if result.Indexed+result.Failed == limit {
-				break
-			}
+			currentIDs[StableSongPointID(songs[i].ID)] = struct{}{}
 		}
-
-		if len(songs) < pageSize {
+		if err := indexSongPage(ctx, songs, embedder, store, false, embedderTag, len(songs), &result.IndexResult); err != nil {
+			return result, err
+		}
+		if len(songs) < indexPageSize {
 			break
 		}
 	}
 
+	// Remove points whose songs are no longer in the library.
+	indexed, err := store.AllIndexedSongIDs(ctx, syncScanCap)
+	if err != nil {
+		return result, fmt.Errorf("could not list indexed songs: %w", err)
+	}
+	orphans := make([]string, 0)
+	for _, logicalID := range indexed {
+		if _, ok := currentIDs[logicalID]; !ok {
+			orphans = append(orphans, logicalID)
+		}
+	}
+	if len(orphans) > 0 {
+		if err := store.DeletePoints(ctx, orphans); err != nil {
+			return result, fmt.Errorf("could not delete orphaned points: %w", err)
+		}
+		result.Deleted = len(orphans)
+	}
 	return result, nil
+}
+
+// indexSongPage embeds and upserts up to `budget` new/changed songs from a page,
+// skipping unchanged ones via a bulk content-hash comparison.
+func indexSongPage(
+	ctx context.Context,
+	songs model.MediaFiles,
+	embedder Embedder,
+	store VectorStore,
+	force bool,
+	embedderTag string,
+	budget int,
+	result *IndexResult,
+) error {
+	logicalIDs := make([]string, len(songs))
+	hashes := make([]string, len(songs))
+	for i := range songs {
+		logicalIDs[i] = StableSongPointID(songs[i].ID)
+		hashes[i] = songContentHash(songs[i], embedderTag)
+	}
+
+	existing := map[string]string{}
+	if !force {
+		found, err := store.ExistingContentHashes(ctx, logicalIDs)
+		if err != nil {
+			return fmt.Errorf("could not check indexed songs in Qdrant: %w", err)
+		}
+		existing = found
+	}
+
+	pending := make([]int, 0, len(songs))
+	for i := range songs {
+		if len(pending) >= budget {
+			break
+		}
+		if !force {
+			if hash, ok := existing[logicalIDs[i]]; ok && hash == hashes[i] {
+				result.Skipped++
+				continue
+			}
+		}
+		pending = append(pending, i)
+	}
+
+	buildPoint := func(idx int, vector []float32) PointUpsert {
+		payload := songPayload(songs[idx])
+		payload["contentHash"] = hashes[idx]
+		payload["embeddingModel"] = embedderTag
+		return PointUpsert{LogicalID: logicalIDs[idx], Vector: vector, Payload: payload}
+	}
+
+	for start := 0; start < len(pending); start += embedBatchSize {
+		end := min(start+embedBatchSize, len(pending))
+		batch := pending[start:end]
+
+		texts := make([]string, len(batch))
+		for j, idx := range batch {
+			texts[j] = DocumentFromMediaFile(songs[idx]).Text
+		}
+		vectors, err := embedder.EmbedTexts(ctx, texts)
+		if err != nil || len(vectors) != len(batch) {
+			// A batch failure is usually one bad item; isolate it so the rest of
+			// the batch still gets indexed.
+			indexSongsIndividually(ctx, songs, embedder, store, batch, texts, buildPoint, result)
+			continue
+		}
+		points := make([]PointUpsert, 0, len(batch))
+		for j, idx := range batch {
+			points = append(points, buildPoint(idx, vectors[j]))
+		}
+		if err := store.UpsertPoints(ctx, points); err != nil {
+			indexSongsIndividually(ctx, songs, embedder, store, batch, texts, buildPoint, result)
+			continue
+		}
+		result.Indexed += len(points)
+	}
+	return nil
+}
+
+func indexSongsIndividually(
+	ctx context.Context,
+	songs model.MediaFiles,
+	embedder Embedder,
+	store VectorStore,
+	batch []int,
+	texts []string,
+	buildPoint func(int, []float32) PointUpsert,
+	result *IndexResult,
+) {
+	for j, idx := range batch {
+		vector, err := embedder.EmbedText(ctx, texts[j])
+		if err != nil {
+			recordIndexFailure(result, fmt.Errorf("could not embed song %q: %w", songs[idx].ID, err))
+			continue
+		}
+		if err := store.UpsertPoints(ctx, []PointUpsert{buildPoint(idx, vector)}); err != nil {
+			recordIndexFailure(result, fmt.Errorf("could not upsert song %q: %w", songs[idx].ID, err))
+			continue
+		}
+		result.Indexed++
+	}
+}
+
+// songContentHash produces a stable fingerprint of the fields that affect a
+// song's embedding and its filterable payload. It intentionally excludes
+// volatile fields (play count, last played) so a song is only re-embedded when
+// its actual metadata — or the embedding model — changes.
+func songContentHash(song model.MediaFile, embedderTag string) string {
+	var b strings.Builder
+	b.WriteString(embedderTag)
+	b.WriteByte('\n')
+	b.WriteString(DocumentFromMediaFile(song).Text)
+	fmt.Fprintf(&b, "\nbpm=%d;explicit=%s;", song.BPM, song.ExplicitStatus)
+	if lufs, ok := songLUFSValue(song); ok {
+		fmt.Fprintf(&b, "lufs=%.2f;", lufs)
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
 }
 
 // IndexPlaylists optionally indexes playlist-level documents alongside songs.
@@ -305,6 +457,7 @@ func songPayload(song model.MediaFile) map[string]any {
 		"createdAt":          optionalTimeValue(song.CreatedAt),
 		"updatedAt":          optionalTimeValue(song.UpdatedAt),
 		"hasLyrics":          songHasLyrics(song),
+		"lyricsText":         LyricsText(song),
 		"hasGenre":           strings.TrimSpace(genre) != "",
 		"hasMood":            len(moods) > 0,
 		"hasYear":            song.Year > 0,

@@ -30,7 +30,7 @@ func (n *Router) handleRAGDocuments(w http.ResponseWriter, request *http.Request
 		return
 	}
 
-	qdrant := rag.NewQdrantClient(conf.Server.RAGVectorURL, conf.Server.RAGCollection)
+	qdrant := newRAGQdrantClient()
 	status := qdrant.Status(request.Context(), false)
 	if !status.VectorDBOnline || !status.CollectionExists || status.Error != "" {
 		message := status.Error

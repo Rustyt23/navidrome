@@ -6,16 +6,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/server/nativeapi/rag"
 )
 
 type ragIndexRequest struct {
 	Limit            int   `json:"limit"`
 	Force            bool  `json:"force"`
+	Sync             bool  `json:"sync,omitempty"`
 	IncludeSongs     *bool `json:"includeSongs,omitempty"`
 	IncludePlaylists bool  `json:"includePlaylists"`
 	PlaylistLimit    int   `json:"playlistLimit,omitempty"`
@@ -23,6 +22,7 @@ type ragIndexRequest struct {
 
 type ragIndexResponse struct {
 	rag.IndexResult
+	Deleted   int              `json:"deleted,omitempty"`
 	Playlists *rag.IndexResult `json:"playlists,omitempty"`
 }
 
@@ -38,8 +38,8 @@ func (n *Router) handleRAGIndex(w http.ResponseWriter, request *http.Request) {
 		writeRAGIndexError(w, http.StatusServiceUnavailable, "RAG is disabled")
 		return
 	}
-	if strings.TrimSpace(conf.Server.GeminiAPIKey) == "" {
-		writeRAGIndexError(w, http.StatusServiceUnavailable, "Gemini API key is not configured")
+	if !ragEmbeddingConfigured() {
+		writeRAGIndexError(w, http.StatusServiceUnavailable, "no embedding backend is configured (set RAGEmbeddingURL or GeminiAPIKey)")
 		return
 	}
 	if n.ds == nil {
@@ -52,36 +52,64 @@ func (n *Router) handleRAGIndex(w http.ResponseWriter, request *http.Request) {
 		writeRAGIndexError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	includeSongs := payload.IncludeSongs == nil || *payload.IncludeSongs
 
-	qdrant := rag.NewQdrantClient(conf.Server.RAGVectorURL, conf.Server.RAGCollection)
+	qdrant := newRAGQdrantClient()
 	qdrantStatus := qdrant.Status(request.Context(), true)
+	if qdrantStatus.ReindexRequired && payload.Force && payload.Sync && includeSongs {
+		if err := qdrant.RecreateCollection(request.Context()); err != nil {
+			writeRAGIndexError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		qdrantStatus = qdrant.Status(request.Context(), false)
+	}
 	if !qdrantStatus.VectorDBOnline || !qdrantStatus.CollectionExists || qdrantStatus.Error != "" {
 		message := qdrantStatus.Error
 		if message == "" {
 			message = "Qdrant collection is unavailable"
+		} else if qdrantStatus.ReindexRequired {
+			message += "; retry the index request with both force=true and sync=true to rebuild it"
 		}
 		writeRAGIndexError(w, http.StatusServiceUnavailable, message)
 		return
 	}
 
 	result := rag.IndexResult{}
-	includeSongs := payload.IncludeSongs == nil || *payload.IncludeSongs
+	deleted := 0
 	if includeSongs {
-		result, err = rag.IndexSongs(
-			request.Context(),
-			n.ds.MediaFile(request.Context()),
-			rag.NewGeminiEmbedder(conf.Server.GeminiAPIKey),
-			qdrant,
-			payload.Limit,
-			payload.Force,
-		)
-		if err != nil {
-			writeRAGIndexError(w, http.StatusInternalServerError, err.Error())
-			return
+		if payload.Sync {
+			// Full-library sync: index new/changed songs and remove orphaned points.
+			syncResult, syncErr := rag.SyncSongs(
+				request.Context(),
+				n.ds.MediaFile(request.Context()),
+				ragDocumentEmbedder(),
+				qdrant,
+				ragEmbedderTag(),
+			)
+			if syncErr != nil {
+				writeRAGIndexError(w, http.StatusInternalServerError, syncErr.Error())
+				return
+			}
+			result = syncResult.IndexResult
+			deleted = syncResult.Deleted
+		} else {
+			result, err = rag.IndexSongs(
+				request.Context(),
+				n.ds.MediaFile(request.Context()),
+				ragDocumentEmbedder(),
+				qdrant,
+				payload.Limit,
+				payload.Force,
+				ragEmbedderTag(),
+			)
+			if err != nil {
+				writeRAGIndexError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 	}
 
-	response := ragIndexResponse{IndexResult: result}
+	response := ragIndexResponse{IndexResult: result, Deleted: deleted}
 	if payload.IncludePlaylists {
 		playlistLimit := payload.PlaylistLimit
 		if playlistLimit == 0 {
@@ -90,7 +118,7 @@ func (n *Router) handleRAGIndex(w http.ResponseWriter, request *http.Request) {
 		playlistResult, playlistErr := rag.IndexPlaylists(
 			request.Context(),
 			n.ds.Playlist(request.Context()),
-			rag.NewGeminiEmbedder(conf.Server.GeminiAPIKey),
+			ragDocumentEmbedder(),
 			qdrant,
 			playlistLimit,
 			payload.Force,

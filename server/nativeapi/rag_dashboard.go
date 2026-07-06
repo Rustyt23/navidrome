@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server/nativeapi/rag"
 )
@@ -89,7 +88,7 @@ func dashboardRAGStatus(ctx context.Context) rag.DashboardRAGStatus {
 		status.Error = "RAG is disabled"
 		return status
 	}
-	client := rag.NewQdrantClient(conf.Server.RAGVectorURL, conf.Server.RAGCollection)
+	client := newRAGQdrantClient()
 	qdrantStatus := client.Status(ctx, false)
 	status.VectorDBOnline = qdrantStatus.VectorDBOnline
 	status.CollectionExists = qdrantStatus.CollectionExists

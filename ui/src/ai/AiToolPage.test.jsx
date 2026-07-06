@@ -52,6 +52,10 @@ const defaultRAGStatus = {
   vectorDbOnline: true,
   collectionExists: true,
   indexedCount: 42,
+  embeddingBackend: 'ollama',
+  embeddingModel: 'embeddinggemma',
+  embeddingLocal: true,
+  offlineMode: true,
 }
 
 const renderPage = (
@@ -134,6 +138,11 @@ describe('AiToolPage AI actions', () => {
     expect(within(status).getByText('Exists')).toBeInTheDocument()
     expect(within(status).getByText('Indexed: 42')).toBeInTheDocument()
     expect(within(status).getByText('Top K: 12')).toBeInTheDocument()
+    expect(
+      within(status).getByText(
+        'Embeddings: Offline protected · ollama (embeddinggemma)',
+      ),
+    ).toBeInTheDocument()
     expect(mockHttpClient).toHaveBeenCalledWith('/api/ai/rag/status')
   })
 
@@ -499,6 +508,7 @@ describe('AiToolPage AI actions', () => {
               title: 'Bright Song',
               artist: 'Artist',
               score: 0.91,
+              lyricSnippet: 'We are the ⟦champions⟧',
             },
           ],
         },
@@ -522,6 +532,43 @@ describe('AiToolPage AI actions', () => {
     expect(
       await screen.findByText(/Bright Song — Artist · 0\.910/),
     ).toBeInTheDocument()
+    expect(screen.getByText('We are the ⟦champions⟧')).toBeInTheDocument()
+  })
+
+  it('sends recent RAG conversation history with a follow-up', async () => {
+    const requests = []
+    renderPage('/api/ai/chat', (_url, options) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({
+        json: {
+          response:
+            requests.length === 1
+              ? 'Try these upbeat rock songs.'
+              : 'Here are the clean ones.',
+          provider: 'gemma-3-4b',
+        },
+      })
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
+    const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
+    const input = within(ragDialog).getByPlaceholderText(
+      'Ask RAG about your library...',
+    )
+
+    fireEvent.change(input, { target: { value: 'Show upbeat rock songs' } })
+    fireEvent.click(within(ragDialog).getByTitle('Send RAG message'))
+    await within(ragDialog).findByText('Try these upbeat rock songs.')
+
+    fireEvent.change(input, { target: { value: 'Only the clean ones' } })
+    fireEvent.click(within(ragDialog).getByTitle('Send RAG message'))
+    await within(ragDialog).findByText('Here are the clean ones.')
+
+    expect(requests[0].history).toEqual([])
+    expect(requests[1].history).toEqual([
+      { role: 'user', content: 'Show upbeat rock songs' },
+      { role: 'assistant', content: 'Try these upbeat rock songs.' },
+    ])
   })
 
   it('opens a separate normal chat that bypasses RAG', async () => {

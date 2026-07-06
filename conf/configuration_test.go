@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	. "github.com/onsi/ginkgo/v2"
@@ -286,6 +287,12 @@ var _ = Describe("Configuration", func() {
 			Expect(conf.Server.RAGVectorURL).To(Equal("http://localhost:6333"))
 			Expect(conf.Server.RAGCollection).To(Equal("navidrome_songs"))
 			Expect(conf.Server.RAGTopK).To(Equal(20))
+			Expect(conf.Server.RAGMinScore).To(Equal(0.5))
+			Expect(conf.Server.RAGQdrantTimeout).To(Equal(15 * time.Second))
+			Expect(conf.Server.RAGEmbeddingTimeout).To(Equal(60 * time.Second))
+			Expect(conf.Server.RAGRetryMax).To(Equal(2))
+			Expect(conf.Server.RAGRetryBackoff).To(Equal(250 * time.Millisecond))
+			Expect(conf.Server.RAGOffline).To(BeFalse())
 		})
 
 		It("loads ND_ environment variables", func() {
@@ -293,6 +300,12 @@ var _ = Describe("Configuration", func() {
 			GinkgoT().Setenv("ND_RAGVECTORURL", "http://vector.test:6333")
 			GinkgoT().Setenv("ND_RAGCOLLECTION", "test_songs")
 			GinkgoT().Setenv("ND_RAGTOPK", "12")
+			GinkgoT().Setenv("ND_RAGMINSCORE", "0.65")
+			GinkgoT().Setenv("ND_RAGQDRANTTIMEOUT", "25s")
+			GinkgoT().Setenv("ND_RAGEMBEDDINGTIMEOUT", "90s")
+			GinkgoT().Setenv("ND_RAGRETRYMAX", "4")
+			GinkgoT().Setenv("ND_RAGRETRYBACKOFF", "500ms")
+			GinkgoT().Setenv("ND_RAGOFFLINE", "true")
 
 			conf.InitConfig("", true)
 			conf.Load(true)
@@ -301,6 +314,12 @@ var _ = Describe("Configuration", func() {
 			Expect(conf.Server.RAGVectorURL).To(Equal("http://vector.test:6333"))
 			Expect(conf.Server.RAGCollection).To(Equal("test_songs"))
 			Expect(conf.Server.RAGTopK).To(Equal(12))
+			Expect(conf.Server.RAGMinScore).To(Equal(0.65))
+			Expect(conf.Server.RAGQdrantTimeout).To(Equal(25 * time.Second))
+			Expect(conf.Server.RAGEmbeddingTimeout).To(Equal(90 * time.Second))
+			Expect(conf.Server.RAGRetryMax).To(Equal(4))
+			Expect(conf.Server.RAGRetryBackoff).To(Equal(500 * time.Millisecond))
+			Expect(conf.Server.RAGOffline).To(BeTrue())
 		})
 	})
 

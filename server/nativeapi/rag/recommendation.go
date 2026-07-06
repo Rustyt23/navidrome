@@ -96,9 +96,7 @@ func Recommend(ctx context.Context, input RecommendationInput, search Replacemen
 	if err != nil {
 		return response, err
 	}
-	if len(response.Results) > input.Limit {
-		response.Results = response.Results[:input.Limit]
-	}
+	response.Results = selectDiverseRecommendations(response.Results, input.Limit)
 	response.Count = len(response.Results)
 	return response, nil
 }
@@ -186,9 +184,6 @@ func recommendOverplayedSongs(ctx context.Context, limit int, search Replacement
 		}
 		return items[i].PlayCount > items[j].PlayCount
 	})
-	if len(items) > limit {
-		items = items[:limit]
-	}
 	return "Songs with high play counts or recent playback activity.", items, nil
 }
 

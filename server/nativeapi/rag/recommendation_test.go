@@ -152,3 +152,34 @@ func TestRecommendRetailSafeSongsUsesSafetyAndLUFSFilters(t *testing.T) {
 		t.Fatalf("unexpected retail-safe response: %+v", response)
 	}
 }
+
+func TestRecommendCapsResultsPerArtist(t *testing.T) {
+	search := func(context.Context, string, int, SearchFilters) ([]SongSearchResult, error) {
+		results := []SongSearchResult{
+			recommendationResult("a1", 1, .99),
+			recommendationResult("a2", 2, .98),
+			recommendationResult("a3", 3, .97),
+			recommendationResult("b1", 4, .96),
+			recommendationResult("c1", 5, .95),
+			recommendationResult("d1", 6, .94),
+		}
+		results[3].Artist = "Artist B"
+		results[4].Artist = "Artist C"
+		results[5].Artist = "Artist D"
+		return results, nil
+	}
+	response, err := Recommend(context.Background(), RecommendationInput{Type: RecommendationRetailSafeSongs, Limit: 4}, search)
+	if err != nil {
+		t.Fatalf("recommend retail-safe songs: %v", err)
+	}
+	if response.Count != 4 {
+		t.Fatalf("expected expanded pool to provide four artists, got %+v", response.Results)
+	}
+	seen := map[string]bool{}
+	for _, result := range response.Results {
+		if seen[result.Artist] {
+			t.Fatalf("artist cap was not enforced: %+v", response.Results)
+		}
+		seen[result.Artist] = true
+	}
+}

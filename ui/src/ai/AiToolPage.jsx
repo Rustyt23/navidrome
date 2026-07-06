@@ -681,6 +681,12 @@ const useStyles = makeStyles((theme) => ({
     display: 'block',
     marginTop: 2,
   },
+  chatLyricSnippet: {
+    display: 'block',
+    marginTop: 2,
+    color: '#f4b6d2',
+    fontStyle: 'italic',
+  },
   chatBubble: {
     maxWidth: '82%',
     borderRadius: 18,
@@ -1056,6 +1062,10 @@ const AiToolPage = () => {
         vectorDbOnline: json?.vectorDbOnline === true,
         collectionExists: json?.collectionExists === true,
         indexedCount: Number(json?.indexedCount) || 0,
+        embeddingBackend: json?.embeddingBackend || 'unconfigured',
+        embeddingModel: json?.embeddingModel || '',
+        embeddingLocal: json?.embeddingLocal === true,
+        offlineMode: json?.offlineMode === true,
         error: json?.error || '',
       })
       setRAGStatusError('')
@@ -1661,6 +1671,11 @@ const AiToolPage = () => {
     const abortController = new AbortController()
     chatAbortControllerRef.current = abortController
     setChatError('')
+    // Send the recent conversation so the assistant can resolve follow-ups.
+    const history = messages.slice(-8).map((message) => ({
+      role: message.role,
+      content: message.text || '',
+    }))
     setMessages((prev) => [...prev, { role: 'user', text: trimmed, provider }])
     setPrompt('')
     setIsSending(true)
@@ -1669,7 +1684,12 @@ const AiToolPage = () => {
       const { json: payload } = await httpClient('/api/ai/chat', {
         method: 'POST',
         signal: abortController.signal,
-        body: JSON.stringify({ message: trimmed, provider, useRag: true }),
+        body: JSON.stringify({
+          message: trimmed,
+          provider,
+          useRag: true,
+          history,
+        }),
       })
 
       setMessages((prev) => [
@@ -2627,6 +2647,19 @@ const AiToolPage = () => {
                         </span>
                         <span>Indexed: {ragStatus.indexedCount}</span>
                         <span>Top K: {ragStatus.topK}</span>
+                        <span>
+                          Embeddings:{' '}
+                          {ragStatus.offlineMode
+                            ? 'Offline protected'
+                            : ragStatus.embeddingLocal
+                              ? 'Local'
+                              : 'Cloud'}
+                          {' · '}
+                          {ragStatus.embeddingBackend}
+                          {ragStatus.embeddingModel
+                            ? ` (${ragStatus.embeddingModel})`
+                            : ''}
+                        </span>
                       </Box>
                     ) : null}
                     <Box className={classes.ragIndexControls}>
@@ -3581,6 +3614,11 @@ const AiToolPage = () => {
                             {source.title || 'Unknown title'} —{' '}
                             {source.artist || 'Unknown artist'} ·{' '}
                             {Number(source.score || 0).toFixed(3)}
+                            {source.lyricSnippet ? (
+                              <span className={classes.chatLyricSnippet}>
+                                {source.lyricSnippet}
+                              </span>
+                            ) : null}
                           </span>
                         ))}
                       </Box>

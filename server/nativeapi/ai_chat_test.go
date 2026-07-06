@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -79,9 +80,13 @@ func TestRAGStatus(t *testing.T) {
 			case "/collections":
 				_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[]}}`))
 			case "/collections/test_songs":
-				_, _ = w.Write([]byte(`{"status":"ok","result":{"points_count":7}}`))
+				_, _ = w.Write([]byte(`{"status":"ok","result":{"points_count":8,"config":{"params":{"vectors":{"size":768}}}}}`))
 			default:
-				http.NotFound(w, request)
+				if strings.HasPrefix(request.URL.Path, "/collections/test_songs/points/") {
+					_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":2,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
+				} else {
+					http.NotFound(w, request)
+				}
 			}
 		}))
 		defer server.Close()

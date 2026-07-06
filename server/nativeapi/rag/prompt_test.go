@@ -32,3 +32,24 @@ func TestBuildChatPromptIncludesNoContextFallback(t *testing.T) {
 		t.Fatalf("expected no-context fallback instruction; got:\n%s", prompt)
 	}
 }
+
+func TestBuildChatPromptIncludesConversationHistory(t *testing.T) {
+	prompt := BuildChatPromptWithHistory(
+		"only the clean ones",
+		[]ChatTurn{
+			{Role: "user", Content: "show upbeat rock"},
+			{Role: "assistant", Content: "Try Song A."},
+		},
+		[]SongSearchResult{{SongID: "song-b", Title: "Song B", Artist: "Band", Score: 0.9}},
+	)
+	for _, expected := range []string{
+		"Conversation so far:",
+		"user: show upbeat rock",
+		"assistant: Try Song A.",
+		"User question:\nonly the clean ones",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected prompt to contain %q; got:\n%s", expected, prompt)
+		}
+	}
+}

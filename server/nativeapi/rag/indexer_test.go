@@ -38,10 +38,24 @@ func (fakeEmbedder) EmbedText(_ context.Context, text string) ([]float32, error)
 	return []float32{0.1, 0.2}, nil
 }
 
+func (e fakeEmbedder) EmbedTexts(ctx context.Context, texts []string) ([][]float32, error) {
+	vectors := make([][]float32, 0, len(texts))
+	for _, text := range texts {
+		vector, err := e.EmbedText(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		vectors = append(vectors, vector)
+	}
+	return vectors, nil
+}
+
 type fakeVectorStore struct {
 	existing map[string]bool
+	hashes   map[string]string
 	upserts  []string
 	payloads []map[string]any
+	deleted  []string
 }
 
 type fakePlaylistRepository struct {
@@ -78,6 +92,43 @@ func (f *fakeVectorStore) UpsertPoint(_ context.Context, logicalID string, _ []f
 	return nil
 }
 
+func (f *fakeVectorStore) UpsertPoints(_ context.Context, points []PointUpsert) error {
+	if f.hashes == nil {
+		f.hashes = map[string]string{}
+	}
+	for _, point := range points {
+		f.upserts = append(f.upserts, point.LogicalID)
+		f.payloads = append(f.payloads, point.Payload)
+		if hash, ok := point.Payload["contentHash"].(string); ok {
+			f.hashes[point.LogicalID] = hash
+		}
+	}
+	return nil
+}
+
+func (f *fakeVectorStore) ExistingContentHashes(_ context.Context, logicalIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, id := range logicalIDs {
+		if hash, ok := f.hashes[id]; ok {
+			out[id] = hash
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeVectorStore) DeletePoints(_ context.Context, logicalIDs []string) error {
+	f.deleted = append(f.deleted, logicalIDs...)
+	return nil
+}
+
+func (f *fakeVectorStore) AllIndexedSongIDs(_ context.Context, _ int) ([]string, error) {
+	ids := make([]string, 0, len(f.hashes))
+	for id := range f.hashes {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 func TestIndexSongsCountsAndPayload(t *testing.T) {
 	playedAt := time.Date(2026, time.July, 4, 12, 30, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
 	createdAt := time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC)
@@ -106,16 +157,20 @@ func TestIndexSongsCountsAndPayload(t *testing.T) {
 		{ID: "existing", Title: "Already indexed"},
 		{ID: "failed", Title: "Fails embedding"},
 	}}
-	store := &fakeVectorStore{existing: map[string]bool{"song:existing": true}}
+	const tag = "test-model"
+	existingSong := model.MediaFile{ID: "existing", Title: "Already indexed"}
+	store := &fakeVectorStore{hashes: map[string]string{
+		StableSongPointID("existing"): songContentHash(existingSong, tag),
+	}}
 
-	result, err := IndexSongs(context.Background(), repository, fakeEmbedder{}, store, 3, false)
+	result, err := IndexSongs(context.Background(), repository, fakeEmbedder{}, store, 3, false, tag)
 	if err != nil {
 		t.Fatalf("index songs: %v", err)
 	}
 	if result.Indexed != 1 || result.Skipped != 1 || result.Failed != 1 || !strings.Contains(result.Error, "embedding failed") {
 		t.Fatalf("unexpected index counts: %+v", result)
 	}
-	if len(repository.options) == 0 || repository.options[0].Max != 3 || repository.options[0].Sort != "id" {
+	if len(repository.options) == 0 || repository.options[0].Max != indexPageSize || repository.options[0].Sort != "id" {
 		t.Fatalf("unexpected repository options: %+v", repository.options)
 	}
 	if len(store.upserts) != 1 || store.upserts[0] != "song:new" {
@@ -180,29 +235,53 @@ func TestIndexSongsCountsAndPayload(t *testing.T) {
 }
 
 func TestIndexSongsSkipsExistingAndContinuesToNewSongs(t *testing.T) {
+	existing1 := model.MediaFile{ID: "existing-1", Title: "Existing one"}
+	existing2 := model.MediaFile{ID: "existing-2", Title: "Existing two"}
 	repository := &fakeSongRepository{songs: model.MediaFiles{
-		{ID: "existing-1", Title: "Existing one"},
-		{ID: "existing-2", Title: "Existing two"},
+		existing1,
+		existing2,
 		{ID: "new-1", Title: "New one"},
 		{ID: "new-2", Title: "New two"},
 	}}
-	store := &fakeVectorStore{existing: map[string]bool{
-		"song:existing-1": true,
-		"song:existing-2": true,
+	const tag = "test-model"
+	store := &fakeVectorStore{hashes: map[string]string{
+		StableSongPointID("existing-1"): songContentHash(existing1, tag),
+		StableSongPointID("existing-2"): songContentHash(existing2, tag),
 	}}
 
-	result, err := IndexSongs(context.Background(), repository, fakeEmbedder{}, store, 2, false)
+	result, err := IndexSongs(context.Background(), repository, fakeEmbedder{}, store, 2, false, tag)
 	if err != nil {
 		t.Fatalf("index songs: %v", err)
 	}
-	if result != (IndexResult{Indexed: 2, Skipped: 2}) {
+	if result.Indexed != 2 || result.Skipped != 2 || result.Failed != 0 {
 		t.Fatalf("unexpected index counts: %+v", result)
-	}
-	if len(repository.options) != 2 || repository.options[1].Offset != 2 {
-		t.Fatalf("expected bounded pagination past existing songs: %+v", repository.options)
 	}
 	if len(store.upserts) != 2 || store.upserts[0] != "song:new-1" || store.upserts[1] != "song:new-2" {
 		t.Fatalf("unexpected upserts: %#v", store.upserts)
+	}
+}
+
+func TestSyncSongsIndexesChangedAndDeletesOrphans(t *testing.T) {
+	const tag = "test-model"
+	keep := model.MediaFile{ID: "keep", Title: "Keep me"}
+	added := model.MediaFile{ID: "added", Title: "New song"}
+	repository := &fakeSongRepository{songs: model.MediaFiles{keep, added}}
+	// "keep" is already indexed and unchanged; "orphan" is indexed but no longer
+	// in the library and must be deleted.
+	store := &fakeVectorStore{hashes: map[string]string{
+		StableSongPointID("keep"):   songContentHash(keep, tag),
+		StableSongPointID("orphan"): "stale-hash",
+	}}
+
+	result, err := SyncSongs(context.Background(), repository, fakeEmbedder{}, store, tag)
+	if err != nil {
+		t.Fatalf("sync songs: %v", err)
+	}
+	if result.Indexed != 1 || result.Skipped != 1 {
+		t.Fatalf("expected 1 indexed (added) and 1 skipped (keep), got %+v", result)
+	}
+	if result.Deleted != 1 || len(store.deleted) != 1 || store.deleted[0] != StableSongPointID("orphan") {
+		t.Fatalf("expected orphan deletion, got deleted=%d %#v", result.Deleted, store.deleted)
 	}
 }
 
@@ -214,6 +293,7 @@ func TestIndexSongsRejectsLargeLimit(t *testing.T) {
 		&fakeVectorStore{},
 		MaxIndexLimit+1,
 		false,
+		"test-model",
 	)
 	if err == nil {
 		t.Fatal("expected large limit to be rejected")

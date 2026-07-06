@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQdrantOfflineStatus(t *testing.T) {
@@ -25,6 +26,143 @@ func TestQdrantOfflineStatus(t *testing.T) {
 	}
 	if !strings.Contains(status.Error, "Qdrant unavailable") {
 		t.Fatalf("expected an unavailable error, got %q", status.Error)
+	}
+}
+
+func TestQdrantStatusDetectsDimensionDrift(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/collections":
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[{"name":"songs"}]}}`))
+		case "/collections/songs":
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"points_count":12,"config":{"params":{"vectors":{"size":1536,"distance":"Cosine"}}}}}`))
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	defer server.Close()
+
+	schema := ExpectedIndexSchema("gemini:gemini-embedding-001")
+	client := NewQdrantClient(server.URL, "songs", QdrantClientOptions{ExpectedSchema: &schema})
+	client.httpClient = server.Client()
+	status := client.Status(context.Background(), false)
+	if !status.VectorDBOnline || !status.CollectionExists || !status.ReindexRequired || !strings.Contains(status.Error, "dimension drift") || !strings.Contains(status.Error, "full RAG reindex") {
+		t.Fatalf("expected actionable dimension drift status, got %+v", status)
+	}
+}
+
+func TestQdrantStatusDetectsEmbeddingModelDrift(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/collections":
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[{"name":"songs"}]}}`))
+		case "/collections/songs":
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"points_count":2,"config":{"params":{"vectors":{"size":768,"distance":"Cosine"}}}}}`))
+		case "/collections/songs/points/" + qdrantPointID(indexMetadataPointID):
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":2,"embeddingModel":"gemma:old-model","dimensions":768}}}`))
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	defer server.Close()
+
+	schema := ExpectedIndexSchema("gemma:new-model")
+	client := NewQdrantClient(server.URL, "songs", QdrantClientOptions{ExpectedSchema: &schema})
+	client.httpClient = server.Client()
+	status := client.Status(context.Background(), false)
+	if !status.ReindexRequired || !strings.Contains(status.Error, "schema drift") || !strings.Contains(status.Error, "gemma:old-model") || !strings.Contains(status.Error, "gemma:new-model") {
+		t.Fatalf("expected actionable model drift status, got %+v", status)
+	}
+}
+
+func TestQdrantCreateStoresIndexMetadata(t *testing.T) {
+	metadataWritten := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/collections":
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[]}}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/collections/songs":
+			http.NotFound(w, request)
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs":
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs/points":
+			var body struct {
+				Points []struct {
+					Vector  []float32      `json:"vector"`
+					Payload map[string]any `json:"payload"`
+				} `json:"points"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode metadata point: %v", err)
+			}
+			if len(body.Points) != 1 || len(body.Points[0].Vector) != GeminiEmbeddingDimensions || body.Points[0].Payload["embeddingModel"] != "gemma:embeddinggemma" {
+				t.Fatalf("unexpected metadata point: %+v", body.Points)
+			}
+			metadataWritten = true
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"status":"completed"}}`))
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	defer server.Close()
+
+	schema := ExpectedIndexSchema("gemma:embeddinggemma")
+	client := NewQdrantClient(server.URL, "songs", QdrantClientOptions{ExpectedSchema: &schema})
+	client.httpClient = server.Client()
+	status := client.Status(context.Background(), true)
+	if status.Error != "" || !metadataWritten {
+		t.Fatalf("expected compatible collection creation, status=%+v metadata=%t", status, metadataWritten)
+	}
+}
+
+func TestQdrantRetriesTransientFailure(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[]}}`))
+	}))
+	defer server.Close()
+
+	client := NewQdrantClient(server.URL, "songs", QdrantClientOptions{HTTPClientOptions: HTTPClientOptions{
+		Timeout: time.Second, MaxRetries: 1, RetryBackoff: time.Millisecond,
+	}})
+	client.httpClient = server.Client()
+	if err := client.CheckReachable(context.Background()); err != nil || attempts != 2 {
+		t.Fatalf("expected transient Qdrant retry, attempts=%d err=%v", attempts, err)
+	}
+}
+
+func TestQdrantRecreatesIncompatibleCollection(t *testing.T) {
+	deleted, created, metadataWritten := false, false, false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodDelete && request.URL.Path == "/collections/songs":
+			deleted = true
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs":
+			created = true
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs/points":
+			metadataWritten = true
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"status":"completed"}}`))
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	defer server.Close()
+
+	schema := ExpectedIndexSchema("gemini:gemini-embedding-001")
+	client := NewQdrantClient(server.URL, "songs", QdrantClientOptions{ExpectedSchema: &schema})
+	client.httpClient = server.Client()
+	if err := client.RecreateCollection(context.Background()); err != nil {
+		t.Fatalf("recreate collection: %v", err)
+	}
+	if !deleted || !created || !metadataWritten {
+		t.Fatalf("expected delete/create/metadata sequence, deleted=%t created=%t metadata=%t", deleted, created, metadataWritten)
 	}
 }
 
@@ -330,5 +468,22 @@ func TestQdrantCountDocumentsByType(t *testing.T) {
 	count, err := client.CountDocumentsByType(context.Background(), "song")
 	if err != nil || count != 42 {
 		t.Fatalf("unexpected count=%d err=%v", count, err)
+	}
+}
+
+func TestQdrantListSongVectors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/collections/songs/points/scroll" {
+			http.NotFound(w, request)
+			return
+		}
+		_, _ = w.Write([]byte(`{"result":{"points":[{"vector":[0.1,0.2],"payload":{"songId":"song-1","title":"Song","artist":"Artist"}}],"next_page_offset":null},"status":"ok"}`))
+	}))
+	defer server.Close()
+	client := NewQdrantClient(server.URL, "songs")
+	client.httpClient = server.Client()
+	items, err := client.ListSongVectors(context.Background(), 10)
+	if err != nil || len(items) != 1 || items[0].Song.SongID != "song-1" || len(items[0].Vector) != 2 {
+		t.Fatalf("unexpected song vectors: items=%+v err=%v", items, err)
 	}
 }

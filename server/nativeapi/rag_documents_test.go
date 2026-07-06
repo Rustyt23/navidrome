@@ -33,11 +33,15 @@ func TestRAGDocumentsListsCollectionPayloads(t *testing.T) {
 		case "/collections":
 			_, _ = w.Write([]byte(`{"result":{"collections":[{"name":"songs"}]},"status":"ok"}`))
 		case "/collections/songs":
-			_, _ = w.Write([]byte(`{"result":{"points_count":7},"status":"ok"}`))
+			_, _ = w.Write([]byte(`{"result":{"points_count":8,"config":{"params":{"vectors":{"size":768}}}},"status":"ok"}`))
 		case "/collections/songs/points/scroll":
 			_, _ = w.Write([]byte(`{"result":{"points":[{"payload":{"songId":"song-1","title":"Bright Song","artist":"Artist","album":"Album","year":2020,"genre":"Pop","explicit":false,"bpm":100,"lufs":-12.5}}]},"status":"ok"}`))
 		default:
-			http.NotFound(w, request)
+			if strings.HasPrefix(request.URL.Path, "/collections/songs/points/") {
+				_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":2,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
+			} else {
+				http.NotFound(w, request)
+			}
 		}
 	}))
 	defer server.Close()
