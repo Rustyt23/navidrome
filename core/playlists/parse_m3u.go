@@ -25,6 +25,10 @@ func (s *playlists) parseM3U(ctx context.Context, pls *model.Playlist, folder *m
 	if err != nil {
 		return err
 	}
+	// Drop any previously recorded missing tracks for this playlist so a re-import
+	// reflects the current file. Entries that now resolve (e.g. the song was added
+	// to the library) are simply not re-recorded below.
+	clearMissingPlaylistTracks(ctx, pls.Path)
 	var mfs model.MediaFiles
 	// Chunk size of 100 lines, as each line can generate up to 4 lookup candidates
 	// (NFC/NFD × raw/lowercase), and SQLite has a max expression tree depth of 1000.

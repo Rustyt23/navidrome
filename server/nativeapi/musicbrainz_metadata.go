@@ -54,11 +54,16 @@ type musicBrainzMetadataJob struct {
 	status      musicBrainzMetadataStatus
 	client      *http.Client
 	coverMisses sync.Map
+
+	itunesMu       sync.Mutex
+	itunesInterval time.Duration
+	lastITunesCall time.Time
 }
 
 func newMusicBrainzMetadataJob() *musicBrainzMetadataJob {
 	return &musicBrainzMetadataJob{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client:         &http.Client{Timeout: 15 * time.Second},
+		itunesInterval: 3 * time.Second,
 	}
 }
 
@@ -100,6 +105,7 @@ type metadataResult struct {
 	Album         string
 	Year          int
 	Genre         string
+	GenreTrace    *genreSourceDeveloperTrace
 	RecordingMBID string
 	ReleaseMBID   string
 }
@@ -127,13 +133,14 @@ type spotifyConfidenceEntry struct {
 }
 
 type spotifyMetadataJob struct {
-	mu             sync.RWMutex
-	status         spotifyMetadataStatus
-	client         *http.Client
-	entries        map[string]spotifyConfidenceEntry
-	coverMisses    sync.Map
-	token          string
-	tokenExpiresAt time.Time
+	mu               sync.RWMutex
+	status           spotifyMetadataStatus
+	client           *http.Client
+	entries          map[string]spotifyConfidenceEntry
+	coverMisses      sync.Map
+	artistGenreCache sync.Map
+	token            string
+	tokenExpiresAt   time.Time
 }
 
 type metadataSaveSummary struct {
@@ -585,19 +592,15 @@ type mbRecording struct {
 		Name string `json:"name"`
 	} `json:"artist-credit"`
 	Releases []mbRelease `json:"releases"`
-	Tags     []mbName    `json:"tags"`
-	Genres   []mbName    `json:"genres"`
 }
 
 type mbRelease struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Date         string   `json:"date"`
-	Status       string   `json:"status"`
-	Country      string   `json:"country"`
-	ReleaseGroup mbGroup  `json:"release-group"`
-	Tags         []mbName `json:"tags"`
-	Genres       []mbName `json:"genres"`
+	ID           string  `json:"id"`
+	Title        string  `json:"title"`
+	Date         string  `json:"date"`
+	Status       string  `json:"status"`
+	Country      string  `json:"country"`
+	ReleaseGroup mbGroup `json:"release-group"`
 }
 
 type mbScore string
@@ -625,10 +628,6 @@ func (s mbScore) Int() int {
 	return i
 }
 
-type mbName struct {
-	Name string `json:"name"`
-}
-
 type mbGroup struct {
 	PrimaryType   string   `json:"primary-type"`
 	SecondaryType []string `json:"secondary-types"`
@@ -649,35 +648,90 @@ func floatValueOrNil(v float64) *float64 {
 	return &v
 }
 
-func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
-	query := fmt.Sprintf("artist:%s AND recording:%s", artist, title)
+var featSplitRegex = regexp.MustCompile(`(?i)\s+(feat\.?|ft\.?|featuring)\s+`)
+
+// primarySearchArtist reduces a multi-artist tag like "JAY-Z, Beyoncé" or
+// "The Carters (Beyonce & Jay-Z)" to its first credited artist. Local tags
+// join collaborators with separators that never appear inside a MusicBrainz
+// artist credit, so searching the full string as a quoted phrase finds nothing.
+func primarySearchArtist(artist string) string {
+	artist = strings.TrimSpace(artist)
+	if i := strings.IndexAny(artist, ",;("); i >= 0 {
+		artist = artist[:i]
+	}
+	artist = featSplitRegex.Split(artist, 2)[0]
+	return strings.TrimSpace(artist)
+}
+
+// escapeLucenePhrase escapes the characters that carry meaning inside a quoted
+// Lucene phrase so titles like `He said "no"` don't break the MusicBrainz query.
+func escapeLucenePhrase(v string) string {
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	return strings.ReplaceAll(v, `"`, `\"`)
+}
+
+func (j *musicBrainzMetadataJob) searchRecordings(title, artist string) ([]mbRecording, error) {
+	// Quoted phrases keep Lucene from splitting the field query on every space
+	// and matching unrelated recordings that share a single word.
+	query := fmt.Sprintf(`artist:"%s" AND recording:"%s"`, escapeLucenePhrase(artist), escapeLucenePhrase(title))
 	u := "https://musicbrainz.org/ws/2/recording/?query=" + url.QueryEscape(query) + "&fmt=json&inc=releases+release-groups"
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
-		return metadataResult{}, err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", "Navidrome/metadata-fetcher (https://www.navidrome.org)")
 
 	resp, err := j.client.Do(req)
 	if err != nil {
-		return metadataResult{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return metadataResult{}, fmt.Errorf("musicbrainz status %d", resp.StatusCode)
+		return nil, fmt.Errorf("musicbrainz status %d", resp.StatusCode)
 	}
 
 	var payload mbSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Recordings, nil
+}
+
+func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
+	recordings, err := j.searchRecordings(title, artist)
+	if err != nil {
 		return metadataResult{}, err
 	}
-	if len(payload.Recordings) == 0 {
-		return metadataResult{}, nil
-	}
 
-	bestCandidates := collectReleaseCandidates(payload.Recordings, artist)
+	bestCandidates := collectReleaseCandidates(recordings, artist)
 	if len(bestCandidates) == 0 {
-		return metadataResult{}, nil
+		// Trailing "(Live)"/"[Remastered]"-style title tags and multi-artist
+		// strings like "JAY-Z, Beyoncé" never match the quoted phrase query
+		// (MusicBrainz credits collaborations as "JAY‐Z feat. Beyoncé"); retry
+		// once with a simplified title and the primary artist only. The full
+		// artist string still validates candidates via artistCreditMatches.
+		retryTitle := sanitizeSpotifyRetryTitle(title)
+		if retryTitle == "" {
+			retryTitle = strings.TrimSpace(title)
+		}
+		retryArtist := primarySearchArtist(artist)
+		if retryArtist == "" {
+			retryArtist = strings.TrimSpace(artist)
+		}
+		if !strings.EqualFold(retryTitle, strings.TrimSpace(title)) || !strings.EqualFold(retryArtist, strings.TrimSpace(artist)) {
+			time.Sleep(time.Second) // MusicBrainz allows 1 request per second
+			if retryRecordings, retryErr := j.searchRecordings(retryTitle, retryArtist); retryErr == nil {
+				bestCandidates = collectReleaseCandidates(retryRecordings, artist)
+			}
+		}
+	}
+	// Genre comes from iTunes, not MusicBrainz: Apple's editorial per-track
+	// genre is reliable, and the lookup works even when no MusicBrainz release
+	// matched, so collaboration tracks still get a genre.
+	result := metadataResult{Genre: j.fetchITunesGenre(title, artist)}
+
+	if len(bestCandidates) == 0 {
+		return result, nil
 	}
 
 	coverCache := make(map[string]bool, len(bestCandidates))
@@ -685,22 +739,17 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 		return j.releaseHasCover(releaseID, coverCache)
 	})
 	if best == nil {
-		return metadataResult{}, nil
+		return result, nil
 	}
 
-	album := strings.TrimSpace(best.release.Title)
-	year := yearFromDate(best.release.Date)
-	if year == 0 {
-		year = yearFromDate(best.recording.FirstReleaseDate)
+	result.Album = strings.TrimSpace(best.release.Title)
+	result.Year = yearFromDate(best.release.Date)
+	if result.Year == 0 {
+		result.Year = yearFromDate(best.recording.FirstReleaseDate)
 	}
-	genre := collectGenre(*best.recording, *best.release)
-	return metadataResult{
-		Album:         album,
-		Year:          year,
-		Genre:         genre,
-		RecordingMBID: strings.TrimSpace(best.recording.ID),
-		ReleaseMBID:   strings.TrimSpace(best.release.ID),
-	}, nil
+	result.RecordingMBID = strings.TrimSpace(best.recording.ID)
+	result.ReleaseMBID = strings.TrimSpace(best.release.ID)
+	return result, nil
 }
 
 func (j *musicBrainzMetadataJob) releaseHasCover(releaseID string, cache map[string]bool) bool {
@@ -808,12 +857,46 @@ func artistCreditMatches(credits []struct {
 	if normalizedArtist == "" {
 		return false
 	}
+	names := make([]string, 0, len(credits))
 	for _, credit := range credits {
-		if normalizeMBString(credit.Name) == normalizedArtist {
+		name := normalizeMBString(credit.Name)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+		// A single credit matching the whole local artist, or being one of the
+		// artists in a local "A feat. B" string, is a match.
+		if name == normalizedArtist || containsAllTokens(normalizedArtist, name) {
+			return true
+		}
+	}
+	// Local tag may credit only the primary artist of a collaboration.
+	if len(names) > 1 {
+		joined := strings.Join(names, " ")
+		if containsAllTokens(joined, normalizedArtist) || stringSimilarity(joined, normalizedArtist) >= 0.8 {
 			return true
 		}
 	}
 	return false
+}
+
+// containsAllTokens reports whether every word of needle appears in haystack,
+// so "daft punk" matches "daft punk feat pharrell" without the false positives
+// of raw substring containment.
+func containsAllTokens(haystack, needle string) bool {
+	if needle == "" || haystack == "" {
+		return false
+	}
+	words := map[string]bool{}
+	for _, w := range strings.Fields(haystack) {
+		words[w] = true
+	}
+	for _, w := range strings.Fields(needle) {
+		if !words[w] {
+			return false
+		}
+	}
+	return true
 }
 
 type releaseCandidate struct {
@@ -928,49 +1011,6 @@ func hasDiscouragedSecondaryType(release mbRelease) bool {
 func isAlbumRelease(release mbRelease) bool {
 	primaryType := normalizeMBString(release.ReleaseGroup.PrimaryType)
 	return primaryType == "album"
-}
-
-func collectRecordingGenre(rec mbRecording) string {
-	return collectGenres(rec.Genres, rec.Tags)
-}
-
-func collectGenre(rec mbRecording, release mbRelease) string {
-	genre := collectGenres(release.Genres, release.Tags)
-	if genre != "" {
-		return genre
-	}
-	return collectRecordingGenre(rec)
-}
-
-func collectGenres(genres, tags []mbName) string {
-	unique := map[string]bool{}
-	ordered := make([]string, 0, 4)
-	appendName := func(v string) {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			return
-		}
-		key := strings.ToLower(v)
-		if unique[key] {
-			return
-		}
-		unique[key] = true
-		ordered = append(ordered, v)
-	}
-
-	for _, g := range genres {
-		appendName(g.Name)
-	}
-	for _, t := range tags {
-		appendName(t.Name)
-	}
-	if len(ordered) == 0 {
-		return ""
-	}
-	if len(ordered) > 5 {
-		ordered = ordered[:5]
-	}
-	return strings.Join(ordered, ", ")
 }
 
 var punctuationRegex = regexp.MustCompile(`[\p{P}\p{S}]`)
@@ -1406,6 +1446,66 @@ func sanitizeSpotifyRetryTitle(title string) string {
 	return stripped
 }
 
+func (j *spotifyMetadataJob) spotifySearch(ctx context.Context, token, query string, limit int) ([]spotifyTrack, error) {
+	endpoint, _ := url.Parse("https://api.spotify.com/v1/search")
+	params := endpoint.Query()
+	params.Set("q", query)
+	params.Set("type", "track")
+	params.Set("limit", strconv.Itoa(limit))
+	endpoint.RawQuery = params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		trimmedBody := strings.TrimSpace(string(body))
+		if resp.StatusCode == http.StatusUnauthorized && strings.Contains(strings.ToLower(trimmedBody), "access token expired") {
+			return nil, fmt.Errorf("%w: %s", errSpotifyTokenExpired, trimmedBody)
+		}
+		return nil, fmt.Errorf("spotify search status: %d, body: %s", resp.StatusCode, trimmedBody)
+	}
+	var payload spotifySearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Tracks.Items, nil
+}
+
+// spotifyFieldValue strips the quote characters that would terminate a quoted
+// track:/artist: field filter early.
+func spotifyFieldValue(v string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(v, `"`, " ")), " ")
+}
+
+// bestArtistSimilarity scores the local artist against every credited artist
+// and against all of them joined, so collaborations and "feat." credits aren't
+// penalized for matching a non-primary artist.
+func bestArtistSimilarity(localArtistNorm string, track *spotifyTrack) float64 {
+	best := 0.0
+	names := make([]string, 0, len(track.Artists))
+	for _, artist := range track.Artists {
+		names = append(names, artist.Name)
+		if score := stringSimilarity(localArtistNorm, normalizeSpotifyString(artist.Name)); score > best {
+			best = score
+		}
+	}
+	if len(names) > 1 {
+		if score := stringSimilarity(localArtistNorm, normalizeSpotifyString(strings.Join(names, " "))); score > best {
+			best = score
+		}
+	}
+	return best
+}
+
 func (j *spotifyMetadataJob) searchSpotifyTrack(ctx context.Context, token string, mf model.MediaFile, title string) (*spotifyTrack, float64, error) {
 	localArtist := strings.TrimSpace(mf.Artist)
 	localTitle := strings.TrimSpace(title)
@@ -1413,42 +1513,21 @@ func (j *spotifyMetadataJob) searchSpotifyTrack(ctx context.Context, token strin
 		return nil, 0, nil
 	}
 
-	q := strings.TrimSpace(localTitle + " " + localArtist)
-	if q == "" {
-		return nil, 0, nil
-	}
-	endpoint, _ := url.Parse("https://api.spotify.com/v1/search")
-	params := endpoint.Query()
-	params.Set("q", q)
-	params.Set("type", "track")
-	params.Set("limit", "1")
-	endpoint.RawQuery = params.Encode()
-	log.Debug(ctx, "Spotify metadata search request", "songId", mf.ID, "title", localTitle, "artist", mf.Artist, "url", endpoint.String())
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	// Field-filtered search is far more precise than a bag-of-words query; the
+	// loose query is only a fallback when the strict one finds nothing.
+	strict := fmt.Sprintf(`track:"%s" artist:"%s"`, spotifyFieldValue(localTitle), spotifyFieldValue(localArtist))
+	log.Debug(ctx, "Spotify metadata search request", "songId", mf.ID, "title", localTitle, "artist", localArtist, "query", strict)
+	items, err := j.spotifySearch(ctx, token, strict, 10)
 	if err != nil {
 		return nil, 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := j.client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		trimmedBody := strings.TrimSpace(string(body))
-		if resp.StatusCode == http.StatusUnauthorized && strings.Contains(strings.ToLower(trimmedBody), "access token expired") {
-			return nil, 0, fmt.Errorf("%w: %s", errSpotifyTokenExpired, trimmedBody)
+	if len(items) == 0 {
+		items, err = j.spotifySearch(ctx, token, localTitle+" "+localArtist, 10)
+		if err != nil {
+			return nil, 0, err
 		}
-		return nil, 0, fmt.Errorf("spotify search status: %d, body: %s", resp.StatusCode, trimmedBody)
 	}
-	var payload spotifySearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, 0, err
-	}
-	if len(payload.Tracks.Items) == 0 {
+	if len(items) == 0 {
 		return nil, 0, nil
 	}
 
@@ -1458,13 +1537,13 @@ func (j *spotifyMetadataJob) searchSpotifyTrack(ctx context.Context, token strin
 
 	var best *spotifyTrack
 	bestScore := 0.0
-	for i := range payload.Tracks.Items {
-		candidate := &payload.Tracks.Items[i]
+	for i := range items {
+		candidate := &items[i]
 		if len(candidate.Artists) == 0 {
 			continue
 		}
 		titleScore := stringSimilarity(localTitleNorm, normalizeSpotifyString(candidate.Name))
-		artistScore := stringSimilarity(localArtistNorm, normalizeSpotifyString(candidate.Artists[0].Name))
+		artistScore := bestArtistSimilarity(localArtistNorm, candidate)
 		durationScore := 0.0
 		if localDuration > 0 {
 			diff := localDuration - (candidate.DurationMS / 1000)
@@ -1554,27 +1633,60 @@ func (j *spotifyMetadataJob) lookupMetadata(ctx context.Context, mf model.MediaF
 	}
 	// Spotify genres are attached to the artist, not the track, so they require
 	// a second lookup. This is best-effort; a failure just leaves genre empty.
-	if genre := j.primaryArtistGenre(ctx, token, track); genre != "" {
+	if genre := j.trackArtistGenre(ctx, token, track, mf.Artist, confidence); genre != "" {
 		result.Genre = genre
 	}
 	return result, nil
 }
 
-func (j *spotifyMetadataJob) primaryArtistGenre(ctx context.Context, token string, track *spotifyTrack) string {
-	artistID := ""
+// trackArtistGenre returns the genre list for a matched track. Spotify attaches
+// genres to artists, not tracks, so the credited artists are fetched in one
+// batched request. Genres from the artist whose name matches the library
+// artist are preferred; when no name matches, the credited artists are only
+// trusted if the track match itself was confident, so a wrong-track match
+// can't donate an unrelated artist's genres.
+func (j *spotifyMetadataJob) trackArtistGenre(ctx context.Context, token string, track *spotifyTrack, localArtist string, confidence float64) string {
+	ids := make([]string, 0, len(track.Artists))
 	for _, artist := range track.Artists {
-		if strings.TrimSpace(artist.ID) != "" {
-			artistID = strings.TrimSpace(artist.ID)
+		if id := strings.TrimSpace(artist.ID); id != "" {
+			ids = append(ids, id)
+		}
+		if len(ids) == 5 {
 			break
 		}
 	}
-	if artistID == "" {
+	if len(ids) == 0 {
 		return ""
 	}
-	genres, err := j.fetchArtistGenres(ctx, token, artistID)
+	artists, err := j.fetchArtists(ctx, token, ids)
 	if err != nil {
-		log.Debug(ctx, "Could not fetch Spotify artist genres", "artistId", artistID, "err", err)
+		log.Debug(ctx, "Could not fetch Spotify artist genres", "artistIds", ids, "err", err)
 		return ""
+	}
+
+	localNorm := normalizeSpotifyString(localArtist)
+	var matched, primary, any []string
+	for i, artist := range artists {
+		if len(artist.Genres) == 0 {
+			continue
+		}
+		if any == nil {
+			any = artist.Genres
+		}
+		if i == 0 {
+			primary = artist.Genres
+		}
+		if matched == nil && localNorm != "" && stringSimilarity(localNorm, normalizeSpotifyString(artist.Name)) >= 0.8 {
+			matched = artist.Genres
+		}
+	}
+
+	genres := matched
+	if genres == nil && confidence >= conf.Server.Spotify.MinScore {
+		genres = primary
+		if genres == nil {
+			genres = any
+		}
 	}
 	if len(genres) > 2 {
 		genres = genres[:2]
@@ -1588,28 +1700,58 @@ func (j *spotifyMetadataJob) primaryArtistGenre(ctx context.Context, token strin
 	return strings.Join(titled, ", ")
 }
 
-func (j *spotifyMetadataJob) fetchArtistGenres(ctx context.Context, token, artistID string) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.spotify.com/v1/artists/"+url.PathEscape(artistID), nil)
-	if err != nil {
-		return nil, err
+type spotifyArtist struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Genres []string `json:"genres"`
+}
+
+// fetchArtists resolves artists via the batched artists endpoint, with a
+// per-job cache so libraries with many tracks by the same artist don't repeat
+// requests and run into rate limits. The result preserves the order of ids.
+func (j *spotifyMetadataJob) fetchArtists(ctx context.Context, token string, ids []string) ([]spotifyArtist, error) {
+	missing := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := j.artistGenreCache.Load(id); !ok {
+			missing = append(missing, id)
+		}
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := j.client.Do(req)
-	if err != nil {
-		return nil, err
+	if len(missing) > 0 {
+		endpoint := "https://api.spotify.com/v1/artists?ids=" + url.QueryEscape(strings.Join(missing, ","))
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := j.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			return nil, fmt.Errorf("spotify artists status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		var payload struct {
+			Artists []spotifyArtist `json:"artists"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return nil, err
+		}
+		for _, artist := range payload.Artists {
+			if strings.TrimSpace(artist.ID) != "" {
+				j.artistGenreCache.Store(artist.ID, artist)
+			}
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("spotify artist status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+
+	res := make([]spotifyArtist, 0, len(ids))
+	for _, id := range ids {
+		if cached, ok := j.artistGenreCache.Load(id); ok {
+			res = append(res, cached.(spotifyArtist))
+		}
 	}
-	var payload struct {
-		Genres []string `json:"genres"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
-	}
-	return payload.Genres, nil
+	return res, nil
 }
 
 // titleCaseGenre upper-cases the first letter of each word so lowercase Spotify

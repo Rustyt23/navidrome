@@ -29,6 +29,15 @@ func (f *fakeSongRepository) GetAll(options ...model.QueryOptions) (model.MediaF
 	return f.songs[option.Offset:end], nil
 }
 
+func (f *fakeSongRepository) Get(id string) (*model.MediaFile, error) {
+	for index := range f.songs {
+		if f.songs[index].ID == id {
+			return &f.songs[index], nil
+		}
+	}
+	return nil, errors.New("song not found")
+}
+
 type fakeEmbedder struct{}
 
 func (fakeEmbedder) EmbedText(_ context.Context, text string) ([]float32, error) {
@@ -258,6 +267,69 @@ func TestIndexSongsSkipsExistingAndContinuesToNewSongs(t *testing.T) {
 	}
 	if len(store.upserts) != 2 || store.upserts[0] != "song:new-1" || store.upserts[1] != "song:new-2" {
 		t.Fatalf("unexpected upserts: %#v", store.upserts)
+	}
+}
+
+func TestRefreshIndexedSongsUpdatesOnlyExistingQdrantSongs(t *testing.T) {
+	indexed := model.MediaFile{
+		ID: "indexed", Title: "Updated title", Artist: "Artist",
+		Album: "Updated album", Year: 2026, Genre: "Updated genre",
+		Lyrics: `[{"lang":"eng","line":[{"value":"new lyrics"}]}]`,
+	}
+	unindexed := model.MediaFile{ID: "not-indexed", Title: "Must not be added"}
+	repository := &fakeSongRepository{songs: model.MediaFiles{unindexed, indexed}}
+	store := &fakeVectorStore{hashes: map[string]string{
+		StableSongPointID(indexed.ID): "old-content-hash",
+	}}
+
+	result, err := RefreshIndexedSongs(
+		context.Background(), repository, fakeEmbedder{}, store, 50, "test-model",
+	)
+	if err != nil {
+		t.Fatalf("refresh indexed songs: %v", err)
+	}
+	if result != (IndexResult{Indexed: 1}) {
+		t.Fatalf("unexpected refresh result: %+v", result)
+	}
+	if len(store.upserts) != 1 || store.upserts[0] != StableSongPointID(indexed.ID) {
+		t.Fatalf("expected only the existing Qdrant song to be refreshed, got %#v", store.upserts)
+	}
+	payload := store.payloads[0]
+	if payload["title"] != "Updated title" || payload["album"] != "Updated album" ||
+		payload["year"] != 2026 || payload["genre"] != "Updated genre" || payload["lyricsText"] != "new lyrics" {
+		t.Fatalf("expected latest song information in refreshed payload, got %#v", payload)
+	}
+}
+
+func TestIndexSongsWithLyricsIgnoresSongsWithoutFetchedLyrics(t *testing.T) {
+	newLyrics := model.MediaFile{
+		ID: "new-lyrics", Title: "New lyrics",
+		Lyrics: `[{"lang":"eng","line":[{"value":"vikash is here"}]}]`,
+	}
+	unchangedLyrics := model.MediaFile{
+		ID: "unchanged-lyrics", Title: "Unchanged lyrics",
+		Lyrics: `[{"lang":"eng","line":[{"value":"already stored"}]}]`,
+	}
+	withoutLyrics := model.MediaFile{ID: "no-lyrics", Title: "No lyrics"}
+	const tag = "test-model"
+	repository := &fakeSongRepository{songs: model.MediaFiles{newLyrics, unchangedLyrics, withoutLyrics}}
+	store := &fakeVectorStore{hashes: map[string]string{
+		StableSongPointID(unchangedLyrics.ID): songContentHash(unchangedLyrics, tag),
+	}}
+
+	result, err := IndexSongsWithLyrics(context.Background(), repository, fakeEmbedder{}, store, 50, tag)
+	if err != nil {
+		t.Fatalf("index songs with lyrics: %v", err)
+	}
+	if result.Indexed != 2 || result.Skipped != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected lyrics index result: %+v", result)
+	}
+	if len(store.upserts) != 2 || store.upserts[0] != StableSongPointID(newLyrics.ID) ||
+		store.upserts[1] != StableSongPointID(unchangedLyrics.ID) {
+		t.Fatalf("expected every fetched lyric payload to be backfilled, got %#v", store.upserts)
+	}
+	if store.payloads[0]["lyricsText"] != "vikash is here" {
+		t.Fatalf("expected fetched lyrics in Qdrant payload, got %#v", store.payloads[0])
 	}
 }
 

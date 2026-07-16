@@ -12,9 +12,12 @@ import (
 )
 
 const (
-	GeminiEmbeddingDimensions = 768
-	geminiEmbeddingModel      = "gemini-embedding-001"
-	geminiEmbeddingEndpoint   = "https://generativelanguage.googleapis.com/v1beta/models/" + geminiEmbeddingModel + ":embedContent"
+	GeminiEmbeddingDimensions    = 768
+	geminiEmbeddingModel         = "gemini-embedding-001"
+	geminiEmbeddingEndpoint      = "https://generativelanguage.googleapis.com/v1beta/models/" + geminiEmbeddingModel + ":embedContent"
+	geminiBatchEmbeddingEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + geminiEmbeddingModel + ":batchEmbedContents"
+	// geminiMaxBatchSize is the request cap of the batchEmbedContents API.
+	geminiMaxBatchSize = 100
 )
 
 // Embedder converts text into a vector without coupling the indexing pipeline
@@ -31,11 +34,12 @@ type geminiEmbeddingPart struct {
 
 // GeminiEmbedder implements Embedder using the existing Gemini API key.
 type GeminiEmbedder struct {
-	apiKey      string
-	endpoint    string
-	taskType    string
-	httpClient  *http.Client
-	httpOptions HTTPClientOptions
+	apiKey        string
+	endpoint      string
+	batchEndpoint string
+	taskType      string
+	httpClient    *http.Client
+	httpOptions   HTTPClientOptions
 }
 
 // NewGeminiEmbedder creates a text embedder. The API key is validated when an
@@ -47,11 +51,12 @@ func NewGeminiEmbedder(apiKey string, options ...HTTPClientOptions) *GeminiEmbed
 	}
 	httpOptions = normalizeHTTPClientOptions(httpOptions, 30*time.Second)
 	return &GeminiEmbedder{
-		apiKey:      strings.TrimSpace(apiKey),
-		endpoint:    geminiEmbeddingEndpoint,
-		taskType:    "RETRIEVAL_DOCUMENT",
-		httpClient:  &http.Client{Timeout: httpOptions.Timeout},
-		httpOptions: httpOptions,
+		apiKey:        strings.TrimSpace(apiKey),
+		endpoint:      geminiEmbeddingEndpoint,
+		batchEndpoint: geminiBatchEmbeddingEndpoint,
+		taskType:      "RETRIEVAL_DOCUMENT",
+		httpClient:    &http.Client{Timeout: httpOptions.Timeout},
+		httpOptions:   httpOptions,
 	}
 }
 
@@ -145,17 +150,128 @@ func (g *GeminiEmbedder) EmbedText(ctx context.Context, text string) ([]float32,
 	return result.Embedding.Values, nil
 }
 
-// EmbedTexts embeds a batch. The Gemini single-embedding endpoint has no batch
-// variant here, so it falls back to sequential calls.
+// EmbedTexts embeds a batch through the batchEmbedContents API, one request per
+// geminiMaxBatchSize texts instead of one per text. A batch failure is returned
+// as-is; the indexing pipeline already isolates bad items by falling back to
+// per-song EmbedText calls.
 func (g *GeminiEmbedder) EmbedTexts(ctx context.Context, texts []string) ([][]float32, error) {
+	if g == nil || strings.TrimSpace(g.apiKey) == "" {
+		return nil, fmt.Errorf("Gemini API key is not configured")
+	}
+	if len(texts) == 0 {
+		return [][]float32{}, nil
+	}
+	if strings.TrimSpace(g.batchEndpoint) == "" {
+		// No batch endpoint configured: keep the sequential path working.
+		vectors := make([][]float32, 0, len(texts))
+		for _, text := range texts {
+			vector, err := g.EmbedText(ctx, text)
+			if err != nil {
+				return nil, err
+			}
+			vectors = append(vectors, vector)
+		}
+		return vectors, nil
+	}
+
 	vectors := make([][]float32, 0, len(texts))
-	for _, text := range texts {
-		vector, err := g.EmbedText(ctx, text)
+	for start := 0; start < len(texts); start += geminiMaxBatchSize {
+		end := min(start+geminiMaxBatchSize, len(texts))
+		chunk, err := g.embedTextsBatch(ctx, texts[start:end])
 		if err != nil {
 			return nil, err
 		}
-		vectors = append(vectors, vector)
+		vectors = append(vectors, chunk...)
 	}
+	return vectors, nil
+}
+
+func (g *GeminiEmbedder) embedTextsBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	type batchRequest struct {
+		Model   string `json:"model"`
+		Content struct {
+			Parts []geminiEmbeddingPart `json:"parts"`
+		} `json:"content"`
+		TaskType             string `json:"taskType"`
+		OutputDimensionality int    `json:"outputDimensionality"`
+	}
+	requests := make([]batchRequest, 0, len(texts))
+	for _, text := range texts {
+		if strings.TrimSpace(text) == "" {
+			return nil, fmt.Errorf("embedding text is empty")
+		}
+		request := batchRequest{
+			Model:                "models/" + geminiEmbeddingModel,
+			TaskType:             g.taskType,
+			OutputDimensionality: GeminiEmbeddingDimensions,
+		}
+		request.Content.Parts = []geminiEmbeddingPart{{Text: text}}
+		requests = append(requests, request)
+	}
+	body, err := json.Marshal(map[string]any{"requests": requests})
+	if err != nil {
+		return nil, fmt.Errorf("could not encode Gemini batch embedding request: %w", err)
+	}
+
+	client := g.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: g.httpOptions.Timeout}
+	}
+	started := time.Now()
+	response, err := DoWithRetry(ctx, client, "gemini", g.httpOptions, func() (*http.Request, error) {
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, g.batchEndpoint, bytes.NewReader(body))
+		if requestErr != nil {
+			return nil, requestCreationError("Gemini batch embedding", requestErr)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("x-goog-api-key", g.apiKey)
+		return request, nil
+	})
+	if err != nil {
+		observeRAGOperation("embedding_gemini_batch", started, err)
+		return nil, fmt.Errorf("Gemini batch embedding request failed: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		errorBody, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		err = fmt.Errorf(
+			"Gemini batch embedding API returned HTTP %d: %s",
+			response.StatusCode,
+			strings.TrimSpace(string(errorBody)),
+		)
+		observeRAGOperation("embedding_gemini_batch", started, err)
+		return nil, err
+	}
+	var result struct {
+		Embeddings []struct {
+			Values []float32 `json:"values"`
+		} `json:"embeddings"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		err = fmt.Errorf("invalid Gemini batch embedding response: %w", err)
+		observeRAGOperation("embedding_gemini_batch", started, err)
+		return nil, err
+	}
+	if len(result.Embeddings) != len(texts) {
+		err = fmt.Errorf("Gemini batch embedding API returned %d vectors; expected %d", len(result.Embeddings), len(texts))
+		observeRAGOperation("embedding_gemini_batch", started, err)
+		return nil, err
+	}
+	vectors := make([][]float32, 0, len(texts))
+	for i, embedding := range result.Embeddings {
+		if len(embedding.Values) != GeminiEmbeddingDimensions {
+			err = fmt.Errorf(
+				"Gemini batch embedding vector %d has %d dimensions; expected %d",
+				i,
+				len(embedding.Values),
+				GeminiEmbeddingDimensions,
+			)
+			observeRAGOperation("embedding_gemini_batch", started, err)
+			return nil, err
+		}
+		vectors = append(vectors, embedding.Values)
+	}
+	observeRAGOperation("embedding_gemini_batch", started, nil)
 	return vectors, nil
 }
 

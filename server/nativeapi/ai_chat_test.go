@@ -1,14 +1,18 @@
 package nativeapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
@@ -21,6 +25,16 @@ type staticAIChatProvider struct {
 }
 
 func (p staticAIChatProvider) Chat(context.Context, string) (string, error) {
+	return p.answer, nil
+}
+
+type promptRecordingAIChatProvider struct {
+	answer string
+	prompt string
+}
+
+func (p *promptRecordingAIChatProvider) Chat(_ context.Context, prompt string) (string, error) {
+	p.prompt = prompt
 	return p.answer, nil
 }
 
@@ -265,6 +279,64 @@ func TestAIChatProviderSpecNormalizesGemma3FourB(t *testing.T) {
 	}
 }
 
+func TestAIChatProviderSpecNormalizesDeepSeekV32(t *testing.T) {
+	for _, provider := range []string{"deepseek-v3.2", "deepseek.v3.2", "deepseek"} {
+		t.Run(provider, func(t *testing.T) {
+			spec := aiChatProviderSpec(provider, "")
+			if spec.ID != "deepseek-v3.2" || spec.Model != bedrockDeepSeekModel {
+				t.Fatalf("unexpected DeepSeek V3.2 spec: %+v", spec)
+			}
+		})
+	}
+}
+
+func TestBedrockDeepSeekClientUsesConverseAPI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost || req.URL.Path != "/model/deepseek.v3.2/converse" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+		if req.Header.Get("Authorization") != "Bearer test-bedrock-token" {
+			t.Fatal("expected Bedrock bearer authorization header")
+		}
+		if req.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("unexpected content type: %q", req.Header.Get("Content-Type"))
+		}
+
+		var payload bedrockConverseRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(payload.Messages) != 1 || payload.Messages[0].Role != "user" ||
+			len(payload.Messages[0].Content) != 1 || payload.Messages[0].Content[0].Text != "Hello DeepSeek" {
+			t.Fatalf("unexpected messages: %+v", payload.Messages)
+		}
+		if len(payload.System) != 1 || payload.System[0].Text != deepSeekEnglishPrompt {
+			t.Fatalf("unexpected system instruction: %+v", payload.System)
+		}
+		if payload.InferenceConfig.MaxTokens != 100 || payload.InferenceConfig.Temperature != deepSeekChatTemperature {
+			t.Fatalf("unexpected inference config: %+v", payload.InferenceConfig)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output":{"message":{"role":"assistant","content":[{"text":"DeepSeek is"},{"text":"working."}]}}}`))
+	}))
+	defer server.Close()
+
+	answer, err := (bedrockDeepSeekClient{
+		apiURL:      server.URL,
+		bearerToken: "test-bedrock-token",
+		model:       bedrockDeepSeekModel,
+		maxTokens:   100,
+		client:      server.Client(),
+	}).Chat(context.Background(), "Hello DeepSeek")
+	if err != nil {
+		t.Fatalf("DeepSeek chat failed: %v", err)
+	}
+	if answer != "DeepSeek is\nworking." {
+		t.Fatalf("unexpected DeepSeek response: %q", answer)
+	}
+}
+
 func TestProbeAIEndpoint(t *testing.T) {
 	t.Run("online", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -310,6 +382,78 @@ func TestProbeAIEndpoint(t *testing.T) {
 			t.Fatal("expected missing endpoint to be offline")
 		}
 	})
+}
+
+func TestProbeWhisperEndpointUsesDedicatedHealthRoute(t *testing.T) {
+	requests := make([]string, 0, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, req.Method+" "+req.URL.Path)
+		if req.Method != http.MethodGet || req.URL.Path != "/health" {
+			t.Errorf("expected GET /health, got %s %s", req.Method, req.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	if !probeWhisperEndpoint(context.Background(), server.Client(), server.URL+"/transcribe") {
+		t.Fatal("expected the Whisper health endpoint to be online")
+	}
+	if len(requests) != 1 || requests[0] != "GET /health" {
+		t.Fatalf("unexpected health requests: %+v", requests)
+	}
+}
+
+func TestProbeWhisperEndpointFallsBackToPostOnlyTranscribeRoute(t *testing.T) {
+	requests := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, req.Method+" "+req.URL.Path)
+		if req.URL.Path == "/health" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer server.Close()
+
+	if !probeWhisperEndpoint(context.Background(), server.Client(), server.URL+"/transcribe") {
+		t.Fatal("expected a reachable POST-only Whisper endpoint to be online")
+	}
+	want := []string{"GET /health", "HEAD /transcribe"}
+	if !reflect.DeepEqual(requests, want) {
+		t.Fatalf("unexpected health requests: got %+v want %+v", requests, want)
+	}
+}
+
+func TestResolveAIServiceStatusReportsBusyWithoutProbing(t *testing.T) {
+	probed := false
+	status := resolveAIServiceStatus("whisper", "Whisper", true, func() bool {
+		probed = true
+		return false
+	})
+
+	if probed {
+		t.Fatal("expected a busy Whisper worker to skip the health probe")
+	}
+	if !status.Online || status.State != "busy" {
+		t.Fatalf("expected busy online status, got %+v", status)
+	}
+}
+
+func TestLyricsFetchJobBusyTracksDirectWhisperRequests(t *testing.T) {
+	job := newLyricsFetchJob()
+	if job.Busy() {
+		t.Fatal("expected a new lyrics job to be idle")
+	}
+
+	job.BeginWhisperRequest()
+	if !job.Busy() {
+		t.Fatal("expected an active direct Whisper request to report busy")
+	}
+
+	job.EndWhisperRequest()
+	if job.Busy() {
+		t.Fatal("expected Whisper to stop reporting busy after the request")
+	}
 }
 
 func TestProbeGemmaEndpointUsesOptions(t *testing.T) {
@@ -361,8 +505,76 @@ func TestFetchWhisperLyricsSendsSelectedModel(t *testing.T) {
 	if result.Language != "eng" || result.Text != "Test lyrics" {
 		t.Fatalf("unexpected lyrics: %+v", result)
 	}
-	if result.Duration != 100 || result.LastSegmentEnd != 90 || result.SegmentCount != 1 {
+	if result.Duration != 100 {
 		t.Fatalf("unexpected timing metadata: %+v", result)
+	}
+}
+
+func TestLyricsFetchJobRunsAfterStartRequestReturns(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+
+	audioPath := filepath.Join(t.TempDir(), "song.mp3")
+	if err := os.WriteFile(audioPath, []byte("audio"), 0o644); err != nil {
+		t.Fatalf("write audio fixture: %v", err)
+	}
+	lyricsDir := t.TempDir()
+	whisper := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"language":"eng","text":"first line\nsecond line","duration":30,"segments":[{"start":0,"end":30}]}`))
+	}))
+	defer whisper.Close()
+
+	conf.Server.WhisperAPIURL = whisper.URL
+	conf.Server.WhisperLyricsFolder = lyricsDir
+	conf.Server.WhisperModel = "small"
+
+	repo := tests.CreateMockMediaFileRepo()
+	repo.SetData(model.MediaFiles{{
+		ID:          "song-1",
+		Title:       "Song One",
+		LibraryPath: filepath.Dir(audioPath),
+		Path:        filepath.Base(audioPath),
+		Duration:    30,
+	}})
+	ds := &tests.MockDataStore{MockedMediaFile: repo}
+	router := &Router{ds: ds, lyricsJob: newLyricsFetchJob()}
+
+	request := httptest.NewRequest(http.MethodPost, "/ai/lyrics/fetch-job", bytes.NewBufferString(`{"songIds":["song-1"]}`))
+	recorder := httptest.NewRecorder()
+	router.handleLyricsJobStart(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var status aiLyricsJobStatus
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		status = router.lyricsJobManager().Snapshot()
+		if status.Status == "complete" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if status.Status != "complete" || status.Done != 1 || status.Total != 1 {
+		t.Fatalf("expected completed job, got %+v", status)
+	}
+	if len(status.SongIDs) != 1 || status.SongIDs[0] != "song-1" {
+		t.Fatalf("expected the job status to retain its song IDs, got %+v", status.SongIDs)
+	}
+	if len(status.Results) != 1 || !status.Results[0].Success || status.Results[0].SongID != "song-1" {
+		t.Fatalf("unexpected job results: %+v", status.Results)
+	}
+	mf, err := repo.Get("song-1")
+	if err != nil {
+		t.Fatalf("get updated song: %v", err)
+	}
+	text, language := lyricsText(mf)
+	if language != "eng" || !strings.Contains(text, "first line") {
+		t.Fatalf("expected saved lyrics, language=%q text=%q", language, text)
+	}
+	if _, err := os.Stat(filepath.Join(lyricsDir, "song-1.txt")); err != nil {
+		t.Fatalf("expected lyrics file to be saved: %v", err)
 	}
 }
 
@@ -396,35 +608,8 @@ func TestFetchWhisperLyricsFallsBackWhenTuningRejected(t *testing.T) {
 	if attempts != 2 {
 		t.Fatalf("expected a retry without tuning fields, got %d attempts", attempts)
 	}
-	if result.Text != "Fallback lyrics" || result.LastSegmentEnd != 58 {
+	if result.Text != "Fallback lyrics" || result.Duration != 60 {
 		t.Fatalf("unexpected fallback result: %+v", result)
-	}
-}
-
-func TestWhisperCoverageDetectsTruncation(t *testing.T) {
-	// Transcription stopped less than 75% through with plenty of song left.
-	_, _, _, truncated := whisperCoverage(
-		whisperResult{Duration: 200, LastSegmentEnd: 100, SegmentCount: 5}, 200,
-	)
-	if !truncated {
-		t.Fatalf("expected truncation to be detected")
-	}
-
-	// Near-full coverage is not flagged.
-	coverage, _, _, truncated := whisperCoverage(
-		whisperResult{Duration: 200, LastSegmentEnd: 190, SegmentCount: 20}, 200,
-	)
-	if truncated {
-		t.Fatalf("expected full coverage not to be flagged, coverage=%v", coverage)
-	}
-
-	// Falls back to the song's stored duration when Whisper omits it, and does
-	// not flag when there is no segment timing to judge by.
-	_, _, total, truncated := whisperCoverage(
-		whisperResult{LastSegmentEnd: 0, SegmentCount: 0}, 180,
-	)
-	if total != 180 || truncated {
-		t.Fatalf("expected fallback duration 180 and no truncation, total=%v truncated=%v", total, truncated)
 	}
 }
 
@@ -473,81 +658,77 @@ func TestNormalizeExplicitWordRules(t *testing.T) {
 	}
 }
 
-func TestParseGeminiSongMetadataConfidence(t *testing.T) {
-	metadata, err := parseGeminiSongMetadata(`{
-		"album":"Discovery",
-		"albumConfidence":92,
-		"year":2001,
-		"yearConfidence":"84%",
-		"genre":"French house",
-		"genreConfidence":150
-	}`)
-	if err != nil {
-		t.Fatalf("parse metadata: %v", err)
+func TestParseAIGenre(t *testing.T) {
+	tests := []struct {
+		name   string
+		answer string
+		want   string
+	}{
+		{
+			name:   "genre with subgenre",
+			answer: `{"genre":"R&B/Soul","subgenre":"Contemporary R&B","basis":"song","confidence":95}`,
+			want:   "R&B/Soul, Contemporary R&B",
+		},
+		{
+			name:   "markdown fences and prose stripped",
+			answer: "Here you go:\n```json\n{\"genre\":\"Country\",\"subgenre\":\"\",\"basis\":\"song\",\"confidence\":92}\n```",
+			want:   "Country",
+		},
+		{
+			name:   "duplicate subgenre collapsed",
+			answer: `{"genre":"Pop","subgenre":"pop","basis":"artist","confidence":70}`,
+			want:   "Pop",
+		},
+		{name: "empty genre unusable", answer: `{"genre":"","subgenre":"x"}`, want: ""},
+		{name: "garbage unusable", answer: `not json at all`, want: ""},
 	}
-	if metadata.AlbumConfidence != 92 {
-		t.Fatalf("expected album confidence 92, got %d", metadata.AlbumConfidence)
-	}
-	if metadata.YearConfidence != 84 {
-		t.Fatalf("expected year confidence 84, got %d", metadata.YearConfidence)
-	}
-	if metadata.GenreConfidence != 100 {
-		t.Fatalf("expected clamped genre confidence 100, got %d", metadata.GenreConfidence)
-	}
-}
-
-func TestParseGeminiSongMetadataLegacyConfidence(t *testing.T) {
-	metadata, err := parseGeminiSongMetadata(
-		`{"album":"Discovery","year":2001,"genre":"House","confidence":76}`,
-	)
-	if err != nil {
-		t.Fatalf("parse metadata: %v", err)
-	}
-	if metadata.AlbumConfidence != 76 || metadata.YearConfidence != 76 || metadata.GenreConfidence != 76 {
-		t.Fatalf("expected legacy confidence for all fields, got %+v", metadata)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseAIGenre(tt.answer); got != tt.want {
+				t.Fatalf("parseAIGenre(%q) = %q, want %q", tt.answer, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestParseGeminiSongMetadataMatchedIdentity(t *testing.T) {
-	metadata, err := parseGeminiSongMetadata(
-		`{"matchedTitle":"One More Time","matchedArtist":"Daft Punk","album":"Discovery","year":2001,"genre":"French house","albumConfidence":95,"yearConfidence":90,"genreConfidence":80}`,
-	)
-	if err != nil {
-		t.Fatalf("parse metadata: %v", err)
-	}
-	if metadata.MatchedTitle != "One More Time" || metadata.MatchedArtist != "Daft Punk" {
-		t.Fatalf("unexpected matched identity: %+v", metadata)
-	}
+type sequencedAIChatProvider struct {
+	answers []string
+	errs    []error
+	calls   int
 }
 
-func TestResolveMetadataField(t *testing.T) {
-	// Missing value, Spotify only -> chosen from Spotify at Spotify confidence.
-	if fill, val, conf, expl := resolveMetadataField("", false, "Discovery", "", "", metadataValuesMatch); fill != "Discovery" || val != "Discovery" || conf != metadataConfidenceSpotify || expl.Source != "spotify" {
-		t.Fatalf("spotify-only: got fill=%q val=%q conf=%d src=%q", fill, val, conf, expl.Source)
+func (p *sequencedAIChatProvider) Chat(context.Context, string) (string, error) {
+	i := p.calls
+	p.calls++
+	if i >= len(p.answers) {
+		i = len(p.answers) - 1
 	}
-	// Two sources agree -> verified.
-	if _, _, conf, expl := resolveMetadataField("", false, "Discovery", "discovery", "", metadataValuesMatch); conf != metadataConfidenceVerified || expl.Source != "verified" {
-		t.Fatalf("agreement: got conf=%d src=%q", conf, expl.Source)
+	return p.answers[i], p.errs[i]
+}
+
+func TestFetchAIGenreRetriesUntilUsable(t *testing.T) {
+	provider := &sequencedAIChatProvider{
+		answers: []string{"", `{"genre":""}`, `{"genre":"Hip-Hop/Rap","subgenre":"East Coast Hip Hop"}`},
+		errs:    []error{errors.New("boom"), nil, nil},
 	}
-	// MusicBrainz only -> authoritative.
-	if _, _, conf, expl := resolveMetadataField("", false, "", "Discovery", "", metadataValuesMatch); conf != metadataConfidenceAuthoritative || expl.Source != "musicbrainz" {
-		t.Fatalf("mb-only: got conf=%d src=%q", conf, expl.Source)
+	mf := &model.MediaFile{Title: "713", Artist: "The Carters"}
+	tracingProvider := &genreTracingProvider{provider: provider}
+	got := fetchAIGenre(context.Background(), tracingProvider, mf)
+	if got != "Hip-Hop/Rap, East Coast Hip Hop" {
+		t.Fatalf("expected retried genre, got %q", got)
 	}
-	// AI only -> low, honest.
-	if _, _, conf, expl := resolveMetadataField("", false, "", "", "Guess", metadataValuesMatch); conf != metadataConfidenceAIOnly || expl.Source != "ai-only" {
-		t.Fatalf("ai-only: got conf=%d src=%q", conf, expl.Source)
+	if provider.calls != 3 {
+		t.Fatalf("expected 3 attempts, got %d", provider.calls)
 	}
-	// Existing value that a source confirms -> verified, not overwritten.
-	if fill, val, conf, expl := resolveMetadataField("Discovery", true, "Discovery", "", "", metadataValuesMatch); fill != "" || val != "Discovery" || conf != metadataConfidenceVerified || expl.Source != "verified" {
-		t.Fatalf("existing-verified: got fill=%q val=%q conf=%d src=%q", fill, val, conf, expl.Source)
+	trace := tracingProvider.trace(got)
+	if trace == nil || trace.FetchedGenre != got || len(trace.Attempts) != 3 {
+		t.Fatalf("unexpected AI genre trace: %+v", trace)
 	}
-	// Existing value that disagrees with a source -> conflict.
-	if _, _, conf, expl := resolveMetadataField("Wrong Album", true, "Discovery", "", "", metadataValuesMatch); conf != metadataConfidenceConflict || expl.Source != "conflict" {
-		t.Fatalf("existing-conflict: got conf=%d src=%q", conf, expl.Source)
+	if trace.Attempts[0].Error != "boom" || trace.Attempts[2].Response == "" {
+		t.Fatalf("expected failed and successful attempts in trace: %+v", trace.Attempts)
 	}
-	// Nothing available -> none.
-	if _, _, conf, expl := resolveMetadataField("", false, "", "", "", metadataValuesMatch); conf != 0 || expl.Source != "none" {
-		t.Fatalf("none: got conf=%d src=%q", conf, expl.Source)
+	if !strings.Contains(trace.Prompt, "Title: 713") || !strings.Contains(trace.Response, `"genre":"Hip-Hop/Rap"`) {
+		t.Fatalf("trace did not capture prompt and response: %+v", trace)
 	}
 }
 
@@ -570,25 +751,13 @@ func TestResolveGenreConsensus(t *testing.T) {
 	}
 }
 
-func TestMetadataValuesMatch(t *testing.T) {
-	if !metadataValuesMatch("Discovery", "discovery") {
-		t.Fatal("expected case-insensitive match")
-	}
-	if !metadataValuesMatch("Discovery", "Discovery (Deluxe Edition)") {
-		t.Fatal("expected subset match")
-	}
-	if metadataValuesMatch("Discovery", "Random Access Memories") {
-		t.Fatal("expected different albums not to match")
-	}
-}
-
-func TestFetchSongMetadataUnverifiedAIScoresLow(t *testing.T) {
+func TestFetchSongMetadataUnverifiedAIGenreScoresLow(t *testing.T) {
 	repo := tests.CreateMockMediaFileRepo()
-	repo.SetData(model.MediaFiles{{ID: "song-1", Title: "Some Song", Artist: "Some Artist", Album: "[Unknown Album]"}})
-	// No Spotify, no MusicBrainz: the AI's guess must score low even though the
+	repo.SetData(model.MediaFiles{{ID: "song-1", Title: "Some Song", Artist: "Some Artist"}})
+	// No Spotify, no iTunes: the AI's genre must score low even though the
 	// model claims 100.
 	songs, err := fetchSongMetadata(context.Background(), repo, staticAIChatProvider{
-		answer: `{"album":"Guessed Album","albumConfidence":100,"year":2010,"yearConfidence":100,"genre":"Pop","genreConfidence":100}`,
+		answer: `{"genre":"Pop","subgenre":"","basis":"inferred","confidence":100}`,
 	}, nil, nil, []string{"song-1"})
 	if err != nil {
 		t.Fatalf("fetch metadata: %v", err)
@@ -596,68 +765,121 @@ func TestFetchSongMetadataUnverifiedAIScoresLow(t *testing.T) {
 	if len(songs) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(songs))
 	}
-	if songs[0].Album != "Guessed Album" {
-		t.Fatalf("expected album filled from AI, got %q", songs[0].Album)
+	if songs[0].AIGenre != "Pop" {
+		t.Fatalf("expected AI genre reported, got %q", songs[0].AIGenre)
 	}
-	if songs[0].AlbumConfidence != metadataConfidenceAIOnly {
-		t.Fatalf("expected unverified AI album to score %d, got %d", metadataConfidenceAIOnly, songs[0].AlbumConfidence)
+	if songs[0].GenreConfidence != metadataConfidenceAIOnly {
+		t.Fatalf("expected unverified AI genre to score %d, got %d", metadataConfidenceAIOnly, songs[0].GenreConfidence)
 	}
 }
 
-func TestFetchSongMetadataPrefersSpotifyAndVerifies(t *testing.T) {
+func TestFetchSongMetadataGenreConsensus(t *testing.T) {
 	repo := tests.CreateMockMediaFileRepo()
-	repo.SetData(model.MediaFiles{{ID: "song-1", Title: "One More Time", Artist: "Daft Punk", Album: "[Unknown Album]"}})
+	repo.SetData(model.MediaFiles{{ID: "song-1", Title: "One More Time", Artist: "Daft Punk", Album: "Discovery", Year: 2001}})
 	spotify := func(_ context.Context, _ model.MediaFile) (spotifyLookupResult, error) {
-		return spotifyLookupResult{Album: "Discovery", Year: 2001, Genre: "French House", Confidence: 0.95, Found: true}, nil
+		return spotifyLookupResult{Genre: "French House", Confidence: 0.95, Found: true}, nil
 	}
 	verify := func(_ context.Context, _, _ string) (metadataResult, error) {
-		return metadataResult{Album: "Discovery", Year: 2001, Genre: "French house"}, nil
+		return metadataResult{
+			Genre: "French house",
+			GenreTrace: &genreSourceDeveloperTrace{
+				Source: "itunes", Request: "https://itunes.test/search", Response: `{"results":[]}`, FetchedGenre: "French house",
+			},
+		}, nil
 	}
-	// The AI hallucinates a wrong album/genre, but Spotify + MusicBrainz agree, so
-	// the AI's values are overridden for album/year and outvoted for genre.
+	// The AI guesses a different genre, but Spotify + iTunes agree, so the AI
+	// is outvoted and the consensus is verified.
 	songs, err := fetchSongMetadata(context.Background(), repo, staticAIChatProvider{
-		answer: `{"album":"Greatest Hits","year":1999,"genre":"Pop"}`,
+		answer: `{"genre":"Pop","subgenre":"","basis":"song","confidence":90}`,
 	}, verify, spotify, []string{"song-1"})
 	if err != nil {
 		t.Fatalf("fetch metadata: %v", err)
 	}
-	if songs[0].Album != "Discovery" {
-		t.Fatalf("expected Spotify album Discovery, got %q", songs[0].Album)
-	}
-	if songs[0].AlbumConfidence != metadataConfidenceVerified || songs[0].YearConfidence != metadataConfidenceVerified {
-		t.Fatalf("expected Spotify+MusicBrainz agreement to be verified, got album=%d year=%d", songs[0].AlbumConfidence, songs[0].YearConfidence)
-	}
-	// Each source's genre is reported separately; Spotify and MusicBrainz agree,
-	// so the genre confidence is verified even though the AI guessed "Pop".
 	if songs[0].SpotifyGenre != "French House" || songs[0].MusicBrainzGenre != "French House" || songs[0].AIGenre != "Pop" {
 		t.Fatalf("unexpected per-source genres: spotify=%q mb=%q ai=%q", songs[0].SpotifyGenre, songs[0].MusicBrainzGenre, songs[0].AIGenre)
 	}
 	if songs[0].GenreConfidence != metadataConfidenceVerified {
-		t.Fatalf("expected verified genre confidence from Spotify+MusicBrainz agreement, got %d", songs[0].GenreConfidence)
+		t.Fatalf("expected verified genre confidence from Spotify+iTunes agreement, got %d", songs[0].GenreConfidence)
 	}
+	if songs[0].GenreDeveloperTrace == nil || songs[0].GenreDeveloperTrace.ITunes == nil || songs[0].GenreDeveloperTrace.AI == nil {
+		t.Fatalf("expected iTunes and AI genre traces, got %+v", songs[0].GenreDeveloperTrace)
+	}
+	if songs[0].GenreDeveloperTrace.ITunes.Request != "https://itunes.test/search" ||
+		!strings.Contains(songs[0].GenreDeveloperTrace.AI.Prompt, "One More Time") {
+		t.Fatalf("unexpected genre developer traces: %+v", songs[0].GenreDeveloperTrace)
+	}
+	// The genre-only flow never touches stored metadata.
 	updated, _ := repo.Get("song-1")
 	if updated.Album != "Discovery" || updated.Year != 2001 {
-		t.Fatalf("expected DB updated with Spotify values, got album=%q year=%d", updated.Album, updated.Year)
+		t.Fatalf("stored metadata must not change, got album=%q year=%d", updated.Album, updated.Year)
 	}
 }
 
-func TestFetchSongMetadataSpotifyOnlyScore(t *testing.T) {
+func TestFetchSongMetadataSpotifyOnlyGenreScore(t *testing.T) {
 	repo := tests.CreateMockMediaFileRepo()
-	repo.SetData(model.MediaFiles{{ID: "song-1", Title: "One More Time", Artist: "Daft Punk", Album: "[Unknown Album]"}})
+	repo.SetData(model.MediaFiles{{ID: "song-1", Title: "One More Time", Artist: "Daft Punk"}})
 	spotify := func(_ context.Context, _ model.MediaFile) (spotifyLookupResult, error) {
-		return spotifyLookupResult{Album: "Discovery", Year: 2001, Genre: "House", Confidence: 0.9, Found: true}, nil
+		return spotifyLookupResult{Genre: "House", Confidence: 0.9, Found: true}, nil
 	}
-	// No AI provider and no MusicBrainz: Spotify alone fills album/year at the
+	// No AI provider and no iTunes: Spotify's genre alone scores at the
 	// Spotify confidence level.
 	songs, err := fetchSongMetadata(context.Background(), repo, nil, nil, spotify, []string{"song-1"})
 	if err != nil {
 		t.Fatalf("fetch metadata: %v", err)
 	}
-	if songs[0].Album != "Discovery" || songs[0].AlbumConfidence != metadataConfidenceSpotify {
-		t.Fatalf("expected Spotify album at score %d, got %q %d", metadataConfidenceSpotify, songs[0].Album, songs[0].AlbumConfidence)
+	if songs[0].SpotifyGenre != "House" || songs[0].GenreConfidence != metadataConfidenceSpotify {
+		t.Fatalf("expected Spotify genre at score %d, got %q %d", metadataConfidenceSpotify, songs[0].SpotifyGenre, songs[0].GenreConfidence)
 	}
-	if songs[0].Year != 2001 || songs[0].YearConfidence != metadataConfidenceSpotify {
-		t.Fatalf("expected Spotify year at score %d, got %d %d", metadataConfidenceSpotify, songs[0].Year, songs[0].YearConfidence)
+}
+
+func TestFetchSongMetadataKeepsExistingAlbumAndYearAsGenreContext(t *testing.T) {
+	repo := tests.CreateMockMediaFileRepo()
+	repo.SetData(model.MediaFiles{{
+		ID:     "song-1",
+		Title:  "Existing Song",
+		Artist: "Existing Artist",
+		Album:  "Original Album",
+		Year:   1997,
+	}})
+
+	spotify := func(_ context.Context, mf model.MediaFile) (spotifyLookupResult, error) {
+		return spotifyLookupResult{Genre: "Trip Hop", Found: true}, nil
+	}
+	verify := func(_ context.Context, _, _ string) (metadataResult, error) {
+		return metadataResult{Genre: "Trip Hop"}, nil
+	}
+	provider := &promptRecordingAIChatProvider{
+		answer: `{"genre":"Trip Hop","subgenre":"","basis":"song","confidence":95}`,
+	}
+
+	songs, err := fetchSongMetadata(context.Background(), repo, provider, verify, spotify, []string{"song-1"})
+	if err != nil {
+		t.Fatalf("fetch metadata: %v", err)
+	}
+	if len(songs) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(songs))
+	}
+	if songs[0].AIGenre != "Trip Hop" || songs[0].GenreConfidence != metadataConfidenceVerified {
+		t.Fatalf("expected verified genre consensus, got genre=%q confidence=%d", songs[0].AIGenre, songs[0].GenreConfidence)
+	}
+
+	// The genre flow must never write metadata.
+	updated, _ := repo.Get("song-1")
+	if updated.Album != "Original Album" || updated.Year != 1997 {
+		t.Fatalf("existing metadata was overwritten: album=%q year=%d", updated.Album, updated.Year)
+	}
+	// The genre prompt carries the song's own album/year as identification
+	// context.
+	for _, expected := range []string{
+		"Album: Original Album",
+		"Year: 1997",
+	} {
+		if !strings.Contains(provider.prompt, expected) {
+			t.Fatalf("AI genre prompt missing %q:\n%s", expected, provider.prompt)
+		}
+	}
+	if strings.Contains(provider.prompt, "Fetch album") {
+		t.Fatalf("album/year metadata prompt must not run on the AI page:\n%s", provider.prompt)
 	}
 }
 

@@ -62,12 +62,11 @@ const renderPage = (
   actionPath,
   actionRequest,
   ragStatus = defaultRAGStatus,
+  aiStatus = { services: [], whisperModel: 'large-v3' },
 ) => {
   mockHttpClient.mockImplementation((url, options = {}) => {
     if (url === '/api/ai/status') {
-      return Promise.resolve({
-        json: { services: [], whisperModel: 'large-v3' },
-      })
+      return Promise.resolve({ json: aiStatus })
     }
     if (url === '/api/ai/rag/status') {
       return Promise.resolve({ json: ragStatus })
@@ -109,18 +108,33 @@ describe('AiToolPage AI actions', () => {
   })
 
   it('stops an in-progress lyrics fetch', async () => {
-    const signals = []
-    renderPage('/api/ai/songs/', createAbortableRequest(signals))
+    const requests = []
+    renderPage('/api/ai/lyrics/fetch-job', (url, options = {}) => {
+      if (url.endsWith('/status'))
+        return Promise.resolve({ json: { status: 'idle' } })
+      requests.push({ url, method: options.method })
+      if (options.method === 'DELETE') {
+        return Promise.resolve({
+          json: { status: 'stopped', running: false, done: 0, total: 2 },
+        })
+      }
+      return Promise.resolve({
+        json: { status: 'running', running: true, done: 0, total: 2 },
+      })
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
-    const stopButton = await screen.findByRole('button', { name: 'Stop' })
-    expect(signals).toHaveLength(1)
+    await screen.findByRole('button', { name: 'Stop' })
 
-    fireEvent.click(stopButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
 
-    await waitFor(() => expect(signals[0].aborted).toBe(true))
+    await waitFor(() =>
+      expect(requests).toEqual([
+        { url: '/api/ai/lyrics/fetch-job', method: 'POST' },
+        { url: '/api/ai/lyrics/fetch-job', method: 'DELETE' },
+      ]),
+    )
     expect(await screen.findByText(/Stopped/)).toBeInTheDocument()
-    expect(signals).toHaveLength(1)
   })
 
   it('shows the read-only RAG configuration status', async () => {
@@ -167,6 +181,23 @@ describe('AiToolPage AI actions', () => {
     expect(
       await screen.findByRole('region', { name: 'RAG status' }),
     ).toBeVisible()
+  })
+
+  it('shows Whisper as busy instead of offline while it is fetching', async () => {
+    renderPage(
+      '/api/unused',
+      () => Promise.resolve({ json: {} }),
+      defaultRAGStatus,
+      {
+        services: [
+          { id: 'whisper', label: 'Whisper', online: true, state: 'busy' },
+        ],
+        whisperModel: 'large-v3',
+      },
+    )
+
+    const whisper = await screen.findByText('Whisper')
+    expect(within(whisper.parentElement).getByText('Busy')).toBeInTheDocument()
   })
 
   it('shows Qdrant offline and its error message', async () => {
@@ -263,7 +294,9 @@ describe('AiToolPage AI actions', () => {
       await screen.findByText('Indexed 2, skipped 1, failed 0.'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Already indexed songs are skipped.'),
+      screen.getByText(
+        'Index skips unchanged songs. Refresh updates the latest information for songs already stored in Qdrant.',
+      ),
     ).toBeInTheDocument()
     await waitFor(() =>
       expect(
@@ -324,6 +357,147 @@ describe('AiToolPage AI actions', () => {
     expect(
       await screen.findByText('Refreshed 50, skipped 0, failed 0.'),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Index skips unchanged songs. Refresh updates the latest information for songs already stored in Qdrant.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('adds fetched song lyrics to Qdrant', async () => {
+    const requests = []
+    renderPage('/api/ai/rag/lyrics', (_url, options) => {
+      requests.push({ method: options.method, body: JSON.parse(options.body) })
+      return Promise.resolve({
+        json: { indexed: 8, skipped: 2, failed: 0 },
+      })
+    })
+
+    const status = await screen.findByRole('region', { name: 'RAG status' })
+    const addButton = within(status).getByRole('button', {
+      name: 'Add Qdrant lyrics',
+    })
+    await waitFor(() => expect(addButton).toBeEnabled())
+    fireEvent.click(addButton)
+
+    await waitFor(() =>
+      expect(requests).toEqual([{ method: 'POST', body: { limit: 500 } }]),
+    )
+    expect(
+      await screen.findByText(
+        'Added or updated 8 Qdrant lyrics, skipped 2, failed 0.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('views and searches words stored inside Qdrant lyrics', async () => {
+    const requests = []
+    renderPage('/api/ai/rag/lyrics', (url) => {
+      requests.push(url)
+      const isSearch = url.includes('query=vikash')
+      return Promise.resolve({
+        json: {
+          collection: 'test_songs',
+          count: 1,
+          query: isSearch ? 'vikash' : '',
+          songs: [
+            {
+              songId: 'song-v',
+              title: isSearch ? 'Vikash Song' : 'Stored Song',
+              artist: 'Artist',
+              album: 'Album',
+              year: 2026,
+              genre: 'Pop',
+              hasLyrics: true,
+              lyricsText: isSearch
+                ? 'hello vikash welcome home'
+                : 'already stored lyrics',
+            },
+          ],
+        },
+      })
+    })
+
+    const status = await screen.findByRole('region', { name: 'RAG status' })
+    const viewButton = within(status).getByRole('button', {
+      name: 'View Qdrant lyrics',
+    })
+    await waitFor(() => expect(viewButton).toBeEnabled())
+    fireEvent.click(viewButton)
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Qdrant lyrics',
+    })
+    expect(requests).toEqual(['/api/ai/rag/lyrics?limit=500'])
+    expect(
+      within(dialog).getByRole('table', { name: 'Qdrant lyrics table' }),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText('already stored lyrics'),
+    ).toBeInTheDocument()
+
+    fireEvent.change(
+      within(dialog).getByRole('textbox', {
+        name: 'Search words in Qdrant lyrics',
+      }),
+      { target: { value: 'vikash' } },
+    )
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Search lyrics' }),
+    )
+
+    await waitFor(() =>
+      expect(requests).toEqual([
+        '/api/ai/rag/lyrics?limit=500',
+        '/api/ai/rag/lyrics?limit=500&query=vikash',
+      ]),
+    )
+    expect(await within(dialog).findByText('Vikash Song')).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(/hello vikash welcome home/),
+    ).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'View lyrics' }))
+    const details = await screen.findByRole('dialog', { name: 'Vikash Song' })
+    expect(
+      within(details).getByText('hello vikash welcome home'),
+    ).toBeInTheDocument()
+  })
+
+  it('clears the indexed RAG collection after confirmation', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const requests = []
+    renderPage('/api/ai/rag/index', (_url, options) => {
+      requests.push(options.method)
+      return Promise.resolve({
+        json: { collection: 'test_songs', cleared: true },
+      })
+    })
+
+    const status = await screen.findByRole('region', { name: 'RAG status' })
+    const button = within(status).getByRole('button', {
+      name: 'Clear indexed songs',
+    })
+    await waitFor(() => expect(button).toBeEnabled())
+    fireEvent.click(button)
+
+    await waitFor(() => expect(requests).toEqual(['DELETE']))
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Clear all indexed RAG data from test_songs? This only deletes the vector index; your Navidrome songs and files stay untouched.',
+    )
+    expect(
+      await screen.findByText(
+        'Cleared indexed songs from test_songs. Reindex when ready.',
+      ),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        mockHttpClient.mock.calls.filter(
+          ([url]) => url === '/api/ai/rag/status',
+        ),
+      ).toHaveLength(2),
+    )
+    confirmSpy.mockRestore()
   })
 
   it('opens the Qdrant collection and indexed songs table', async () => {
@@ -535,6 +709,135 @@ describe('AiToolPage AI actions', () => {
     expect(screen.getByText('We are the ⟦champions⟧')).toBeInTheDocument()
   })
 
+  it('labels exact lyrics responses as direct Qdrant results', async () => {
+    renderPage('/api/ai/chat', () =>
+      Promise.resolve({
+        json: {
+          response:
+            'Here is 1 indexed song containing "thank you" in the lyrics:\n\n1. Gratitude — Singer\n   …say ⟦thank you⟧ my friend…',
+          provider: 'gemma-3-4b',
+          direct: true,
+          sources: [
+            {
+              songId: 'song-1',
+              title: 'Gratitude',
+              artist: 'Singer',
+              lyricSnippet: '…say ⟦thank you⟧ my friend…',
+            },
+          ],
+        },
+      }),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
+    const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
+    fireEvent.change(
+      within(ragDialog).getByPlaceholderText('Ask RAG about your library...'),
+      { target: { value: 'songs with the words thank you in it' } },
+    )
+    fireEvent.click(within(ragDialog).getByTitle('Send RAG message'))
+
+    expect(
+      await within(ragDialog).findByText('Qdrant exact search'),
+    ).toBeInTheDocument()
+    expect(
+      await within(ragDialog).findByText(/Here is 1 indexed song containing/),
+    ).toBeInTheDocument()
+    expect(within(ragDialog).queryByText('Sources')).not.toBeInTheDocument()
+  })
+
+  it('shows an opt-in developer trace with exact prompts and raw responses', async () => {
+    const requests = []
+    renderPage('/api/ai/chat', (_url, options) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({
+        json: {
+          response: 'Try Bright Song.',
+          provider: 'gemma-3-4b',
+          model: 'gemma3:4b',
+          trace: {
+            requestId: 'trace-123',
+            provider: 'gemma-3-4b',
+            model: 'gemma3:4b',
+            useRag: true,
+            durationMs: 42,
+            stages: [
+              {
+                id: 'retrieval',
+                label: 'Searched the indexed music library',
+                status: 'completed',
+                durationMs: 12,
+                detail: 'Qdrant vector similarity search',
+                input: { query: 'bright songs', topK: 12 },
+                output: { count: 1 },
+              },
+              {
+                id: 'prompt',
+                label: 'Built the final answer prompt',
+                status: 'completed',
+                prompt: 'EXACT FINAL PROMPT WITH RETRIEVED CONTEXT',
+              },
+              {
+                id: 'answer',
+                label: 'Called AI for the final answer',
+                status: 'completed',
+                durationMs: 30,
+                prompt: 'EXACT FINAL PROMPT WITH RETRIEVED CONTEXT',
+                response: 'RAW PROVIDER RESPONSE',
+              },
+            ],
+          },
+        },
+      })
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
+    const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
+    const traceSwitch = within(ragDialog).getByRole('checkbox', {
+      name: 'Developer Trace',
+    })
+    expect(traceSwitch).not.toBeChecked()
+    fireEvent.click(traceSwitch)
+    expect(localStorage.getItem('aiToolChatDeveloperTrace')).toBe('true')
+
+    fireEvent.change(
+      within(ragDialog).getByPlaceholderText('Ask RAG about your library...'),
+      { target: { value: 'Show bright songs' } },
+    )
+    fireEvent.click(within(ragDialog).getByTitle('Send RAG message'))
+
+    expect(
+      await within(ragDialog).findByText('Try Bright Song.'),
+    ).toBeInTheDocument()
+    expect(requests[0].developerTrace).toBe(true)
+    fireEvent.click(
+      within(ragDialog).getByRole('button', { name: /Behind the scenes/i }),
+    )
+    expect(
+      await within(ragDialog).findByText(/Request trace-123/),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      within(ragDialog).getByRole('button', {
+        name: /Built the final answer prompt/i,
+      }),
+    )
+    expect(
+      await within(ragDialog).findByText(
+        'EXACT FINAL PROMPT WITH RETRIEVED CONTEXT',
+      ),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      within(ragDialog).getByRole('button', {
+        name: /Called AI for the final answer/i,
+      }),
+    )
+    expect(
+      await within(ragDialog).findByText('RAW PROVIDER RESPONSE'),
+    ).toBeInTheDocument()
+  })
+
   it('sends recent RAG conversation history with a follow-up', async () => {
     const requests = []
     renderPage('/api/ai/chat', (_url, options) => {
@@ -654,41 +957,369 @@ describe('AiToolPage AI actions', () => {
       JSON.stringify([{ ...songs[0], lyrics: 'saved' }, songs[1]]),
     )
     const requests = []
-    renderPage('/api/ai/songs/', (url, options) => {
-      requests.push({ url, method: options.method })
-      return Promise.resolve({ json: { language: 'eng', text: 'Fetched' } })
+    renderPage('/api/ai/lyrics/fetch-job', (url, options = {}) => {
+      if (url.endsWith('/status'))
+        return Promise.resolve({ json: { status: 'idle' } })
+      requests.push({
+        url,
+        method: options.method,
+        body: JSON.parse(options.body),
+      })
+      return Promise.resolve({
+        json: { status: 'running', running: true, done: 0, total: 1 },
+      })
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
 
     await waitFor(() =>
       expect(requests).toEqual([
-        { url: '/api/ai/songs/song-2/lyrics/fetch', method: 'POST' },
+        {
+          url: '/api/ai/lyrics/fetch-job',
+          method: 'POST',
+          body: { songIds: ['song-2'] },
+        },
       ]),
     )
   })
 
+  it('toggles automatic fetching for all songs on the AI page', async () => {
+    const requests = []
+    renderPage('/api/ai/lyrics/fetch-job', (url, options = {}) => {
+      if (url.endsWith('/status'))
+        return Promise.resolve({ json: { status: 'idle' } })
+      if (options.method === 'DELETE') {
+        requests.push({ url, method: options.method })
+        return Promise.resolve({
+          json: { status: 'stopped', running: false, done: 0, total: 2 },
+        })
+      }
+      requests.push({
+        url,
+        method: options.method,
+        body: JSON.parse(options.body),
+      })
+      return Promise.resolve({
+        json: { status: 'running', running: true, done: 0, total: 2 },
+      })
+    })
+
+    const setIntervalSpy = vi.spyOn(window, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
+    try {
+      const switchControl = await screen.findByRole('checkbox', {
+        name: 'Fetch All Song Lyrics',
+      })
+      expect(switchControl).not.toBeChecked()
+      fireEvent.click(switchControl)
+
+      await waitFor(() =>
+        expect(requests).toEqual([
+          {
+            url: '/api/ai/lyrics/fetch-job',
+            method: 'POST',
+            body: { songIds: ['song-1', 'song-2'] },
+          },
+        ]),
+      )
+      expect(setIntervalSpy).toHaveBeenCalledWith(
+        expect.any(Function),
+        10 * 60 * 1000,
+      )
+      expect(switchControl).toBeChecked()
+      expect(
+        await screen.findByRole('button', { name: 'Fetching Lyrics...' }),
+      ).toBeDisabled()
+      expect(await screen.findByText(/0\/2 done, 2 left/)).toBeInTheDocument()
+      await waitFor(() =>
+        expect(localStorage.getItem('aiToolAutoFetchAllLyrics')).toBe('true'),
+      )
+
+      fireEvent.click(switchControl)
+
+      expect(switchControl).not.toBeChecked()
+      expect(screen.queryByText(/0\/2 done, 2 left/)).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(requests).toEqual([
+          {
+            url: '/api/ai/lyrics/fetch-job',
+            method: 'POST',
+            body: { songIds: ['song-1', 'song-2'] },
+          },
+          { url: '/api/ai/lyrics/fetch-job', method: 'DELETE' },
+        ]),
+      )
+      expect(
+        await screen.findByRole('button', { name: 'Fetch Lyrics' }),
+      ).toBeInTheDocument()
+      await waitFor(() =>
+        expect(localStorage.getItem('aiToolAutoFetchAllLyrics')).toBe('false'),
+      )
+      expect(clearIntervalSpy).toHaveBeenCalled()
+    } finally {
+      setIntervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
+  })
+
+  it('keeps automatic lyric fetching enabled after a page refresh', async () => {
+    localStorage.setItem('aiToolAutoFetchAllLyrics', 'true')
+    const requests = []
+    renderPage('/api/ai/lyrics/fetch-job', (url, options = {}) => {
+      if (url.endsWith('/status'))
+        return Promise.resolve({ json: { status: 'idle' } })
+      requests.push({
+        url,
+        method: options.method,
+        body: JSON.parse(options.body),
+      })
+      return Promise.resolve({
+        json: { status: 'running', running: true, done: 0, total: 2 },
+      })
+    })
+
+    const switchControl = await screen.findByRole('checkbox', {
+      name: 'Fetch All Song Lyrics',
+    })
+    expect(switchControl).toBeChecked()
+    await waitFor(() =>
+      expect(requests).toEqual([
+        {
+          url: '/api/ai/lyrics/fetch-job',
+          method: 'POST',
+          body: { songIds: ['song-1', 'song-2'] },
+        },
+      ]),
+    )
+  })
+
+  it('continuously fetches metadata with the selected default provider', async () => {
+    const requests = []
+    renderPage('/api/ai/fetch-metadata', (_url, options = {}) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({ json: { songs: [] } })
+    })
+
+    const providerSelector = await screen.findByRole('button', {
+      name: 'Default Metadata AI Provider',
+    })
+    fireEvent.mouseDown(providerSelector)
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'DeepSeek V3.2' }),
+    )
+
+    await waitFor(() =>
+      expect(localStorage.getItem('aiToolMetadataAIProvider')).toBe(
+        'deepseek-v3.2',
+      ),
+    )
+
+    const setIntervalSpy = vi.spyOn(window, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
+    try {
+      const switchControl = screen.getByRole('checkbox', {
+        name: 'Fetch All Song Metadata',
+      })
+      expect(switchControl).not.toBeChecked()
+      fireEvent.click(switchControl)
+
+      await waitFor(() =>
+        expect(requests).toEqual([
+          { songIds: ['song-1'], provider: 'deepseek-v3.2' },
+          { songIds: ['song-2'], provider: 'deepseek-v3.2' },
+        ]),
+      )
+      expect(setIntervalSpy).toHaveBeenCalledWith(
+        expect.any(Function),
+        10 * 60 * 1000,
+      )
+      expect(switchControl).toBeChecked()
+      expect(await screen.findByText(/2\/2 done, 0 left/)).toBeInTheDocument()
+      await waitFor(() =>
+        expect(localStorage.getItem('aiToolAutoFetchAllMetadata')).toBe('true'),
+      )
+
+      fireEvent.click(switchControl)
+
+      expect(switchControl).not.toBeChecked()
+      expect(screen.queryByText(/2\/2 done, 0 left/)).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(localStorage.getItem('aiToolAutoFetchAllMetadata')).toBe(
+          'false',
+        ),
+      )
+      expect(clearIntervalSpy).toHaveBeenCalled()
+    } finally {
+      setIntervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
+  })
+
+  it('uses the metadata provider as the manual fetch default', async () => {
+    localStorage.setItem('aiToolMetadataAIProvider', 'gemini-2.5')
+    renderPage('/api/unused', () => Promise.resolve({ json: {} }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByRole('button', { name: 'Gemini 2.5' }),
+    ).toBeInTheDocument()
+  })
+
+  it('stops automatic metadata fetching when disabled and labels its spinner', async () => {
+    const signals = []
+    renderPage('/api/ai/fetch-metadata', createAbortableRequest(signals))
+
+    const switchControl = await screen.findByRole('checkbox', {
+      name: 'Fetch All Song Metadata',
+    })
+    fireEvent.click(switchControl)
+
+    expect(
+      await screen.findByRole('button', { name: 'Fetching Metadata...' }),
+    ).toBeDisabled()
+    expect(signals).toHaveLength(1)
+
+    fireEvent.click(switchControl)
+
+    await waitFor(() => expect(signals[0].aborted).toBe(true))
+    expect(
+      await screen.findByRole('button', { name: 'Fetch AI Metadata' }),
+    ).toBeInTheDocument()
+  })
+
+  it('reconnects to a running lyrics job and highlights its current song', async () => {
+    renderPage('/api/ai/lyrics/fetch-job/status', () =>
+      Promise.resolve({
+        json: {
+          status: 'running',
+          running: true,
+          currentSongId: 'song-2',
+          currentTitle: 'Second song',
+          done: 7,
+          total: 11,
+          startedAt: new Date(Date.now() - 7000).toISOString(),
+        },
+      }),
+    )
+
+    expect(
+      await screen.findByText(/Fetching lyrics: Second song/),
+    ).toBeInTheDocument()
+    expect(await screen.findByText(/7\/11 done, 4 left/)).toBeInTheDocument()
+    expect(screen.getByText('Second song').closest('tr')).toHaveAttribute(
+      'data-lyrics-fetching',
+      'true',
+    )
+    expect(screen.getByText('First song').closest('tr')).not.toHaveAttribute(
+      'data-lyrics-fetching',
+    )
+  })
+
+  it('keeps metadata available and only excludes songs currently fetching lyrics from explicit classification', async () => {
+    renderPage('/api/ai/lyrics/fetch-job/status', () =>
+      Promise.resolve({
+        json: {
+          status: 'running',
+          running: true,
+          songIds: ['song-1'],
+          currentTitle: 'First song',
+          done: 0,
+          total: 1,
+        },
+      }),
+    )
+
+    expect(
+      await screen.findByText(/Fetching lyrics: First song/),
+    ).toBeInTheDocument()
+    const whisper = screen.getByText('Whisper')
+    expect(within(whisper.parentElement).getByText('Busy')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Fetch AI Metadata' }),
+    ).toBeEnabled()
+
+    const classifyButton = screen.getByRole('button', {
+      name: 'Classify Explicit',
+    })
+    expect(classifyButton).toBeEnabled()
+    fireEvent.click(classifyButton)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByText('Choose the AI model for 1 song.'),
+    ).toBeInTheDocument()
+  })
+
+  it('runs and stops metadata independently while Whisper keeps fetching', async () => {
+    const metadataSignals = []
+    renderPage('/api/ai/', (url, options = {}) => {
+      if (url === '/api/ai/lyrics/fetch-job/status') {
+        return Promise.resolve({
+          json: {
+            status: 'running',
+            running: true,
+            songIds: ['song-1'],
+            currentTitle: 'First song',
+            done: 0,
+            total: 1,
+          },
+        })
+      }
+      if (url === '/api/ai/fetch-metadata') {
+        return createAbortableRequest(metadataSignals)(url, options)
+      }
+      return Promise.resolve({ json: {} })
+    })
+
+    expect(
+      await screen.findByText(/Fetching lyrics: First song/),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
+    )
+
+    expect(
+      await screen.findByText(/Fetching AI metadata: First song/),
+    ).toBeInTheDocument()
+    const stopButtons = await screen.findAllByRole('button', { name: 'Stop' })
+    expect(stopButtons).toHaveLength(2)
+    fireEvent.click(stopButtons[1])
+
+    await waitFor(() => expect(metadataSignals[0].aborted).toBe(true))
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1),
+    )
+    expect(screen.getByText(/Whisper running/)).toBeInTheDocument()
+  })
+
   it('shows how long Whisper runs and the completed lyrics fetch time', async () => {
     localStorage.setItem('aiToolAddedSongs', JSON.stringify([songs[0]]))
-    let resolveRequest
     const now = vi.spyOn(Date, 'now').mockReturnValue(1000)
 
     try {
-      renderPage(
-        '/api/ai/songs/song-1/lyrics/fetch',
-        () =>
-          new Promise((resolve) => {
-            resolveRequest = resolve
-          }),
-      )
+      renderPage('/api/ai/lyrics/fetch-job', (url, options = {}) => {
+        if (url.endsWith('/status'))
+          return Promise.resolve({ json: { status: 'idle' } })
+        expect(options.method).toBe('POST')
+        return Promise.resolve({
+          json: {
+            status: 'complete',
+            running: false,
+            currentTitle: 'Complete',
+            done: 1,
+            total: 1,
+            startedAt: new Date(1000).toISOString(),
+            finishedAt: new Date(6200).toISOString(),
+            results: [{ songId: 'song-1', success: true }],
+          },
+        })
+      })
 
       fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
-      expect(
-        await screen.findByText(/Whisper running for 0 seconds/),
-      ).toBeInTheDocument()
-
-      now.mockReturnValue(6200)
-      resolveRequest({ json: { language: 'eng', text: 'Fetched' } })
 
       expect(
         await screen.findByText(
@@ -700,29 +1331,42 @@ describe('AiToolPage AI actions', () => {
     }
   })
 
-  it('shows transcription coverage and flags a truncated fetch', async () => {
+  it('keeps a failed whole-song fetch unavailable', async () => {
     localStorage.setItem('aiToolAddedSongs', JSON.stringify([songs[0]]))
-    renderPage('/api/ai/songs/song-1/lyrics/fetch', () =>
-      Promise.resolve({
+    renderPage('/api/ai/lyrics/fetch-job', (url) => {
+      if (url.endsWith('/status'))
+        return Promise.resolve({ json: { status: 'idle' } })
+      return Promise.resolve({
         json: {
-          language: 'eng',
-          text: 'partial lyrics',
-          coverage: 0.6,
-          transcribedSeconds: 120,
-          totalSeconds: 200,
-          truncated: true,
+          status: 'failed',
+          running: false,
+          currentTitle: 'Failed',
+          done: 1,
+          total: 1,
+          error: 'Whisper did not finish the complete song',
+          results: [
+            {
+              songId: 'song-1',
+              success: false,
+              status: 'failed',
+              error: 'Whisper did not finish the complete song',
+            },
+          ],
         },
-      }),
-    )
+      })
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
 
-    const coverage = await screen.findByText('60% ⚠')
-    expect(coverage).toBeInTheDocument()
-    expect(coverage).toHaveAttribute(
-      'title',
-      expect.stringContaining('02:00 of 03:20 transcribed'),
-    )
+    expect(
+      await screen.findByText('Whisper did not finish the complete song'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Available' }),
+    ).not.toBeInTheDocument()
+    expect(
+      JSON.parse(localStorage.getItem('aiToolAddedSongs'))[0].lyrics || '',
+    ).toBe('')
   })
 
   it('deletes lyrics for selected songs in bulk', async () => {
@@ -743,7 +1387,7 @@ describe('AiToolPage AI actions', () => {
       { url: '/api/ai/songs/song-1/lyrics', method: 'DELETE' },
       { url: '/api/ai/songs/song-2/lyrics', method: 'DELETE' },
     ])
-    await waitFor(() => expect(screen.getAllByText('Missing')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('Failed')).toHaveLength(2))
   })
 
   it('deletes lyrics for an individual song from its row actions', async () => {
@@ -763,7 +1407,7 @@ describe('AiToolPage AI actions', () => {
     )
 
     await waitFor(() => expect(requests).toEqual(['DELETE']))
-    expect(await screen.findByText('Missing')).toBeInTheDocument()
+    expect(await screen.findByText('Failed')).toBeInTheDocument()
   })
 
   it('stops an in-progress metadata fetch', async () => {
@@ -887,7 +1531,7 @@ describe('AiToolPage AI actions', () => {
     expect(requests[0].provider).toBe('gemma-3-4b')
   })
 
-  it('shows confidence for fetched album, year, and genre', async () => {
+  it('shows confidence for the fetched genre', async () => {
     renderPage('/api/ai/fetch-metadata', (_url, options) => {
       const request = JSON.parse(options.body)
       return Promise.resolve({
@@ -895,11 +1539,7 @@ describe('AiToolPage AI actions', () => {
           songs: [
             {
               id: request.songIds[0],
-              album: 'Fetched album',
-              year: 2024,
               aiGenre: 'Indie rock',
-              albumConfidence: 91,
-              yearConfidence: 82,
               genreConfidence: 73,
             },
           ],
@@ -914,10 +1554,55 @@ describe('AiToolPage AI actions', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getAllByText('91%')).toHaveLength(2)
-      expect(screen.getAllByText('82%')).toHaveLength(2)
       expect(screen.getAllByText('73%')).toHaveLength(2)
     })
+  })
+
+  it('leaves existing album and year untouched when fetching genre', async () => {
+    localStorage.setItem(
+      'aiToolAddedSongs',
+      JSON.stringify([
+        {
+          ...songs[0],
+          album: 'Original Album',
+          year: 1997,
+        },
+      ]),
+    )
+    renderPage('/api/ai/fetch-metadata', (_url, options) => {
+      const request = JSON.parse(options.body)
+      return Promise.resolve({
+        json: {
+          songs: [
+            {
+              id: request.songIds[0],
+              aiGenre: 'Trip Hop',
+              genreConfidence: 85,
+            },
+          ],
+        },
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
+    )
+
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem('aiToolAddedSongs'))[0]
+      expect(saved.aiGenre).toBe('Trip Hop')
+      expect(saved.album).toBe('Original Album')
+      expect(saved.year).toBe(1997)
+      expect(saved.metadataConfidence.genre).toBe(85)
+    })
+    expect(
+      screen.getByText('Original Album').closest('td').className,
+    ).toContain('valueExisting')
+    expect(screen.getByText('1997').closest('td').className).toContain(
+      'valueExisting',
+    )
   })
 
   it('shows all three fetched genres in their own columns', async () => {
@@ -951,7 +1636,98 @@ describe('AiToolPage AI actions', () => {
     })
     // Column headers exist for each source.
     expect(screen.getAllByText('Spotify Genre').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('MusicBrainz Genre').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('iTunes Genre').length).toBeGreaterThan(0)
+  })
+
+  it('opens developer traces from the fetched iTunes and AI genres', async () => {
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify([songs[0]]))
+    renderPage('/api/ai/fetch-metadata', (_url, options) => {
+      const request = JSON.parse(options.body)
+      return Promise.resolve({
+        json: {
+          songs: [
+            {
+              id: request.songIds[0],
+              musicBrainzGenre: 'Dream Pop',
+              aiGenre: 'Shoegaze',
+              genreConfidence: 100,
+              genreDeveloperTrace: {
+                itunes: {
+                  source: 'itunes',
+                  request:
+                    'https://itunes.apple.com/search?entity=song&term=Artist+First+song',
+                  response:
+                    '{"results":[{"trackName":"First song","artistName":"Artist","primaryGenreName":"Dream Pop"}]}',
+                  fetchedGenre: 'Dream Pop',
+                },
+                ai: {
+                  source: 'ai',
+                  provider: 'deepseek-v3.2',
+                  model: 'deepseek.v3.2',
+                  prompt: 'Classify the exact genre for First song.',
+                  response:
+                    '{"genre":"Shoegaze","subgenre":"","basis":"song","confidence":95}',
+                  fetchedGenre: 'Shoegaze',
+                  attempts: [
+                    {
+                      number: 1,
+                      prompt: 'Classify the exact genre for First song.',
+                      response:
+                        '{"genre":"Shoegaze","subgenre":"","basis":"song","confidence":95}',
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+    const modelDialog = await screen.findByRole('dialog')
+    fireEvent.click(
+      within(modelDialog).getByRole('button', { name: 'Fetch Metadata' }),
+    )
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'View iTunes genre developer trace for First song',
+      }),
+    )
+    const itunesDialog = await screen.findByRole('dialog', {
+      name: 'iTunes Genre Developer Trace',
+    })
+    expect(
+      within(itunesDialog).getByText(/itunes\.apple\.com\/search/),
+    ).toBeInTheDocument()
+    expect(
+      within(itunesDialog).getByText(/primaryGenreName.*Dream Pop/),
+    ).toBeInTheDocument()
+    expect(itunesDialog).toHaveTextContent('Fetched genre: Dream Pop')
+    fireEvent.click(within(itunesDialog).getByRole('button', { name: 'Close' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'View AI genre developer trace for First song',
+      }),
+    )
+    const aiDialog = await screen.findByRole('dialog', {
+      name: 'AI Genre Developer Trace',
+    })
+    expect(
+      within(aiDialog).getByText('Classify the exact genre for First song.'),
+    ).toBeInTheDocument()
+    expect(within(aiDialog).getByText(/"genre":"Shoegaze"/)).toBeInTheDocument()
+    expect(aiDialog).toHaveTextContent('Provider: DeepSeek V3.2')
+    expect(aiDialog).toHaveTextContent('Model: deepseek.v3.2')
+
+    const saved = JSON.parse(localStorage.getItem('aiToolAddedSongs'))[0]
+    expect(saved.genreDeveloperTrace.itunes.fetchedGenre).toBe('Dream Pop')
+    expect(saved.genreDeveloperTrace.ai.fetchedGenre).toBe('Shoegaze')
   })
 
   it('keeps the RAG chat closed until opened', async () => {
@@ -963,7 +1739,7 @@ describe('AiToolPage AI actions', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('explains how a confidence score was resolved when clicked', async () => {
+  it('explains how a genre confidence score was resolved when clicked', async () => {
     renderPage('/api/ai/fetch-metadata', (_url, options) => {
       const request = JSON.parse(options.body)
       return Promise.resolve({
@@ -971,18 +1747,16 @@ describe('AiToolPage AI actions', () => {
           songs: [
             {
               id: request.songIds[0],
-              album: 'Discovery',
-              albumConfidence: 100,
+              aiGenre: 'French House',
+              genreConfidence: 100,
               confidenceBreakdown: {
-                album: {
+                genre: {
                   source: 'verified',
-                  spotify: 'Discovery',
-                  musicBrainz: 'Discovery',
-                  ai: '',
+                  spotify: 'French House',
+                  musicBrainz: 'French House',
+                  ai: 'French House',
                   confidence: 100,
                 },
-                year: { source: 'none', confidence: 0 },
-                genre: { source: 'none', confidence: 0 },
               },
             },
           ],
@@ -1001,13 +1775,13 @@ describe('AiToolPage AI actions', () => {
 
     const breakdownDialog = await screen.findByRole('dialog')
     expect(
-      within(breakdownDialog).getByText(/How the Album confidence was/i),
+      within(breakdownDialog).getByText(/How the Genre confidence was/i),
     ).toBeInTheDocument()
     expect(
       within(breakdownDialog).getByText(/Two independent sources agree/i),
     ).toBeInTheDocument()
     expect(within(breakdownDialog).getByText('Spotify')).toBeInTheDocument()
-    expect(within(breakdownDialog).getByText('MusicBrainz')).toBeInTheDocument()
+    expect(within(breakdownDialog).getByText('iTunes')).toBeInTheDocument()
   })
 
   it('clears only AI-fetched metadata for selected songs', async () => {
@@ -1017,6 +1791,9 @@ describe('AiToolPage AI actions', () => {
         album: 'AI Album',
         year: 2024,
         aiGenre: 'AI Rock',
+        genreDeveloperTrace: {
+          ai: { prompt: 'old prompt', response: 'old response' },
+        },
         metadataConfidence: { album: 91, year: 82, genre: 73 },
         aiFields: { album: true, year: true, aiGenre: true },
       },
@@ -1055,6 +1832,7 @@ describe('AiToolPage AI actions', () => {
         aiGenre: '',
         metadataConfidence: {},
       })
+      expect(saved[0].genreDeveloperTrace).toBeUndefined()
       expect(saved[1]).toMatchObject({
         album: 'Original Album',
         year: 1999,
@@ -1102,12 +1880,6 @@ describe('AiToolPage AI actions', () => {
     fireEvent.keyDown(menu, { key: 'Escape' })
 
     expect(
-      screen.queryByRole('columnheader', { name: 'Album Confidence' }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('columnheader', { name: 'Year Confidence' }),
-    ).not.toBeInTheDocument()
-    expect(
       screen.queryByRole('columnheader', { name: 'Genre Confidence' }),
     ).not.toBeInTheDocument()
 
@@ -1121,12 +1893,6 @@ describe('AiToolPage AI actions', () => {
     fireEvent.keyDown(reopenedMenu, { key: 'Escape' })
 
     expect(
-      screen.getByRole('columnheader', { name: 'Album Confidence' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('columnheader', { name: 'Year Confidence' }),
-    ).toBeInTheDocument()
-    expect(
       screen.getByRole('columnheader', { name: 'Genre Confidence' }),
     ).toBeInTheDocument()
   })
@@ -1136,22 +1902,10 @@ describe('AiToolPage AI actions', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide Confidence' }))
     expect(
-      screen.queryByRole('columnheader', { name: 'Album Confidence' }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('columnheader', { name: 'Year Confidence' }),
-    ).not.toBeInTheDocument()
-    expect(
       screen.queryByRole('columnheader', { name: 'Genre Confidence' }),
     ).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Confidence' }))
-    expect(
-      screen.getByRole('columnheader', { name: 'Album Confidence' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('columnheader', { name: 'Year Confidence' }),
-    ).toBeInTheDocument()
     expect(
       screen.getByRole('columnheader', { name: 'Genre Confidence' }),
     ).toBeInTheDocument()

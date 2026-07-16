@@ -33,6 +33,15 @@ type SongRepository interface {
 	GetAll(options ...model.QueryOptions) (model.MediaFiles, error)
 }
 
+// IndexedSongRepository can reload the exact Navidrome songs referenced by
+// existing Qdrant points. Refreshing must use those IDs instead of walking the
+// first page of the library, otherwise unrelated songs can be indexed while
+// the records the user asked to refresh remain stale.
+type IndexedSongRepository interface {
+	SongRepository
+	Get(id string) (*model.MediaFile, error)
+}
+
 // PlaylistRepository is the read-only subset needed for optional playlist
 // indexing. Loading tracks with refreshSmartPlaylist=false avoids mutations.
 type PlaylistRepository interface {
@@ -101,6 +110,109 @@ func IndexSongs(
 		budget := limit - (result.Indexed + result.Failed)
 		if err := indexSongPage(ctx, songs, embedder, store, force, embedderTag, budget, &result); err != nil {
 			return result, err
+		}
+		if len(songs) < indexPageSize {
+			break
+		}
+	}
+
+	return result, nil
+}
+
+// RefreshIndexedSongs reloads up to limit songs that are already present in
+// Qdrant and force-upserts their latest Navidrome document, vector, and payload.
+// This updates metadata, lyrics, filter fields, and other indexed information
+// without adding unrelated library songs.
+func RefreshIndexedSongs(
+	ctx context.Context,
+	repository IndexedSongRepository,
+	embedder Embedder,
+	store VectorStore,
+	limit int,
+	embedderTag string,
+) (IndexResult, error) {
+	result := IndexResult{}
+	if limit <= 0 {
+		limit = DefaultIndexLimit
+	}
+	if limit > MaxIndexLimit {
+		return result, fmt.Errorf("index limit must not exceed %d", MaxIndexLimit)
+	}
+
+	logicalIDs, err := store.AllIndexedSongIDs(ctx, limit)
+	if err != nil {
+		return result, fmt.Errorf("could not list indexed songs: %w", err)
+	}
+	if len(logicalIDs) > limit {
+		logicalIDs = logicalIDs[:limit]
+	}
+
+	songs := make(model.MediaFiles, 0, len(logicalIDs))
+	for _, logicalID := range logicalIDs {
+		songID, ok := strings.CutPrefix(strings.TrimSpace(logicalID), "song:")
+		if !ok || strings.TrimSpace(songID) == "" {
+			recordIndexFailure(&result, fmt.Errorf("invalid indexed song ID %q", logicalID))
+			continue
+		}
+		song, loadErr := repository.Get(songID)
+		if loadErr != nil {
+			recordIndexFailure(&result, fmt.Errorf("could not read indexed song %q: %w", songID, loadErr))
+			continue
+		}
+		songs = append(songs, *song)
+	}
+
+	if len(songs) > 0 {
+		if err := indexSongPage(ctx, songs, embedder, store, true, embedderTag, len(songs), &result); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+// IndexSongsWithLyrics scans the Navidrome library for songs with fetched
+// lyrics and force-upserts their latest Qdrant points. The forced write also
+// backfills older points whose content hash is current but whose payload was
+// created before lyricsText was stored. Songs without lyrics are ignored.
+func IndexSongsWithLyrics(
+	ctx context.Context,
+	repository SongRepository,
+	embedder Embedder,
+	store VectorStore,
+	limit int,
+	embedderTag string,
+) (IndexResult, error) {
+	result := IndexResult{}
+	if limit <= 0 {
+		limit = MaxIndexLimit
+	}
+	if limit > MaxIndexLimit {
+		return result, fmt.Errorf("index limit must not exceed %d", MaxIndexLimit)
+	}
+
+	for offset := 0; result.Indexed+result.Failed < limit; {
+		songs, err := repository.GetAll(model.QueryOptions{
+			Sort: "id", Order: "ASC", Max: indexPageSize, Offset: offset,
+		})
+		if err != nil {
+			return result, fmt.Errorf("could not read songs: %w", err)
+		}
+		if len(songs) == 0 {
+			break
+		}
+		offset += len(songs)
+
+		withLyrics := make(model.MediaFiles, 0, len(songs))
+		for index := range songs {
+			if strings.TrimSpace(LyricsText(songs[index])) != "" {
+				withLyrics = append(withLyrics, songs[index])
+			}
+		}
+		if len(withLyrics) > 0 {
+			budget := limit - (result.Indexed + result.Failed)
+			if err := indexSongPage(ctx, withLyrics, embedder, store, true, embedderTag, budget, &result); err != nil {
+				return result, err
+			}
 		}
 		if len(songs) < indexPageSize {
 			break

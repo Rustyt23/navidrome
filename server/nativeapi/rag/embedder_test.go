@@ -112,3 +112,75 @@ func TestGeminiEmbedderRetriesRateLimit(t *testing.T) {
 		t.Fatalf("expected Gemini rate-limit retry, attempts=%d err=%v", attempts, err)
 	}
 }
+
+func TestGeminiEmbedderBatchEmbedsInOneRequest(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requests++
+		var payload struct {
+			Requests []struct {
+				Model   string `json:"model"`
+				Content struct {
+					Parts []geminiEmbeddingPart `json:"parts"`
+				} `json:"content"`
+				TaskType             string `json:"taskType"`
+				OutputDimensionality int    `json:"outputDimensionality"`
+			} `json:"requests"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode batch request: %v", err)
+		}
+		if len(payload.Requests) != 2 {
+			t.Fatalf("expected 2 batched requests, got %d", len(payload.Requests))
+		}
+		for _, item := range payload.Requests {
+			if item.Model != "models/"+geminiEmbeddingModel ||
+				item.TaskType != "RETRIEVAL_DOCUMENT" ||
+				item.OutputDimensionality != GeminiEmbeddingDimensions {
+				t.Fatalf("unexpected batch item: %+v", item)
+			}
+		}
+		first := make([]float32, GeminiEmbeddingDimensions)
+		first[0] = 0.1
+		second := make([]float32, GeminiEmbeddingDimensions)
+		second[0] = 0.2
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": []map[string]any{{"values": first}, {"values": second}},
+		})
+	}))
+	defer server.Close()
+
+	embedder := NewGeminiEmbedder("test-key")
+	embedder.batchEndpoint = server.URL
+	embedder.httpClient = server.Client()
+
+	vectors, err := embedder.EmbedTexts(context.Background(), []string{"song one", "song two"})
+	if err != nil {
+		t.Fatalf("embed texts: %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("expected a single batch request, got %d", requests)
+	}
+	if len(vectors) != 2 || vectors[0][0] != float32(0.1) || vectors[1][0] != float32(0.2) {
+		t.Fatalf("unexpected vectors: %v %v", vectors[0][0], vectors[1][0])
+	}
+}
+
+func TestGeminiEmbedderBatchRejectsCountMismatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		values := make([]float32, GeminiEmbeddingDimensions)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": []map[string]any{{"values": values}},
+		})
+	}))
+	defer server.Close()
+
+	embedder := NewGeminiEmbedder("test-key")
+	embedder.batchEndpoint = server.URL
+	embedder.httpClient = server.Client()
+
+	_, err := embedder.EmbedTexts(context.Background(), []string{"song one", "song two"})
+	if err == nil || !strings.Contains(err.Error(), "returned 1 vectors; expected 2") {
+		t.Fatalf("expected count mismatch error, got %v", err)
+	}
+}

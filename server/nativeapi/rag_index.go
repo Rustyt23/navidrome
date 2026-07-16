@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/server/nativeapi/rag"
 )
 
@@ -28,7 +30,10 @@ type ragIndexResponse struct {
 
 func (n *Router) addRAGAdminRoute(router chi.Router) {
 	router.Post("/ai/rag/index", n.handleRAGIndex)
+	router.Delete("/ai/rag/index", n.handleRAGClearIndex)
 	router.Get("/ai/rag/documents", n.handleRAGDocuments)
+	router.Post("/ai/rag/lyrics", n.handleAddQdrantLyrics)
+	router.Get("/ai/rag/lyrics", n.handleListQdrantLyrics)
 	router.Post("/ai/rag/enabled", n.handleRAGEnabled)
 	router.Post("/ai/whisper/model", n.handleWhisperModel)
 }
@@ -74,6 +79,13 @@ func (n *Router) handleRAGIndex(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	// Collections created before lyric keyword search need the lyrics full-text
+	// index added; failure is not fatal because an unindexed text filter still
+	// works as a slower full scan.
+	if err := qdrant.EnsureLyricsTextIndex(request.Context()); err != nil {
+		log.Warn(request.Context(), "Could not ensure lyrics full-text index", "err", err)
+	}
+
 	result := rag.IndexResult{}
 	deleted := 0
 	if includeSongs {
@@ -92,6 +104,22 @@ func (n *Router) handleRAGIndex(w http.ResponseWriter, request *http.Request) {
 			}
 			result = syncResult.IndexResult
 			deleted = syncResult.Deleted
+		} else if payload.Force {
+			// Refresh the exact song points already stored in Qdrant. A forced
+			// refresh must not select the first N songs from the library because
+			// those may be different from the N songs currently indexed.
+			result, err = rag.RefreshIndexedSongs(
+				request.Context(),
+				n.ds.MediaFile(request.Context()),
+				ragDocumentEmbedder(),
+				qdrant,
+				payload.Limit,
+				ragEmbedderTag(),
+			)
+			if err != nil {
+				writeRAGIndexError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		} else {
 			result, err = rag.IndexSongs(
 				request.Context(),
@@ -99,7 +127,7 @@ func (n *Router) handleRAGIndex(w http.ResponseWriter, request *http.Request) {
 				ragDocumentEmbedder(),
 				qdrant,
 				payload.Limit,
-				payload.Force,
+				false,
 				ragEmbedderTag(),
 			)
 			if err != nil {
@@ -132,6 +160,25 @@ func (n *Router) handleRAGIndex(w http.ResponseWriter, request *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+func (n *Router) handleRAGClearIndex(w http.ResponseWriter, request *http.Request) {
+	if !ragEnabled() {
+		writeRAGIndexError(w, http.StatusServiceUnavailable, "RAG is disabled")
+		return
+	}
+
+	qdrant := newRAGQdrantClient()
+	if err := qdrant.RecreateCollection(request.Context()); err != nil {
+		writeRAGIndexError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"collection": conf.Server.RAGCollection,
+		"cleared":    true,
+	})
 }
 
 func decodeRAGIndexRequest(reader io.Reader) (ragIndexRequest, error) {

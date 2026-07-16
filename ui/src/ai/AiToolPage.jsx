@@ -16,6 +16,7 @@ import {
   LinearProgress,
   Menu,
   MenuItem,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -36,31 +37,32 @@ const ADDED_SONGS_STORAGE_KEY = 'aiToolAddedSongs'
 const DEFAULT_AI_PROVIDER_STORAGE_KEY = 'aiToolDefaultProviderV3'
 const AI_TOOL_COLUMNS_STORAGE_KEY = 'aiToolVisibleColumns'
 const EXPLICIT_WORD_RULES_STORAGE_KEY = 'aiToolExplicitWordRules'
+const AUTO_FETCH_ALL_LYRICS_STORAGE_KEY = 'aiToolAutoFetchAllLyrics'
+const AUTO_FETCH_ALL_METADATA_STORAGE_KEY = 'aiToolAutoFetchAllMetadata'
+const METADATA_AI_PROVIDER_STORAGE_KEY = 'aiToolMetadataAIProvider'
+const AI_CHAT_DEVELOPER_TRACE_STORAGE_KEY = 'aiToolChatDeveloperTrace'
 const DEFAULT_AI_PROVIDER = 'gemma-3-4b'
 const DEFAULT_WHISPER_MODEL = 'large-v3'
+const AUTO_FETCH_ALL_LYRICS_INTERVAL_MS = 10 * 60 * 1000
+const AUTO_FETCH_ALL_METADATA_INTERVAL_MS = 10 * 60 * 1000
+const SERVER_LYRICS_LOADING_ID = 'server-job'
 
 const AI_TOOL_COLUMNS = [
   { id: 'title', label: 'Title' },
   { id: 'album', label: 'Album' },
-  { id: 'albumConfidence', label: 'Album Confidence' },
   { id: 'artist', label: 'Artist' },
   { id: 'year', label: 'Year' },
-  { id: 'yearConfidence', label: 'Year Confidence' },
   { id: 'explicit', label: 'Explicit' },
   { id: 'lyrics', label: 'Lyrics' },
   { id: 'duration', label: 'Time' },
   { id: 'genre', label: 'Genre' },
   { id: 'spotifyGenre', label: 'Spotify Genre' },
-  { id: 'musicBrainzGenre', label: 'MusicBrainz Genre' },
+  { id: 'musicBrainzGenre', label: 'iTunes Genre' },
   { id: 'aiGenre', label: 'AI Genre' },
   { id: 'genreConfidence', label: 'Genre Confidence' },
 ]
 
-const CONFIDENCE_COLUMN_IDS = [
-  'albumConfidence',
-  'yearConfidence',
-  'genreConfidence',
-]
+const CONFIDENCE_COLUMN_IDS = ['genreConfidence']
 const DEFAULT_AI_TOOL_COLUMN_VISIBILITY = Object.fromEntries(
   AI_TOOL_COLUMNS.map((column) => [column.id, true]),
 )
@@ -68,6 +70,7 @@ const DEFAULT_AI_TOOL_COLUMN_VISIBILITY = Object.fromEntries(
 const AI_PROVIDERS = [
   { id: 'gemini-2.5', label: 'Gemini 2.5' },
   { id: 'gemini-3.5', label: 'Gemini 3.5' },
+  { id: 'deepseek-v3.2', label: 'DeepSeek V3.2' },
   { id: 'gemma-26b', label: 'Gemma 26B' },
   { id: 'gemma-3-4b', label: 'Gemma 3:4b' },
 ]
@@ -78,6 +81,7 @@ const AI_SERVICES = [
   { id: 'whisper', label: 'Whisper' },
   { id: 'gemini-2.5', label: 'Gemini 2.5' },
   { id: 'gemini-3.5', label: 'Gemini 3.5' },
+  { id: 'deepseek-v3.2', label: 'DeepSeek V3.2' },
 ]
 
 const WHISPER_MODELS = [
@@ -127,6 +131,7 @@ const DEFAULT_EXPLICIT_EXCLUDED_WORDS = [
 const DEFAULT_RAG_SEARCH_FILTERS = {
   cleanOnly: false,
   genre: '',
+  lyricsContains: '',
   yearMin: '',
   yearMax: '',
   bpmMin: '',
@@ -193,6 +198,10 @@ const expandedChatFrame = () => {
 
 const normalizeAIProvider = (provider) => {
   switch (provider) {
+    case 'deepseek-v3.2':
+    case 'deepseek.v3.2':
+    case 'deepseek':
+      return 'deepseek-v3.2'
     case 'gemini-3.5':
     case 'gemini-3.5-flash':
       return 'gemini-3.5'
@@ -419,6 +428,39 @@ const useStyles = makeStyles((theme) => ({
     color: '#c9d1dc',
     fontSize: 12,
   },
+  fetchAllLyricsSwitch: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.25, 1),
+    border: '1px solid #a855f7',
+    borderRadius: 18,
+    color: '#f3e8ff',
+    background: 'rgba(168, 85, 247, 0.16)',
+    '& .MuiFormControlLabel-root': {
+      margin: 0,
+    },
+    '& .MuiFormControlLabel-label': {
+      color: '#f3e8ff',
+      fontSize: 13,
+      fontWeight: 600,
+    },
+    '& .MuiSwitch-colorPrimary.Mui-checked': {
+      color: '#e9d5ff',
+    },
+    '& .MuiSwitch-colorPrimary.Mui-checked + .MuiSwitch-track': {
+      backgroundColor: '#c084fc',
+    },
+  },
+  fetchAllLyricsSwitchEnabled: {
+    borderColor: '#c084fc',
+    background: 'rgba(147, 51, 234, 0.52)',
+  },
+  fetchAllLyricsSwitchStatus: {
+    color: '#f3e8ff',
+    fontSize: 12,
+    fontWeight: 700,
+  },
   ragSearchControls: {
     width: '100%',
     display: 'flex',
@@ -479,6 +521,10 @@ const useStyles = makeStyles((theme) => ({
     background: '#3ddc84',
     boxShadow: '0 0 8px rgba(61, 220, 132, 0.6)',
   },
+  statusDotBusy: {
+    background: '#c084fc',
+    boxShadow: '0 0 8px rgba(192, 132, 252, 0.6)',
+  },
   statusDotOffline: {
     background: '#ff5c8a',
     boxShadow: '0 0 8px rgba(255, 92, 138, 0.45)',
@@ -522,11 +568,36 @@ const useStyles = makeStyles((theme) => ({
       backgroundColor: '#ff2a8e',
     },
   },
+  lyricsFetchingRow: {
+    backgroundColor: 'rgba(192, 132, 252, 0.16)',
+    boxShadow: 'inset 3px 0 0 #c084fc',
+    '& > .MuiTableCell-root': {
+      backgroundColor: 'inherit',
+    },
+  },
   valueExisting: {
     color: '#f7f8fb',
   },
   valueAI: {
     color: '#ff2a8e',
+  },
+  genreTraceButton: {
+    minWidth: 0,
+    padding: 0,
+    color: 'inherit',
+    fontSize: 'inherit',
+    lineHeight: 'inherit',
+    textAlign: 'left',
+    textTransform: 'none',
+    justifyContent: 'flex-start',
+    borderRadius: 0,
+    borderBottom: '1px dashed currentColor',
+  },
+  genreTraceAttempt: {
+    marginTop: theme.spacing(1.5),
+    padding: theme.spacing(1),
+    borderRadius: 6,
+    background: '#0f1722',
   },
   confidenceBadge: {
     padding: '1px 6px',
@@ -692,6 +763,7 @@ const useStyles = makeStyles((theme) => ({
     borderRadius: 18,
     padding: theme.spacing(1.2, 1.5),
     lineHeight: 1.45,
+    whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
   },
   chatBubbleAssistant: {
@@ -834,6 +906,133 @@ const useStyles = makeStyles((theme) => ({
     color: '#f6c177',
     fontSize: 11,
   },
+  chatAssistantContent: {
+    width: '100%',
+    maxWidth: '100%',
+  },
+  chatTraceToggleBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: theme.spacing(0.25, 1.5),
+    color: '#d7c6ff',
+    background: '#101927',
+    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+    '& .MuiFormControlLabel-label': {
+      fontSize: 12,
+    },
+    '& .MuiSwitch-colorSecondary.Mui-checked': {
+      color: '#a970ff',
+    },
+    '& .MuiSwitch-colorSecondary.Mui-checked + .MuiSwitch-track': {
+      backgroundColor: '#7b3fc6',
+    },
+  },
+  chatTraceHint: {
+    color: '#8492a6',
+    fontSize: 10,
+  },
+  chatTracePanel: {
+    width: '100%',
+    maxWidth: 680,
+    marginTop: theme.spacing(0.75),
+    color: '#d7deea',
+    background: '#0d1520',
+    border: '1px solid rgba(169, 112, 255, 0.35)',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  chatTraceToggle: {
+    width: '100%',
+    justifyContent: 'space-between',
+    color: '#d7c6ff',
+    textTransform: 'none',
+    fontSize: 11,
+    padding: theme.spacing(0.75, 1),
+  },
+  chatTraceBody: {
+    maxHeight: 440,
+    overflow: 'auto',
+    padding: theme.spacing(0.75),
+    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+  },
+  chatTraceSummary: {
+    padding: theme.spacing(0.5, 0.75, 1),
+    color: '#9ba9bc',
+    fontSize: 10,
+    wordBreak: 'break-all',
+  },
+  chatTraceStage: {
+    marginBottom: theme.spacing(0.75),
+    background: '#131e2c',
+    borderRadius: 6,
+    border: '1px solid rgba(255, 255, 255, 0.07)',
+  },
+  chatTraceStageButton: {
+    width: '100%',
+    justifyContent: 'flex-start',
+    color: '#e7ebf2',
+    textTransform: 'none',
+    textAlign: 'left',
+    fontSize: 11,
+    padding: theme.spacing(0.75, 1),
+  },
+  chatTraceStageStatus: {
+    display: 'inline-block',
+    minWidth: 18,
+    color: '#68d391',
+  },
+  chatTraceStageStatusWarning: {
+    color: '#f6c177',
+  },
+  chatTraceStageStatusError: {
+    color: '#ff7aa8',
+  },
+  chatTraceStageContent: {
+    padding: theme.spacing(0, 1, 1),
+    color: '#b8c3d2',
+    fontSize: 10,
+  },
+  chatTraceSectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: theme.spacing(0.75),
+    marginBottom: theme.spacing(0.25),
+    color: '#d7c6ff',
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  chatTraceCopy: {
+    minWidth: 0,
+    color: '#b98cff',
+    fontSize: 9,
+    padding: theme.spacing(0.25, 0.5),
+    textTransform: 'none',
+  },
+  chatTracePre: {
+    margin: 0,
+    padding: theme.spacing(0.75),
+    maxHeight: 240,
+    overflow: 'auto',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    color: '#dce3ed',
+    background: '#091019',
+    borderRadius: 4,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontSize: 9,
+    lineHeight: 1.45,
+  },
+  chatTraceError: {
+    color: '#ff8fc6',
+  },
+  chatErrorTrace: {
+    padding: theme.spacing(0, 1.5, 1.25),
+    background: '#0f1722',
+  },
 }))
 
 const formatDuration = (seconds) => {
@@ -870,21 +1069,6 @@ const hasSavedLyrics = (song) => {
   return lyrics !== '' && lyrics !== '[]'
 }
 
-// Pulls the Whisper coverage metadata out of a lyrics-fetch response so it can
-// be stored on the song and shown in the table.
-const lyricsCoverageFields = (json) => {
-  if (!json || typeof json !== 'object') return {}
-  const fields = {}
-  if (typeof json.coverage === 'number') fields.lyricsCoverage = json.coverage
-  if (typeof json.truncated === 'boolean')
-    fields.lyricsTruncated = json.truncated
-  if (typeof json.transcribedSeconds === 'number')
-    fields.lyricsTranscribedSeconds = json.transcribedSeconds
-  if (typeof json.totalSeconds === 'number')
-    fields.lyricsTotalSeconds = json.totalSeconds
-  return fields
-}
-
 const normalizeMetadataConfidence = (value) => {
   if (value === null || value === undefined || value === '') return null
   const confidence = Number(value)
@@ -901,6 +1085,145 @@ const parseExplicitWordList = (value) => [
   ),
 ]
 
+const formatTraceValue = (value) => {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+const copyTraceText = (value) => {
+  if (!value || !navigator?.clipboard?.writeText) return
+  navigator.clipboard.writeText(value).catch(() => {})
+}
+
+const ChatTraceSection = ({ label, value, classes, copyLabel }) => {
+  if (value === undefined || value === null || value === '') return null
+  const text = formatTraceValue(value)
+  return (
+    <Box>
+      <Box className={classes.chatTraceSectionHeader}>
+        <span>{label}</span>
+        {copyLabel ? (
+          <Button
+            className={classes.chatTraceCopy}
+            size="small"
+            onClick={() => copyTraceText(text)}
+          >
+            {copyLabel}
+          </Button>
+        ) : null}
+      </Box>
+      <pre className={classes.chatTracePre}>{text}</pre>
+    </Box>
+  )
+}
+
+const ChatTraceStage = ({ stage, classes }) => {
+  const [open, setOpen] = useState(false)
+  const failed = stage.status === 'failed'
+  const warning = stage.status === 'fallback' || stage.status === 'skipped'
+  const statusSymbol = failed ? '!' : warning ? '•' : '✓'
+  const duration = Number(stage.durationMs || 0)
+
+  return (
+    <Box className={classes.chatTraceStage}>
+      <Button
+        className={classes.chatTraceStageButton}
+        onClick={() => setOpen((previous) => !previous)}
+        aria-expanded={open}
+      >
+        <span
+          className={`${classes.chatTraceStageStatus} ${
+            failed
+              ? classes.chatTraceStageStatusError
+              : warning
+                ? classes.chatTraceStageStatusWarning
+                : ''
+          }`}
+        >
+          {statusSymbol}
+        </span>
+        {stage.label || stage.id}
+        {duration > 0 ? ` · ${duration} ms` : ''}
+      </Button>
+      <Collapse in={open} unmountOnExit>
+        <Box className={classes.chatTraceStageContent}>
+          {stage.detail ? (
+            <Typography variant="caption">{stage.detail}</Typography>
+          ) : null}
+          {stage.error ? (
+            <Typography variant="caption" className={classes.chatTraceError}>
+              {stage.error}
+            </Typography>
+          ) : null}
+          <ChatTraceSection
+            label="Input"
+            value={stage.input}
+            classes={classes}
+          />
+          <ChatTraceSection
+            label="Prompt sent to AI"
+            value={stage.prompt}
+            classes={classes}
+            copyLabel="Copy prompt"
+          />
+          <ChatTraceSection
+            label="Raw AI response"
+            value={stage.response}
+            classes={classes}
+            copyLabel="Copy response"
+          />
+          <ChatTraceSection
+            label="Output"
+            value={stage.output}
+            classes={classes}
+          />
+        </Box>
+      </Collapse>
+    </Box>
+  )
+}
+
+const ChatDeveloperTrace = ({ trace, classes }) => {
+  const [open, setOpen] = useState(false)
+  if (!trace) return null
+  const stages = Array.isArray(trace.stages) ? trace.stages : []
+
+  return (
+    <Box className={classes.chatTracePanel} aria-label="Developer trace">
+      <Button
+        className={classes.chatTraceToggle}
+        onClick={() => setOpen((previous) => !previous)}
+        aria-expanded={open}
+      >
+        <span>Behind the scenes</span>
+        <span>
+          {stages.length} steps · {Number(trace.durationMs || 0)} ms
+        </span>
+      </Button>
+      <Collapse in={open} unmountOnExit>
+        <Box className={classes.chatTraceBody}>
+          <Typography className={classes.chatTraceSummary}>
+            Request {trace.requestId || '—'} · {trace.provider || 'unknown'} /{' '}
+            {trace.model || 'unknown'} · RAG{' '}
+            {trace.useRag ? 'enabled' : 'disabled'}
+          </Typography>
+          {stages.map((stage, index) => (
+            <ChatTraceStage
+              key={`${stage.id || 'stage'}-${index}`}
+              stage={stage}
+              classes={classes}
+            />
+          ))}
+        </Box>
+      </Collapse>
+    </Box>
+  )
+}
+
 const AiToolPage = () => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -909,8 +1232,16 @@ const AiToolPage = () => {
   const chatAbortControllerRef = useRef(null)
   const normalChatMessagesRef = useRef(null)
   const normalChatAbortControllerRef = useRef(null)
-  const jobAbortControllerRef = useRef(null)
-  const progressTimeoutRef = useRef(null)
+  const lyricsAbortControllerRef = useRef(null)
+  const metadataAbortControllerRef = useRef(null)
+  const progressTimeoutRefs = useRef({ lyrics: null, metadata: null })
+  const addedSongsRef = useRef([])
+  const lyricsLoadingIdRef = useRef('')
+  const serverLyricsJobActiveRef = useRef(false)
+  const explicitClassifyingSongIdsRef = useRef(new Set())
+  const fetchLyricsForSongsRef = useRef(null)
+  const fetchAIMetadataForSongsRef = useRef(null)
+  const applyLyricsJobStatusRef = useRef(null)
   const [messages, setMessages] = useState([])
   const [prompt, setPrompt] = useState('')
   const [normalMessages, setNormalMessages] = useState([])
@@ -950,6 +1281,17 @@ const AiToolPage = () => {
     useState(false)
   const [chatError, setChatError] = useState('')
   const [normalChatError, setNormalChatError] = useState('')
+  const [chatErrorTrace, setChatErrorTrace] = useState(null)
+  const [normalChatErrorTrace, setNormalChatErrorTrace] = useState(null)
+  const [developerTraceEnabled, setDeveloperTraceEnabled] = useState(() => {
+    try {
+      return (
+        localStorage.getItem(AI_CHAT_DEVELOPER_TRACE_STORAGE_KEY) === 'true'
+      )
+    } catch {
+      return false
+    }
+  })
   const [toolError, setToolError] = useState('')
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
@@ -964,6 +1306,7 @@ const AiToolPage = () => {
   const [lyricsDialogSong, setLyricsDialogSong] = useState(null)
   const [explicitReasonSong, setExplicitReasonSong] = useState(null)
   const [confidenceDetail, setConfidenceDetail] = useState(null)
+  const [genreTraceDetail, setGenreTraceDetail] = useState(null)
   const [explicitRulesOpen, setExplicitRulesOpen] = useState(false)
   const [explicitIncludedWords, setExplicitIncludedWords] = useState(() => {
     try {
@@ -991,7 +1334,40 @@ const AiToolPage = () => {
   })
   const [isDeletingLyrics, setIsDeletingLyrics] = useState(false)
   const [isClassifyingExplicit, setIsClassifyingExplicit] = useState(false)
+  const [explicitClassifyingSongIds, setExplicitClassifyingSongIds] = useState(
+    [],
+  )
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
+  const [metadataProvider, setMetadataProvider] = useState(() => {
+    try {
+      return normalizeAIProvider(
+        localStorage.getItem(METADATA_AI_PROVIDER_STORAGE_KEY),
+      )
+    } catch {
+      return DEFAULT_AI_PROVIDER
+    }
+  })
+  const [isAutoFetchAllMetadataEnabled, setIsAutoFetchAllMetadataEnabled] =
+    useState(() => {
+      try {
+        return (
+          localStorage.getItem(AUTO_FETCH_ALL_METADATA_STORAGE_KEY) === 'true'
+        )
+      } catch {
+        return false
+      }
+    })
+  const [lyricsFetchingSongIds, setLyricsFetchingSongIds] = useState([])
+  const [isAutoFetchAllLyricsEnabled, setIsAutoFetchAllLyricsEnabled] =
+    useState(() => {
+      try {
+        return (
+          localStorage.getItem(AUTO_FETCH_ALL_LYRICS_STORAGE_KEY) === 'true'
+        )
+      } catch {
+        return false
+      }
+    })
   const [isClearingMetadata, setIsClearingMetadata] = useState(false)
   const [modelDialogAction, setModelDialogAction] = useState('')
   const [modelDialogSongs, setModelDialogSongs] = useState([])
@@ -1010,7 +1386,13 @@ const AiToolPage = () => {
   })
   const [rowActionAnchorEl, setRowActionAnchorEl] = useState(null)
   const [rowActionSong, setRowActionSong] = useState(null)
-  const [jobProgress, setJobProgress] = useState(null)
+  const [jobProgresses, setJobProgresses] = useState({
+    lyrics: null,
+    metadata: null,
+  })
+  const [isLyricsProgressHidden, setIsLyricsProgressHidden] = useState(false)
+  const [isMetadataProgressHidden, setIsMetadataProgressHidden] =
+    useState(false)
   const [progressClock, setProgressClock] = useState(() => Date.now())
   const [isStatusOpen, setIsStatusOpen] = useState(true)
   const [isSongToolsOpen, setIsSongToolsOpen] = useState(true)
@@ -1022,6 +1404,7 @@ const AiToolPage = () => {
   const [isTogglingRAG, setIsTogglingRAG] = useState(false)
   const [isIndexingRAG, setIsIndexingRAG] = useState(false)
   const [isRefreshingRAG, setIsRefreshingRAG] = useState(false)
+  const [isClearingRAG, setIsClearingRAG] = useState(false)
   const [ragIndexLimit, setRAGIndexLimit] = useState(
     String(DEFAULT_RAG_INDEX_LIMIT),
   )
@@ -1035,6 +1418,15 @@ const AiToolPage = () => {
   const [ragDocumentsCount, setRAGDocumentsCount] = useState(0)
   const [ragDocumentsError, setRAGDocumentsError] = useState('')
   const [ragDocumentDetails, setRAGDocumentDetails] = useState(null)
+  const [isAddingQdrantLyrics, setIsAddingQdrantLyrics] = useState(false)
+  const [isQdrantLyricsOpen, setIsQdrantLyricsOpen] = useState(false)
+  const [isLoadingQdrantLyrics, setIsLoadingQdrantLyrics] = useState(false)
+  const [qdrantLyrics, setQdrantLyrics] = useState([])
+  const [qdrantLyricsCollection, setQdrantLyricsCollection] = useState('')
+  const [qdrantLyricsQuery, setQdrantLyricsQuery] = useState('')
+  const [qdrantLyricsCount, setQdrantLyricsCount] = useState(0)
+  const [qdrantLyricsError, setQdrantLyricsError] = useState('')
+  const [qdrantLyricDetails, setQdrantLyricDetails] = useState(null)
   const [ragSearchQuery, setRAGSearchQuery] = useState('')
   const [ragSearchResults, setRAGSearchResults] = useState([])
   const [ragSearchFilters, setRAGSearchFilters] = useState(
@@ -1118,7 +1510,14 @@ const AiToolPage = () => {
   }
 
   const indexRAGSongs = async (force = false) => {
-    if (!ragStatus?.enabled || isIndexingRAG || isRefreshingRAG) return
+    if (
+      !ragStatus?.enabled ||
+      isIndexingRAG ||
+      isRefreshingRAG ||
+      isAddingQdrantLyrics ||
+      isClearingRAG
+    )
+      return
 
     if (!isRAGIndexLimitValid) {
       setRAGIndexError(
@@ -1160,6 +1559,37 @@ const AiToolPage = () => {
     }
   }
 
+  const clearRAGIndex = async () => {
+    if (!ragStatus?.enabled || !ragStatus?.vectorDbOnline || isClearingRAG)
+      return
+    const collection = ragStatus.collection || 'the configured collection'
+    const confirmed = window.confirm(
+      `Clear all indexed RAG data from ${collection}? This only deletes the vector index; your Navidrome songs and files stay untouched.`,
+    )
+    if (!confirmed) return
+
+    setIsClearingRAG(true)
+    setRAGIndexMessage('')
+    setRAGIndexError('')
+    try {
+      const { json } = await httpClient('/api/ai/rag/index', {
+        method: 'DELETE',
+      })
+      setRAGDocuments([])
+      setRAGDocumentsCount(0)
+      setQdrantLyrics([])
+      setQdrantLyricsCount(0)
+      setRAGIndexMessage(
+        `Cleared indexed songs from ${json?.collection || collection}. Reindex when ready.`,
+      )
+      await loadRAGStatus()
+    } catch (error) {
+      setRAGIndexError(error?.message || 'Could not clear indexed songs')
+    } finally {
+      setIsClearingRAG(false)
+    }
+  }
+
   const openRAGDocuments = async () => {
     setIsRAGDocumentsOpen(true)
     setIsLoadingRAGDocuments(true)
@@ -1179,6 +1609,74 @@ const AiToolPage = () => {
     }
   }
 
+  const addQdrantLyrics = async () => {
+    if (
+      !ragStatus?.enabled ||
+      isAddingQdrantLyrics ||
+      isIndexingRAG ||
+      isRefreshingRAG ||
+      isClearingRAG
+    )
+      return
+
+    setIsAddingQdrantLyrics(true)
+    setRAGIndexMessage('')
+    setRAGIndexError('')
+    try {
+      const { json } = await httpClient('/api/ai/rag/lyrics', {
+        method: 'POST',
+        body: JSON.stringify({ limit: MAX_RAG_INDEX_LIMIT }),
+      })
+      setRAGIndexMessage(
+        `Added or updated ${Number(json?.indexed) || 0} Qdrant lyrics, skipped ${
+          Number(json?.skipped) || 0
+        }, failed ${Number(json?.failed) || 0}.`,
+      )
+      if (json?.error) setRAGIndexError(json.error)
+      await loadRAGStatus()
+    } catch (error) {
+      setRAGIndexError(error?.message || 'Could not add lyrics to Qdrant')
+    } finally {
+      setIsAddingQdrantLyrics(false)
+    }
+  }
+
+  const loadQdrantLyrics = async (query = '') => {
+    const normalizedQuery = String(query || '').trim()
+    setIsQdrantLyricsOpen(true)
+    setIsLoadingQdrantLyrics(true)
+    setQdrantLyricsError('')
+    try {
+      const queryString = normalizedQuery
+        ? `&query=${encodeURIComponent(normalizedQuery)}`
+        : ''
+      const { json } = await httpClient(
+        `/api/ai/rag/lyrics?limit=${MAX_RAG_INDEX_LIMIT}${queryString}`,
+      )
+      setQdrantLyrics(Array.isArray(json?.songs) ? json.songs : [])
+      setQdrantLyricsCollection(json?.collection || '')
+      setQdrantLyricsCount(Number(json?.count) || 0)
+    } catch (error) {
+      setQdrantLyrics([])
+      setQdrantLyricsCount(0)
+      setQdrantLyricsError(
+        error?.message || 'Could not load lyrics stored in Qdrant',
+      )
+    } finally {
+      setIsLoadingQdrantLyrics(false)
+    }
+  }
+
+  const openQdrantLyrics = () => {
+    setQdrantLyricsQuery('')
+    setQdrantLyricDetails(null)
+    void loadQdrantLyrics('')
+  }
+
+  const searchQdrantLyrics = () => {
+    void loadQdrantLyrics(qdrantLyricsQuery)
+  }
+
   const searchRAGSongs = async () => {
     const query = ragSearchQuery.trim()
     if (!query || !ragStatus?.enabled || isSearchingRAG) return
@@ -1193,6 +1691,9 @@ const AiToolPage = () => {
       if (ragSearchFilters.cleanOnly) filters.explicit = 'clean'
       if (ragSearchFilters.genre.trim()) {
         filters.genre = ragSearchFilters.genre.trim()
+      }
+      if (ragSearchFilters.lyricsContains.trim()) {
+        filters.lyricsContains = ragSearchFilters.lyricsContains.trim()
       }
       ;[
         'yearMin',
@@ -1287,29 +1788,71 @@ const AiToolPage = () => {
     [selectedAddedSongs],
   )
 
-  const jobProgressValue = jobProgress?.total
-    ? Math.round((jobProgress.done / jobProgress.total) * 100)
+  const lyricsFetchingSongIdSet = useMemo(
+    () => new Set(lyricsFetchingSongIds),
+    [lyricsFetchingSongIds],
+  )
+  const explicitClassifyingSongIdSet = useMemo(
+    () => new Set(explicitClassifyingSongIds),
+    [explicitClassifyingSongIds],
+  )
+  const selectedSongsAvailableForExplicit = useMemo(
+    () =>
+      selectedAddedSongs.filter(
+        (song) => !lyricsFetchingSongIdSet.has(song.id),
+      ),
+    [selectedAddedSongs, lyricsFetchingSongIdSet],
+  )
+  const selectedSongsAvailableForLyrics = useMemo(
+    () =>
+      selectedSongsMissingLyrics.filter(
+        (song) => !explicitClassifyingSongIdSet.has(song.id),
+      ),
+    [selectedSongsMissingLyrics, explicitClassifyingSongIdSet],
+  )
+  const selectedSongsAvailableForLyricsDeletion = useMemo(
+    () =>
+      selectedSongsWithLyrics.filter(
+        (song) =>
+          !lyricsFetchingSongIdSet.has(song.id) &&
+          !explicitClassifyingSongIdSet.has(song.id),
+      ),
+    [
+      selectedSongsWithLyrics,
+      lyricsFetchingSongIdSet,
+      explicitClassifyingSongIdSet,
+    ],
+  )
+  const lyricsJobProgress = jobProgresses.lyrics
+  const lyricsProgressStatus = lyricsJobProgress?.status
+  const metadataProgressStatus = jobProgresses.metadata?.status
+  const lyricsProgressStartedAt = lyricsJobProgress?.startedAt
+  const currentLyricsFetchingSongId =
+    lyricsLoadingId === SERVER_LYRICS_LOADING_ID
+      ? ['running', 'stopping'].includes(lyricsProgressStatus)
+        ? lyricsJobProgress?.currentSongId || ''
+        : ''
+      : lyricsLoadingId
+  const lyricsElapsedSeconds = lyricsJobProgress?.startedAt
+    ? Math.max(
+        0,
+        Math.floor(
+          ((lyricsJobProgress.finishedAt || progressClock) -
+            lyricsJobProgress.startedAt) /
+            1000,
+        ),
+      )
     : 0
-  const lyricsElapsedSeconds =
-    jobProgress?.type === 'lyrics' && jobProgress.startedAt
-      ? Math.max(
-          0,
-          Math.floor(
-            ((jobProgress.finishedAt || progressClock) -
-              jobProgress.startedAt) /
-              1000,
-          ),
-        )
-      : 0
-  const lyricsTimingText =
-    jobProgress?.type !== 'lyrics'
-      ? ''
-      : jobProgress.status === 'complete'
-        ? `Whisper finished fetching lyrics in ${lyricsElapsedSeconds} seconds`
-        : jobProgress.status === 'stopped'
+  const lyricsTimingText = !lyricsJobProgress
+    ? ''
+    : lyricsJobProgress.status === 'complete'
+      ? `Whisper finished fetching lyrics in ${lyricsElapsedSeconds} seconds`
+      : lyricsJobProgress.status === 'failed'
+        ? `Whisper stopped with an error after ${lyricsElapsedSeconds} seconds`
+        : lyricsJobProgress.status === 'stopped'
           ? `Whisper stopped after ${lyricsElapsedSeconds} seconds`
           : `Whisper running for ${lyricsElapsedSeconds} seconds`
-  const isFetchJobRunning = Boolean(lyricsLoadingId) || isFetchingMetadata
+  const isLyricsJobRunning = Boolean(lyricsLoadingId)
 
   const selectedModelStatus = modelStatuses.find(
     (service) => service.id === normalizeAIProvider(chatProvider),
@@ -1320,7 +1863,9 @@ const AiToolPage = () => {
   )
   const selectedNormalModelOnline = selectedNormalModelStatus?.online
   const onlineServiceCount = modelStatuses.filter(
-    (service) => service.online === true,
+    (service) =>
+      service.online === true ||
+      (service.id === 'whisper' && isLyricsJobRunning),
   ).length
   const areStatusesChecking = modelStatuses.some(
     (service) => service.online === null,
@@ -1335,13 +1880,6 @@ const AiToolPage = () => {
     if (field === 'lyrics') return hasSavedLyrics(song)
     if (field === 'explicitStatus')
       return Boolean(formatExplicitStatus(song.explicitStatus))
-    if (
-      (field === 'album' || field === 'year') &&
-      !isUnknownValue(song[field]) &&
-      !isUnknownValue(song.aiGenre)
-    ) {
-      return true
-    }
     return false
   }
 
@@ -1380,31 +1918,122 @@ const AiToolPage = () => {
     )
   }
 
-  const renderLyricsCoverage = (song) => {
-    const coverage = song?.lyricsCoverage
-    if (typeof coverage !== 'number' || coverage <= 0) return null
-    const pct = Math.round(coverage * 100)
-    const truncated = Boolean(song.lyricsTruncated)
-    const color = truncated ? '#ff8fc6' : pct >= 90 ? '#3ddc84' : '#ffcb6b'
-    const detail =
-      song.lyricsTranscribedSeconds && song.lyricsTotalSeconds
-        ? `${formatDuration(song.lyricsTranscribedSeconds)} of ${formatDuration(
-            song.lyricsTotalSeconds,
-          )} transcribed`
-        : `${pct}% transcribed`
+  const renderLyricsState = (song) => {
+    if (hasSavedLyrics(song)) {
+      return (
+        <Button
+          size="small"
+          color="primary"
+          onClick={(event) => {
+            event.stopPropagation()
+            showLyrics(song)
+          }}
+        >
+          Available
+        </Button>
+      )
+    }
+    return <Typography component="span">Failed</Typography>
+  }
+
+  const genreTraceSourceLabel = (source) =>
+    source === 'itunes' ? 'iTunes' : 'AI'
+
+  const renderFetchedGenre = (song, source) => {
+    const value = source === 'itunes' ? song.musicBrainzGenre : song.aiGenre
+    if (!value) return '-'
+    const sourceLabel = genreTraceSourceLabel(source)
     return (
-      <Typography
-        component="span"
-        variant="caption"
-        style={{ color, whiteSpace: 'nowrap' }}
-        title={
-          truncated
-            ? `Possibly truncated — ${detail}. Try fetching lyrics again.`
-            : detail
-        }
+      <Button
+        className={classes.genreTraceButton}
+        size="small"
+        aria-label={`View ${sourceLabel} genre developer trace for ${
+          song.title || 'song'
+        }`}
+        title={`View ${sourceLabel} genre developer trace`}
+        onClick={(event) => {
+          event.stopPropagation()
+          setGenreTraceDetail({
+            song,
+            source,
+            trace: song.genreDeveloperTrace?.[source],
+          })
+        }}
       >
-        {pct}%{truncated ? ' ⚠' : ''}
-      </Typography>
+        {value}
+      </Button>
+    )
+  }
+
+  const renderGenreDeveloperTrace = (detail) => {
+    const trace = detail?.trace
+    if (!trace) {
+      return (
+        <Typography variant="body2" color="textSecondary">
+          This genre was fetched before developer tracing was added. Run{' '}
+          <strong>Fetch AI Metadata</strong> again to capture its request and
+          response.
+        </Typography>
+      )
+    }
+    const attempts = Array.isArray(trace.attempts) ? trace.attempts : []
+    return (
+      <Box>
+        <Typography variant="body2" paragraph>
+          <strong>Fetched genre:</strong> {trace.fetchedGenre || '—'}
+          {trace.provider
+            ? ` · Provider: ${aiProviderLabel(trace.provider)}`
+            : ''}
+          {trace.model ? ` · Model: ${trace.model}` : ''}
+        </Typography>
+        <ChatTraceSection
+          label="Request sent to iTunes"
+          value={trace.request}
+          classes={classes}
+          copyLabel="Copy request"
+        />
+        <ChatTraceSection
+          label="Prompt sent to AI"
+          value={trace.prompt}
+          classes={classes}
+          copyLabel="Copy prompt"
+        />
+        <ChatTraceSection
+          label={
+            detail.source === 'itunes'
+              ? 'Fetched iTunes response'
+              : 'Raw AI response'
+          }
+          value={trace.response}
+          classes={classes}
+          copyLabel="Copy response"
+        />
+        {attempts.length > 1 ? (
+          <Box mt={2}>
+            <Typography variant="subtitle2">AI attempts</Typography>
+            {attempts.map((attempt) => (
+              <Box
+                className={classes.genreTraceAttempt}
+                key={`genre-trace-attempt-${attempt.number}`}
+              >
+                <Typography variant="body2">
+                  <strong>Attempt {attempt.number}</strong>
+                </Typography>
+                <ChatTraceSection
+                  label="Prompt"
+                  value={attempt.prompt}
+                  classes={classes}
+                />
+                <ChatTraceSection
+                  label={attempt.error ? 'Error' : 'Response'}
+                  value={attempt.error || attempt.response}
+                  classes={classes}
+                />
+              </Box>
+            ))}
+          </Box>
+        ) : null}
+      </Box>
     )
   }
 
@@ -1414,11 +2043,11 @@ const AiToolPage = () => {
   const CONFIDENCE_SOURCE_TEXT = {
     verified: 'Two independent sources agree on this value — verified.',
     spotify: 'Taken from Spotify (primary source for album and year).',
-    musicbrainz: 'Taken from MusicBrainz.',
+    musicbrainz: 'Taken from MusicBrainz (iTunes for genre).',
     conflict:
       'The stored value disagrees with the sources — treat with caution and prefer the source value below.',
     'ai-only':
-      'From the AI only. Neither Spotify nor MusicBrainz could confirm it, so the score is intentionally low.',
+      'From the AI only. No external source could confirm it, so the score is intentionally low.',
     none: 'No value was available for this field.',
   }
 
@@ -1455,7 +2084,9 @@ const AiToolPage = () => {
               </TableCell>
             </TableRow>
             <TableRow>
-              <TableCell>MusicBrainz</TableCell>
+              <TableCell>
+                {field === 'genre' ? 'iTunes' : 'MusicBrainz'}
+              </TableCell>
               <TableCell align="right">
                 {explanation.musicBrainz || 'No match'}
               </TableCell>
@@ -1527,6 +2158,24 @@ const AiToolPage = () => {
 
   useEffect(() => {
     localStorage.setItem(
+      AUTO_FETCH_ALL_LYRICS_STORAGE_KEY,
+      isAutoFetchAllLyricsEnabled ? 'true' : 'false',
+    )
+  }, [isAutoFetchAllLyricsEnabled])
+
+  useEffect(() => {
+    localStorage.setItem(METADATA_AI_PROVIDER_STORAGE_KEY, metadataProvider)
+  }, [metadataProvider])
+
+  useEffect(() => {
+    localStorage.setItem(
+      AUTO_FETCH_ALL_METADATA_STORAGE_KEY,
+      isAutoFetchAllMetadataEnabled ? 'true' : 'false',
+    )
+  }, [isAutoFetchAllMetadataEnabled])
+
+  useEffect(() => {
+    localStorage.setItem(
       AI_TOOL_COLUMNS_STORAGE_KEY,
       JSON.stringify(visibleColumns),
     )
@@ -1544,15 +2193,30 @@ const AiToolPage = () => {
         )
         setWhisperModel(json?.whisperModel || DEFAULT_WHISPER_MODEL)
         setModelStatuses(
-          AI_SERVICES.map((service) => ({
-            ...service,
-            online: byId.get(service.id)?.online === true,
-          })),
+          AI_SERVICES.map((service) => {
+            const reported = byId.get(service.id)
+            const state = ['online', 'busy', 'offline'].includes(
+              reported?.state,
+            )
+              ? reported.state
+              : reported?.online === true
+                ? 'online'
+                : 'offline'
+            return {
+              ...service,
+              online: reported?.online === true || state === 'busy',
+              state,
+            }
+          }),
         )
       } catch {
         if (active) {
           setModelStatuses(
-            AI_SERVICES.map((service) => ({ ...service, online: false })),
+            AI_SERVICES.map((service) => ({
+              ...service,
+              online: false,
+              state: 'offline',
+            })),
           )
         }
       }
@@ -1571,9 +2235,21 @@ const AiToolPage = () => {
   }, [loadRAGStatus])
 
   useEffect(() => {
+    addedSongsRef.current = addedSongs
+  }, [addedSongs])
+
+  useEffect(() => {
+    lyricsLoadingIdRef.current = lyricsLoadingId
+  }, [lyricsLoadingId])
+
+  useEffect(() => {
+    explicitClassifyingSongIdsRef.current = new Set(explicitClassifyingSongIds)
+  }, [explicitClassifyingSongIds])
+
+  useEffect(() => {
     if (
-      jobProgress?.type !== 'lyrics' ||
-      !['running', 'stopping'].includes(jobProgress.status)
+      !lyricsProgressStatus ||
+      !['running', 'stopping'].includes(lyricsProgressStatus)
     )
       return
 
@@ -1583,7 +2259,7 @@ const AiToolPage = () => {
       1000,
     )
     return () => window.clearInterval(interval)
-  }, [jobProgress?.type, jobProgress?.status, jobProgress?.startedAt])
+  }, [lyricsProgressStartedAt, lyricsProgressStatus])
 
   useEffect(() => {
     if (!isChatOpen || !chatMessagesRef.current) return
@@ -1603,10 +2279,11 @@ const AiToolPage = () => {
     () => () => {
       chatAbortControllerRef.current?.abort()
       normalChatAbortControllerRef.current?.abort()
-      jobAbortControllerRef.current?.abort()
-      if (progressTimeoutRef.current !== null) {
-        window.clearTimeout(progressTimeoutRef.current)
-      }
+      lyricsAbortControllerRef.current?.abort()
+      metadataAbortControllerRef.current?.abort()
+      Object.values(progressTimeoutRefs.current).forEach((timeout) => {
+        if (timeout !== null) window.clearTimeout(timeout)
+      })
     },
     [],
   )
@@ -1663,6 +2340,15 @@ const AiToolPage = () => {
     }
   }, [addedSongIds, addedSongs])
 
+  const changeDeveloperTrace = (enabled) => {
+    setDeveloperTraceEnabled(enabled)
+    try {
+      localStorage.setItem(AI_CHAT_DEVELOPER_TRACE_STORAGE_KEY, String(enabled))
+    } catch {
+      // The switch still works for this page session if storage is unavailable.
+    }
+  }
+
   const sendMessage = async () => {
     const trimmed = prompt.trim()
     if (!trimmed || isSending) return
@@ -1671,6 +2357,7 @@ const AiToolPage = () => {
     const abortController = new AbortController()
     chatAbortControllerRef.current = abortController
     setChatError('')
+    setChatErrorTrace(null)
     // Send the recent conversation so the assistant can resolve follow-ups.
     const history = messages.slice(-8).map((message) => ({
       role: message.role,
@@ -1689,6 +2376,7 @@ const AiToolPage = () => {
           provider,
           useRag: true,
           history,
+          ...(developerTraceEnabled ? { developerTrace: true } : {}),
         }),
       })
 
@@ -1701,6 +2389,8 @@ const AiToolPage = () => {
           model: payload.model || '',
           sources: Array.isArray(payload.sources) ? payload.sources : [],
           ragError: payload.ragError || '',
+          direct: Boolean(payload.direct),
+          trace: payload.trace || null,
         },
       ])
     } catch (err) {
@@ -1708,6 +2398,7 @@ const AiToolPage = () => {
         setChatError('')
       } else {
         setChatError(err?.message || 'Could not get response from AI')
+        setChatErrorTrace(err?.body?.trace || err?.trace || null)
       }
     } finally {
       if (chatAbortControllerRef.current === abortController) {
@@ -1729,6 +2420,7 @@ const AiToolPage = () => {
     const abortController = new AbortController()
     normalChatAbortControllerRef.current = abortController
     setNormalChatError('')
+    setNormalChatErrorTrace(null)
     setNormalMessages((prev) => [
       ...prev,
       { role: 'user', text: trimmed, provider },
@@ -1740,7 +2432,12 @@ const AiToolPage = () => {
       const { json: payload } = await httpClient('/api/ai/chat', {
         method: 'POST',
         signal: abortController.signal,
-        body: JSON.stringify({ message: trimmed, provider, useRag: false }),
+        body: JSON.stringify({
+          message: trimmed,
+          provider,
+          useRag: false,
+          ...(developerTraceEnabled ? { developerTrace: true } : {}),
+        }),
       })
 
       setNormalMessages((prev) => [
@@ -1750,6 +2447,7 @@ const AiToolPage = () => {
           text: payload.response || '',
           provider: payload.provider || provider,
           model: payload.model || '',
+          trace: payload.trace || null,
         },
       ])
     } catch (err) {
@@ -1757,6 +2455,7 @@ const AiToolPage = () => {
         setNormalChatError('')
       } else {
         setNormalChatError(err?.message || 'Could not get response from AI')
+        setNormalChatErrorTrace(err?.body?.trace || err?.trace || null)
       }
     } finally {
       if (normalChatAbortControllerRef.current === abortController) {
@@ -1961,52 +2660,64 @@ const AiToolPage = () => {
   }
 
   const startProgress = (type, songs) => {
+    if (type === 'lyrics') setIsLyricsProgressHidden(false)
+    if (type === 'metadata') setIsMetadataProgressHidden(false)
     const startedAt = Date.now()
     setProgressClock(startedAt)
-    setJobProgress({
-      type,
-      currentTitle: songs[0]?.title || '',
-      done: 0,
-      total: songs.length,
-      status: 'running',
-      startedAt,
-      finishedAt: null,
-    })
+    setJobProgresses((prev) => ({
+      ...prev,
+      [type]: {
+        type,
+        currentTitle: songs[0]?.title || '',
+        done: 0,
+        total: songs.length,
+        status: 'running',
+        startedAt,
+        finishedAt: null,
+      },
+    }))
   }
 
   const updateProgress = (type, song, done, total) => {
-    setJobProgress((prev) => ({
-      type,
-      currentTitle: song?.title || '',
-      done,
-      total,
-      status: 'running',
-      startedAt: prev?.type === type ? prev.startedAt : Date.now(),
-      finishedAt: null,
+    setJobProgresses((prev) => ({
+      ...prev,
+      [type]: {
+        type,
+        currentTitle: song?.title || '',
+        done,
+        total,
+        status: 'running',
+        startedAt: prev[type]?.startedAt || Date.now(),
+        finishedAt: null,
+      },
     }))
   }
 
   const finishProgress = (type, total) => {
     const finishedAt = Date.now()
     setProgressClock(finishedAt)
-    setJobProgress((prev) => ({
-      type,
-      currentTitle: 'Complete',
-      done: total,
-      total,
-      status: 'complete',
-      startedAt: prev?.type === type ? prev.startedAt : finishedAt,
-      finishedAt,
+    setJobProgresses((prev) => ({
+      ...prev,
+      [type]: {
+        type,
+        currentTitle: 'Complete',
+        done: total,
+        total,
+        status: 'complete',
+        startedAt: prev[type]?.startedAt || finishedAt,
+        finishedAt,
+      },
     }))
-    if (progressTimeoutRef.current !== null) {
-      window.clearTimeout(progressTimeoutRef.current)
+    if (progressTimeoutRefs.current[type] !== null) {
+      window.clearTimeout(progressTimeoutRefs.current[type])
     }
-    progressTimeoutRef.current = window.setTimeout(
+    progressTimeoutRefs.current[type] = window.setTimeout(
       () => {
-        progressTimeoutRef.current = null
-        setJobProgress((prev) =>
-          prev?.type === type && prev?.status === 'complete' ? null : prev,
-        )
+        progressTimeoutRefs.current[type] = null
+        setJobProgresses((prev) => ({
+          ...prev,
+          [type]: prev[type]?.status === 'complete' ? null : prev[type],
+        }))
       },
       type === 'lyrics' ? 5000 : 1500,
     )
@@ -2015,34 +2726,157 @@ const AiToolPage = () => {
   const stopProgress = (type) => {
     const finishedAt = Date.now()
     setProgressClock(finishedAt)
-    setJobProgress((prev) =>
-      prev?.type === type
+    setJobProgresses((prev) => ({
+      ...prev,
+      [type]: prev[type]
         ? {
-            ...prev,
+            ...prev[type],
             currentTitle: 'Stopped',
             status: 'stopped',
             finishedAt,
           }
-        : prev,
-    )
-    if (progressTimeoutRef.current !== null) {
-      window.clearTimeout(progressTimeoutRef.current)
+        : null,
+    }))
+    if (progressTimeoutRefs.current[type] !== null) {
+      window.clearTimeout(progressTimeoutRefs.current[type])
     }
-    progressTimeoutRef.current = window.setTimeout(() => {
-      progressTimeoutRef.current = null
-      setJobProgress((prev) =>
-        prev?.type === type && prev?.status === 'stopped' ? null : prev,
-      )
+    progressTimeoutRefs.current[type] = window.setTimeout(() => {
+      progressTimeoutRefs.current[type] = null
+      setJobProgresses((prev) => ({
+        ...prev,
+        [type]: prev[type]?.status === 'stopped' ? null : prev[type],
+      }))
     }, 1500)
   }
 
-  const stopFetchJob = () => {
-    if (!jobAbortControllerRef.current) return
-
-    jobAbortControllerRef.current.abort()
-    setJobProgress((prev) =>
-      prev ? { ...prev, currentTitle: 'Stopping…', status: 'stopping' } : prev,
+  const updateSongsFromLyricsJobResults = (results = []) => {
+    const completed = results.filter(
+      (result) => result?.songId && result.success,
     )
+    if (!completed.length) return
+    const completedIDs = new Set(completed.map((result) => result.songId))
+    setAddedSongs((prev) => {
+      const nextSongs = prev.map((song) =>
+        completedIDs.has(song.id) ? { ...song, lyrics: 'saved' } : song,
+      )
+      localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
+      return nextSongs
+    })
+  }
+
+  const applyLyricsJobStatus = (status) => {
+    if (!status || typeof status !== 'object') return
+    if (typeof status.status !== 'string') return
+    updateSongsFromLyricsJobResults(status.results || [])
+    if (status.status === 'idle') {
+      if (lyricsLoadingIdRef.current === SERVER_LYRICS_LOADING_ID) {
+        lyricsLoadingIdRef.current = ''
+        serverLyricsJobActiveRef.current = false
+        setLyricsLoadingId('')
+        setLyricsFetchingSongIds([])
+        setJobProgresses((prev) => ({ ...prev, lyrics: null }))
+      }
+      return
+    }
+
+    const startedAt = status.startedAt
+      ? new Date(status.startedAt).getTime()
+      : Date.now()
+    const finishedAt = status.finishedAt
+      ? new Date(status.finishedAt).getTime()
+      : null
+    setProgressClock(Date.now())
+    setJobProgresses((prev) => ({
+      ...prev,
+      lyrics: {
+        type: 'lyrics',
+        currentSongId: status.currentSongId || '',
+        currentTitle:
+          status.currentTitle ||
+          (status.status === 'complete'
+            ? 'Complete'
+            : status.status === 'stopped'
+              ? 'Stopped'
+              : 'Fetching lyrics'),
+        done: Number(status.done) || 0,
+        total: Number(status.total) || 0,
+        status:
+          status.status === 'stopping'
+            ? 'stopping'
+            : status.running
+              ? 'running'
+              : status.status === 'stopped'
+                ? 'stopped'
+                : status.status === 'failed'
+                  ? 'failed'
+                  : 'complete',
+        startedAt,
+        finishedAt,
+      },
+    }))
+    lyricsLoadingIdRef.current = status.running ? SERVER_LYRICS_LOADING_ID : ''
+    serverLyricsJobActiveRef.current = Boolean(status.running)
+    setLyricsLoadingId(status.running ? SERVER_LYRICS_LOADING_ID : '')
+    setLyricsFetchingSongIds(
+      status.running && Array.isArray(status.songIds) ? status.songIds : [],
+    )
+    if (status.error && status.status !== 'complete') {
+      setToolError(status.error)
+    }
+  }
+  applyLyricsJobStatusRef.current = applyLyricsJobStatus
+
+  const stopFetchJob = async (type) => {
+    if (type === 'metadata') {
+      metadataAbortControllerRef.current?.abort()
+      setJobProgresses((prev) => ({
+        ...prev,
+        metadata: prev.metadata
+          ? {
+              ...prev.metadata,
+              currentTitle: 'Stopping…',
+              status: 'stopping',
+            }
+          : prev.metadata,
+      }))
+      return
+    }
+
+    if (
+      serverLyricsJobActiveRef.current ||
+      lyricsLoadingIdRef.current === SERVER_LYRICS_LOADING_ID ||
+      (!lyricsAbortControllerRef.current && lyricsJobProgress)
+    ) {
+      setJobProgresses((prev) => ({
+        ...prev,
+        lyrics: prev.lyrics
+          ? {
+              ...prev.lyrics,
+              currentTitle: 'Stopping…',
+              status: 'stopping',
+            }
+          : prev.lyrics,
+      }))
+      try {
+        const { json } = await httpClient('/api/ai/lyrics/fetch-job', {
+          method: 'DELETE',
+        })
+        applyLyricsJobStatus(json)
+      } catch (err) {
+        setToolError(err?.message || 'Could not stop lyrics job')
+      }
+      return
+    }
+
+    if (!lyricsAbortControllerRef.current) return
+
+    lyricsAbortControllerRef.current.abort()
+    setJobProgresses((prev) => ({
+      ...prev,
+      lyrics: prev.lyrics
+        ? { ...prev.lyrics, currentTitle: 'Stopping…', status: 'stopping' }
+        : prev.lyrics,
+    }))
   }
 
   const openRowActions = (event, song) => {
@@ -2056,27 +2890,29 @@ const AiToolPage = () => {
   }
 
   const fetchLyrics = async (song) => {
-    if (!song?.id || lyricsLoadingId || jobAbortControllerRef.current) return
+    if (
+      !song?.id ||
+      lyricsLoadingId ||
+      lyricsAbortControllerRef.current ||
+      explicitClassifyingSongIdsRef.current.has(song.id)
+    )
+      return
 
     const abortController = new AbortController()
-    jobAbortControllerRef.current = abortController
+    lyricsAbortControllerRef.current = abortController
     setToolError('')
+    lyricsLoadingIdRef.current = song.id
     setLyricsLoadingId(song.id)
+    setLyricsFetchingSongIds([song.id])
     startProgress('lyrics', [song])
     try {
-      const { json } = await httpClient(
-        `/api/ai/songs/${song.id}/lyrics/fetch`,
-        {
-          method: 'POST',
-          signal: abortController.signal,
-        },
-      )
-      const coverage = lyricsCoverageFields(json)
+      await httpClient(`/api/ai/songs/${song.id}/lyrics/fetch`, {
+        method: 'POST',
+        signal: abortController.signal,
+      })
       setAddedSongs((prev) => {
         const nextSongs = prev.map((item) =>
-          item.id === song.id
-            ? { ...item, lyrics: 'saved', ...coverage }
-            : item,
+          item.id === song.id ? { ...item, lyrics: 'saved' } : item,
         )
         localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
         return nextSongs
@@ -2089,81 +2925,127 @@ const AiToolPage = () => {
       } else {
         removeStaleSongOnNotFound(err, song)
         setToolError(err?.message || 'Could not fetch lyrics')
-        setJobProgress(null)
+        setJobProgresses((prev) => ({ ...prev, lyrics: null }))
       }
     } finally {
-      if (jobAbortControllerRef.current === abortController) {
-        jobAbortControllerRef.current = null
+      if (lyricsAbortControllerRef.current === abortController) {
+        lyricsAbortControllerRef.current = null
+      }
+      if (lyricsLoadingIdRef.current === song.id) {
+        lyricsLoadingIdRef.current = ''
       }
       setLyricsLoadingId('')
+      setLyricsFetchingSongIds([])
     }
   }
 
   const fetchSelectedLyrics = async () => {
-    if (
-      !selectedAddedIds.length ||
-      lyricsLoadingId ||
-      jobAbortControllerRef.current
-    )
-      return
+    if (!selectedAddedIds.length) return
+    await fetchLyricsForSongs(selectedAddedSongs, {
+      emptyMessage: 'All selected songs already have lyrics.',
+    })
+  }
 
-    const songsToFetch = selectedAddedSongs.filter(
-      (song) => !hasSavedLyrics(song),
+  const fetchLyricsForSongs = async (songs, { emptyMessage = '' } = {}) => {
+    if (lyricsLoadingIdRef.current || lyricsAbortControllerRef.current)
+      return false
+
+    const songsToFetch = songs.filter(
+      (song) =>
+        song?.id &&
+        !hasSavedLyrics(song) &&
+        !explicitClassifyingSongIdsRef.current.has(song.id),
     )
     if (!songsToFetch.length) {
-      setToolError('All selected songs already have lyrics.')
-      return
+      if (emptyMessage) setToolError(emptyMessage)
+      return false
     }
 
-    const abortController = new AbortController()
-    jobAbortControllerRef.current = abortController
     setToolError('')
-    setLyricsLoadingId('bulk')
+    lyricsLoadingIdRef.current = SERVER_LYRICS_LOADING_ID
+    serverLyricsJobActiveRef.current = true
+    setLyricsLoadingId(SERVER_LYRICS_LOADING_ID)
+    setLyricsFetchingSongIds(songsToFetch.map((song) => song.id))
     startProgress('lyrics', songsToFetch)
     try {
-      for (const [index, song] of songsToFetch.entries()) {
-        updateProgress('lyrics', song, index, songsToFetch.length)
-        const { json } = await httpClient(
-          `/api/ai/songs/${song.id}/lyrics/fetch`,
-          {
-            method: 'POST',
-            signal: abortController.signal,
-          },
-        )
-        const coverage = lyricsCoverageFields(json)
-        setAddedSongs((prev) => {
-          const nextSongs = prev.map((item) =>
-            item.id === song.id
-              ? { ...item, lyrics: 'saved', ...coverage }
-              : item,
-          )
-          localStorage.setItem(
-            ADDED_SONGS_STORAGE_KEY,
-            JSON.stringify(nextSongs),
-          )
-          return nextSongs
-        })
-        updateProgress('lyrics', song, index + 1, songsToFetch.length)
-      }
-      finishProgress('lyrics', songsToFetch.length)
+      const { json } = await httpClient('/api/ai/lyrics/fetch-job', {
+        method: 'POST',
+        body: JSON.stringify({ songIds: songsToFetch.map((song) => song.id) }),
+      })
+      applyLyricsJobStatus(json)
+      return true
     } catch (err) {
-      if (abortController.signal.aborted || err?.name === 'AbortError') {
-        stopProgress('lyrics')
-      } else {
-        setToolError(err?.message || 'Could not fetch lyrics')
-        setJobProgress(null)
+      if (lyricsLoadingIdRef.current === SERVER_LYRICS_LOADING_ID) {
+        lyricsLoadingIdRef.current = ''
       }
-    } finally {
-      if (jobAbortControllerRef.current === abortController) {
-        jobAbortControllerRef.current = null
-      }
+      serverLyricsJobActiveRef.current = false
       setLyricsLoadingId('')
+      setLyricsFetchingSongIds([])
+      setToolError(err?.message || 'Could not fetch lyrics')
+      setJobProgresses((prev) => ({ ...prev, lyrics: null }))
+      return false
+    }
+  }
+  fetchLyricsForSongsRef.current = fetchLyricsForSongs
+
+  const toggleAutoFetchAllLyrics = () => {
+    const disabling = isAutoFetchAllLyricsEnabled
+    setIsLyricsProgressHidden(disabling)
+    setIsAutoFetchAllLyricsEnabled((enabled) => !enabled)
+    if (
+      disabling &&
+      (lyricsLoadingIdRef.current ||
+        lyricsAbortControllerRef.current ||
+        serverLyricsJobActiveRef.current)
+    ) {
+      void stopFetchJob('lyrics')
     }
   }
 
+  useEffect(() => {
+    if (!isAutoFetchAllLyricsEnabled) return undefined
+
+    const runLyricsCheck = () => {
+      void fetchLyricsForSongsRef.current?.(addedSongsRef.current, {
+        emptyMessage: '',
+      })
+    }
+
+    runLyricsCheck()
+    const interval = window.setInterval(
+      runLyricsCheck,
+      AUTO_FETCH_ALL_LYRICS_INTERVAL_MS,
+    )
+    return () => window.clearInterval(interval)
+  }, [isAutoFetchAllLyricsEnabled])
+
+  useEffect(() => {
+    let active = true
+    const refreshLyricsJobStatus = async () => {
+      try {
+        const { json } = await httpClient('/api/ai/lyrics/fetch-job/status')
+        if (active) applyLyricsJobStatusRef.current?.(json)
+      } catch {
+        // Status polling should never interrupt the rest of the AI page.
+      }
+    }
+
+    refreshLyricsJobStatus()
+    const interval = window.setInterval(refreshLyricsJobStatus, 2000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [])
+
   const deleteLyricsForSongs = async (songs) => {
-    const songsToDelete = songs.filter(hasSavedLyrics)
-    if (!songsToDelete.length || isDeletingLyrics || isFetchJobRunning) return
+    const songsToDelete = songs.filter(
+      (song) =>
+        hasSavedLyrics(song) &&
+        !lyricsFetchingSongIdSet.has(song.id) &&
+        !explicitClassifyingSongIdSet.has(song.id),
+    )
+    if (!songsToDelete.length || isDeletingLyrics) return
 
     setToolError('')
     setIsDeletingLyrics(true)
@@ -2225,7 +3107,9 @@ const AiToolPage = () => {
 
     setModelDialogAction(action)
     setModelDialogSongs(songs)
-    setModelDialogProvider(defaultProvider)
+    setModelDialogProvider(
+      action === 'fetchMetadata' ? metadataProvider : defaultProvider,
+    )
   }
 
   const closeModelDialog = () => {
@@ -2251,11 +3135,15 @@ const AiToolPage = () => {
   }
 
   const classifyExplicit = async (songs, provider) => {
-    const songIds = songs.map((song) => song.id)
+    const songIds = songs
+      .filter((song) => song?.id && !lyricsFetchingSongIdSet.has(song.id))
+      .map((song) => song.id)
     if (!songIds.length || isClassifyingExplicit) return
 
     setToolError('')
     setIsClassifyingExplicit(true)
+    explicitClassifyingSongIdsRef.current = new Set(songIds)
+    setExplicitClassifyingSongIds(songIds)
     try {
       const { json: payload } = await httpClient('/api/ai/classify-explicit', {
         method: 'POST',
@@ -2295,15 +3183,22 @@ const AiToolPage = () => {
       setToolError(err?.message || 'Could not classify explicit content')
     } finally {
       setIsClassifyingExplicit(false)
+      explicitClassifyingSongIdsRef.current = new Set()
+      setExplicitClassifyingSongIds([])
     }
   }
 
   const fetchAIMetadataForSongs = async (songs, provider) => {
-    if (!songs.length || isFetchingMetadata || jobAbortControllerRef.current)
+    if (
+      !songs.length ||
+      isFetchingMetadata ||
+      isClearingMetadata ||
+      metadataAbortControllerRef.current
+    )
       return
 
     const abortController = new AbortController()
-    jobAbortControllerRef.current = abortController
+    metadataAbortControllerRef.current = abortController
     setToolError('')
     setIsFetchingMetadata(true)
     startProgress('metadata', songs)
@@ -2325,26 +3220,29 @@ const AiToolPage = () => {
           const nextSongs = prev.map((item) => {
             const update = metadata.get(item.id)
             if (!update) return item
+            const metadataConfidence = {
+              ...(item.metadataConfidence || {}),
+              genre: normalizeMetadataConfidence(update.genreConfidence) ?? 0,
+            }
+            const genreDeveloperTrace =
+              update.genreDeveloperTrace || item.genreDeveloperTrace
+                ? {
+                    ...(item.genreDeveloperTrace || {}),
+                    ...(update.genreDeveloperTrace || {}),
+                  }
+                : undefined
             return {
               ...item,
-              album: update.album || item.album,
-              year: update.year || item.year,
               aiGenre: update.aiGenre || item.aiGenre || '',
               spotifyGenre: update.spotifyGenre || item.spotifyGenre || '',
               musicBrainzGenre:
                 update.musicBrainzGenre || item.musicBrainzGenre || '',
-              metadataConfidence: {
-                ...(item.metadataConfidence || {}),
-                album: normalizeMetadataConfidence(update.albumConfidence) ?? 0,
-                year: normalizeMetadataConfidence(update.yearConfidence) ?? 0,
-                genre: normalizeMetadataConfidence(update.genreConfidence) ?? 0,
-              },
+              metadataConfidence,
               metadataConfidenceBreakdown:
                 update.confidenceBreakdown || item.metadataConfidenceBreakdown,
+              genreDeveloperTrace,
               aiFields: {
                 ...(item.aiFields || {}),
-                album: Boolean(update.album) || Boolean(item.aiFields?.album),
-                year: Boolean(update.year) || Boolean(item.aiFields?.year),
                 aiGenre:
                   Boolean(update.aiGenre) || Boolean(item.aiFields?.aiGenre),
                 spotifyGenre:
@@ -2370,18 +3268,52 @@ const AiToolPage = () => {
         stopProgress('metadata')
       } else {
         setToolError(err?.message || 'Could not fetch AI metadata')
-        setJobProgress(null)
+        setJobProgresses((prev) => ({ ...prev, metadata: null }))
       }
     } finally {
-      if (jobAbortControllerRef.current === abortController) {
-        jobAbortControllerRef.current = null
+      if (metadataAbortControllerRef.current === abortController) {
+        metadataAbortControllerRef.current = null
       }
       setIsFetchingMetadata(false)
     }
   }
+  fetchAIMetadataForSongsRef.current = fetchAIMetadataForSongs
+
+  const toggleAutoFetchAllMetadata = () => {
+    const disabling = isAutoFetchAllMetadataEnabled
+    setIsMetadataProgressHidden(disabling)
+    setIsAutoFetchAllMetadataEnabled((enabled) => !enabled)
+    if (disabling && metadataAbortControllerRef.current) {
+      void stopFetchJob('metadata')
+    }
+  }
+
+  useEffect(() => {
+    if (!isAutoFetchAllMetadataEnabled) return undefined
+
+    const runMetadataCheck = () => {
+      void fetchAIMetadataForSongsRef.current?.(
+        addedSongsRef.current,
+        metadataProvider,
+      )
+    }
+
+    runMetadataCheck()
+    const interval = window.setInterval(
+      runMetadataCheck,
+      AUTO_FETCH_ALL_METADATA_INTERVAL_MS,
+    )
+    return () => window.clearInterval(interval)
+  }, [isAutoFetchAllMetadataEnabled, metadataProvider])
 
   const clearFetchedMetadata = async () => {
-    if (!selectedAddedSongs.length || isClearingMetadata) return
+    if (
+      !selectedAddedSongs.length ||
+      isClearingMetadata ||
+      isFetchingMetadata ||
+      metadataAbortControllerRef.current
+    )
+      return
 
     setToolError('')
     setIsClearingMetadata(true)
@@ -2409,6 +3341,7 @@ const AiToolPage = () => {
                 musicBrainzGenre: '',
                 metadataConfidence: {},
                 metadataConfidenceBreakdown: undefined,
+                genreDeveloperTrace: undefined,
                 aiFields: {
                   ...(song.aiFields || {}),
                   album: false,
@@ -2532,12 +3465,18 @@ const AiToolPage = () => {
                 <Box className={classes.serviceStatusContent}>
                   <Box className={classes.serviceStatusList}>
                     {modelStatuses.map((service) => {
+                      const serviceState =
+                        service.id === 'whisper' && isLyricsJobRunning
+                          ? 'busy'
+                          : service.state
                       const statusLabel =
-                        service.online === null
-                          ? 'Checking…'
-                          : service.online
-                            ? 'Online'
-                            : 'Offline'
+                        serviceState === 'busy'
+                          ? 'Busy'
+                          : service.online === null
+                            ? 'Checking…'
+                            : service.online
+                              ? 'Online'
+                              : 'Offline'
                       return (
                         <Box
                           className={classes.serviceStatusItem}
@@ -2554,20 +3493,24 @@ const AiToolPage = () => {
                             className={classes.serviceStatusValue}
                             style={{
                               color:
-                                service.online === true
-                                  ? '#3ddc84'
-                                  : service.online === false
-                                    ? '#ff8fc6'
-                                    : '#c9d1dc',
+                                serviceState === 'busy'
+                                  ? '#c084fc'
+                                  : service.online === true
+                                    ? '#3ddc84'
+                                    : service.online === false
+                                      ? '#ff8fc6'
+                                      : '#c9d1dc',
                             }}
                           >
                             <span
                               className={`${classes.statusDot} ${
-                                service.online === true
-                                  ? classes.statusDotOnline
-                                  : service.online === false
-                                    ? classes.statusDotOffline
-                                    : ''
+                                serviceState === 'busy'
+                                  ? classes.statusDotBusy
+                                  : service.online === true
+                                    ? classes.statusDotOnline
+                                    : service.online === false
+                                      ? classes.statusDotOffline
+                                      : ''
                               }`}
                             />
                             {statusLabel}
@@ -2703,7 +3646,9 @@ const AiToolPage = () => {
                           !ragStatus?.enabled ||
                           !isRAGIndexLimitValid ||
                           isIndexingRAG ||
-                          isRefreshingRAG
+                          isRefreshingRAG ||
+                          isAddingQdrantLyrics ||
+                          isClearingRAG
                         }
                       >
                         {isIndexingRAG
@@ -2719,7 +3664,9 @@ const AiToolPage = () => {
                           !ragStatus?.enabled ||
                           !isRAGIndexLimitValid ||
                           isIndexingRAG ||
-                          isRefreshingRAG
+                          isRefreshingRAG ||
+                          isAddingQdrantLyrics ||
+                          isClearingRAG
                         }
                       >
                         {isRefreshingRAG
@@ -2729,21 +3676,70 @@ const AiToolPage = () => {
                       <Button
                         size="small"
                         variant="outlined"
+                        onClick={addQdrantLyrics}
+                        disabled={
+                          !ragStatus?.enabled ||
+                          isIndexingRAG ||
+                          isRefreshingRAG ||
+                          isAddingQdrantLyrics ||
+                          isClearingRAG
+                        }
+                        style={{ color: '#c084fc', borderColor: '#a855f7' }}
+                      >
+                        {isAddingQdrantLyrics
+                          ? 'Adding Qdrant lyrics…'
+                          : 'Add Qdrant lyrics'}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={openQdrantLyrics}
+                        disabled={
+                          !ragStatus?.enabled ||
+                          !ragStatus?.vectorDbOnline ||
+                          !ragStatus?.collectionExists ||
+                          isClearingRAG
+                        }
+                        style={{ color: '#c084fc', borderColor: '#a855f7' }}
+                      >
+                        View Qdrant lyrics
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
                         color="primary"
                         onClick={openRAGDocuments}
                         disabled={
                           !ragStatus?.enabled ||
                           !ragStatus?.vectorDbOnline ||
-                          !ragStatus?.collectionExists
+                          !ragStatus?.collectionExists ||
+                          isClearingRAG
                         }
                       >
                         View indexed songs
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        onClick={clearRAGIndex}
+                        disabled={
+                          !ragStatus?.enabled ||
+                          !ragStatus?.vectorDbOnline ||
+                          isIndexingRAG ||
+                          isRefreshingRAG ||
+                          isAddingQdrantLyrics ||
+                          isClearingRAG
+                        }
+                      >
+                        {isClearingRAG ? 'Clearing…' : 'Clear indexed songs'}
                       </Button>
                       <Typography
                         className={classes.ragIndexHint}
                         variant="body2"
                       >
-                        Already indexed songs are skipped.
+                        Index skips unchanged songs. Refresh updates the latest
+                        information for songs already stored in Qdrant.
                       </Typography>
                     </Box>
                     {ragIndexMessage ? (
@@ -2818,6 +3814,20 @@ const AiToolPage = () => {
                         inputProps={{ 'aria-label': 'Genre' }}
                         onChange={(event) =>
                           updateRAGSearchFilter('genre', event.target.value)
+                        }
+                      />
+                      <TextField
+                        className={classes.ragFilterInput}
+                        label="Lyrics contain"
+                        variant="outlined"
+                        size="small"
+                        value={ragSearchFilters.lyricsContains}
+                        inputProps={{ 'aria-label': 'Lyrics contain' }}
+                        onChange={(event) =>
+                          updateRAGSearchFilter(
+                            'lyricsContains',
+                            event.target.value,
+                          )
                         }
                       />
                       {[
@@ -2945,12 +3955,14 @@ const AiToolPage = () => {
                   variant="outlined"
                   color="primary"
                   onClick={() =>
-                    openModelDialog('classifyExplicit', selectedAddedSongs)
+                    openModelDialog(
+                      'classifyExplicit',
+                      selectedSongsAvailableForExplicit,
+                    )
                   }
                   disabled={
-                    !selectedAddedIds.length ||
-                    isClassifyingExplicit ||
-                    isFetchJobRunning
+                    !selectedSongsAvailableForExplicit.length ||
+                    isClassifyingExplicit
                   }
                 >
                   {isClassifyingExplicit
@@ -2973,7 +3985,8 @@ const AiToolPage = () => {
                   color="primary"
                   onClick={fetchSelectedLyrics}
                   disabled={
-                    selectedSongsMissingLyrics.length === 0 || isFetchJobRunning
+                    selectedSongsAvailableForLyrics.length === 0 ||
+                    isLyricsJobRunning
                   }
                 >
                   {lyricsLoadingId ? (
@@ -2983,22 +3996,50 @@ const AiToolPage = () => {
                       className={classes.buttonProgress}
                     />
                   ) : null}
-                  {lyricsLoadingId === 'bulk'
-                    ? translate('menu.aiTool.fetchingLyrics', {
-                        _: 'Fetching...',
+                  {lyricsProgressStatus === 'stopping'
+                    ? translate('menu.aiTool.stoppingLyrics', {
+                        _: 'Stopping Lyrics...',
                       })
-                    : translate('menu.aiTool.fetchLyrics', {
-                        _: 'Fetch Lyrics',
-                      })}
+                    : lyricsLoadingId
+                      ? translate('menu.aiTool.fetchingLyrics', {
+                          _: 'Fetching Lyrics...',
+                        })
+                      : translate('menu.aiTool.fetchLyrics', {
+                          _: 'Fetch Lyrics',
+                        })}
                 </Button>
+                <Box
+                  className={`${classes.fetchAllLyricsSwitch} ${
+                    isAutoFetchAllLyricsEnabled
+                      ? classes.fetchAllLyricsSwitchEnabled
+                      : ''
+                  }`}
+                >
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={isAutoFetchAllLyricsEnabled}
+                        onChange={toggleAutoFetchAllLyrics}
+                        color="primary"
+                        inputProps={{ 'aria-label': 'Fetch All Song Lyrics' }}
+                      />
+                    }
+                    label="Fetch All Song Lyrics"
+                  />
+                  <Typography
+                    component="span"
+                    className={classes.fetchAllLyricsSwitchStatus}
+                  >
+                    {isAutoFetchAllLyricsEnabled ? 'Enabled' : 'Disabled'}
+                  </Typography>
+                </Box>
                 <Button
                   variant="outlined"
                   color="secondary"
                   onClick={() => deleteLyricsForSongs(selectedAddedSongs)}
                   disabled={
-                    selectedSongsWithLyrics.length === 0 ||
-                    isDeletingLyrics ||
-                    isFetchJobRunning
+                    selectedSongsAvailableForLyricsDeletion.length === 0 ||
+                    isDeletingLyrics
                   }
                 >
                   {isDeletingLyrics ? 'Deleting lyrics…' : 'Delete Lyrics'}
@@ -3011,8 +4052,8 @@ const AiToolPage = () => {
                   }
                   disabled={
                     !selectedAddedIds.length ||
-                    isFetchJobRunning ||
-                    isClassifyingExplicit
+                    isFetchingMetadata ||
+                    isClearingMetadata
                   }
                 >
                   {isFetchingMetadata ? (
@@ -3022,14 +4063,61 @@ const AiToolPage = () => {
                       className={classes.buttonProgress}
                     />
                   ) : null}
-                  {isFetchingMetadata
-                    ? translate('menu.aiTool.fetchingMetadata', {
-                        _: 'Fetching...',
+                  {metadataProgressStatus === 'stopping'
+                    ? translate('menu.aiTool.stoppingMetadata', {
+                        _: 'Stopping Metadata...',
                       })
-                    : translate('menu.aiTool.fetchAIMetadata', {
-                        _: 'Fetch AI Metadata',
-                      })}
+                    : isFetchingMetadata
+                      ? translate('menu.aiTool.fetchingMetadata', {
+                          _: 'Fetching Metadata...',
+                        })
+                      : translate('menu.aiTool.fetchAIMetadata', {
+                          _: 'Fetch AI Metadata',
+                        })}
                 </Button>
+                <Box
+                  className={`${classes.fetchAllLyricsSwitch} ${
+                    isAutoFetchAllMetadataEnabled
+                      ? classes.fetchAllLyricsSwitchEnabled
+                      : ''
+                  }`}
+                >
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={isAutoFetchAllMetadataEnabled}
+                        onChange={toggleAutoFetchAllMetadata}
+                        color="primary"
+                        inputProps={{ 'aria-label': 'Fetch All Song Metadata' }}
+                      />
+                    }
+                    label="Fetch All Song Metadata"
+                  />
+                  <Typography
+                    component="span"
+                    className={classes.fetchAllLyricsSwitchStatus}
+                  >
+                    {isAutoFetchAllMetadataEnabled ? 'Enabled' : 'Disabled'}
+                  </Typography>
+                </Box>
+                <TextField
+                  select
+                  className={classes.defaultProviderSelect}
+                  label="Default Metadata AI Provider"
+                  variant="outlined"
+                  size="small"
+                  value={metadataProvider}
+                  inputProps={{ 'aria-label': 'Default Metadata AI Provider' }}
+                  onChange={(event) =>
+                    setMetadataProvider(normalizeAIProvider(event.target.value))
+                  }
+                >
+                  {AI_PROVIDERS.map((provider) => (
+                    <MenuItem key={provider.id} value={provider.id}>
+                      {provider.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <Button
                   variant="outlined"
                   color="primary"
@@ -3058,8 +4146,7 @@ const AiToolPage = () => {
                   disabled={
                     !selectedAddedIds.length ||
                     isClearingMetadata ||
-                    isFetchJobRunning ||
-                    isClassifyingExplicit
+                    isFetchingMetadata
                   }
                 >
                   {isClearingMetadata ? (
@@ -3094,42 +4181,61 @@ const AiToolPage = () => {
             </Collapse>
           </Box>
 
-          {jobProgress ? (
-            <Box className={classes.progressPanel}>
-              <Box className={classes.progressHeader}>
-                <Typography variant="body2" className={classes.progressText}>
-                  {jobProgress.type === 'lyrics'
-                    ? 'Fetching lyrics'
-                    : 'Fetching AI metadata'}
-                  : {jobProgress.currentTitle}
-                </Typography>
-                <Box className={classes.progressActions}>
-                  <Typography variant="body2" className={classes.progressMeta}>
-                    {jobProgress.done}/{jobProgress.total} done,{' '}
-                    {Math.max(jobProgress.total - jobProgress.done, 0)} left
-                    {lyricsTimingText ? ` · ${lyricsTimingText}` : ''}
+          {['lyrics', 'metadata'].map((type) => {
+            const progress = jobProgresses[type]
+            if (
+              !progress ||
+              (type === 'lyrics' && isLyricsProgressHidden) ||
+              (type === 'metadata' && isMetadataProgressHidden)
+            )
+              return null
+            const progressValue = progress.total
+              ? Math.round((progress.done / progress.total) * 100)
+              : 0
+            const running =
+              type === 'lyrics' ? isLyricsJobRunning : isFetchingMetadata
+            return (
+              <Box className={classes.progressPanel} key={type}>
+                <Box className={classes.progressHeader}>
+                  <Typography variant="body2" className={classes.progressText}>
+                    {type === 'lyrics'
+                      ? 'Fetching lyrics'
+                      : 'Fetching AI metadata'}
+                    : {progress.currentTitle}
                   </Typography>
-                  {isFetchJobRunning ? (
-                    <Button
-                      className={classes.stopJobButton}
-                      variant="outlined"
-                      color="secondary"
-                      size="small"
-                      onClick={stopFetchJob}
-                      startIcon={<StopIcon fontSize="small" />}
+                  <Box className={classes.progressActions}>
+                    <Typography
+                      variant="body2"
+                      className={classes.progressMeta}
                     >
-                      {translate('ra.action.stop', { _: 'Stop' })}
-                    </Button>
-                  ) : null}
+                      {progress.done}/{progress.total} done,{' '}
+                      {Math.max(progress.total - progress.done, 0)} left
+                      {type === 'lyrics' && lyricsTimingText
+                        ? ` · ${lyricsTimingText}`
+                        : ''}
+                    </Typography>
+                    {running ? (
+                      <Button
+                        className={classes.stopJobButton}
+                        variant="outlined"
+                        color="secondary"
+                        size="small"
+                        onClick={() => stopFetchJob(type)}
+                        startIcon={<StopIcon fontSize="small" />}
+                      >
+                        {translate('ra.action.stop', { _: 'Stop' })}
+                      </Button>
+                    ) : null}
+                  </Box>
                 </Box>
+                <LinearProgress
+                  className={classes.progressBar}
+                  variant="determinate"
+                  value={progressValue}
+                />
               </Box>
-              <LinearProgress
-                className={classes.progressBar}
-                variant="determinate"
-                value={jobProgressValue}
-              />
-            </Box>
-          ) : null}
+            )
+          })}
 
           <Box className={classes.tableWrap}>
             <Table size="small">
@@ -3159,11 +4265,6 @@ const AiToolPage = () => {
                       {translate('resources.song.fields.album', { _: 'Album' })}
                     </TableCell>
                   ) : null}
-                  {isColumnVisible('albumConfidence') ? (
-                    <TableCell className={classes.confidenceColumn}>
-                      Album Confidence
-                    </TableCell>
-                  ) : null}
                   {isColumnVisible('artist') ? (
                     <TableCell>
                       {translate('resources.song.fields.artist', {
@@ -3174,11 +4275,6 @@ const AiToolPage = () => {
                   {isColumnVisible('year') ? (
                     <TableCell>
                       {translate('resources.song.fields.year', { _: 'Year' })}
-                    </TableCell>
-                  ) : null}
-                  {isColumnVisible('yearConfidence') ? (
-                    <TableCell className={classes.confidenceColumn}>
-                      Year Confidence
                     </TableCell>
                   ) : null}
                   {isColumnVisible('explicit') ? (
@@ -3209,7 +4305,7 @@ const AiToolPage = () => {
                     <TableCell>Spotify Genre</TableCell>
                   ) : null}
                   {isColumnVisible('musicBrainzGenre') ? (
-                    <TableCell>MusicBrainz Genre</TableCell>
+                    <TableCell>iTunes Genre</TableCell>
                   ) : null}
                   {isColumnVisible('aiGenre') ? (
                     <TableCell>
@@ -3228,7 +4324,19 @@ const AiToolPage = () => {
               </TableHead>
               <TableBody>
                 {addedSongs.map((song) => (
-                  <TableRow key={song.id}>
+                  <TableRow
+                    key={song.id}
+                    className={
+                      currentLyricsFetchingSongId === song.id
+                        ? classes.lyricsFetchingRow
+                        : undefined
+                    }
+                    data-lyrics-fetching={
+                      currentLyricsFetchingSongId === song.id
+                        ? 'true'
+                        : undefined
+                    }
+                  >
                     <TableCell padding="checkbox">
                       <Checkbox
                         checked={selectedAddedSongIdSet.has(song.id)}
@@ -3245,15 +4353,6 @@ const AiToolPage = () => {
                         {song.album || ''}
                       </TableCell>
                     ) : null}
-                    {isColumnVisible('albumConfidence') ? (
-                      <TableCell className={classes.confidenceColumn}>
-                        {renderMetadataConfidence(
-                          song.metadataConfidence?.album,
-                          song,
-                          'album',
-                        ) || '—'}
-                      </TableCell>
-                    ) : null}
                     {isColumnVisible('artist') ? (
                       <TableCell className={classes.valueExisting}>
                         {song.artist || ''}
@@ -3262,15 +4361,6 @@ const AiToolPage = () => {
                     {isColumnVisible('year') ? (
                       <TableCell className={valueClass(song, 'year')}>
                         {song.year || ''}
-                      </TableCell>
-                    ) : null}
-                    {isColumnVisible('yearConfidence') ? (
-                      <TableCell className={classes.confidenceColumn}>
-                        {renderMetadataConfidence(
-                          song.metadataConfidence?.year,
-                          song,
-                          'year',
-                        ) || '—'}
                       </TableCell>
                     ) : null}
                     {isColumnVisible('explicit') ? (
@@ -3288,28 +4378,7 @@ const AiToolPage = () => {
                     ) : null}
                     {isColumnVisible('lyrics') ? (
                       <TableCell className={valueClass(song, 'lyrics')}>
-                        {hasSavedLyrics(song) ? (
-                          <Box
-                            display="flex"
-                            alignItems="center"
-                            style={{ gap: 4 }}
-                          >
-                            <Button
-                              size="small"
-                              color="primary"
-                              onClick={() => showLyrics(song)}
-                            >
-                              {translate('menu.aiTool.lyricsAvailable', {
-                                _: 'Available',
-                              })}
-                            </Button>
-                            {renderLyricsCoverage(song)}
-                          </Box>
-                        ) : (
-                          translate('menu.aiTool.lyricsMissing', {
-                            _: 'Missing',
-                          })
-                        )}
+                        {renderLyricsState(song)}
                       </TableCell>
                     ) : null}
                     {isColumnVisible('duration') ? (
@@ -3328,13 +4397,15 @@ const AiToolPage = () => {
                       </TableCell>
                     ) : null}
                     {isColumnVisible('musicBrainzGenre') ? (
-                      <TableCell className={valueClass(song, 'musicBrainzGenre')}>
-                        {song.musicBrainzGenre || '-'}
+                      <TableCell
+                        className={valueClass(song, 'musicBrainzGenre')}
+                      >
+                        {renderFetchedGenre(song, 'itunes')}
                       </TableCell>
                     ) : null}
                     {isColumnVisible('aiGenre') ? (
                       <TableCell className={valueClass(song, 'aiGenre')}>
-                        {song.aiGenre || '-'}
+                        {renderFetchedGenre(song, 'ai')}
                       </TableCell>
                     ) : null}
                     {isColumnVisible('genreConfidence') ? (
@@ -3408,10 +4479,15 @@ const AiToolPage = () => {
       >
         <MenuItem
           onClick={() => runRowAction('fetchLyrics')}
-          disabled={isFetchJobRunning}
+          disabled={
+            isLyricsJobRunning ||
+            explicitClassifyingSongIdSet.has(rowActionSong?.id)
+          }
         >
           {lyricsLoadingId === rowActionSong?.id
-            ? translate('menu.aiTool.fetchingLyrics', { _: 'Fetching...' })
+            ? translate('menu.aiTool.fetchingLyrics', {
+                _: 'Fetching Lyrics...',
+              })
             : translate('menu.aiTool.fetchLyrics', { _: 'Fetch Lyrics' })}
         </MenuItem>
         <MenuItem
@@ -3425,17 +4501,20 @@ const AiToolPage = () => {
           disabled={
             !hasSavedLyrics(rowActionSong) ||
             isDeletingLyrics ||
-            isFetchJobRunning
+            lyricsFetchingSongIdSet.has(rowActionSong?.id) ||
+            explicitClassifyingSongIdSet.has(rowActionSong?.id)
           }
         >
           Delete Lyrics
         </MenuItem>
         <MenuItem
           onClick={() => runRowAction('fetchMetadata')}
-          disabled={isFetchJobRunning || isClassifyingExplicit}
+          disabled={isFetchingMetadata || isClearingMetadata}
         >
           {isFetchingMetadata
-            ? translate('menu.aiTool.fetchingMetadata', { _: 'Fetching...' })
+            ? translate('menu.aiTool.fetchingMetadata', {
+                _: 'Fetching Metadata...',
+              })
             : translate('menu.aiTool.fetchAIMetadata', {
                 _: 'Fetch AI Metadata',
               })}
@@ -3491,7 +4570,14 @@ const AiToolPage = () => {
             color="primary"
             variant="contained"
             onClick={runModelAction}
-            disabled={isClassifyingExplicit || isFetchJobRunning}
+            disabled={
+              modelDialogAction === 'classifyExplicit'
+                ? isClassifyingExplicit ||
+                  !modelDialogSongs.some(
+                    (song) => !lyricsFetchingSongIdSet.has(song.id),
+                  )
+                : isFetchingMetadata || isClearingMetadata
+            }
           >
             {modelDialogAction === 'classifyExplicit'
               ? translate('menu.aiTool.classify', { _: 'Classify' })
@@ -3568,6 +4654,24 @@ const AiToolPage = () => {
               </Button>
             </Box>
           </Box>
+          <Box className={classes.chatTraceToggleBar}>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={developerTraceEnabled}
+                  onChange={(event) =>
+                    changeDeveloperTrace(event.target.checked)
+                  }
+                  inputProps={{ 'aria-label': 'Developer Trace' }}
+                />
+              }
+              label="Developer Trace"
+            />
+            <Typography className={classes.chatTraceHint}>
+              Prompts · retrieval · raw responses
+            </Typography>
+          </Box>
           <Box className={classes.chatMessages} ref={chatMessagesRef}>
             {messages.length === 0 ? (
               <Box className={classes.chatMessageRow}>
@@ -3585,14 +4689,22 @@ const AiToolPage = () => {
                     message.role === 'user' ? classes.chatMessageRowUser : ''
                   }`}
                 >
-                  <Box>
+                  <Box
+                    className={
+                      message.role === 'assistant'
+                        ? classes.chatAssistantContent
+                        : undefined
+                    }
+                  >
                     <Typography
                       className={classes.chatMessageLabel}
                       align={message.role === 'user' ? 'right' : 'left'}
                     >
                       {message.role === 'user'
                         ? 'You'
-                        : aiProviderLabel(message.provider)}
+                        : message.direct
+                          ? 'Qdrant exact search'
+                          : aiProviderLabel(message.provider)}
                     </Typography>
                     <Box
                       className={`${classes.chatBubble} ${
@@ -3603,7 +4715,9 @@ const AiToolPage = () => {
                     >
                       {message.text}
                     </Box>
-                    {message.role === 'assistant' && message.sources?.length ? (
+                    {message.role === 'assistant' &&
+                    !message.direct &&
+                    message.sources?.length ? (
                       <Box className={classes.chatSources}>
                         Sources
                         {message.sources.map((source, sourceIndex) => (
@@ -3628,6 +4742,12 @@ const AiToolPage = () => {
                         RAG unavailable: {message.ragError}. Answered without
                         library context.
                       </Typography>
+                    ) : null}
+                    {message.role === 'assistant' && message.trace ? (
+                      <ChatDeveloperTrace
+                        trace={message.trace}
+                        classes={classes}
+                      />
                     ) : null}
                   </Box>
                 </Box>
@@ -3701,6 +4821,11 @@ const AiToolPage = () => {
             <Typography className={classes.chatError} variant="body2">
               {chatError}
             </Typography>
+          ) : null}
+          {chatErrorTrace ? (
+            <Box className={classes.chatErrorTrace}>
+              <ChatDeveloperTrace trace={chatErrorTrace} classes={classes} />
+            </Box>
           ) : null}
         </Box>
       ) : (
@@ -3787,6 +4912,24 @@ const AiToolPage = () => {
               </Button>
             </Box>
           </Box>
+          <Box className={classes.chatTraceToggleBar}>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={developerTraceEnabled}
+                  onChange={(event) =>
+                    changeDeveloperTrace(event.target.checked)
+                  }
+                  inputProps={{ 'aria-label': 'Developer Trace' }}
+                />
+              }
+              label="Developer Trace"
+            />
+            <Typography className={classes.chatTraceHint}>
+              Prompts · provider · raw responses
+            </Typography>
+          </Box>
           <Box className={classes.chatMessages} ref={normalChatMessagesRef}>
             {normalMessages.length === 0 ? (
               <Box className={classes.chatMessageRow}>
@@ -3804,7 +4947,13 @@ const AiToolPage = () => {
                     message.role === 'user' ? classes.chatMessageRowUser : ''
                   }`}
                 >
-                  <Box>
+                  <Box
+                    className={
+                      message.role === 'assistant'
+                        ? classes.chatAssistantContent
+                        : undefined
+                    }
+                  >
                     <Typography
                       className={classes.chatMessageLabel}
                       align={message.role === 'user' ? 'right' : 'left'}
@@ -3822,6 +4971,12 @@ const AiToolPage = () => {
                     >
                       {message.text}
                     </Box>
+                    {message.role === 'assistant' && message.trace ? (
+                      <ChatDeveloperTrace
+                        trace={message.trace}
+                        classes={classes}
+                      />
+                    ) : null}
                   </Box>
                 </Box>
               ))
@@ -3898,6 +5053,14 @@ const AiToolPage = () => {
             <Typography className={classes.chatError} variant="body2">
               {normalChatError}
             </Typography>
+          ) : null}
+          {normalChatErrorTrace ? (
+            <Box className={classes.chatErrorTrace}>
+              <ChatDeveloperTrace
+                trace={normalChatErrorTrace}
+                classes={classes}
+              />
+            </Box>
           ) : null}
         </Box>
       ) : (
@@ -4023,6 +5186,142 @@ const AiToolPage = () => {
       </Dialog>
 
       <Dialog
+        open={isQdrantLyricsOpen}
+        onClose={() => setIsQdrantLyricsOpen(false)}
+        fullWidth
+        maxWidth="lg"
+        aria-labelledby="qdrant-lyrics-title"
+      >
+        <DialogTitle id="qdrant-lyrics-title">Qdrant lyrics</DialogTitle>
+        <DialogContent dividers>
+          <Box display="flex" alignItems="center" mb={2} style={{ gap: 8 }}>
+            <TextField
+              fullWidth
+              size="small"
+              variant="outlined"
+              label="Search words in Qdrant lyrics"
+              inputProps={{ 'aria-label': 'Search words in Qdrant lyrics' }}
+              value={qdrantLyricsQuery}
+              onChange={(event) => setQdrantLyricsQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') searchQdrantLyrics()
+              }}
+            />
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={searchQdrantLyrics}
+              disabled={isLoadingQdrantLyrics}
+            >
+              {isLoadingQdrantLyrics ? 'Searching…' : 'Search lyrics'}
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setQdrantLyricsQuery('')
+                void loadQdrantLyrics('')
+              }}
+              disabled={isLoadingQdrantLyrics || !qdrantLyricsQuery.trim()}
+            >
+              Clear search
+            </Button>
+          </Box>
+          <Typography variant="body2" gutterBottom>
+            Collection: {qdrantLyricsCollection || ragStatus?.collection || '—'}
+            {' · '}
+            {qdrantLyricsCount} stored lyric{qdrantLyricsCount === 1 ? '' : 's'}
+            {qdrantLyricsQuery.trim()
+              ? ` matching “${qdrantLyricsQuery.trim()}”`
+              : ''}
+          </Typography>
+          {isLoadingQdrantLyrics ? (
+            <Box display="flex" justifyContent="center" p={3}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : qdrantLyricsError ? (
+            <Typography color="error">{qdrantLyricsError}</Typography>
+          ) : qdrantLyrics.length === 0 ? (
+            <Typography variant="body2">
+              {qdrantLyricsQuery.trim()
+                ? 'No stored lyrics contain that word or phrase.'
+                : 'No lyrics are stored in Qdrant yet.'}
+            </Typography>
+          ) : (
+            <Table size="small" stickyHeader aria-label="Qdrant lyrics table">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Title</TableCell>
+                  <TableCell>Artist</TableCell>
+                  <TableCell>Album</TableCell>
+                  <TableCell>Year</TableCell>
+                  <TableCell>Genre</TableCell>
+                  <TableCell>Stored lyrics</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {qdrantLyrics.map((song) => {
+                  const storedLyrics = String(song.lyricsText || '').trim()
+                  const preview =
+                    storedLyrics.length > 180
+                      ? `${storedLyrics.slice(0, 180)}…`
+                      : storedLyrics
+                  return (
+                    <TableRow key={song.songId}>
+                      <TableCell>{song.title || '—'}</TableCell>
+                      <TableCell>{song.artist || '—'}</TableCell>
+                      <TableCell>{song.album || '—'}</TableCell>
+                      <TableCell>{song.year || '—'}</TableCell>
+                      <TableCell>{song.genre || '—'}</TableCell>
+                      <TableCell style={{ whiteSpace: 'pre-wrap' }}>
+                        {preview || '—'}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="small"
+                          color="primary"
+                          onClick={() => setQdrantLyricDetails(song)}
+                        >
+                          View lyrics
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsQdrantLyricsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(qdrantLyricDetails)}
+        onClose={() => setQdrantLyricDetails(null)}
+        fullWidth
+        maxWidth="md"
+        aria-labelledby="qdrant-lyric-details-title"
+      >
+        <DialogTitle id="qdrant-lyric-details-title">
+          {qdrantLyricDetails?.title || 'Stored Qdrant lyrics'}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" gutterBottom>
+            {qdrantLyricDetails?.artist || 'Unknown artist'}
+            {qdrantLyricDetails?.album ? ` · ${qdrantLyricDetails.album}` : ''}
+          </Typography>
+          <Typography component="pre" style={{ whiteSpace: 'pre-wrap' }}>
+            {qdrantLyricDetails?.lyricsText || 'No stored lyrics.'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setQdrantLyricDetails(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
         open={songDialogOpen}
         onClose={() => setSongDialogOpen(false)}
         fullWidth
@@ -4118,26 +5417,7 @@ const AiToolPage = () => {
                       <TableCell>
                         {formatExplicitStatus(song.explicitStatus)}
                       </TableCell>
-                      <TableCell>
-                        {hasSavedLyrics(song) ? (
-                          <Button
-                            size="small"
-                            color="primary"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              showLyrics(song)
-                            }}
-                          >
-                            {translate('menu.aiTool.lyricsAvailable', {
-                              _: 'Available',
-                            })}
-                          </Button>
-                        ) : (
-                          translate('menu.aiTool.lyricsMissing', {
-                            _: 'Missing',
-                          })
-                        )}
-                      </TableCell>
+                      <TableCell>{renderLyricsState(song)}</TableCell>
                       <TableCell>{formatDuration(song.duration)}</TableCell>
                       <TableCell>{song.genre || ''}</TableCell>
                       <TableCell>{song.aiGenre || '-'}</TableCell>
@@ -4202,6 +5482,35 @@ const AiToolPage = () => {
         <DialogActions>
           <Button onClick={() => setExplicitReasonSong(null)}>Close</Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(genreTraceDetail)}
+        onClose={() => setGenreTraceDetail(null)}
+        fullWidth
+        maxWidth="md"
+        aria-labelledby="genre-developer-trace-title"
+      >
+        {genreTraceDetail ? (
+          <>
+            <DialogTitle id="genre-developer-trace-title">
+              {genreTraceSourceLabel(genreTraceDetail.source)} Genre Developer
+              Trace
+            </DialogTitle>
+            <DialogContent dividers>
+              <Typography variant="subtitle1" paragraph>
+                {genreTraceDetail.song?.title || 'Song'}
+                {genreTraceDetail.song?.artist
+                  ? ` · ${genreTraceDetail.song.artist}`
+                  : ''}
+              </Typography>
+              {renderGenreDeveloperTrace(genreTraceDetail)}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setGenreTraceDetail(null)}>Close</Button>
+            </DialogActions>
+          </>
+        ) : null}
       </Dialog>
 
       <Dialog

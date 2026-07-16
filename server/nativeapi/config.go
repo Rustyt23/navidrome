@@ -33,6 +33,7 @@ var sensitiveFieldsFullMask = []string{
 	"Prometheus.Password",
 	"RetailPlayer.APIKey",
 	"GeminiAPIKey",
+	"AWSBearerTokenBedrock",
 	"GemmaAPIKey",
 }
 

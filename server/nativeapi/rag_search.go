@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -139,7 +140,8 @@ func searchRAG(ctx context.Context, query string, topK int, filters rag.SearchFi
 	if !ragEnabled() {
 		return nil, fmt.Errorf("RAG is disabled")
 	}
-	if !ragEmbeddingConfigured() {
+	exactLyricsSearch := strings.TrimSpace(filters.LyricsContains) != ""
+	if !exactLyricsSearch && !ragEmbeddingConfigured() {
 		return nil, fmt.Errorf("no embedding backend is configured (set RAGEmbeddingURL or GeminiAPIKey)")
 	}
 
@@ -156,6 +158,19 @@ func searchRAG(ctx context.Context, query string, topK int, filters rag.SearchFi
 	}
 	if status.Error != "" {
 		return nil, errors.New(status.Error)
+	}
+	if exactLyricsSearch {
+		results, err := qdrant.SearchSongsByPayload(ctx, topK, filters)
+		if err != nil {
+			return nil, err
+		}
+		log.Debug(ctx, "RAG exact lyrics retrieval completed",
+			"duration", time.Since(started),
+			"results", len(results),
+			"lyricsContains", filters.LyricsContains,
+			"topK", topK,
+		)
+		return results, nil
 	}
 
 	results, err := rag.SearchSongs(
@@ -235,55 +250,289 @@ func prepareAIChatMessageWithFeatures(
 	search ragSearchFunc,
 	features ragChatFeatures,
 ) (string, []rag.SongSearchResult, error) {
+	return prepareAIChatMessageWithFeaturesMode(ctx, message, history, provider, search, features, false)
+}
+
+// prepareAIChatMessageForResponse enables the exact-lyrics fast path used by
+// the chat endpoint. Existing preparation callers still receive a prompt so
+// their behavior remains backward compatible.
+func prepareAIChatMessageForResponse(
+	ctx context.Context,
+	message string,
+	history []aiChatTurn,
+	provider aiChatProvider,
+	search ragSearchFunc,
+	features ragChatFeatures,
+) (string, []rag.SongSearchResult, error) {
+	return prepareAIChatMessageWithFeaturesMode(ctx, message, history, provider, search, features, true)
+}
+
+func prepareAIChatMessageWithFeaturesMode(
+	ctx context.Context,
+	message string,
+	history []aiChatTurn,
+	provider aiChatProvider,
+	search ragSearchFunc,
+	features ragChatFeatures,
+	directExactResponse bool,
+) (string, []rag.SongSearchResult, error) {
 	if !ragEnabled() {
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "rag", Label: "Skipped RAG retrieval", Status: "skipped",
+			Detail: "RAG is disabled in the server configuration.",
+		})
 		return message, nil, nil
 	}
 
+	originalHistoryCount := len(history)
 	history = normalizeAIChatHistory(history)
+	recordAIChatTraceStage(ctx, aiChatTraceStage{
+		ID: "history", Label: "Normalized conversation history", Status: "completed",
+		Detail: "Only recent user and assistant turns are allowed into RAG prompts.",
+		Input:  map[string]any{"turns": originalHistoryCount},
+		Output: map[string]any{"turns": len(history), "history": history},
+	})
 
 	// For a follow-up ("only clean ones", "more like that"), condense the turn into a
 	// standalone query so retrieval isn't tripped up by pronouns and ellipsis.
 	retrievalQuery := message
-	if len(history) > 0 && provider != nil {
+	_, originalIsExactLyrics := directLyricsContains(message)
+	if len(history) > 0 && provider != nil && !(directExactResponse && originalIsExactLyrics) {
 		retrievalQuery = rewriteFollowUpQuery(ctx, provider, history, message)
 	}
 
-	plan, filterErr := extractRAGQueryPlan(ctx, provider, retrievalQuery)
-	if filterErr != nil {
-		log.Debug(ctx, "RAG structured filter extraction failed; continuing without hard filters", "err", filterErr)
-		plan = ragQueryPlan{Mode: ragQueryModeSearch}
+	plan := ragQueryPlan{}
+	strictLyricsMatch := false
+	if exactLyrics, ok := directLyricsContains(retrievalQuery); ok {
+		strictLyricsMatch = true
+		plan = ragQueryPlan{
+			Mode:  ragQueryModeLyrics,
+			Query: exactLyrics,
+			Filters: rag.SearchFilters{
+				LyricsContains: exactLyrics,
+			},
+		}
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "query_plan", Label: "Detected an exact lyrics request", Status: "completed",
+			Detail: "The phrase was extracted deterministically, so no planning-model call was needed.",
+			Input:  map[string]any{"message": retrievalQuery},
+			Output: plan,
+		})
+	} else {
+		var filterErr error
+		plan, filterErr = extractRAGQueryPlan(ctx, provider, retrievalQuery)
+		if filterErr != nil {
+			log.Debug(ctx, "RAG structured filter extraction failed; continuing without hard filters", "err", filterErr)
+			plan = ragQueryPlan{Mode: ragQueryModeSearch}
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "query_plan_fallback", Label: "Continued without structured filters", Status: "fallback",
+				Detail: "The query-planning call failed, so retrieval continued using the user query.", Error: filterErr.Error(),
+				Output: plan,
+			})
+		}
 	}
 	if plan.Query != "" {
 		retrievalQuery = plan.Query
 	}
 	filters := plan.Filters
 	if plan.Mode == ragQueryModeAnalytics && features.analytics != nil {
+		started := time.Now()
 		data, err := features.analytics(ctx, filters)
 		if err != nil {
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "analytics", Label: "Computed library analytics", Status: "failed",
+				DurationMS: time.Since(started).Milliseconds(), Input: filters, Error: err.Error(),
+			})
 			return message, nil, err
 		}
-		return rag.BuildLibraryDataPrompt(message, toRAGHistory(history), "library analytics", data), nil, nil
+		prompt := rag.BuildLibraryDataPrompt(message, toRAGHistory(history), "library analytics", data)
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "analytics", Label: "Computed library analytics", Status: "completed",
+			DurationMS: time.Since(started).Milliseconds(), Input: filters,
+			Output: map[string]any{"characters": len([]rune(data))},
+		})
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "prompt", Label: "Built the final answer prompt", Status: "completed",
+			Detail: "The computed analytics and conversation were assembled for the final AI call.", Prompt: prompt,
+		})
+		return prompt, nil, nil
 	}
 	if plan.Mode == ragQueryModeDuplicates && features.duplicates != nil {
+		started := time.Now()
 		data, err := features.duplicates(ctx)
 		if err != nil {
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "duplicates", Label: "Computed duplicate candidates", Status: "failed",
+				DurationMS: time.Since(started).Milliseconds(), Error: err.Error(),
+			})
 			return message, nil, err
 		}
-		return rag.BuildLibraryDataPrompt(message, toRAGHistory(history), "duplicate and alternate-version candidates", data), nil, nil
+		prompt := rag.BuildLibraryDataPrompt(message, toRAGHistory(history), "duplicate and alternate-version candidates", data)
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "duplicates", Label: "Computed duplicate candidates", Status: "completed",
+			DurationMS: time.Since(started).Milliseconds(),
+			Output:     map[string]any{"characters": len([]rune(data))},
+		})
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "prompt", Label: "Built the final answer prompt", Status: "completed",
+			Detail: "Duplicate candidates and conversation were assembled for the final AI call.", Prompt: prompt,
+		})
+		return prompt, nil, nil
 	}
 	if plan.Mode == ragQueryModeLyrics {
 		required := true
 		filters.HasLyrics = &required
+	} else {
+		// Exact lyric matching is only meaningful for lyric-identification requests.
+		filters.LyricsContains = ""
 	}
-	results, err := search(ctx, retrievalQuery, conf.Server.RAGTopK, filters)
+	retrievalStarted := time.Now()
+	retrievalTopK := conf.Server.RAGTopK
+	if strictLyricsMatch && directExactResponse {
+		retrievalTopK = rag.MaxSearchTopK
+	}
+	strategy := "Qdrant vector similarity search"
+	if filters.LyricsContains != "" {
+		strategy = "Qdrant lyrics full-text search"
+	}
+	results, err := search(ctx, retrievalQuery, retrievalTopK, filters)
 	if err != nil {
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "retrieval", Label: "Searched the indexed music library", Status: "failed",
+			DurationMS: time.Since(retrievalStarted).Milliseconds(), Detail: strategy,
+			Input: map[string]any{"query": retrievalQuery, "topK": retrievalTopK, "filters": filters}, Error: err.Error(),
+		})
 		return message, nil, err
 	}
-	results = rag.FilterByMinScore(results, conf.Server.RAGMinScore)
-	if plan.Mode == ragQueryModeLyrics {
-		results = rag.AddLyricSnippets(retrievalQuery, results)
+	rawResultCount := len(results)
+	if strictLyricsMatch {
+		results = rag.FilterExactLyricMatches(retrievalQuery, results)
 	}
-	return rag.BuildChatPromptWithHistory(message, toRAGHistory(history), results, filters), results, nil
+	exactResultCount := len(results)
+	results = rag.DeduplicateSongResults(results)
+	recordAIChatTraceStage(ctx, aiChatTraceStage{
+		ID: "retrieval", Label: "Searched the indexed music library", Status: "completed",
+		DurationMS: time.Since(retrievalStarted).Milliseconds(), Detail: strategy,
+		Input: map[string]any{"query": retrievalQuery, "topK": retrievalTopK, "filters": filters},
+		Output: map[string]any{
+			"rawCount": rawResultCount, "exactCount": exactResultCount,
+			"count": len(results), "results": results,
+		},
+	})
+	recordAIChatTraceStage(ctx, aiChatTraceStage{
+		ID: "deduplicate", Label: "Removed duplicate song matches", Status: "completed",
+		Input: map[string]any{"count": exactResultCount},
+		Output: map[string]any{
+			"count": len(results), "removed": exactResultCount - len(results),
+		},
+	})
+	// The exact lyric filter can be too strict (word variations, transcription
+	// differences); fall back to semantic-only retrieval rather than answering
+	// "nothing found" from an over-constrained search.
+	if len(results) == 0 && filters.LyricsContains != "" && !strictLyricsMatch {
+		relaxed := filters
+		relaxed.LyricsContains = ""
+		retryStarted := time.Now()
+		if retried, retryErr := search(ctx, retrievalQuery, conf.Server.RAGTopK, relaxed); retryErr == nil {
+			rawRetryCount := len(retried)
+			results = rag.DeduplicateSongResults(retried)
+			filters = relaxed
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "retrieval_retry", Label: "Retried with semantic lyrics search", Status: "completed",
+				DurationMS: time.Since(retryStarted).Milliseconds(),
+				Detail:     "The exact lyric filter returned no results, so it was removed for one semantic retry.",
+				Input:      map[string]any{"query": retrievalQuery, "topK": conf.Server.RAGTopK, "filters": relaxed},
+				Output: map[string]any{
+					"rawCount": rawRetryCount, "count": len(results), "results": results,
+				},
+			})
+		} else if retryErr != nil {
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "retrieval_retry", Label: "Retried with semantic lyrics search", Status: "failed",
+				DurationMS: time.Since(retryStarted).Milliseconds(), Input: relaxed, Error: retryErr.Error(),
+			})
+		}
+	}
+	beforeMinScore := len(results)
+	results = rag.FilterByMinScore(results, conf.Server.RAGMinScore)
+	recordAIChatTraceStage(ctx, aiChatTraceStage{
+		ID: "score_filter", Label: "Applied the minimum relevance score", Status: "completed",
+		Input:  map[string]any{"count": beforeMinScore, "minimumScore": conf.Server.RAGMinScore},
+		Output: map[string]any{"count": len(results)},
+	})
+	if plan.Mode == ragQueryModeLyrics {
+		snippetNeedle := plan.Filters.LyricsContains
+		if snippetNeedle == "" {
+			snippetNeedle = retrievalQuery
+		}
+		results = rag.AddLyricSnippets(snippetNeedle, results)
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "lyric_snippets", Label: "Selected matching lyric snippets", Status: "completed",
+			Detail: "Only short matching snippets, not complete lyrics, are added to the final AI prompt.",
+			Input:  map[string]any{"needle": snippetNeedle, "songs": len(results)}, Output: results,
+		})
+	}
+	if strictLyricsMatch && directExactResponse {
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "direct_response", Label: "Prepared an exact lyrics response", Status: "completed",
+			Detail: "Exact Qdrant matches will be formatted directly; no answer prompt will be sent to an AI model.",
+			Output: map[string]any{"songs": len(results)},
+		})
+		return "", results, nil
+	}
+	prompt := rag.BuildChatPromptWithHistory(message, toRAGHistory(history), results, filters)
+	recordAIChatTraceStage(ctx, aiChatTraceStage{
+		ID: "prompt", Label: "Built the final answer prompt", Status: "completed",
+		Detail: "The user question, applied filters, conversation history, and retrieved sources were assembled for the final AI call.",
+		Prompt: prompt, Output: map[string]any{"sources": len(results)},
+	})
+	return prompt, results, nil
+}
+
+var (
+	quotedLyricsPattern = regexp.MustCompile(`["“‘']([^"”’']{1,200})["”’']`)
+	wordLyricsPattern   = regexp.MustCompile(`(?i)\b(?:word|phrase)s?\s+["“‘']?([\p{L}\p{N}_-]+(?:\s+[\p{L}\p{N}_-]+){0,7})`)
+	lyricsVerbPattern   = regexp.MustCompile(`(?i)\blyrics?\s+(?:contain|contains|containing|include|includes|including)\s+(?:the\s+)?(?:(?:word|phrase)s?\s+)?["“‘']?([\p{L}\p{N}_-]+(?:\s+[\p{L}\p{N}_-]+){0,7})`)
+)
+
+// directLyricsContains recognizes unambiguous lyric word/phrase requests
+// without asking the chat model to plan the query. This makes requests such as
+// "songs with the word vikash" deterministic and sends "vikash" directly to
+// Qdrant's lyrics full-text index.
+func directLyricsContains(message string) (string, bool) {
+	lower := strings.ToLower(message)
+	hasLyricsIntent := strings.Contains(lower, "lyric") ||
+		strings.Contains(lower, "word") || strings.Contains(lower, "phrase") ||
+		strings.Contains(lower, "contain") || strings.Contains(lower, "include")
+	if !hasLyricsIntent {
+		return "", false
+	}
+	for _, pattern := range []*regexp.Regexp{quotedLyricsPattern, wordLyricsPattern, lyricsVerbPattern} {
+		match := pattern.FindStringSubmatch(message)
+		if len(match) < 2 {
+			continue
+		}
+		value := cleanDirectLyricsMatch(match[1])
+		if value != "" && len([]rune(value)) <= 200 {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+func cleanDirectLyricsMatch(value string) string {
+	value = strings.Trim(strings.TrimSpace(value), `"'“”‘’.,!?`)
+	lower := strings.ToLower(value)
+	for _, suffix := range []string{
+		" inside it", " in it", " inside the lyrics", " in the lyrics",
+		" in their lyrics", " from the lyrics", " inside the song", " in the song",
+	} {
+		if strings.HasSuffix(lower, suffix) {
+			value = strings.TrimSpace(value[:len(value)-len(suffix)])
+			break
+		}
+	}
+	return strings.Trim(value, `"'“”‘’.,!?`)
 }
 
 func toRAGHistory(history []aiChatTurn) []rag.ChatTurn {
@@ -354,8 +603,15 @@ Latest message: ` + strings.TrimSpace(message) + `
 
 Standalone query:`
 
+	started := time.Now()
 	answer, err := provider.Chat(ctx, prompt)
 	if err != nil {
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "rewrite", Label: "Rewrote the conversational follow-up", Status: "fallback",
+			DurationMS: time.Since(started).Milliseconds(),
+			Detail:     "The rewrite call failed, so the original message was used for retrieval.",
+			Prompt:     prompt, Error: err.Error(), Output: map[string]any{"query": message},
+		})
 		return message
 	}
 	rewritten := strings.TrimSpace(answer)
@@ -364,8 +620,20 @@ Standalone query:`
 	}
 	rewritten = strings.Trim(rewritten, `"'`)
 	if rewritten == "" || len([]rune(rewritten)) > 300 {
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "rewrite", Label: "Rewrote the conversational follow-up", Status: "fallback",
+			DurationMS: time.Since(started).Milliseconds(),
+			Detail:     "The rewrite response was empty or too long, so the original message was used for retrieval.",
+			Prompt:     prompt, Response: answer, Output: map[string]any{"query": message},
+		})
 		return message
 	}
+	recordAIChatTraceStage(ctx, aiChatTraceStage{
+		ID: "rewrite", Label: "Rewrote the conversational follow-up", Status: "completed",
+		DurationMS: time.Since(started).Milliseconds(),
+		Detail:     "The model resolved references to earlier messages before library retrieval.",
+		Prompt:     prompt, Response: answer, Output: map[string]any{"query": rewritten},
+	})
 	return rewritten
 }
 
@@ -389,17 +657,18 @@ func extractRAGFilters(ctx context.Context, provider aiChatProvider, message str
 	return plan.Filters, err
 }
 
-func extractRAGQueryPlan(ctx context.Context, provider aiChatProvider, message string) (ragQueryPlan, error) {
+func extractRAGQueryPlan(ctx context.Context, provider aiChatProvider, message string) (payload ragQueryPlan, returnErr error) {
 	if provider == nil {
 		return ragQueryPlan{}, fmt.Errorf("AI provider is unavailable")
 	}
 	prompt := `Call the plan_library_query function by returning exactly one JSON object containing its arguments. Classify the request and extract only constraints explicitly requested by the user.
 
 Function schema:
-{"mode":"search|lyrics|analytics|duplicates","query":"standalone semantic query","filters":{"explicit":"clean|explicit","genre":"string","mood":"string","yearMin":integer,"yearMax":integer,"bpmMin":number,"bpmMax":number,"lufsMin":number,"lufsMax":number,"playCountMin":integer,"playCountMax":integer,"durationMin":number,"durationMax":number,"hasLyrics":boolean,"hasGenre":boolean,"hasYear":boolean,"hasBpm":boolean,"hasLufs":boolean}}
+{"mode":"search|lyrics|analytics|duplicates","query":"standalone semantic query","filters":{"explicit":"clean|explicit","genre":"string","mood":"string","lyricsContains":"string","yearMin":integer,"yearMax":integer,"bpmMin":number,"bpmMax":number,"lufsMin":number,"lufsMax":number,"playCountMin":integer,"playCountMax":integer,"durationMin":number,"durationMax":number,"hasLyrics":boolean,"hasGenre":boolean,"hasYear":boolean,"hasBpm":boolean,"hasLufs":boolean}}
 
 Rules:
-- mode="lyrics" for requests identifying a song from quoted or remembered lyrics.
+- mode="lyrics" for requests identifying a song from quoted or remembered lyrics, or asking which songs contain a word or phrase in their lyrics.
+- For mode="lyrics", set filters.lyricsContains to the exact remembered word or phrase only (e.g. "which song includes the word rain" gives lyricsContains "rain"); never include surrounding words like "the word" or "lyrics".
 - mode="analytics" for counts, totals, distributions, dominant artists/genres, coverage, or library-wide comparisons.
 - mode="duplicates" for duplicate rips, repeated recordings, live/remix/edit variants, or cleanup candidates.
 - mode="search" for ordinary song discovery and recommendations.
@@ -416,7 +685,23 @@ User query:
 ` + strings.TrimSpace(message)
 
 	started := time.Now()
-	answer, err := provider.Chat(ctx, prompt)
+	answer := ""
+	defer func() {
+		status := "completed"
+		errorText := ""
+		if returnErr != nil {
+			status = "failed"
+			errorText = returnErr.Error()
+		}
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID: "query_plan", Label: "Planned the library query", Status: status,
+			DurationMS: time.Since(started).Milliseconds(),
+			Detail:     "The model classified the request and extracted only explicit search filters.",
+			Prompt:     prompt, Response: answer, Error: errorText, Output: payload,
+		})
+	}()
+	var err error
+	answer, err = provider.Chat(ctx, prompt)
 	log.Debug(ctx, "RAG structured filter extraction completed", "duration", time.Since(started), "success", err == nil)
 	if err != nil {
 		return ragQueryPlan{}, fmt.Errorf("query planning failed: %w", err)
@@ -429,7 +714,7 @@ User query:
 	if start < 0 || end < start {
 		return ragQueryPlan{}, fmt.Errorf("query planning did not return JSON")
 	}
-	payload := ragQueryPlan{}
+	payload = ragQueryPlan{}
 	decoder := json.NewDecoder(strings.NewReader(answer[start : end+1]))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&payload); err != nil {

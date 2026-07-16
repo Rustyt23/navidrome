@@ -165,8 +165,18 @@ func appendValuesLine(lines *[]string, label string, values []string) {
 	}
 }
 
+// maxEmbeddedLyricsRunes bounds the lyrics portion of an embedded document so
+// unusually long lyrics can neither dominate the vector nor overflow the
+// embedding model's input window (metadata lines always come first). The full
+// lyrics are still stored in the Qdrant payload for snippet matching, and most
+// songs are far below this cap so their content hashes are unaffected.
+const maxEmbeddedLyricsRunes = 6000
+
 func appendLyrics(lines *[]string, song model.MediaFile) {
 	if text := LyricsText(song); text != "" {
+		if runes := []rune(text); len(runes) > maxEmbeddedLyricsRunes {
+			text = string(runes[:maxEmbeddedLyricsRunes])
+		}
 		*lines = append(*lines, "Lyrics:\n"+text)
 	}
 }

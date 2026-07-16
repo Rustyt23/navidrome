@@ -9,31 +9,42 @@ import (
 // be applied on top of semantic song search. Pointer fields distinguish an
 // omitted filter from an explicit false or zero value.
 type SearchFilters struct {
-	Explicit     string   `json:"explicit,omitempty"`
-	Genre        string   `json:"genre,omitempty"`
-	Mood         string   `json:"mood,omitempty"`
-	YearMin      *int     `json:"yearMin,omitempty"`
-	YearMax      *int     `json:"yearMax,omitempty"`
-	BPMMin       *float64 `json:"bpmMin,omitempty"`
-	BPMMax       *float64 `json:"bpmMax,omitempty"`
-	LUFSMin      *float64 `json:"lufsMin,omitempty"`
-	LUFSMax      *float64 `json:"lufsMax,omitempty"`
-	PlayCountMin *int64   `json:"playCountMin,omitempty"`
-	PlayCountMax *int64   `json:"playCountMax,omitempty"`
-	DurationMin  *float64 `json:"durationMin,omitempty"`
-	DurationMax  *float64 `json:"durationMax,omitempty"`
-	HasLyrics    *bool    `json:"hasLyrics,omitempty"`
-	HasGenre     *bool    `json:"hasGenre,omitempty"`
-	HasYear      *bool    `json:"hasYear,omitempty"`
-	HasBPM       *bool    `json:"hasBpm,omitempty"`
-	HasLUFS      *bool    `json:"hasLufs,omitempty"`
+	Explicit string `json:"explicit,omitempty"`
+	Genre    string `json:"genre,omitempty"`
+	Mood     string `json:"mood,omitempty"`
+	// LyricsContains restricts results to songs whose lyrics contain the given
+	// word or phrase (a Qdrant full-text match on the lyricsText payload).
+	LyricsContains string   `json:"lyricsContains,omitempty"`
+	YearMin        *int     `json:"yearMin,omitempty"`
+	YearMax        *int     `json:"yearMax,omitempty"`
+	BPMMin         *float64 `json:"bpmMin,omitempty"`
+	BPMMax         *float64 `json:"bpmMax,omitempty"`
+	LUFSMin        *float64 `json:"lufsMin,omitempty"`
+	LUFSMax        *float64 `json:"lufsMax,omitempty"`
+	PlayCountMin   *int64   `json:"playCountMin,omitempty"`
+	PlayCountMax   *int64   `json:"playCountMax,omitempty"`
+	DurationMin    *float64 `json:"durationMin,omitempty"`
+	DurationMax    *float64 `json:"durationMax,omitempty"`
+	HasLyrics      *bool    `json:"hasLyrics,omitempty"`
+	HasGenre       *bool    `json:"hasGenre,omitempty"`
+	HasYear        *bool    `json:"hasYear,omitempty"`
+	HasBPM         *bool    `json:"hasBpm,omitempty"`
+	HasLUFS        *bool    `json:"hasLufs,omitempty"`
 }
+
+// maxLyricsContainsRunes bounds the lyric phrase filter so a whole pasted
+// lyric sheet cannot be used as an exact-match condition.
+const maxLyricsContainsRunes = 200
 
 // NormalizeSearchFilters trims string values and validates bounded ranges.
 func NormalizeSearchFilters(filters SearchFilters) (SearchFilters, error) {
 	filters.Explicit = strings.ToLower(strings.TrimSpace(filters.Explicit))
 	filters.Genre = strings.TrimSpace(filters.Genre)
 	filters.Mood = strings.TrimSpace(filters.Mood)
+	filters.LyricsContains = strings.TrimSpace(filters.LyricsContains)
+	if len([]rune(filters.LyricsContains)) > maxLyricsContainsRunes {
+		return SearchFilters{}, fmt.Errorf("lyricsContains must not exceed %d characters", maxLyricsContainsRunes)
+	}
 	if filters.Explicit != "" && filters.Explicit != "clean" && filters.Explicit != "explicit" {
 		return SearchFilters{}, fmt.Errorf("explicit must be clean or explicit")
 	}
@@ -89,6 +100,14 @@ func BuildQdrantFilter(filters SearchFilters) map[string]any {
 	}
 	if filters.Mood != "" {
 		addMatch("moods", filters.Mood)
+	}
+	if filters.LyricsContains != "" {
+		// Full-text match: with the lyricsText index this requires every token of
+		// the phrase to appear in the song's lyrics.
+		must = append(must, map[string]any{
+			"key":   "lyricsText",
+			"match": map[string]any{"text": filters.LyricsContains},
+		})
 	}
 	for _, exact := range []struct {
 		key   string

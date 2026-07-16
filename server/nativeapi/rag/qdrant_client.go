@@ -200,8 +200,45 @@ func (c *QdrantClient) CreateCollection(ctx context.Context) error {
 	if err := qdrantResponseError(response); err != nil {
 		return err
 	}
+	if err := c.EnsureLyricsTextIndex(ctx); err != nil {
+		return err
+	}
 	if c.expectedSchema != nil {
 		return c.writeIndexMetadata(ctx, c.expectedSchema.normalized())
+	}
+	return nil
+}
+
+// EnsureLyricsTextIndex creates the full-text payload index that backs the
+// lyricsContains filter. It is idempotent: an already-existing index is not an
+// error, so it is safe to call on collections created before this index existed.
+func (c *QdrantClient) EnsureLyricsTextIndex(ctx context.Context) error {
+	body, err := json.Marshal(map[string]any{
+		"field_name": "lyricsText",
+		"field_schema": map[string]any{
+			"type":      "text",
+			"tokenizer": "word",
+			"lowercase": true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("could not encode Qdrant index request: %w", err)
+	}
+	response, err := c.do(
+		ctx,
+		http.MethodPut,
+		"/collections/"+url.PathEscape(c.collection)+"/index?wait=true",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if err := qdrantResponseError(response); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return nil
+		}
+		return fmt.Errorf("could not create lyrics full-text index: %w", err)
 	}
 	return nil
 }
@@ -505,8 +542,9 @@ func (c *QdrantClient) AllIndexedSongIDs(ctx context.Context, maxTotal int) ([]s
 	ids := make([]string, 0, 256)
 	var offset any
 	for len(ids) < maxTotal {
+		pageLimit := min(512, maxTotal-len(ids))
 		request := map[string]any{
-			"limit":        512,
+			"limit":        pageLimit,
 			"with_payload": []string{"ragId"},
 			"with_vector":  false,
 			"filter": map[string]any{
@@ -551,6 +589,9 @@ func (c *QdrantClient) AllIndexedSongIDs(ctx context.Context, maxTotal int) ([]s
 		for _, point := range parsed.Result.Points {
 			if point.Payload.RagID != "" {
 				ids = append(ids, point.Payload.RagID)
+				if len(ids) == maxTotal {
+					break
+				}
 			}
 		}
 		if parsed.Result.NextPageOffset == nil || len(parsed.Result.Points) == 0 {
@@ -632,48 +673,36 @@ func (c *QdrantClient) Search(
 		if strings.TrimSpace(point.Payload.SongID) == "" {
 			continue
 		}
-		results = append(results, SongSearchResult{
-			SongID:       point.Payload.SongID,
-			Title:        point.Payload.Title,
-			Artist:       point.Payload.Artist,
-			Album:        point.Payload.Album,
-			Year:         point.Payload.Year,
-			Genre:        point.Payload.Genre,
-			Explicit:     point.Payload.Explicit,
-			BPM:          point.Payload.BPM,
-			LUFS:         point.Payload.LUFS,
-			Duration:     point.Payload.Duration,
-			PlayCount:    point.Payload.PlayCount,
-			LastPlayedAt: point.Payload.LastPlayedAt,
-			HasLyrics:    point.Payload.HasLyrics,
-			HasGenre:     point.Payload.HasGenre,
-			HasYear:      point.Payload.HasYear,
-			HasBPM:       point.Payload.HasBPM,
-			HasLUFS:      point.Payload.HasLUFS,
-			Score:        point.Score,
-			LyricsText:   point.Payload.LyricsText,
-		})
+		results = append(results, indexedSongSearchResult(point.Payload, point.Score))
 	}
 	return results, nil
 }
 
 // ListSongs scrolls indexed song payloads without returning their vectors.
-func (c *QdrantClient) ListSongs(ctx context.Context, limit int) ([]IndexedSong, error) {
+func (c *QdrantClient) ListSongs(ctx context.Context, limit int, filters ...SearchFilters) ([]IndexedSong, error) {
 	if limit <= 0 || limit > MaxListLimit {
 		return nil, fmt.Errorf("limit must be between 1 and %d", MaxListLimit)
+	}
+	searchFilters := SearchFilters{}
+	if len(filters) > 0 {
+		searchFilters = filters[0]
+	}
+	typeCondition := map[string]any{
+		"key":   "type",
+		"match": map[string]any{"value": "song"},
+	}
+	filter := BuildQdrantFilter(searchFilters)
+	if filter == nil {
+		filter = map[string]any{"must": []any{typeCondition}}
+	} else {
+		must, _ := filter["must"].([]any)
+		filter["must"] = append([]any{typeCondition}, must...)
 	}
 	body, err := json.Marshal(map[string]any{
 		"limit":        limit,
 		"with_payload": true,
 		"with_vector":  false,
-		"filter": map[string]any{
-			"must": []any{
-				map[string]any{
-					"key":   "type",
-					"match": map[string]any{"value": "song"},
-				},
-			},
-		},
+		"filter":       filter,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not encode Qdrant scroll request: %w", err)
@@ -712,6 +741,45 @@ func (c *QdrantClient) ListSongs(ctx context.Context, limit int) ([]IndexedSong,
 		songs = append(songs, point.Payload)
 	}
 	return songs, nil
+}
+
+// SearchSongsByPayload performs an exact Qdrant payload search without vector
+// similarity. It is used for lyric word/phrase matching so a genuine full-text
+// hit cannot be removed by an unrelated embedding score threshold.
+func (c *QdrantClient) SearchSongsByPayload(ctx context.Context, limit int, filters SearchFilters) ([]SongSearchResult, error) {
+	songs, err := c.ListSongs(ctx, limit, filters)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]SongSearchResult, 0, len(songs))
+	for _, song := range songs {
+		results = append(results, indexedSongSearchResult(song, 1))
+	}
+	return results, nil
+}
+
+func indexedSongSearchResult(song IndexedSong, score float64) SongSearchResult {
+	return SongSearchResult{
+		SongID:       song.SongID,
+		Title:        song.Title,
+		Artist:       song.Artist,
+		Album:        song.Album,
+		Year:         song.Year,
+		Genre:        song.Genre,
+		Explicit:     song.Explicit,
+		BPM:          song.BPM,
+		LUFS:         song.LUFS,
+		Duration:     song.Duration,
+		PlayCount:    song.PlayCount,
+		LastPlayedAt: song.LastPlayedAt,
+		HasLyrics:    song.HasLyrics,
+		HasGenre:     song.HasGenre,
+		HasYear:      song.HasYear,
+		HasBPM:       song.HasBPM,
+		HasLUFS:      song.HasLUFS,
+		Score:        score,
+		LyricsText:   song.LyricsText,
+	}
 }
 
 // SongVector is an indexed song plus its embedding, used for read-only

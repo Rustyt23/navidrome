@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,8 @@ func TestQdrantCreateStoresIndexMetadata(t *testing.T) {
 			_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[]}}`))
 		case request.Method == http.MethodGet && request.URL.Path == "/collections/songs":
 			http.NotFound(w, request)
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs/index":
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
 		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs":
 			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
 		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs/points":
@@ -142,6 +145,8 @@ func TestQdrantRecreatesIncompatibleCollection(t *testing.T) {
 		switch {
 		case request.Method == http.MethodDelete && request.URL.Path == "/collections/songs":
 			deleted = true
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs/index":
 			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
 		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs":
 			created = true
@@ -224,6 +229,8 @@ func TestQdrantCreatesMissingCollection(t *testing.T) {
 			_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[]}}`))
 		case request.Method == http.MethodGet && request.URL.Path == "/collections/songs":
 			http.NotFound(w, request)
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs/index":
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
 		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs":
 			var body struct {
 				Vectors struct {
@@ -317,6 +324,76 @@ func TestStableSongPointID(t *testing.T) {
 	}
 	if first, second := qdrantPointID("song:abc"), qdrantPointID("song:abc"); first != second {
 		t.Fatalf("expected deterministic Qdrant ID, got %q and %q", first, second)
+	}
+}
+
+func TestAllIndexedSongIDsHonorsLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/collections/songs/points/scroll" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body struct {
+			Limit int `json:"limit"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode scroll request: %v", err)
+		}
+		if body.Limit != 2 {
+			t.Fatalf("expected Qdrant page limit 2, got %d", body.Limit)
+		}
+		_, _ = w.Write([]byte(`{
+          "status":"ok",
+          "result":{"points":[
+            {"payload":{"ragId":"song:one"}},
+            {"payload":{"ragId":"song:two"}},
+            {"payload":{"ragId":"song:three"}}
+          ],"next_page_offset":"next"}
+        }`))
+	}))
+	defer server.Close()
+
+	client := NewQdrantClient(server.URL, "songs")
+	client.httpClient = server.Client()
+	ids, err := client.AllIndexedSongIDs(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("list indexed song IDs: %v", err)
+	}
+	if !reflect.DeepEqual(ids, []string{"song:one", "song:two"}) {
+		t.Fatalf("expected exactly two IDs, got %#v", ids)
+	}
+}
+
+func TestListSongsFiltersQdrantLyricsText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/collections/songs/points/scroll" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body struct {
+			Filter map[string]any `json:"filter"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode lyrics scroll request: %v", err)
+		}
+		encodedFilter, _ := json.Marshal(body.Filter)
+		filterJSON := string(encodedFilter)
+		for _, expected := range []string{`"key":"type"`, `"key":"hasLyrics"`, `"key":"lyricsText"`, `"text":"vikash"`} {
+			if !strings.Contains(filterJSON, expected) {
+				t.Fatalf("expected %s in Qdrant filter: %s", expected, filterJSON)
+			}
+		}
+		_, _ = w.Write([]byte(`{"status":"ok","result":{"points":[{"payload":{"songId":"song-1","title":"Vikash Song","hasLyrics":true,"lyricsText":"hello vikash"}}]}}`))
+	}))
+	defer server.Close()
+
+	client := NewQdrantClient(server.URL, "songs")
+	client.httpClient = server.Client()
+	required := true
+	songs, err := client.ListSongs(context.Background(), 10, SearchFilters{LyricsContains: "vikash", HasLyrics: &required})
+	if err != nil {
+		t.Fatalf("list Qdrant lyrics: %v", err)
+	}
+	if len(songs) != 1 || songs[0].LyricsText != "hello vikash" {
+		t.Fatalf("unexpected Qdrant lyrics: %+v", songs)
 	}
 }
 

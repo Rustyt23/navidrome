@@ -61,3 +61,50 @@ func TestRAGIndexDisabled(t *testing.T) {
 		t.Fatalf("unexpected error response: %#v", response)
 	}
 }
+
+func TestRAGClearIndexRecreatesConfiguredCollection(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+
+	deleted, created, metadataWritten := false, false, false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodDelete && request.URL.Path == "/collections/songs":
+			deleted = true
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs":
+			created = true
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs/index":
+			_, _ = w.Write([]byte(`{"status":"ok","result":true}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/songs/points":
+			metadataWritten = true
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"status":"completed"}}`))
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	defer server.Close()
+
+	conf.Server.EnableRAG = true
+	conf.Server.RAGVectorURL = server.URL
+	conf.Server.RAGCollection = "songs"
+
+	request := httptest.NewRequest(http.MethodDelete, "/ai/rag/index", nil)
+	recorder := httptest.NewRecorder()
+	(&Router{}).handleRAGClearIndex(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d: %s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if !deleted || !created || !metadataWritten {
+		t.Fatalf("expected delete/create/metadata sequence, deleted=%t created=%t metadata=%t", deleted, created, metadataWritten)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["collection"] != "songs" || response["cleared"] != true {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+}

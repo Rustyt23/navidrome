@@ -1,1 +1,0 @@
-This placeholder file ensures the build/3rdparty directory contains at least one embeddable asset during development builds.

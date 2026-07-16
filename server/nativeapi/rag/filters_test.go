@@ -2,6 +2,7 @@ package rag
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -61,5 +62,35 @@ func TestBuildQdrantFilterRangeFilters(t *testing.T) {
 func TestBuildQdrantFilterEmpty(t *testing.T) {
 	if filter := BuildQdrantFilter(SearchFilters{}); filter != nil {
 		t.Fatalf("expected no Qdrant filter, got %#v", filter)
+	}
+}
+
+func TestNormalizeSearchFiltersLyricsContains(t *testing.T) {
+	filters, err := NormalizeSearchFilters(SearchFilters{LyricsContains: "  rain  "})
+	if err != nil || filters.LyricsContains != "rain" {
+		t.Fatalf("expected trimmed lyricsContains, got %q err=%v", filters.LyricsContains, err)
+	}
+	long := strings.Repeat("a", maxLyricsContainsRunes+1)
+	if _, err := NormalizeSearchFilters(SearchFilters{LyricsContains: long}); err == nil {
+		t.Fatal("expected over-long lyricsContains to be rejected")
+	}
+}
+
+func TestBuildQdrantFilterLyricsContains(t *testing.T) {
+	filter := BuildQdrantFilter(SearchFilters{LyricsContains: "rain"})
+	if filter == nil {
+		t.Fatal("expected a filter")
+	}
+	must, _ := filter["must"].([]any)
+	if len(must) != 1 {
+		t.Fatalf("expected one condition, got %d", len(must))
+	}
+	condition, _ := must[0].(map[string]any)
+	if condition["key"] != "lyricsText" {
+		t.Fatalf("unexpected condition key: %+v", condition)
+	}
+	match, _ := condition["match"].(map[string]any)
+	if match["text"] != "rain" {
+		t.Fatalf("expected full-text match on rain, got %+v", match)
 	}
 }

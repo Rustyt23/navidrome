@@ -82,6 +82,7 @@ var _ = Describe("Config API", func() {
 				conf.Server.DevAutoCreateAdminPassword = "adminpassword123"
 				conf.Server.Prometheus.Password = "prometheuspass"
 				conf.Server.GeminiAPIKey = "gemini-secret"
+				conf.Server.AWSBearerTokenBedrock = "bedrock-secret"
 				conf.Server.GemmaAPIKey = "gemma-secret"
 
 				req := createAuthenticatedConfigRequest(adminToken)
@@ -110,6 +111,7 @@ var _ = Describe("Config API", func() {
 				Expect(prometheus["Password"]).To(Equal("****"))
 
 				Expect(resp.Config["GeminiAPIKey"]).To(Equal("****"))
+				Expect(resp.Config["AWSBearerTokenBedrock"]).To(Equal("****"))
 				Expect(resp.Config["GemmaAPIKey"]).To(Equal("****"))
 			})
 
@@ -178,6 +180,7 @@ var _ = Describe("redactValue function", func() {
 		Expect(redactValue("DevAutoCreateAdminPassword", "1234567890")).To(Equal("****"))
 		Expect(redactValue("Prometheus.Password", "1234567890")).To(Equal("****"))
 		Expect(redactValue("GeminiAPIKey", "1234567890")).To(Equal("****"))
+		Expect(redactValue("AWSBearerTokenBedrock", "1234567890")).To(Equal("****"))
 		Expect(redactValue("GemmaAPIKey", "1234567890")).To(Equal("****"))
 	})
 

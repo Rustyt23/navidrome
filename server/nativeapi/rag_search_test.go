@@ -101,6 +101,59 @@ func TestRAGSearchQdrantOffline(t *testing.T) {
 	}
 }
 
+func TestRAGExactLyricsSearchUsesQdrantWithoutEmbedding(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/collections":
+			_, _ = w.Write([]byte(`{"result":{"collections":[{"name":"songs"}]},"status":"ok"}`))
+		case "/collections/songs":
+			_, _ = w.Write([]byte(`{"result":{"points_count":2,"config":{"params":{"vectors":{"size":768}}}},"status":"ok"}`))
+		case "/collections/songs/points/scroll":
+			var body struct {
+				Filter map[string]any `json:"filter"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode exact lyrics search: %v", err)
+			}
+			encoded, _ := json.Marshal(body.Filter)
+			if !strings.Contains(string(encoded), `"text":"vikash"`) {
+				t.Fatalf("expected Qdrant lyrics filter, got %s", encoded)
+			}
+			_, _ = w.Write([]byte(`{"result":{"points":[{"payload":{"songId":"song-v","title":"Vikash Song","hasLyrics":true,"lyricsText":"hello vikash"}}]},"status":"ok"}`))
+		case "/collections/songs/points/query":
+			t.Fatal("exact lyric search must not use vector query")
+		default:
+			if strings.HasPrefix(request.URL.Path, "/collections/songs/points/") {
+				_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":2,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
+				return
+			}
+			http.NotFound(w, request)
+		}
+	}))
+	defer server.Close()
+
+	conf.Server.EnableRAG = true
+	conf.Server.RAGVectorURL = server.URL
+	conf.Server.RAGCollection = "songs"
+	conf.Server.RAGEmbeddingURL = ""
+	conf.Server.GeminiAPIKey = ""
+	conf.Server.RAGMinScore = 0.99
+	required := true
+	results, err := searchRAG(context.Background(), "vikash", 5, rag.SearchFilters{
+		LyricsContains: "vikash",
+		HasLyrics:      &required,
+	})
+	if err != nil {
+		t.Fatalf("exact Qdrant lyrics search: %v", err)
+	}
+	if len(results) != 1 || results[0].SongID != "song-v" || results[0].Score != 1 {
+		t.Fatalf("unexpected exact lyrics results: %+v", results)
+	}
+}
+
 func TestRAGEmbeddingStatusPrefersLocalBackend(t *testing.T) {
 	restoreConfig := conf.SnapshotConfig()
 	defer restoreConfig()
@@ -286,5 +339,206 @@ func TestPrepareAIChatMessageIncludesAppliedFilters(t *testing.T) {
 	})
 	if err != nil || !strings.Contains(prompt, "Applied filters:\n{\"explicit\":\"explicit\",\"bpmMin\":120}") {
 		t.Fatalf("expected applied filters in prompt, prompt=%q err=%v", prompt, err)
+	}
+}
+
+func TestPrepareAIChatMessageLyricsKeywordSearch(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+	conf.Server.EnableRAG = true
+	conf.Server.RAGTopK = 5
+	conf.Server.RAGMinScore = 0
+
+	provider := staticAIChatProvider{answer: `{"mode":"lyrics","query":"rain","filters":{"lyricsContains":"rain"}}`}
+	prompt, sources, err := prepareAIChatMessage(
+		context.Background(),
+		"which is the song that includes the word rain",
+		nil,
+		provider,
+		func(_ context.Context, query string, _ int, filters rag.SearchFilters) ([]rag.SongSearchResult, error) {
+			if filters.LyricsContains != "rain" {
+				t.Fatalf("expected lyricsContains filter, got %+v", filters)
+			}
+			if filters.HasLyrics == nil || !*filters.HasLyrics {
+				t.Fatalf("expected hasLyrics filter for lyrics mode, got %+v", filters)
+			}
+			if query != "rain" {
+				t.Fatalf("unexpected retrieval query: %q", query)
+			}
+			return []rag.SongSearchResult{{
+				SongID: "song-1", Title: "Storm Song", Artist: "Artist", Score: 0.9,
+				LyricsText: "dancing all night\nsinging in the rain tonight\nuntil the morning",
+			}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepare chat: %v", err)
+	}
+	if len(sources) != 1 || sources[0].LyricSnippet == "" {
+		t.Fatalf("expected a lyric-annotated source, got %+v", sources)
+	}
+	if !strings.Contains(prompt, "⟦rain⟧") {
+		t.Fatalf("expected highlighted lyric snippet in prompt, got %q", prompt)
+	}
+}
+
+func TestPrepareAIChatMessageDirectLyricsWordUsesStrictQdrantFilter(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+	conf.Server.EnableRAG = true
+	conf.Server.RAGTopK = 5
+	conf.Server.RAGMinScore = 0
+
+	calls := 0
+	prompt, sources, err := prepareAIChatMessage(
+		context.Background(),
+		"give me the songs with the word vikash inside it",
+		nil,
+		nil,
+		func(_ context.Context, query string, _ int, filters rag.SearchFilters) ([]rag.SongSearchResult, error) {
+			calls++
+			if query != "vikash" || filters.LyricsContains != "vikash" || filters.HasLyrics == nil || !*filters.HasLyrics {
+				t.Fatalf("unexpected exact lyrics search: query=%q filters=%+v", query, filters)
+			}
+			return []rag.SongSearchResult{{
+				SongID: "song-v", Title: "Vikash Song", Artist: "Artist", Score: 1,
+				LyricsText: "hello vikash welcome home",
+			}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepare exact lyrics chat: %v", err)
+	}
+	if calls != 1 || len(sources) != 1 || !strings.Contains(prompt, "⟦vikash⟧") {
+		t.Fatalf("expected strict Qdrant lyric result, calls=%d prompt=%q sources=%+v", calls, prompt, sources)
+	}
+}
+
+func TestPrepareAIChatMessageDirectLyricsWordDoesNotFallBackToSemantic(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+	conf.Server.EnableRAG = true
+	conf.Server.RAGTopK = 5
+
+	calls := 0
+	_, sources, err := prepareAIChatMessage(
+		context.Background(),
+		"songs containing the word vikash",
+		nil,
+		nil,
+		func(_ context.Context, _ string, _ int, _ rag.SearchFilters) ([]rag.SongSearchResult, error) {
+			calls++
+			return nil, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepare empty exact lyrics chat: %v", err)
+	}
+	if calls != 1 || len(sources) != 0 {
+		t.Fatalf("exact word search must not return semantic false positives, calls=%d sources=%+v", calls, sources)
+	}
+}
+
+type countingAIChatProvider struct {
+	calls int
+}
+
+func (provider *countingAIChatProvider) Chat(context.Context, string) (string, error) {
+	provider.calls++
+	return "this should not be called", nil
+}
+
+func TestExactLyricsChatBuildsDirectResponseWithoutFinalAI(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+	conf.Server.EnableRAG = true
+	conf.Server.RAGTopK = 20
+	conf.Server.RAGMinScore = 0
+
+	provider := &countingAIChatProvider{}
+	prompt, sources, err := prepareAIChatMessageForResponse(
+		context.Background(),
+		"give me songs with the words thank you in it",
+		[]aiChatTurn{{Role: "user", Content: "show me grateful songs"}},
+		provider,
+		func(_ context.Context, query string, topK int, filters rag.SearchFilters) ([]rag.SongSearchResult, error) {
+			if query != "thank you" || topK != rag.MaxSearchTopK || filters.LyricsContains != "thank you" {
+				t.Fatalf("unexpected exact phrase search: query=%q topK=%d filters=%+v", query, topK, filters)
+			}
+			lyrics := strings.Repeat("far away words ", 30) + "I want to thank you my friend" + strings.Repeat(" later words", 30)
+			return []rag.SongSearchResult{
+				{SongID: "one", Title: "Gratitude", Artist: "Beyonce", Duration: 200, LyricsText: lyrics, Score: 1},
+				{SongID: "two", Title: "Gratitude", Artist: "Beyoncé", Duration: 200, LyricsText: lyrics, Score: 1},
+			}, nil
+		},
+		ragChatFeatures{},
+	)
+	if err != nil {
+		t.Fatalf("prepare direct lyrics response: %v", err)
+	}
+	if prompt != "" || len(sources) != 1 {
+		t.Fatalf("expected empty AI prompt and one deduplicated source, prompt=%q sources=%+v", prompt, sources)
+	}
+	answer, direct, err := resolveAIChatAnswer(context.Background(), provider, prompt, "thank you", true, sources)
+	if err != nil || !direct || provider.calls != 0 {
+		t.Fatalf("expected deterministic response without provider call, direct=%t calls=%d err=%v", direct, provider.calls, err)
+	}
+	if !strings.Contains(answer, "Here is 1 indexed song") || !strings.Contains(answer, "⟦thank you⟧") {
+		t.Fatalf("unexpected direct answer: %s", answer)
+	}
+}
+
+func TestDirectLyricsContainsMultiWordPhrase(t *testing.T) {
+	for _, message := range []string{
+		`show songs with the phrase "thank you"`,
+		"give me songs with the words thank you in it",
+		"lyrics containing the phrase thank you in their lyrics",
+	} {
+		value, ok := directLyricsContains(message)
+		if !ok || value != "thank you" {
+			t.Fatalf("expected exact phrase from %q, got %q ok=%t", message, value, ok)
+		}
+	}
+}
+
+func TestPrepareAIChatMessageLyricsKeywordFallsBackToSemantic(t *testing.T) {
+	restoreConfig := conf.SnapshotConfig()
+	defer restoreConfig()
+	conf.Server.EnableRAG = true
+	conf.Server.RAGTopK = 5
+	conf.Server.RAGMinScore = 0
+
+	provider := staticAIChatProvider{answer: `{"mode":"lyrics","query":"raining hard","filters":{"lyricsContains":"raining hard"}}`}
+	calls := 0
+	prompt, sources, err := prepareAIChatMessage(
+		context.Background(),
+		"find the song that goes raining hard",
+		nil,
+		provider,
+		func(_ context.Context, _ string, _ int, filters rag.SearchFilters) ([]rag.SongSearchResult, error) {
+			calls++
+			if calls == 1 {
+				if filters.LyricsContains != "raining hard" {
+					t.Fatalf("expected exact lyric filter on first search, got %+v", filters)
+				}
+				return nil, nil
+			}
+			if filters.LyricsContains != "" {
+				t.Fatalf("expected relaxed filters on retry, got %+v", filters)
+			}
+			return []rag.SongSearchResult{{
+				SongID: "song-2", Title: "Rain Down", Artist: "Artist", Score: 0.8,
+				LyricsText: "rain keeps falling hard on me",
+			}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepare chat: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected semantic fallback retry, got %d calls", calls)
+	}
+	if len(sources) != 1 || !strings.Contains(prompt, "Rain Down — Artist") {
+		t.Fatalf("expected fallback results in prompt, prompt=%q sources=%+v", prompt, sources)
 	}
 }

@@ -4,6 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
+)
+
+const (
+	maxPromptRetrievedContextRunes = 12000
+	maxPromptHistoryRunes          = 8000
 )
 
 // PromptContext is the provider-independent input shape for RAG prompts.
@@ -32,9 +38,12 @@ func BuildChatPromptWithHistory(question string, history []ChatTurn, results []S
 	if len(results) == 0 {
 		context.WriteString("(no matching songs found)")
 	} else {
+		omitted := 0
+		contextRunes := 0
 		for index, result := range results {
+			var item strings.Builder
 			fmt.Fprintf(
-				&context,
+				&item,
 				"%d. %s — %s | album: %s | year: %d | genre: %s | explicit: %t | bpm: %d | lufs: %.2f | duration: %.0fs | play count: %d | score: %.4f\n",
 				index+1,
 				result.Title,
@@ -50,8 +59,19 @@ func BuildChatPromptWithHistory(question string, history []ChatTurn, results []S
 				result.Score,
 			)
 			if result.LyricSnippet != "" {
-				fmt.Fprintf(&context, "   matching lyric: %s\n", result.LyricSnippet)
+				fmt.Fprintf(&item, "   matching lyric: %s\n", result.LyricSnippet)
 			}
+			itemText := item.String()
+			itemRunes := utf8.RuneCountInString(itemText)
+			if contextRunes+itemRunes > maxPromptRetrievedContextRunes {
+				omitted = len(results) - index
+				break
+			}
+			context.WriteString(itemText)
+			contextRunes += itemRunes
+		}
+		if omitted > 0 {
+			fmt.Fprintf(&context, "[%d additional retrieved songs omitted to keep the prompt within its context budget]\n", omitted)
 		}
 	}
 
@@ -61,25 +81,14 @@ func BuildChatPromptWithHistory(question string, history []ChatTurn, results []S
 	}
 	appliedFilters, _ := json.Marshal(searchFilters)
 
-	var historyBlock strings.Builder
-	for _, turn := range history {
-		role := strings.TrimSpace(turn.Role)
-		content := strings.TrimSpace(turn.Content)
-		if content == "" {
-			continue
-		}
-		if role == "" {
-			role = "user"
-		}
-		fmt.Fprintf(&historyBlock, "%s: %s\n", role, content)
-	}
+	historyBlock := boundedChatHistory(history)
 
 	prompt := `You are a music-library assistant. Answer only using the provided library context.
 Do not invent songs or facts that are not present in the context.
 If the context does not contain enough useful matching songs, say that you did not find enough matching songs in the library.
 `
-	if historyBlock.Len() > 0 {
-		prompt += "\nConversation so far:\n" + strings.TrimSpace(historyBlock.String()) + "\n"
+	if historyBlock != "" {
+		prompt += "\nConversation so far:\n" + historyBlock + "\n"
 	}
 	return prompt + `
 User question:
@@ -95,22 +104,44 @@ Retrieved songs:
 // BuildLibraryDataPrompt answers analytics and cleanup questions from computed
 // JSON rather than asking the model to estimate counts from retrieved samples.
 func BuildLibraryDataPrompt(question string, history []ChatTurn, label, data string) string {
-	var historyBlock strings.Builder
-	for _, turn := range history {
-		if content := strings.TrimSpace(turn.Content); content != "" {
-			role := strings.TrimSpace(turn.Role)
-			if role == "" {
-				role = "user"
-			}
-			fmt.Fprintf(&historyBlock, "%s: %s\n", role, content)
-		}
-	}
+	historyBlock := boundedChatHistory(history)
 	prompt := `You are a music-library analyst. Answer only from the computed library data below.
 Do not estimate, invent counts, or treat a retrieved sample as the whole library.
 State clearly when the computed data is empty.`
-	if historyBlock.Len() > 0 {
-		prompt += "\n\nConversation so far:\n" + strings.TrimSpace(historyBlock.String())
+	if historyBlock != "" {
+		prompt += "\n\nConversation so far:\n" + historyBlock
 	}
 	return prompt + "\n\nUser question:\n" + strings.TrimSpace(question) +
 		"\n\nComputed " + strings.TrimSpace(label) + ":\n" + strings.TrimSpace(data)
+}
+
+func boundedChatHistory(history []ChatTurn) string {
+	entries := make([]string, 0, len(history))
+	used := 0
+	omitted := false
+	for index := len(history) - 1; index >= 0; index-- {
+		content := strings.TrimSpace(history[index].Content)
+		if content == "" {
+			continue
+		}
+		role := strings.TrimSpace(history[index].Role)
+		if role == "" {
+			role = "user"
+		}
+		entry := role + ": " + content
+		entryRunes := utf8.RuneCountInString(entry) + 1
+		if used+entryRunes > maxPromptHistoryRunes {
+			omitted = true
+			break
+		}
+		entries = append(entries, entry)
+		used += entryRunes
+	}
+	for left, right := 0, len(entries)-1; left < right; left, right = left+1, right-1 {
+		entries[left], entries[right] = entries[right], entries[left]
+	}
+	if omitted {
+		entries = append([]string{"[earlier conversation omitted to keep the prompt within its history budget]"}, entries...)
+	}
+	return strings.Join(entries, "\n")
 }

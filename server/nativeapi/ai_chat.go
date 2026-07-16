@@ -32,11 +32,12 @@ type aiChatTurn struct {
 }
 
 type aiChatRequest struct {
-	Message  string       `json:"message"`
-	Provider string       `json:"provider"`
-	Model    string       `json:"model"`
-	UseRAG   *bool        `json:"useRag,omitempty"`
-	History  []aiChatTurn `json:"history,omitempty"`
+	Message        string       `json:"message"`
+	Provider       string       `json:"provider"`
+	Model          string       `json:"model"`
+	UseRAG         *bool        `json:"useRag,omitempty"`
+	History        []aiChatTurn `json:"history,omitempty"`
+	DeveloperTrace bool         `json:"developerTrace,omitempty"`
 }
 
 type aiChatResponse struct {
@@ -45,16 +46,14 @@ type aiChatResponse struct {
 	Model    string                 `json:"model,omitempty"`
 	Sources  []rag.SongSearchResult `json:"sources,omitempty"`
 	RAGError string                 `json:"ragError,omitempty"`
+	Direct   bool                   `json:"direct,omitempty"`
+	Trace    *aiChatTrace           `json:"trace,omitempty"`
 }
 
 type aiLyricsResponse struct {
-	Language           string  `json:"language"`
-	Text               string  `json:"text"`
-	Coverage           float64 `json:"coverage,omitempty"`
-	TranscribedSeconds float64 `json:"transcribedSeconds,omitempty"`
-	TotalSeconds       float64 `json:"totalSeconds,omitempty"`
-	SegmentCount       int     `json:"segmentCount,omitempty"`
-	Truncated          bool    `json:"truncated,omitempty"`
+	Language string `json:"language"`
+	Text     string `json:"text"`
+	Status   string `json:"status,omitempty"`
 }
 
 type aiClassifyExplicitRequest struct {
@@ -84,23 +83,41 @@ type aiFetchMetadataRequest struct {
 
 type aiFetchMetadataSong struct {
 	ID                  string                         `json:"id"`
-	Album               string                         `json:"album,omitempty"`
-	Year                int                            `json:"year,omitempty"`
 	AIGenre             string                         `json:"aiGenre,omitempty"`
 	SpotifyGenre        string                         `json:"spotifyGenre,omitempty"`
 	MusicBrainzGenre    string                         `json:"musicBrainzGenre,omitempty"`
-	AlbumConfidence     int                            `json:"albumConfidence"`
-	YearConfidence      int                            `json:"yearConfidence"`
 	GenreConfidence     int                            `json:"genreConfidence"`
 	ConfidenceBreakdown *aiMetadataConfidenceBreakdown `json:"confidenceBreakdown,omitempty"`
+	GenreDeveloperTrace *genreDeveloperTrace           `json:"genreDeveloperTrace,omitempty"`
+}
+
+type genreDeveloperTrace struct {
+	ITunes *genreSourceDeveloperTrace `json:"itunes,omitempty"`
+	AI     *genreSourceDeveloperTrace `json:"ai,omitempty"`
+}
+
+type genreSourceDeveloperTrace struct {
+	Source       string                  `json:"source"`
+	Provider     string                  `json:"provider,omitempty"`
+	Model        string                  `json:"model,omitempty"`
+	Request      string                  `json:"request,omitempty"`
+	Prompt       string                  `json:"prompt,omitempty"`
+	Response     string                  `json:"response,omitempty"`
+	FetchedGenre string                  `json:"fetchedGenre,omitempty"`
+	Attempts     []genreDeveloperAttempt `json:"attempts,omitempty"`
+}
+
+type genreDeveloperAttempt struct {
+	Number   int    `json:"number"`
+	Prompt   string `json:"prompt,omitempty"`
+	Response string `json:"response,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // aiMetadataConfidenceBreakdown explains, per field, how the value and its
 // confidence were derived from the available sources, so the UI can show it when
 // a score is clicked.
 type aiMetadataConfidenceBreakdown struct {
-	Album aiMetadataFieldExplanation `json:"album"`
-	Year  aiMetadataFieldExplanation `json:"year"`
 	Genre aiMetadataFieldExplanation `json:"genre"`
 }
 
@@ -134,17 +151,6 @@ type aiClearMetadataResponse struct {
 	SongIDs []string `json:"songIds"`
 }
 
-type geminiSongMetadata struct {
-	Album           string `json:"album"`
-	Year            int    `json:"year"`
-	Genre           string `json:"genre"`
-	MatchedTitle    string `json:"matchedTitle"`
-	MatchedArtist   string `json:"matchedArtist"`
-	AlbumConfidence int    `json:"albumConfidence"`
-	YearConfidence  int    `json:"yearConfidence"`
-	GenreConfidence int    `json:"genreConfidence"`
-}
-
 // Confidence scores by how a field was resolved. AI-only values score low
 // because a language model recalling metadata from memory cannot be trusted
 // without an independent cross-check; Spotify and MusicBrainz are external
@@ -170,6 +176,7 @@ type aiServiceStatus struct {
 	ID     string `json:"id"`
 	Label  string `json:"label"`
 	Online bool   `json:"online"`
+	State  string `json:"state"`
 }
 
 type aiStatusResponse struct {
@@ -197,6 +204,14 @@ type geminiClient struct {
 	apiKey string
 	model  string
 	client *http.Client
+}
+
+type bedrockDeepSeekClient struct {
+	apiURL      string
+	bearerToken string
+	model       string
+	maxTokens   int
+	client      *http.Client
 }
 
 type gemmaClient struct {
@@ -229,6 +244,32 @@ type geminiGenerateContentResponse struct {
 	} `json:"candidates"`
 }
 
+type bedrockConverseRequest struct {
+	Messages        []bedrockMessage       `json:"messages"`
+	System          []bedrockContent       `json:"system"`
+	InferenceConfig bedrockInferenceConfig `json:"inferenceConfig"`
+}
+
+type bedrockMessage struct {
+	Role    string           `json:"role"`
+	Content []bedrockContent `json:"content"`
+}
+
+type bedrockContent struct {
+	Text string `json:"text"`
+}
+
+type bedrockInferenceConfig struct {
+	MaxTokens   int     `json:"maxTokens"`
+	Temperature float64 `json:"temperature"`
+}
+
+type bedrockConverseResponse struct {
+	Output struct {
+		Message bedrockMessage `json:"message"`
+	} `json:"output"`
+}
+
 type gemmaChatRequest struct {
 	Message string `json:"message"`
 }
@@ -245,7 +286,14 @@ type gemmaChatResponse struct {
 	Model    string `json:"model"`
 }
 
-const gemmaChatTimeout = 120 * time.Second
+const (
+	gemmaChatTimeout        = 120 * time.Second
+	bedrockDeepSeekAPIURL   = "https://bedrock-runtime.us-east-1.amazonaws.com"
+	bedrockDeepSeekModel    = "deepseek.v3.2"
+	deepSeekChatMaxTokens   = 4096
+	deepSeekChatTemperature = 0.2
+	deepSeekEnglishPrompt   = "Always respond only in English. Do not respond in Chinese or any other language."
+)
 
 func (g geminiClient) Chat(ctx context.Context, message string) (string, error) {
 	body, _ := json.Marshal(geminiGenerateContentRequest{
@@ -304,6 +352,73 @@ func (g geminiClient) Chat(ctx context.Context, message string) (string, error) 
 	}
 
 	return answer, nil
+}
+
+func (b bedrockDeepSeekClient) Chat(ctx context.Context, message string) (string, error) {
+	maxTokens := b.maxTokens
+	if maxTokens <= 0 {
+		maxTokens = deepSeekChatMaxTokens
+	}
+	body, err := json.Marshal(bedrockConverseRequest{
+		System: []bedrockContent{{Text: deepSeekEnglishPrompt}},
+		Messages: []bedrockMessage{{
+			Role:    "user",
+			Content: []bedrockContent{{Text: message}},
+		}},
+		InferenceConfig: bedrockInferenceConfig{
+			MaxTokens:   maxTokens,
+			Temperature: deepSeekChatTemperature,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("could not encode DeepSeek request: %w", err)
+	}
+
+	endpoint := fmt.Sprintf(
+		"%s/model/%s/converse",
+		strings.TrimRight(b.apiURL, "/"),
+		url.PathEscape(b.model),
+	)
+	client := b.client
+	if client == nil {
+		client = &http.Client{Timeout: gemmaChatTimeout}
+	}
+	httpResp, err := rag.DoWithRetry(ctx, client, "bedrock_deepseek_chat", rag.HTTPClientOptions{
+		MaxRetries:   conf.Server.RAGRetryMax,
+		RetryBackoff: conf.Server.RAGRetryBackoff,
+	}, func() (*http.Request, error) {
+		httpReq, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+b.bearerToken)
+		return httpReq, nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to contact DeepSeek on Amazon Bedrock: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode >= http.StatusBadRequest {
+		errBody, _ := io.ReadAll(httpResp.Body)
+		return "", fmt.Errorf("DeepSeek on Amazon Bedrock returned HTTP %d: %s", httpResp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+
+	var apiResp bedrockConverseResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&apiResp); err != nil {
+		return "", fmt.Errorf("invalid DeepSeek response: %w", err)
+	}
+	answerParts := make([]string, 0, len(apiResp.Output.Message.Content))
+	for _, content := range apiResp.Output.Message.Content {
+		if text := strings.TrimSpace(content.Text); text != "" {
+			answerParts = append(answerParts, text)
+		}
+	}
+	if len(answerParts) == 0 {
+		return "", fmt.Errorf("DeepSeek on Amazon Bedrock returned an empty response")
+	}
+	return strings.Join(answerParts, "\n"), nil
 }
 
 func (g gemmaClient) Chat(ctx context.Context, message string) (string, error) {
@@ -444,10 +559,11 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 	r.Get("/ai/status", func(w http.ResponseWriter, req *http.Request) {
 		ctx, cancel := context.WithTimeout(req.Context(), 4*time.Second)
 		defer cancel()
+		whisperBusy := n.lyricsJobManager().Busy()
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(aiStatusResponse{
-			Services:     getAIServiceStatuses(ctx),
+			Services:     getAIServiceStatuses(ctx, whisperBusy),
 			WhisperModel: selectedWhisperModel(),
 		})
 	})
@@ -468,37 +584,111 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			writeAIChatError(w, http.StatusBadRequest, "unsupported AI provider")
 			return
 		}
-		if shouldUseRAG(payload) && conf.Server.RAGOffline {
+		useRAG := shouldUseRAG(payload)
+		exactNeedle, directExactResponse := "", false
+		if useRAG {
+			exactNeedle, directExactResponse = directLyricsContains(payload.Message)
+		}
+		trace := newAIChatTraceCollector(payload.DeveloperTrace, providerSpec.ID, providerSpec.Model, useRAG)
+		ctx := withAIChatTrace(req.Context(), trace)
+		recordAIChatTraceStage(ctx, aiChatTraceStage{
+			ID:     "request",
+			Label:  "Received chat request",
+			Status: "completed",
+			Input: map[string]any{
+				"message": payload.Message,
+				"history": payload.History,
+				"useRag":  useRAG,
+			},
+		})
+		if useRAG && conf.Server.RAGOffline && !directExactResponse {
 			if strings.TrimSpace(conf.Server.RAGEmbeddingURL) == "" {
-				writeAIChatError(w, http.StatusServiceUnavailable, "RAG offline mode requires RAGEmbeddingURL")
+				writeAIChatErrorWithTrace(w, http.StatusServiceUnavailable, "RAG offline mode requires RAGEmbeddingURL", trace)
 				return
 			}
 			if providerSpec.ID != "gemma-3-4b" {
-				writeAIChatError(w, http.StatusBadRequest, "RAG offline mode requires the local Gemma 3:4b chat provider")
+				writeAIChatErrorWithTrace(w, http.StatusBadRequest, "RAG offline mode requires the local Gemma 3:4b chat provider", trace)
 				return
 			}
 		}
 
-		provider, err := newAIChatProvider(providerSpec)
-		if err != nil {
-			writeAIChatError(w, http.StatusServiceUnavailable, err.Error())
-			return
+		var provider aiChatProvider
+		var err error
+		if directExactResponse {
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "provider", Label: "Skipped AI provider", Status: "skipped",
+				Detail: "An exact lyrics query can be answered directly from Qdrant without an AI provider.",
+			})
+		} else {
+			providerStarted := time.Now()
+			provider, err = newAIChatProvider(providerSpec)
+			if err != nil {
+				recordAIChatTraceStage(ctx, aiChatTraceStage{
+					ID: "provider", Label: "Selected AI provider", Status: "failed",
+					DurationMS: time.Since(providerStarted).Milliseconds(), Error: err.Error(),
+					Input: map[string]any{"provider": providerSpec.ID, "model": providerSpec.Model},
+				})
+				writeAIChatErrorWithTrace(w, http.StatusServiceUnavailable, err.Error(), trace)
+				return
+			}
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "provider", Label: "Selected AI provider", Status: "completed",
+				DurationMS: time.Since(providerStarted).Milliseconds(),
+				Output:     map[string]any{"provider": providerSpec.ID, "model": providerSpec.Model},
+			})
 		}
 		chatMessage := payload.Message
 		var sources []rag.SongSearchResult
 		ragError := ""
-		if shouldUseRAG(payload) {
-			chatMessage, sources, err = prepareAIChatMessageWithFeatures(req.Context(), payload.Message, payload.History, provider, searchRAG, n.ragChatFeatures())
+		if useRAG {
+			chatMessage, sources, err = prepareAIChatMessageForResponse(ctx, payload.Message, payload.History, provider, searchRAG, n.ragChatFeatures())
 			if err != nil {
+				if directExactResponse {
+					recordAIChatTraceStage(ctx, aiChatTraceStage{
+						ID: "answer", Label: "Could not retrieve exact Qdrant lyrics matches", Status: "failed",
+						Error: err.Error(),
+					})
+					writeAIChatErrorWithTrace(w, http.StatusServiceUnavailable, err.Error(), trace)
+					return
+				}
 				ragError = err.Error()
+				directExactResponse = false
+				recordAIChatTraceStage(ctx, aiChatTraceStage{
+					ID: "rag_fallback", Label: "Fell back to direct chat", Status: "fallback",
+					Detail: "RAG preparation failed, so the original user message was sent without library context.", Error: err.Error(),
+				})
 				chatMessage = payload.Message
 				sources = nil
 			}
+		} else {
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "rag", Label: "Skipped RAG retrieval", Status: "skipped",
+				Detail: "This request used normal chat, so no Qdrant search or library context was added.",
+			})
 		}
-		answer, err := provider.Chat(req.Context(), chatMessage)
+		answerStarted := time.Now()
+		answer, directResponse, err := resolveAIChatAnswer(ctx, provider, chatMessage, exactNeedle, directExactResponse, sources)
 		if err != nil {
-			writeAIChatError(w, http.StatusBadGateway, err.Error())
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "answer", Label: "Called AI for the final answer", Status: "failed",
+				DurationMS: time.Since(answerStarted).Milliseconds(), Prompt: chatMessage, Error: err.Error(),
+			})
+			writeAIChatErrorWithTrace(w, http.StatusBadGateway, err.Error(), trace)
 			return
+		}
+		if directResponse {
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "answer", Label: "Returned exact Qdrant lyrics matches", Status: "completed",
+				DurationMS: time.Since(answerStarted).Milliseconds(),
+				Detail:     "The response was formatted deterministically without sending a final prompt to an AI model.",
+				Response:   answer, Output: map[string]any{"characters": len([]rune(answer)), "songs": len(sources)},
+			})
+		} else {
+			recordAIChatTraceStage(ctx, aiChatTraceStage{
+				ID: "answer", Label: "Called AI for the final answer", Status: "completed",
+				DurationMS: time.Since(answerStarted).Milliseconds(), Prompt: chatMessage, Response: answer,
+				Output: map[string]any{"characters": len([]rune(answer))},
+			})
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -508,16 +698,16 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			Model:    providerSpec.Model,
 			Sources:  sources,
 			RAGError: ragError,
+			Direct:   directResponse,
+			Trace:    trace.snapshot(chatMessage, answer),
 		})
 	})
 
-	r.Post("/ai/songs/{id}/lyrics/fetch", func(w http.ResponseWriter, req *http.Request) {
-		whisperURL := strings.TrimSpace(conf.Server.WhisperAPIURL)
-		if whisperURL == "" {
-			http.Error(w, "Whisper API URL is not configured", http.StatusServiceUnavailable)
-			return
-		}
+	r.Post("/ai/lyrics/fetch-job", n.handleLyricsJobStart)
+	r.Get("/ai/lyrics/fetch-job/status", n.handleLyricsJobStatus)
+	r.Delete("/ai/lyrics/fetch-job", n.handleLyricsJobStop)
 
+	r.Post("/ai/songs/{id}/lyrics/fetch", func(w http.ResponseWriter, req *http.Request) {
 		songID := strings.TrimSpace(chi.URLParam(req, "id"))
 		if songID == "" {
 			http.Error(w, "song id is required", http.StatusBadRequest)
@@ -530,65 +720,11 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			return
 		}
 
-		// Bound the transcription by the song length so a stuck Whisper worker
-		// can't hang the request forever, while still allowing slow CPU models.
-		songDuration := float64(mf.Duration)
-		fetchCtx, cancel := context.WithTimeout(req.Context(), whisperTimeoutForDuration(songDuration))
-		defer cancel()
-
-		result, err := fetchWhisperLyrics(fetchCtx, whisperURL, mf.AbsolutePath(), selectedWhisperModel(), 0)
+		n.lyricsJobManager().BeginWhisperRequest()
+		defer n.lyricsJobManager().EndWhisperRequest()
+		lyrics, err := fetchAndSaveWhisperLyrics(req.Context(), n.ds.MediaFile(req.Context()), mf)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		coverage, transcribed, total, truncated := whisperCoverage(result, songDuration)
-
-		// Whisper frequently stops early on music (silence/instrumental fools its
-		// end-of-speech detection). When coverage looks truncated, retry once with
-		// a higher temperature, which is the documented way to break it out of an
-		// early stop, and keep whichever attempt transcribed more of the song.
-		if truncated {
-			if retry, rerr := fetchWhisperLyrics(fetchCtx, whisperURL, mf.AbsolutePath(), selectedWhisperModel(), 0.4); rerr == nil {
-				rCoverage, rTranscribed, rTotal, rTruncated := whisperCoverage(retry, songDuration)
-				if rCoverage > coverage {
-					result, coverage, transcribed, total, truncated = retry, rCoverage, rTranscribed, rTotal, rTruncated
-				}
-			} else {
-				log.Warn(req.Context(), "Whisper retry after suspected truncation failed", "songId", songID, rerr)
-			}
-		}
-
-		lyrics := aiLyricsResponse{
-			Language:           result.Language,
-			Text:               result.Text,
-			Coverage:           coverage,
-			TranscribedSeconds: transcribed,
-			TotalSeconds:       total,
-			SegmentCount:       result.SegmentCount,
-			Truncated:          truncated,
-		}
-		if truncated {
-			log.Info(req.Context(), "Whisper transcription looks truncated",
-				"songId", songID, "coverage", coverage, "transcribedSeconds", transcribed, "totalSeconds", total)
-		}
-
-		structured, err := model.ToLyrics(lyrics.Language, lyrics.Text)
-		if err != nil {
-			http.Error(w, "invalid lyrics response", http.StatusBadGateway)
-			return
-		}
-		lyricsJSON, err := json.Marshal(model.LyricList{*structured})
-		if err != nil {
-			http.Error(w, "could not save lyrics", http.StatusInternalServerError)
-			return
-		}
-		if err := saveWhisperLyricsFile(conf.Server.WhisperLyricsFolder, songID, lyrics.Text); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		if err := n.ds.MediaFile(req.Context()).UpdateLyrics(songID, string(lyricsJSON)); err != nil {
-			http.Error(w, "could not save lyrics", http.StatusInternalServerError)
 			return
 		}
 
@@ -610,8 +746,14 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 		}
 
 		text, language := lyricsText(mf)
+		status := lyricsResultFailed
+		if strings.TrimSpace(text) != "" {
+			status = lyricsResultAvailable
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(aiLyricsResponse{Language: language, Text: text})
+		_ = json.NewEncoder(w).Encode(aiLyricsResponse{
+			Language: language, Text: text, Status: status,
+		})
 	})
 
 	r.Delete("/ai/songs/{id}/lyrics", func(w http.ResponseWriter, req *http.Request) {
@@ -679,9 +821,11 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 			return
 		}
 
-		// Genre is fetched from the AI via Gemini 2.5 so it can be compared against
-		// Spotify and MusicBrainz for a consensus, regardless of the UI selection.
-		providerSpec := aiChatProviderSpec("gemini-2.5", "")
+		selectedProvider := strings.TrimSpace(payload.Provider)
+		if selectedProvider == "" {
+			selectedProvider = "gemini-2.5"
+		}
+		providerSpec := aiChatProviderSpec(selectedProvider, "")
 		if providerSpec.ID == "" {
 			http.Error(w, "unsupported AI provider", http.StatusBadRequest)
 			return
@@ -693,8 +837,11 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 		}
 		var verify metadataVerifier
 		if n.metadataJob != nil {
+			// The AI tool page only fetches genre, so only the iTunes genre
+			// lookup runs — no MusicBrainz album/year search or cover checks.
 			verify = func(_ context.Context, title, artist string) (metadataResult, error) {
-				return n.metadataJob.fetchMetadata(title, artist)
+				genre, trace := n.metadataJob.fetchITunesGenreWithTrace(title, artist)
+				return metadataResult{Genre: genre, GenreTrace: trace}, nil
 			}
 		}
 		var spotify spotifyLookupFunc
@@ -707,6 +854,12 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
+		}
+		for index := range songs {
+			if trace := songs[index].GenreDeveloperTrace; trace != nil && trace.AI != nil {
+				trace.AI.Provider = providerSpec.ID
+				trace.AI.Model = providerSpec.Model
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -739,10 +892,41 @@ func shouldUseRAG(request aiChatRequest) bool {
 	return request.UseRAG == nil || *request.UseRAG
 }
 
+func resolveAIChatAnswer(
+	ctx context.Context,
+	provider aiChatProvider,
+	prompt string,
+	exactNeedle string,
+	directExactResponse bool,
+	sources []rag.SongSearchResult,
+) (string, bool, error) {
+	if directExactResponse {
+		return rag.BuildExactLyricsResponse(exactNeedle, sources), true, nil
+	}
+	if provider == nil {
+		return "", false, fmt.Errorf("AI provider is unavailable")
+	}
+	answer, err := provider.Chat(ctx, prompt)
+	return answer, false, err
+}
+
 func writeAIChatError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
+}
+
+func writeAIChatErrorWithTrace(w http.ResponseWriter, status int, message string, trace *aiChatTraceCollector) {
+	if trace == nil {
+		writeAIChatError(w, status, message)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"message": message,
+		"trace":   trace.snapshot("", ""),
+	})
 }
 
 func aiChatProviderSpec(provider string, modelName string) aiProviderSpec {
@@ -756,6 +940,8 @@ func aiChatProviderSpec(provider string, modelName string) aiProviderSpec {
 		return aiProviderSpec{ID: "gemini-2.5", Model: "gemini-2.5-flash"}
 	case "gemini-3.5", "gemini-3.5-flash":
 		return aiProviderSpec{ID: "gemini-3.5", Model: "gemini-3.5-flash"}
+	case "deepseek-v3.2", "deepseek.v3.2", "deepseek":
+		return aiProviderSpec{ID: "deepseek-v3.2", Model: bedrockDeepSeekModel}
 	case "gemma-26b", "gemma-26", "gemma-4":
 		return aiProviderSpec{ID: "gemma-26b", Model: "gemma-26b"}
 	case "gemma-3-4b", "gemma-3:4b", "gemma-3", "gemma3", "gemma3:4b":
@@ -776,6 +962,18 @@ func newAIChatProvider(spec aiProviderSpec) (aiChatProvider, error) {
 			apiKey: apiKey,
 			model:  spec.Model,
 			client: &http.Client{Timeout: gemmaChatTimeout},
+		}, nil
+	case "deepseek-v3.2":
+		bearerToken := bedrockBearerToken()
+		if bearerToken == "" {
+			return nil, fmt.Errorf("Amazon Bedrock bearer token is not configured")
+		}
+		return bedrockDeepSeekClient{
+			apiURL:      bedrockDeepSeekAPIURL,
+			bearerToken: bearerToken,
+			model:       spec.Model,
+			maxTokens:   deepSeekChatMaxTokens,
+			client:      &http.Client{Timeout: gemmaChatTimeout},
 		}, nil
 	case "gemma-26b":
 		apiURL, apiKey := gemmaCredentials()
@@ -821,6 +1019,10 @@ func geminiAPIKey() string {
 	return strings.TrimSpace(conf.Server.GeminiAPIKey)
 }
 
+func bedrockBearerToken() string {
+	return strings.TrimSpace(conf.Server.AWSBearerTokenBedrock)
+}
+
 func gemma4APIURL() string {
 	apiURL := strings.TrimSpace(os.Getenv("ND_GEMMA4APIURL"))
 	if apiURL == "" {
@@ -829,12 +1031,13 @@ func gemma4APIURL() string {
 	return apiURL
 }
 
-func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
+func getAIServiceStatuses(ctx context.Context, whisperBusy bool) []aiServiceStatus {
 	client := &http.Client{Timeout: 4 * time.Second}
 	gemmaURL, gemmaAPIKey := gemmaCredentials()
 	gemma4URL := gemma4APIURL()
 	whisperURL := strings.TrimSpace(conf.Server.WhisperAPIURL)
 	geminiKey := geminiAPIKey()
+	bedrockToken := bedrockBearerToken()
 
 	checks := []struct {
 		id    string
@@ -858,7 +1061,7 @@ func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
 		{
 			id:    "whisper",
 			label: "Whisper",
-			probe: func() bool { return probeAIEndpoint(ctx, client, whisperURL, "") },
+			probe: func() bool { return probeWhisperEndpoint(ctx, client, whisperURL) },
 		},
 		{
 			id:    "gemini-2.5",
@@ -870,6 +1073,11 @@ func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
 			label: "Gemini 3.5",
 			probe: func() bool { return probeGeminiModel(ctx, client, geminiKey, "gemini-3.5-flash") },
 		},
+		{
+			id:    "deepseek-v3.2",
+			label: "DeepSeek V3.2",
+			probe: func() bool { return probeBedrockDeepSeekModel(ctx, client, bedrockToken) },
+		},
 	}
 
 	statuses := make([]aiServiceStatus, len(checks))
@@ -879,19 +1087,48 @@ func getAIServiceStatuses(ctx context.Context) []aiServiceStatus {
 		go func(index int) {
 			defer wg.Done()
 			check := checks[index]
-			statuses[index] = aiServiceStatus{
-				ID:     check.id,
-				Label:  check.label,
-				Online: check.probe(),
-			}
+			statuses[index] = resolveAIServiceStatus(
+				check.id,
+				check.label,
+				check.id == "whisper" && whisperBusy,
+				check.probe,
+			)
 		}(i)
 	}
 	wg.Wait()
 	return statuses
 }
 
+func resolveAIServiceStatus(id, label string, busy bool, probe func() bool) aiServiceStatus {
+	if busy {
+		return aiServiceStatus{ID: id, Label: label, Online: true, State: "busy"}
+	}
+	online := probe()
+	state := "offline"
+	if online {
+		state = "online"
+	}
+	return aiServiceStatus{ID: id, Label: label, Online: online, State: state}
+}
+
 func probeAIEndpoint(ctx context.Context, client *http.Client, endpoint string, apiKey string) bool {
 	return probeAIEndpointMethod(ctx, client, endpoint, apiKey, http.MethodHead)
+}
+
+func probeWhisperEndpoint(ctx context.Context, client *http.Client, endpoint string) bool {
+	healthURL, err := url.Parse(strings.TrimSpace(endpoint))
+	if err == nil && healthURL.Scheme != "" && healthURL.Host != "" {
+		basePath := strings.TrimSuffix(healthURL.Path, "/")
+		basePath = strings.TrimSuffix(basePath, "/transcribe")
+		healthURL.Path = strings.TrimSuffix(basePath, "/") + "/health"
+		healthURL.RawPath = ""
+		healthURL.RawQuery = ""
+		healthURL.Fragment = ""
+		if probeAIEndpointMethod(ctx, client, healthURL.String(), "", http.MethodGet) {
+			return true
+		}
+	}
+	return probeAIEndpoint(ctx, client, endpoint, "")
 }
 
 func probeGemmaEndpoint(ctx context.Context, client *http.Client, endpoint string, apiKey string) bool {
@@ -944,19 +1181,24 @@ func probeGeminiModel(ctx context.Context, client *http.Client, apiKey string, m
 	return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusBadRequest
 }
 
-// Coverage below this fraction of the song, with a meaningful chunk of audio
-// left, is treated as a likely truncated transcription.
-const whisperTruncationThreshold = 0.75
-const whisperTruncationMinGapSeconds = 20.0
+func probeBedrockDeepSeekModel(ctx context.Context, client *http.Client, bearerToken string) bool {
+	if strings.TrimSpace(bearerToken) == "" {
+		return false
+	}
+	_, err := (bedrockDeepSeekClient{
+		apiURL:      bedrockDeepSeekAPIURL,
+		bearerToken: bearerToken,
+		model:       bedrockDeepSeekModel,
+		maxTokens:   1,
+		client:      client,
+	}).Chat(ctx, "Reply OK")
+	return err == nil
+}
 
-// whisperResult is the transcription plus the timing metadata used to measure
-// how much of the song was actually transcribed.
 type whisperResult struct {
-	Language       string
-	Text           string
-	Duration       float64 // total audio duration reported by Whisper (0 if absent)
-	LastSegmentEnd float64 // end time of the last transcribed segment
-	SegmentCount   int
+	Language string
+	Text     string
+	Duration float64
 }
 
 // whisperTimeoutForDuration scales the request timeout with the song length so
@@ -972,31 +1214,15 @@ func whisperTimeoutForDuration(duration float64) time.Duration {
 	return timeout
 }
 
-// whisperCoverage reports how much of the song was transcribed. It prefers the
-// duration Whisper returns, falling back to the song's stored duration, and only
-// flags truncation when segment timing is available.
-func whisperCoverage(result whisperResult, songDuration float64) (coverage, transcribed, total float64, truncated bool) {
-	total = result.Duration
-	if total <= 0 {
-		total = songDuration
-	}
-	transcribed = result.LastSegmentEnd
-	if total > 0 && result.SegmentCount > 0 && transcribed > 0 {
-		coverage = clampUnit(transcribed / total)
-		truncated = coverage < whisperTruncationThreshold && (total-transcribed) > whisperTruncationMinGapSeconds
-	}
-	return coverage, transcribed, total, truncated
-}
-
 // errWhisperRejectedTuning signals that the server rejected the request, most
 // likely because of the optional tuning fields, so it is worth retrying with a
 // minimal request.
 var errWhisperRejectedTuning = errors.New("whisper rejected tuning fields")
 
 func fetchWhisperLyrics(ctx context.Context, whisperURL string, audioPath string, whisperModel string, temperature float64) (whisperResult, error) {
-	// First try with the anti-truncation tuning fields. If the server rejects
+	// First try with the optional Whisper tuning fields. If the server rejects
 	// them (some minimal OpenAI-compatible servers 4xx on unknown fields), fall
-	// back to a plain request so lyrics + coverage still work everywhere.
+	// back to a plain request so whole-song transcription still works.
 	result, err := postWhisperTranscription(ctx, whisperURL, audioPath, whisperModel, temperature, true)
 	if err != nil && errors.Is(err, errWhisperRejectedTuning) {
 		log.Debug(ctx, "Whisper rejected tuning fields; retrying with a minimal request", "err", err)
@@ -1073,25 +1299,15 @@ func postWhisperTranscription(ctx context.Context, whisperURL string, audioPath 
 		Language string  `json:"language"`
 		Text     string  `json:"text"`
 		Duration float64 `json:"duration"`
-		Segments []struct {
-			Start float64 `json:"start"`
-			End   float64 `json:"end"`
-		} `json:"segments"`
 	}
 	if err := json.NewDecoder(httpResp.Body).Decode(&payload); err != nil {
 		return whisperResult{}, fmt.Errorf("invalid Whisper API response: %w", err)
 	}
 
 	result := whisperResult{
-		Language:     strings.TrimSpace(payload.Language),
-		Text:         strings.TrimSpace(payload.Text),
-		Duration:     payload.Duration,
-		SegmentCount: len(payload.Segments),
-	}
-	for _, segment := range payload.Segments {
-		if segment.End > result.LastSegmentEnd {
-			result.LastSegmentEnd = segment.End
-		}
+		Language: strings.TrimSpace(payload.Language),
+		Text:     strings.TrimSpace(payload.Text),
+		Duration: payload.Duration,
 	}
 	if result.Language == "" {
 		result.Language = "xxx"
@@ -1111,9 +1327,34 @@ func saveWhisperLyricsFile(folder string, songID string, text string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("could not create lyrics folder: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(text)+"\n"), 0o644); err != nil {
-		return fmt.Errorf("could not save lyrics file: %w", err)
+	temp, err := os.CreateTemp(filepath.Dir(path), ".lyrics-*.tmp")
+	if err != nil {
+		return fmt.Errorf("could not create temporary lyrics file: %w", err)
 	}
+	tempPath := temp.Name()
+	committed := false
+	defer func() {
+		_ = temp.Close()
+		if !committed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if err := temp.Chmod(0o644); err != nil {
+		return fmt.Errorf("could not set lyrics file permissions: %w", err)
+	}
+	if _, err := temp.WriteString(strings.TrimSpace(text) + "\n"); err != nil {
+		return fmt.Errorf("could not write lyrics file: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		return fmt.Errorf("could not sync lyrics file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("could not close lyrics file: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("could not publish lyrics file: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -1652,13 +1893,12 @@ func explicitTitleMarker(mf *model.MediaFile) string {
 	return ""
 }
 
-// metadataVerifier looks up authoritative metadata (MusicBrainz) for a track so
-// answers can be cross-checked. It returns an empty result and no error when
-// there is no confident match.
+// metadataVerifier looks up an authoritative genre for a track (the iTunes
+// Search API). It returns an empty result and no error when there is no
+// confident match.
 type metadataVerifier func(ctx context.Context, title, artist string) (metadataResult, error)
 
-// spotifyLookupFunc looks up Spotify metadata (album, year, artist genres) for a
-// track. Spotify is the primary source for album and year.
+// spotifyLookupFunc looks up Spotify metadata (artist genres) for a track.
 type spotifyLookupFunc func(ctx context.Context, mf model.MediaFile) (spotifyLookupResult, error)
 
 func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, provider aiChatProvider, verify metadataVerifier, spotify spotifyLookupFunc, songIDs []string) ([]aiFetchMetadataSong, error) {
@@ -1682,7 +1922,7 @@ func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, prov
 			continue
 		}
 
-		// 1. Spotify — primary source for album and year (also artist genres).
+		// 1. Spotify — artist-level genres.
 		var sp spotifyLookupResult
 		if spotify != nil {
 			if r, spErr := spotify(ctx, *mf); spErr == nil {
@@ -1692,164 +1932,53 @@ func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, prov
 			}
 		}
 
-		// 2. MusicBrainz — independent cross-check / fallback.
+		// 2. iTunes — editorial per-track genre.
 		var mb metadataResult
 		if verify != nil {
 			if r, mbErr := verify(ctx, mf.Title, mf.Artist); mbErr == nil {
 				mb = r
 			} else {
-				log.Debug(ctx, "MusicBrainz lookup unavailable", "songId", songID, "err", mbErr)
+				log.Debug(ctx, "iTunes genre lookup unavailable", "songId", songID, "err", mbErr)
 			}
 		}
 
-		// 3. AI — always queried so its genre can take part in the genre
-		// consensus, and used as a fallback for a missing album/year. The prompt
-		// is enriched with the album/year we already found so the model can
-		// identify the genre from the full title/artist/album/year context.
-		var ai geminiSongMetadata
+		// 3. AI — a dedicated per-song classification (never batched: one
+		// request per song keeps the model focused on that recording) from the
+		// song's own title, artist, album, and year.
+		var aiGenre string
+		var aiTrace *genreSourceDeveloperTrace
 		if provider != nil {
-			promptMF := *mf
-			if resolved := firstNonEmpty(sp.Album, mb.Album); resolved != "" {
-				promptMF.Album = resolved
-			}
-			if sp.Year > 0 {
-				promptMF.Year = sp.Year
-			} else if mb.Year > 0 {
-				promptMF.Year = mb.Year
-			}
-			if aiMeta, aiErr := fetchGeminiSongMetadata(ctx, provider, &promptMF); aiErr == nil {
-				ai = aiMeta
-			} else {
-				log.Debug(ctx, "AI metadata lookup failed", "songId", songID, "err", aiErr)
-			}
+			tracingProvider := &genreTracingProvider{provider: provider}
+			aiGenre = fetchAIGenre(ctx, tracingProvider, mf)
+			aiTrace = tracingProvider.trace(aiGenre)
 		}
 
 		breakdown := &aiMetadataConfidenceBreakdown{}
 
-		// --- Album (Spotify -> MusicBrainz -> AI). ---
-		fillAlbum, _, albumConf, albumExpl := resolveMetadataField(
-			strings.TrimSpace(mf.Album), !albumNeedsFetch(mf.Album),
-			sp.Album, mb.Album, ai.Album, metadataValuesMatch)
-		var album *string
-		if fillAlbum != "" {
-			album = &fillAlbum
-			result.Album = fillAlbum
-		}
-		result.AlbumConfidence = albumConf
-		breakdown.Album = albumExpl
-
-		// --- Year (Spotify -> MusicBrainz -> AI). ---
-		fillYear, _, yearConf, yearExpl := resolveMetadataField(
-			yearAsString(mf.Year), !yearNeedsFetch(mf.Year),
-			yearAsString(sp.Year), yearAsString(mb.Year), yearAsString(ai.Year), metadataValuesMatch)
-		var year *int
-		if fillYear != "" {
-			if y, convErr := strconv.Atoi(fillYear); convErr == nil {
-				year = &y
-				result.Year = y
-			}
-		}
-		result.YearConfidence = yearConf
-		breakdown.Year = yearExpl
-
-		if album != nil || year != nil {
-			if err := repo.UpdateMissingMetadata(songID, album, year, nil, nil, nil); err != nil {
-				result.Album, result.Year = "", 0
-				result.AlbumConfidence, result.YearConfidence = 0, 0
-				breakdown.Album, breakdown.Year = aiMetadataFieldExplanation{}, aiMetadataFieldExplanation{}
-			}
-		}
-
 		// --- Genre: fetched from all three sources and shown per source; the
 		// consensus among them drives the confidence score. ---
-		_, genreConf, genreExpl := resolveGenreConsensus(sp.Genre, mb.Genre, ai.Genre)
+		_, genreConf, genreExpl := resolveGenreConsensus(sp.Genre, mb.Genre, aiGenre)
 		result.SpotifyGenre = titleCaseGenreList(genreExpl.Spotify)
 		result.MusicBrainzGenre = titleCaseGenreList(genreExpl.MusicBrainz)
 		result.AIGenre = titleCaseGenreList(genreExpl.AI)
 		result.GenreConfidence = genreConf
 		breakdown.Genre = genreExpl
+		genreTrace := &genreDeveloperTrace{}
+		if result.MusicBrainzGenre != "" && mb.GenreTrace != nil {
+			genreTrace.ITunes = mb.GenreTrace
+		}
+		if result.AIGenre != "" && aiTrace != nil {
+			genreTrace.AI = aiTrace
+		}
+		if genreTrace.ITunes != nil || genreTrace.AI != nil {
+			result.GenreDeveloperTrace = genreTrace
+		}
 
 		result.ConfidenceBreakdown = breakdown
 		results = append(results, result)
 	}
 
 	return results, nil
-}
-
-// resolveMetadataField picks the best value for a field across Spotify,
-// MusicBrainz, and AI, and returns an honest confidence with a per-source
-// explanation.
-//
-// If the track already has a valid value (existingValid), that value is kept
-// (fill is empty) and scored by whether the sources agree with it. Otherwise the
-// first available source in priority order (Spotify, then MusicBrainz, then AI)
-// is chosen; agreement from a second source promotes it to "verified".
-//
-// matches compares two values tolerant of formatting differences.
-func resolveMetadataField(existing string, existingValid bool, spotify, musicBrainz, ai string, matches func(string, string) bool) (fill string, value string, confidence int, expl aiMetadataFieldExplanation) {
-	spotify = strings.TrimSpace(spotify)
-	musicBrainz = strings.TrimSpace(musicBrainz)
-	ai = strings.TrimSpace(ai)
-	expl = aiMetadataFieldExplanation{Spotify: spotify, MusicBrainz: musicBrainz, AI: ai}
-
-	if existingValid {
-		value = strings.TrimSpace(existing)
-		switch {
-		case anyMatches(value, matches, spotify, musicBrainz, ai):
-			expl.Source, confidence = "verified", metadataConfidenceVerified
-		case spotify != "" || musicBrainz != "" || ai != "":
-			expl.Source, confidence = "conflict", metadataConfidenceConflict
-		default:
-			expl.Source, confidence = "none", 0
-		}
-		expl.Confidence = confidence
-		return "", value, confidence, expl
-	}
-
-	var source string
-	switch {
-	case spotify != "":
-		value, source = spotify, "spotify"
-	case musicBrainz != "":
-		value, source = musicBrainz, "musicbrainz"
-	case ai != "":
-		value, source = ai, "ai-only"
-	default:
-		expl.Source, expl.Confidence = "none", 0
-		return "", "", 0, expl
-	}
-
-	agrees := false
-	for candidateSource, candidate := range map[string]string{"spotify": spotify, "musicbrainz": musicBrainz, "ai-only": ai} {
-		if candidateSource == source || candidate == "" {
-			continue
-		}
-		if matches(value, candidate) {
-			agrees = true
-			break
-		}
-	}
-	switch {
-	case agrees:
-		expl.Source, confidence = "verified", metadataConfidenceVerified
-	case source == "spotify":
-		expl.Source, confidence = "spotify", metadataConfidenceSpotify
-	case source == "musicbrainz":
-		expl.Source, confidence = "musicbrainz", metadataConfidenceAuthoritative
-	default:
-		expl.Source, confidence = "ai-only", metadataConfidenceAIOnly
-	}
-	expl.Confidence = confidence
-	return value, value, confidence, expl
-}
-
-func anyMatches(value string, matches func(string, string) bool, candidates ...string) bool {
-	for _, candidate := range candidates {
-		if strings.TrimSpace(candidate) != "" && matches(value, candidate) {
-			return true
-		}
-	}
-	return false
 }
 
 func yearAsString(year int) string {
@@ -1866,35 +1995,6 @@ func spotifyConfigured() bool {
 		return true
 	}
 	return strings.TrimSpace(conf.Server.Spotify.ID) != "" && strings.TrimSpace(conf.Server.Spotify.Secret) != ""
-}
-
-// metadataValuesMatch compares two metadata strings tolerant of punctuation,
-// case, and small differences (e.g. "Discovery" vs "Discovery (Deluxe)").
-func metadataValuesMatch(a, b string) bool {
-	na, nb := normalizeMBString(a), normalizeMBString(b)
-	if na == "" || nb == "" {
-		return false
-	}
-	if na == nb || strings.Contains(na, nb) || strings.Contains(nb, na) {
-		return true
-	}
-	return stringSimilarity(na, nb) >= 0.9
-}
-
-// genresOverlap reports whether any genre token is shared between two genre
-// strings, which may be comma-separated lists.
-func genresOverlap(a, b string) bool {
-	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
-		return false
-	}
-	for _, ga := range strings.Split(a, ",") {
-		for _, gb := range strings.Split(b, ",") {
-			if metadataValuesMatch(ga, gb) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // resolveGenreConsensus combines the genre reported by Spotify, MusicBrainz, and
@@ -1996,126 +2096,6 @@ func clearAIMetadata(repo model.MediaFileRepository, songs []aiClearMetadataSong
 	return cleared, nil
 }
 
-func fetchGeminiSongMetadata(ctx context.Context, provider aiChatProvider, mf *model.MediaFile) (geminiSongMetadata, error) {
-	lyrics, _ := lyricsText(mf)
-	answer, err := provider.Chat(ctx, songMetadataPrompt(mf, lyrics))
-	if err != nil {
-		return geminiSongMetadata{}, err
-	}
-	return parseGeminiSongMetadata(answer)
-}
-
-func songMetadataPrompt(mf *model.MediaFile, lyrics string) string {
-	var b strings.Builder
-	b.WriteString(`Identify this exact song, then return its authoritative album, original release year, and genre.
-
-Return only valid JSON in this exact shape:
-{"matchedTitle":"canonical song title or empty string","matchedArtist":"canonical primary artist or empty string","album":"album name or empty string","albumConfidence":0,"year":0,"yearConfidence":0,"genre":"genre or empty string","genreConfidence":0}
-
-Rules:
-- matchedTitle and matchedArtist are the canonical title and primary artist of the song you actually identified. Leave them empty if you cannot confidently identify the song; in that case leave all other fields empty too. Do not guess or invent a song.
-- album is the original studio album the track first appeared on. Prefer the original release over compilations, greatest-hits, deluxe reissues, or single/EP releases unless the track only ever appeared there.
-- year is the four-digit year of the original release (not a remaster or reissue).
-- genre is the single most specific primary genre (at most two, comma-separated). Avoid vague catch-alls like "Music" or "Pop" when a more specific genre applies.
-- Each *Confidence value is a whole number from 0 to 100 describing how sure you are of that specific field for the identified song.
-- If current metadata is supplied and is correct, return it unchanged. Use 0 or an empty string wherever you are not confident. Do not include markdown.
-
-Song:
-`)
-	b.WriteString("Title: ")
-	b.WriteString(mf.Title)
-	b.WriteString("\nArtist: ")
-	b.WriteString(mf.Artist)
-	b.WriteString("\nCurrent album: ")
-	b.WriteString(mf.Album)
-	b.WriteString("\nCurrent year: ")
-	b.WriteString(fmt.Sprint(mf.Year))
-	b.WriteString("\nCurrent genre: ")
-	b.WriteString(mf.Genre)
-	if strings.TrimSpace(lyrics) != "" {
-		b.WriteString("\nLyrics/transcript:\n")
-		b.WriteString(lyrics)
-	}
-	return b.String()
-}
-
-func parseGeminiSongMetadata(answer string) (geminiSongMetadata, error) {
-	answer = strings.TrimSpace(answer)
-	if strings.HasPrefix(answer, "```") {
-		answer = strings.TrimPrefix(answer, "```json")
-		answer = strings.TrimPrefix(answer, "```")
-		answer = strings.TrimSuffix(answer, "```")
-		answer = strings.TrimSpace(answer)
-	}
-	if start := strings.Index(answer, "{"); start >= 0 {
-		if end := strings.LastIndex(answer, "}"); end > start {
-			answer = answer[start : end+1]
-		}
-	}
-
-	var raw struct {
-		Album           string      `json:"album"`
-		Year            interface{} `json:"year"`
-		Genre           string      `json:"genre"`
-		MatchedTitle    string      `json:"matchedTitle"`
-		MatchedArtist   string      `json:"matchedArtist"`
-		AlbumConfidence interface{} `json:"albumConfidence"`
-		YearConfidence  interface{} `json:"yearConfidence"`
-		GenreConfidence interface{} `json:"genreConfidence"`
-		Confidence      interface{} `json:"confidence"`
-	}
-	if err := json.Unmarshal([]byte(answer), &raw); err != nil {
-		return geminiSongMetadata{}, err
-	}
-
-	legacyConfidence := parseMetadataConfidence(raw.Confidence)
-	metadata := geminiSongMetadata{
-		Album:           strings.TrimSpace(raw.Album),
-		Genre:           strings.TrimSpace(raw.Genre),
-		MatchedTitle:    strings.TrimSpace(raw.MatchedTitle),
-		MatchedArtist:   strings.TrimSpace(raw.MatchedArtist),
-		AlbumConfidence: metadataConfidenceOr(raw.AlbumConfidence, legacyConfidence),
-		YearConfidence:  metadataConfidenceOr(raw.YearConfidence, legacyConfidence),
-		GenreConfidence: metadataConfidenceOr(raw.GenreConfidence, legacyConfidence),
-	}
-	if albumNeedsFetch(metadata.Album) {
-		metadata.Album = ""
-		metadata.AlbumConfidence = 0
-	}
-	switch year := raw.Year.(type) {
-	case float64:
-		metadata.Year = int(year)
-	case string:
-		_, _ = fmt.Sscanf(strings.TrimSpace(year), "%d", &metadata.Year)
-	}
-	if metadata.Year < 1900 || metadata.Year > time.Now().Year()+1 {
-		metadata.Year = 0
-		metadata.YearConfidence = 0
-	}
-	if metadata.Genre == "" {
-		metadata.GenreConfidence = 0
-	}
-	return metadata, nil
-}
-
-func clampUnit(v float64) float64 {
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
-	}
-	return v
-}
-
-func metadataConfidenceOr(value interface{}, fallback int) int {
-	confidence := parseMetadataConfidence(value)
-	if confidence == 0 {
-		return fallback
-	}
-	return confidence
-}
-
 func parseMetadataConfidence(value interface{}) int {
 	confidence := 0.0
 	switch typed := value.(type) {
@@ -2131,13 +2111,4 @@ func parseMetadataConfidence(value interface{}) int {
 		return 100
 	}
 	return int(confidence + 0.5)
-}
-
-func albumNeedsFetch(album string) bool {
-	album = strings.ToLower(strings.TrimSpace(album))
-	return album == "" || album == "unknown" || album == "unknown album" || album == "[unknown album]"
-}
-
-func yearNeedsFetch(year int) bool {
-	return year <= 0
 }

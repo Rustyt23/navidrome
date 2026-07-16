@@ -152,8 +152,17 @@ func (s *scannerImpl) scanFolders(ctx context.Context, fullScan bool, targets []
 			// Phase 4: Import/update playlists
 			runPhase[*model.Folder](ctx, 4, createPhasePlaylists(ctx, &state, s.ds, s.pls, s.cw)),
 
-			// Phase 5: Sync discovery directories
-			func() error { return s.disc.Sync(ctx) },
+			// Phase 5: Sync discovery directories. This is an optional feature, so a
+			// failure here (e.g. a misconfigured or unwritable DiscoveryPath) is
+			// reported as a scan warning but must not fail the whole scan — the
+			// music and playlist import in the earlier phases already succeeded.
+			func() error {
+				if err := s.disc.Sync(ctx); err != nil {
+					log.Warn(ctx, "Scanner: discovery sync failed; continuing scan", "discoveryPath", conf.Server.DiscoveryPath, err)
+					state.sendWarning(fmt.Sprintf("Discovery sync failed: %v", err))
+				}
+				return nil
+			},
 		),
 
 		// Final Steps (cannot be parallelized):

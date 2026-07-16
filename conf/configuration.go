@@ -104,6 +104,7 @@ type configOptions struct {
 	UIPlaybackReportInterval        time.Duration
 	GATrackingID                    string
 	GeminiAPIKey                    string
+	AWSBearerTokenBedrock           string
 	GemmaAPIURL                     string
 	GemmaAPIKey                     string
 	Gemma4APIURL                    string
@@ -908,6 +909,7 @@ func setViperDefaults() {
 	viper.SetDefault("defaultdownloadableshare", false)
 	viper.SetDefault("gatrackingid", "")
 	viper.SetDefault("geminiapikey", "")
+	viper.SetDefault("awsbearertokenbedrock", "")
 	viper.SetDefault("gemmaapiurl", "")
 	viper.SetDefault("gemmaapikey", "")
 	viper.SetDefault("gemma4apiurl", "")

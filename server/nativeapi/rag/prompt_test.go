@@ -1,8 +1,10 @@
 package rag
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestBuildChatPromptIncludesLibraryContext(t *testing.T) {
@@ -22,6 +24,39 @@ func TestBuildChatPromptIncludesLibraryContext(t *testing.T) {
 		if !strings.Contains(prompt, expected) {
 			t.Errorf("expected prompt to contain %q; got:\n%s", expected, prompt)
 		}
+	}
+}
+
+func TestBuildChatPromptBoundsRetrievedContext(t *testing.T) {
+	results := make([]SongSearchResult, 50)
+	for index := range results {
+		results[index] = SongSearchResult{
+			SongID: fmt.Sprintf("song-%d", index), Title: fmt.Sprintf("Song %d", index), Artist: "Artist",
+			LyricSnippet: strings.Repeat("long lyric context ", 35), Score: .9,
+		}
+	}
+	prompt := BuildChatPrompt("find something", results)
+	if !strings.Contains(prompt, "additional retrieved songs omitted") {
+		t.Fatalf("expected prompt context omission marker, got %d runes", utf8.RuneCountInString(prompt))
+	}
+	if utf8.RuneCountInString(prompt) > maxPromptRetrievedContextRunes+2000 {
+		t.Fatalf("retrieved context budget was not enforced: %d runes", utf8.RuneCountInString(prompt))
+	}
+}
+
+func TestBuildChatPromptKeepsRecentHistoryWithinBudget(t *testing.T) {
+	history := make([]ChatTurn, 10)
+	for index := range history {
+		history[index] = ChatTurn{
+			Role: "user", Content: fmt.Sprintf("turn-%d %s", index, strings.Repeat("history ", 400)),
+		}
+	}
+	prompt := BuildChatPromptWithHistory("latest", history, nil)
+	if !strings.Contains(prompt, "earlier conversation omitted") || !strings.Contains(prompt, "turn-9") {
+		t.Fatalf("expected bounded recent history, got prompt length %d", utf8.RuneCountInString(prompt))
+	}
+	if strings.Contains(prompt, "turn-0") {
+		t.Fatalf("oldest history should have been omitted")
 	}
 }
 

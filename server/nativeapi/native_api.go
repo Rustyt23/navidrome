@@ -73,6 +73,7 @@ type Router struct {
 	devices       *retailPlayerDeviceResolver
 	metadataJob   *musicBrainzMetadataJob
 	spotifyJob    *spotifyMetadataJob
+	lyricsJob     *lyricsFetchJob
 }
 
 func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload core.ImageUploadService) *Router {
@@ -89,6 +90,7 @@ func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, 
 		devices:       newRetailPlayerDeviceResolver(),
 		metadataJob:   newMusicBrainzMetadataJob(),
 		spotifyJob:    newSpotifyMetadataJob(),
+		lyricsJob:     newLyricsFetchJob(),
 	}
 	r.ensureCoverCacheDir()
 	r.preloadRetailPlayerDeviceMappings()
