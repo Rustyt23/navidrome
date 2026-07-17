@@ -8,6 +8,32 @@ const normalizeValue = (value) => {
   return ''
 }
 
+const isHiddenRetailPlayerChannel = (channel) => {
+  if (!channel || typeof channel !== 'object') {
+    return false
+  }
+
+  const metadata =
+    channel.metadata && typeof channel.metadata === 'object'
+      ? channel.metadata
+      : {}
+  const raw = channel.raw && typeof channel.raw === 'object' ? channel.raw : {}
+  const channelNames = [
+    channel.label,
+    channel.name,
+    metadata.channelName,
+    metadata.channel_name,
+    raw.label,
+    raw.name,
+    raw.channelName,
+    raw.channel_name,
+  ]
+
+  return channelNames.some(
+    (channelName) => normalizeValue(channelName).toLowerCase() === 'empty',
+  )
+}
+
 const buildDeviceSlug = (device) => {
   if (!device || typeof device !== 'object') {
     return ''
@@ -115,4 +141,10 @@ const mapRetailPlayerDevice = (device) => {
   }
 }
 
-export { buildDeviceSlug, deviceSlugKey, mapRetailPlayerDevice, normalizeValue }
+export {
+  buildDeviceSlug,
+  deviceSlugKey,
+  isHiddenRetailPlayerChannel,
+  mapRetailPlayerDevice,
+  normalizeValue,
+}
