@@ -36,7 +36,7 @@ const isPublicRetailPlayerRoute = () => {
   const rawPath = hash && hash.startsWith('#') ? hash.slice(1) : pathname || ''
   const path = rawPath.split('?')[0]
 
-  return /^\/(musicmatters|retailplayer)\//.test(path)
+  return /^\/(musicmatters|retailplayer|retail-player)\//.test(path)
 }
 
 const ensurePublicRetailPlayerSession = () => {
@@ -103,7 +103,8 @@ const authProvider = {
   },
 
   checkAuth: () =>
-    localStorage.getItem('is-authenticated') || ensurePublicRetailPlayerSession()
+    localStorage.getItem('is-authenticated') ||
+    ensurePublicRetailPlayerSession()
       ? Promise.resolve()
       : Promise.reject(),
 

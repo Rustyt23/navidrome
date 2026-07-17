@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/deluan/rest"
@@ -24,11 +25,11 @@ import (
 	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/core/metrics"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
+	"github.com/navidrome/navidrome/core/publicurl"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server"
-	"github.com/navidrome/navidrome/core/publicurl"
 )
 
 const (
@@ -62,18 +63,19 @@ type PluginManager interface {
 
 type Router struct {
 	http.Handler
-	ds            model.DataStore
-	share         core.Share
-	playlists     playlistsvc.Playlists
-	insights      metrics.Insights
-	libs          core.Library
-	users         core.User
-	maintenance   core.Maintenance
-	pluginManager PluginManager
-	imgUpload     core.ImageUploadService
-	devices       *retailPlayerDeviceResolver
-	metadataJob   *musicBrainzMetadataJob
-	spotifyJob    *spotifyMetadataJob
+	ds                     model.DataStore
+	share                  core.Share
+	playlists              playlistsvc.Playlists
+	insights               metrics.Insights
+	libs                   core.Library
+	users                  core.User
+	maintenance            core.Maintenance
+	pluginManager          PluginManager
+	imgUpload              core.ImageUploadService
+	devices                *retailPlayerDeviceResolver
+	metadataJob            *musicBrainzMetadataJob
+	spotifyJob             *spotifyMetadataJob
+	retailPlayerRefreshing atomic.Bool
 }
 
 func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload core.ImageUploadService) *Router {
@@ -93,6 +95,11 @@ func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, 
 	}
 	r.ensureCoverCacheDir()
 	r.preloadRetailPlayerDeviceMappings()
+	if conf.Server.RetailPlayer.Enabled {
+		// Warm the SQLite device cache so the first page load doesn't have to
+		// wait for the remote RetailPlayer API.
+		r.refreshRetailPlayerDevicesAsync()
+	}
 	r.Handler = r.routes()
 	return r
 }

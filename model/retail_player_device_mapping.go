@@ -13,10 +13,13 @@ type RetailPlayerDeviceMapping struct {
 	IsLocked        bool      `db:"is_locked" json:"isLocked"`
 	IsVolumeEnabled bool      `db:"is_volume_enabled" json:"isVolumeEnabled"`
 	Channel         string    `db:"channel" json:"channel"`
+	ChannelName     string    `db:"channel_name" json:"channelName"`
 	ChannelList     string    `db:"channel_list" json:"channelList"`
+	MacAddress      string    `db:"mac_address" json:"macAddress"`
 	Organization    string    `db:"organization" json:"organization"`
 	TimeZone        string    `db:"time_zone" json:"timeZone"`
 	RemoteCtrlID    string    `db:"remote_control_id" json:"remoteControlId"`
+	Online          *bool     `db:"online" json:"online,omitempty"`
 	UpdatedAt       time.Time `db:"updated_at" json:"updatedAt"`
 }
 
@@ -27,6 +30,9 @@ type RetailPlayerDeviceMappingRepository interface {
 	SetVolumeEnabled(ctx context.Context, deviceID string, enabled bool) error
 	FindByIdentifier(ctx context.Context, identifier string) (*RetailPlayerDeviceMapping, error)
 	All(ctx context.Context) ([]RetailPlayerDeviceMapping, error)
+	// DeleteMissing removes cached devices that are no longer present in the
+	// remote system. keepIDs is the authoritative list of current device ids.
+	DeleteMissing(ctx context.Context, keepIDs []string) error
 }
 
 func RetailPlayerNormalizeValue(value string) string {

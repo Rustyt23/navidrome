@@ -485,6 +485,7 @@ func (r *playlistRepository) NewInstance() any {
 
 func (r *playlistRepository) Save(entity any) (string, error) {
 	pls := entity.(*model.Playlist)
+	pls.OwnerID = loggedUser(r.ctx).ID
 	pls.ID = "" // Force new creation
 	err := r.Put(pls)
 	if err != nil {

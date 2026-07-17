@@ -170,6 +170,10 @@ const useStyles = makeStyles(
         pointerEvents: 'none',
       },
     },
+    dragHandleDisabled: {
+      cursor: 'default',
+      opacity: 0.25,
+    },
   }),
   { name: 'RaList' },
 )
@@ -200,7 +204,11 @@ const PlaylistSongs = ({
   } = listContext
   const ids = contextIds
   const data = contextData
-  const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
+  // noSsr avoids a first render pass with isDesktop=false, which would
+  // persist the mobile column defaults (hiding the drag handle) on desktop.
+  const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'), {
+    noSsr: true,
+  })
   const classes = useStyles({ isDesktop })
   const dispatch = useDispatch()
   const dataProvider = useDataProvider()
@@ -239,6 +247,15 @@ const PlaylistSongs = ({
     currentSort,
     total: contextTotal,
   } = listContext
+
+  // Dragging rows around only maps to playlist positions while the list is
+  // shown in playlist order. With any other sort the row indexes are
+  // meaningless, so reordering is disabled until the user sorts by "#" again.
+  const isPlaylistOrder =
+    !currentSort?.field ||
+    (currentSort.field === 'id' &&
+      (currentSort.order || 'ASC').toUpperCase() === 'ASC')
+  const canReorder = !readOnly && isPlaylistOrder
 
   const handleSelect = useCallback(
     (idsToSelect) =>
@@ -309,19 +326,26 @@ const PlaylistSongs = ({
 
   const handleDragEnd = useCallback(
     (from, to) => {
-      if (to == null || to < 0 || from === to) {
+      if (!canReorder || to == null || to < 0 || from === to) {
         return
       }
 
       const fromId = ids?.[from]
-      if (fromId == null) {
+      const targetId = ids?.[to]
+      if (fromId == null || targetId == null) {
         return
       }
 
-      const newPosition = Math.min(Math.max(to, 0), ids.length - 1) + 1
+      // Track ids are playlist positions. Missing-file placeholders ("__1")
+      // have no position in the database and cannot take part in a reorder.
+      const newPosition = Number(targetId)
+      if (!Number.isInteger(Number(fromId)) || !Number.isInteger(newPosition)) {
+        return
+      }
+
       reorder(playlistId, fromId, newPosition)
     },
-    [ids, playlistId, reorder],
+    [canReorder, ids, playlistId, reorder],
   )
 
   const handleRequestPositionChange = useCallback((track) => {
@@ -373,23 +397,27 @@ const PlaylistSongs = ({
 
   const toggleableFields = useMemo(() => {
     return {
-      ...(!readOnly
-        ? {
-            dragHandle: (
-              <FunctionField
-                key="drag-handle"
-                label=""
-                sortable={false}
-                cellClassName={classes.dragHandleCell}
-                render={() => (
-                  <span className={clsx(classes.dragHandle, 'draggable')}>
-                    <DragIndicatorIcon fontSize="small" />
-                  </span>
-                )}
-              />
-            ),
+      dragHandle: !readOnly && (
+        <FunctionField
+          key="drag-handle"
+          label=""
+          sortable={false}
+          cellClassName={classes.dragHandleCell}
+          render={() =>
+            canReorder ? (
+              <span className={clsx(classes.dragHandle, 'draggable')}>
+                <DragIndicatorIcon fontSize="small" />
+              </span>
+            ) : (
+              <span
+                className={clsx(classes.dragHandle, classes.dragHandleDisabled)}
+              >
+                <DragIndicatorIcon fontSize="small" />
+              </span>
+            )
           }
-        : {}),
+        />
+      ),
       trackNumber: isDesktop && (
         <FunctionField
           source="id"
@@ -453,8 +481,10 @@ const PlaylistSongs = ({
     }
   }, [
     isDesktop,
+    canReorder,
     classes.dragHandle,
     classes.dragHandleCell,
+    classes.dragHandleDisabled,
     classes.draggable,
     classes.ratingField,
     readOnly,
@@ -531,7 +561,7 @@ const PlaylistSongs = ({
               <LinearProgress />
             )}
             <ReorderableList
-              readOnly={readOnly}
+              readOnly={!canReorder}
               onDragEnd={handleDragEnd}
               nodeSelector={'tr'}
               handleSelector={'.draggable'}

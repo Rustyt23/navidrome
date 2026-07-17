@@ -22,7 +22,16 @@ const Layout = (props) => {
   const location = useLocation()
   const hideNavigation = useMemo(() => {
     const path = location?.pathname || ''
-    return /^\/(retailplayer|musicmatters)\//.test(path)
+    if (/^\/(retailplayer|musicmatters)\//.test(path)) {
+      return true
+    }
+    // Public (anonymous) visitors of shared retail player folder links get a
+    // standalone page: the app chrome fires authenticated requests that would
+    // bounce them to the login screen.
+    if (/^\/retail-player\//.test(path)) {
+      return localStorage.getItem('is-authenticated') !== 'true'
+    }
+    return false
   }, [location.pathname])
   const classes = useStyles({ addPadding: !hideNavigation && queue.length > 0 })
   const dispatch = useDispatch()

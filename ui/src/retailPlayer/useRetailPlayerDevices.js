@@ -4,11 +4,48 @@ import httpClient from '../dataProvider/httpClient'
 import RetailPlayerMockService from './RetailPlayerMockService'
 import { mapRetailPlayerDevice } from './deviceUtils'
 
-const buildDevicesUrl = (deviceName) =>
-  deviceName ? '/api/retailplayer/rc' : '/api/retailplayer/devices'
+const RETAIL_PLAYER_FOLDER_QUERY_PARAM = 'folder'
 
-const fetchRetailPlayerDevices = async (signal, deviceName) => {
-  const url = buildDevicesUrl(deviceName)
+// Anonymous (public) sessions have no auth token; they can only access the
+// folder-scoped public endpoint, keyed by folder name (or id) from the URL.
+const isPublicSession = () => {
+  if (typeof window === 'undefined') {
+    return false
+  }
+  return !localStorage.getItem('token')
+}
+
+const getPublicFolderFromLocation = () => {
+  if (typeof window === 'undefined' || !isPublicSession()) {
+    return null
+  }
+  const { hash } = window.location
+  const queryIndex = hash ? hash.indexOf('?') : -1
+  if (queryIndex === -1) {
+    return null
+  }
+  const params = new URLSearchParams(hash.slice(queryIndex + 1))
+  const folder = params.get(RETAIL_PLAYER_FOLDER_QUERY_PARAM)
+  return folder && folder.trim() !== '' ? folder.trim() : null
+}
+
+const buildDevicesUrl = (deviceName, publicFolder) => {
+  if (deviceName) {
+    return '/api/retailplayer/rc'
+  }
+  if (publicFolder) {
+    return `/api/retailplayer/folders/${encodeURIComponent(publicFolder)}/devices`
+  }
+  if (isPublicSession()) {
+    // Anonymous visitors without a folder in the URL have nothing to fetch:
+    // the full devices endpoint requires authentication.
+    return null
+  }
+  return '/api/retailplayer/devices'
+}
+
+const fetchRetailPlayerDevices = async (signal, deviceName, publicFolder) => {
+  const url = buildDevicesUrl(deviceName, publicFolder)
 
   if (!url) {
     return { devices: null, folders: null, deviceFolders: null, enabled: false }
@@ -29,6 +66,9 @@ const fetchRetailPlayerDevices = async (signal, deviceName) => {
     payload = json
   } catch (err) {
     if (err?.status === 404) {
+      if (publicFolder) {
+        throw new Error(`Retail player folder "${publicFolder}" not found`)
+      }
       return { devices: null, enabled: false }
     }
 
@@ -66,9 +106,25 @@ const useRetailPlayerDevices = ({ deviceName = '' } = {}) => {
   const [isApiEnabled, setIsApiEnabled] = useState(
     Boolean(config.retailPlayerDevicesEnabled),
   )
+  const [publicFolder, setPublicFolder] = useState(() =>
+    getPublicFolderFromLocation(),
+  )
 
   useEffect(() => {
-    const url = buildDevicesUrl(deviceName)
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+    const updatePublicFolder = () => {
+      setPublicFolder(getPublicFolderFromLocation())
+    }
+    window.addEventListener('hashchange', updatePublicFolder)
+    return () => {
+      window.removeEventListener('hashchange', updatePublicFolder)
+    }
+  }, [])
+
+  useEffect(() => {
+    const url = buildDevicesUrl(deviceName, publicFolder)
     if (!url) {
       setIsApiEnabled(false)
       return undefined
@@ -78,7 +134,7 @@ const useRetailPlayerDevices = ({ deviceName = '' } = {}) => {
     setIsLoading(true)
     setError(null)
 
-    fetchRetailPlayerDevices(abortController.signal, deviceName)
+    fetchRetailPlayerDevices(abortController.signal, deviceName, publicFolder)
       .then((result) => {
         const enabled = Boolean(result?.enabled)
         setIsApiEnabled(enabled)
@@ -110,7 +166,7 @@ const useRetailPlayerDevices = ({ deviceName = '' } = {}) => {
     return () => {
       abortController.abort()
     }
-  }, [deviceName])
+  }, [deviceName, publicFolder])
 
   return {
     devices,

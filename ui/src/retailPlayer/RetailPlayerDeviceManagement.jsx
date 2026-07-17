@@ -52,6 +52,15 @@ import { isDeviceLocked } from './deviceLockState'
 
 const RETAIL_PLAYER_FOLDER_QUERY_PARAM = 'folder'
 
+// Guests visiting a shared folder link get a public session; only fully
+// authenticated users may see admin-only details such as QR ids.
+const isGuestRetailPlayerSession = () => {
+  if (typeof window === 'undefined') {
+    return false
+  }
+  return localStorage.getItem('is-authenticated') !== 'true'
+}
+
 const getRetailPlayerFolderIdFromSearch = (search) => {
   const params = new URLSearchParams(search || '')
   return params.get(RETAIL_PLAYER_FOLDER_QUERY_PARAM) || null
@@ -74,6 +83,11 @@ const useStyles = makeStyles((theme) => {
     '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)'
   const mobileColumns =
     '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px'
+  // Same grids without the QR ID column, for guest (unauthenticated) sessions.
+  const desktopColumnsGuest =
+    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(96px, 0.8fr)'
+  const mobileColumnsGuest =
+    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) 72px'
 
   return {
     root: {
@@ -253,6 +267,20 @@ const useStyles = makeStyles((theme) => {
     },
     [theme.breakpoints.down('sm')]: {
       gridTemplateColumns: mobileColumns,
+    },
+  },
+
+  // Applied to the panel for guest sessions: removes the QR ID column from
+  // the header and every row.
+  guestPanel: {
+    '& $listHeader, & $row': {
+      gridTemplateColumns: desktopColumnsGuest,
+      [theme.breakpoints.down('sm')]: {
+        gridTemplateColumns: mobileColumnsGuest,
+      },
+    },
+    '& $remoteControlCell': {
+      display: 'none',
     },
   },
 
@@ -850,6 +878,7 @@ const RetailPlayerDeviceManagement = () => {
   const theme = useTheme()
   const history = useHistory()
   const location = useLocation()
+  const isGuest = isGuestRetailPlayerSession()
   const {
     state: { tree, folders, devices, loading, error, isApiEnabled },
     actions: {
@@ -867,7 +896,7 @@ const RetailPlayerDeviceManagement = () => {
     parentId: null,
   })
   const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
-  const [activeFolderId, setActiveFolderId] = useState(() =>
+  const [activeFolderParam, setActiveFolderParam] = useState(() =>
     getRetailPlayerFolderIdFromSearch(location.search),
   )
   const [selectedIds, setSelectedIds] = useState(() => new Set())
@@ -889,8 +918,34 @@ const RetailPlayerDeviceManagement = () => {
   }, [folders])
 
   useEffect(() => {
-    setActiveFolderId(getRetailPlayerFolderIdFromSearch(location.search))
+    setActiveFolderParam(getRetailPlayerFolderIdFromSearch(location.search))
   }, [location.search])
+
+  // The folder query param carries the folder name (preferred) or a folder id.
+  const activeFolderId = useMemo(() => {
+    if (!activeFolderParam) {
+      return null
+    }
+    if (folderMap.has(activeFolderParam)) {
+      return activeFolderParam
+    }
+    const normalized = activeFolderParam.trim().toLowerCase()
+    const match = folders.find(
+      (folder) => (folder.name || '').trim().toLowerCase() === normalized,
+    )
+    return match ? match.id : activeFolderParam
+  }, [activeFolderParam, folderMap, folders])
+
+  const folderSearchValueForId = useCallback(
+    (folderId) => {
+      if (!folderId) {
+        return null
+      }
+      const name = folderMap.get(folderId)?.name?.trim()
+      return name || folderId
+    },
+    [folderMap],
+  )
 
   const deviceMap = useMemo(() => {
     const map = new Map()
@@ -1153,13 +1208,8 @@ const RetailPlayerDeviceManagement = () => {
       })
     })
 
-    setActiveFolderId((previous) => {
-      if (previous && deletedFolderSet.has(previous)) {
-        return null
-      }
-      return previous
-    })
     if (activeFolderId && deletedFolderSet.has(activeFolderId)) {
+      setActiveFolderParam(null)
       history.replace({
         pathname: location.pathname,
         search: buildRetailPlayerFolderSearch(location.search, null),
@@ -1206,7 +1256,7 @@ const RetailPlayerDeviceManagement = () => {
 
   useEffect(() => {
     if (activeFolderId && !loading && folderMap.size && !activeFolderNode) {
-      setActiveFolderId(null)
+      setActiveFolderParam(null)
       history.replace({
         pathname: location.pathname,
         search: buildRetailPlayerFolderSearch(location.search, null),
@@ -1566,18 +1616,19 @@ const RetailPlayerDeviceManagement = () => {
   const handleEnterFolder = useCallback(
     (folderId) => {
       const nextFolderId = folderId || null
+      const nextSearchValue = folderSearchValueForId(nextFolderId)
       setSearchTerm('')
-      setActiveFolderId(nextFolderId)
+      setActiveFolderParam(nextSearchValue)
       history.push({
         pathname: location.pathname,
-        search: buildRetailPlayerFolderSearch(location.search, nextFolderId),
+        search: buildRetailPlayerFolderSearch(location.search, nextSearchValue),
       })
     },
     [
+      folderSearchValueForId,
       history,
       location.pathname,
       location.search,
-      setActiveFolderId,
       setSearchTerm,
     ],
   )
@@ -1759,7 +1810,7 @@ const RetailPlayerDeviceManagement = () => {
             inputProps={{ 'aria-label': 'Search retail player items' }}
           />
           <div className={classes.actions}>
-            {isApiEnabled ? (
+            {isApiEnabled && !isGuest ? (
               <Button
                 color="primary"
                 variant="outlined"
@@ -1792,7 +1843,10 @@ const RetailPlayerDeviceManagement = () => {
           ) : null}
         </div>
       </div>
-      <Paper className={classes.panel} elevation={0}>
+      <Paper
+        className={clsx(classes.panel, isGuest && classes.guestPanel)}
+        elevation={0}
+      >
         {activeFolderNode ? (
           <div className={classes.breadcrumbBar}>
             <Breadcrumbs
@@ -1881,7 +1935,7 @@ const RetailPlayerDeviceManagement = () => {
           <span>Name</span>
           <span>Channel Name</span>
           <span>MAC Address</span>
-          <span>QR ID</span>
+          {!isGuest && <span>QR ID</span>}
           <span className={classes.headerActions}>Edit</span>
         </div>
         {isLoading ? (

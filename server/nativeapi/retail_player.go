@@ -358,6 +358,7 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 		r.Get("/devices/{deviceID}/triggers", n.handleRetailPlayerDeviceTriggers())
 		r.Post("/devices/{deviceID}/triggers", n.handleRetailPlayerDeviceTriggerAction())
 		r.Get("/channel-lists/{channelListID}/channels", n.handleRetailPlayerChannelListChannels())
+		r.Get("/folders/{folderID}/devices", n.handleRetailPlayerFolderDevices())
 		r.Post("/devices/{deviceID}/volume", n.handleRetailPlayerDeviceVolume())
 		r.Post("/devices/{deviceID}/channel", n.handleRetailPlayerDeviceChannel())
 		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
@@ -475,6 +476,233 @@ func (n *Router) handleUpdateRetailPlayerDeviceVolumeControl() http.HandlerFunc 
 }
 
 var errRetailPlayerDeviceNotFound = errors.New("retail player device not found")
+var errRetailPlayerFolderNotFound = errors.New("retail player folder not found")
+var errRetailPlayerFolderData = errors.New("unable to load retail player folders")
+
+const retailPlayerDevicesCacheTTL = 5 * time.Minute
+const retailPlayerDevicesLastSyncProperty = "RetailPlayerDevicesLastSync"
+
+// buildRetailPlayerDevicesResponse serves the device tree from the local
+// SQLite cache (retail_player_device_mapping + folder tables) so page loads do
+// not block on the remote RetailPlayer API. When the cache is older than
+// retailPlayerDevicesCacheTTL a refresh runs in the background. The remote API
+// is only queried synchronously while the cache is still empty (first run) or
+// when forceRefresh is set.
+func (n *Router) buildRetailPlayerDevicesResponse(ctx context.Context, forceRefresh bool) (retailPlayerDevicesResponse, error) {
+	if !forceRefresh {
+		cached, cacheErr := n.cachedRetailPlayerDevicesResponse(ctx)
+		if cacheErr == nil && len(cached.Data) > 0 {
+			n.devices.RememberDevices(cached.Data)
+			if n.retailPlayerDevicesCacheStale(ctx) {
+				n.refreshRetailPlayerDevicesAsync()
+			}
+			return cached, nil
+		}
+		if cacheErr != nil {
+			log.Warn(ctx, "Unable to load cached retail player devices", "err", cacheErr)
+		}
+	}
+	return n.refreshRetailPlayerDevices(ctx)
+}
+
+func (n *Router) retailPlayerDevicesCacheStale(ctx context.Context) bool {
+	if n.ds == nil {
+		return true
+	}
+	value, err := n.ds.Property(ctx).DefaultGet(retailPlayerDevicesLastSyncProperty, "")
+	if err != nil || strings.TrimSpace(value) == "" {
+		return true
+	}
+	lastSync, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return true
+	}
+	return time.Since(lastSync) > retailPlayerDevicesCacheTTL
+}
+
+func (n *Router) recordRetailPlayerDevicesSync(ctx context.Context) {
+	if n.ds == nil {
+		return
+	}
+	if err := n.ds.Property(ctx).Put(retailPlayerDevicesLastSyncProperty, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		log.Warn(ctx, "Unable to record retail player devices sync time", "err", err)
+	}
+}
+
+func (n *Router) pruneRetailPlayerDeviceMappings(ctx context.Context, devices []retailPlayerDevice) {
+	if n.ds == nil || len(devices) == 0 {
+		return
+	}
+	repo := n.ds.RetailPlayerDeviceMapping(ctx)
+	if repo == nil {
+		return
+	}
+
+	keepIDs := make([]string, 0, len(devices))
+	for _, device := range devices {
+		if id := strings.TrimSpace(device.ID); id != "" {
+			keepIDs = append(keepIDs, id)
+		}
+	}
+
+	if err := repo.DeleteMissing(ctx, keepIDs); err != nil {
+		log.Warn(ctx, "Unable to prune stale retail player device mappings", "err", err)
+	}
+}
+
+// refreshRetailPlayerDevicesAsync refreshes the device cache in the
+// background, ensuring at most one refresh runs at a time.
+func (n *Router) refreshRetailPlayerDevicesAsync() {
+	if n == nil {
+		return
+	}
+	if !n.retailPlayerRefreshing.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer n.retailPlayerRefreshing.Store(false)
+		ctx := context.Background()
+		if _, err := n.refreshRetailPlayerDevices(ctx); err != nil {
+			log.Warn(ctx, "Background retail player devices refresh failed", "err", err)
+		}
+	}()
+}
+
+// refreshRetailPlayerDevices fetches the device list from the remote API,
+// updates the SQLite cache, and returns the fully assembled response.
+func (n *Router) refreshRetailPlayerDevices(ctx context.Context) (retailPlayerDevicesResponse, error) {
+	log.Info(ctx, "Fetching retail player devices from remote API")
+	response, err := fetchRetailPlayerDevices(ctx)
+	if err != nil {
+		cachedResponse, cacheErr := n.cachedRetailPlayerDevicesResponse(ctx)
+		if cacheErr == nil && (len(cachedResponse.Data) > 0 || len(cachedResponse.Folders) > 0) {
+			log.Warn(ctx, "Unable to fetch retail player devices, serving cached mappings", "err", err, "count", len(cachedResponse.Data))
+			return cachedResponse, nil
+		}
+		if cacheErr != nil {
+			log.Warn(ctx, "Unable to load cached retail player devices", "err", cacheErr)
+		}
+		return retailPlayerDevicesResponse{}, fmt.Errorf("fetching retail player devices: %w", err)
+	}
+
+	log.Info(ctx, "Retail player devices fetched", "count", len(response.Data))
+
+	if len(response.Data) > 0 {
+		if err := n.applyRetailPlayerChannelNames(ctx, response.Data); err != nil {
+			log.Warn(ctx, "Unable to fetch retail player channels", "err", err)
+		}
+	}
+
+	n.devices.RememberDevices(response.Data)
+	n.persistRetailPlayerDeviceMappings(ctx, response.Data)
+	n.pruneRetailPlayerDeviceMappings(ctx, response.Data)
+	n.recordRetailPlayerDevicesSync(ctx)
+
+	folders, deviceFolders, err := n.loadRetailPlayerFolderData(ctx)
+	if err != nil {
+		return retailPlayerDevicesResponse{}, fmt.Errorf("%w: %v", errRetailPlayerFolderData, err)
+	}
+
+	if len(deviceFolders) > 0 {
+		folderSet := make(map[string]struct{}, len(folders))
+		for _, folder := range folders {
+			folderSet[folder.ID] = struct{}{}
+		}
+
+		assignments := make(map[string][]string)
+		for _, deviceFolder := range deviceFolders {
+			if _, ok := folderSet[deviceFolder.FolderID]; !ok {
+				continue
+			}
+
+			assignments[deviceFolder.DeviceID] = append(assignments[deviceFolder.DeviceID], deviceFolder.FolderID)
+		}
+
+		for index := range response.Data {
+			id := strings.TrimSpace(response.Data[index].ID)
+			if id == "" {
+				continue
+			}
+			if folderIDs, ok := assignments[id]; ok {
+				response.Data[index].FolderIDs = append([]string(nil), folderIDs...)
+			}
+		}
+	}
+
+	if repo := n.ds.RetailPlayerDeviceMapping(ctx); repo != nil {
+		mappings, err := repo.All(ctx)
+		if err != nil && !errors.Is(err, model.ErrNotFound) {
+			log.Warn(ctx, "Unable to load retail player device mappings", "err", err)
+		}
+
+		if len(mappings) > 0 {
+			remoteControlByID := make(map[string]string, len(mappings))
+			volumeEnabledByID := make(map[string]bool, len(mappings))
+			for _, mapping := range mappings {
+				id := strings.TrimSpace(mapping.DeviceID)
+				remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
+				if id == "" {
+					continue
+				}
+				volumeEnabledByID[id] = mapping.IsVolumeEnabled
+				if remoteControlID != "" {
+					remoteControlByID[id] = remoteControlID
+				}
+				for index := range response.Data {
+					if strings.TrimSpace(response.Data[index].ID) == id {
+						response.Data[index].IsLocked = mapping.IsLocked
+						break
+					}
+				}
+			}
+
+			if len(remoteControlByID) > 0 {
+				for index := range response.Data {
+					id := strings.TrimSpace(response.Data[index].ID)
+					if id == "" {
+						continue
+					}
+					if remoteControlID, ok := remoteControlByID[id]; ok {
+						response.Data[index].RemoteControlID = remoteControlID
+					}
+				}
+			}
+			for index := range response.Data {
+				id := strings.TrimSpace(response.Data[index].ID)
+				if id == "" {
+					continue
+				}
+				if volumeEnabled, ok := volumeEnabledByID[id]; ok {
+					enabled := volumeEnabled
+					response.Data[index].IsVolumeEnabled = &enabled
+				}
+			}
+		}
+	}
+
+	response.Folders = make([]retailPlayerFolder, 0, len(folders))
+	for _, folder := range folders {
+		response.Folders = append(response.Folders, mapModelRetailPlayerFolder(folder))
+	}
+
+	response.DeviceFolder = make([]retailPlayerDeviceFolder, 0, len(deviceFolders))
+	for _, deviceFolder := range deviceFolders {
+		response.DeviceFolder = append(response.DeviceFolder, mapModelRetailPlayerDeviceFolder(deviceFolder))
+	}
+
+	return response, nil
+}
+
+// retailPlayerForceRefreshRequested reports whether the request asks to bypass
+// the SQLite device cache (e.g. ?refresh=1).
+func retailPlayerForceRefreshRequested(r *http.Request) bool {
+	value := strings.TrimSpace(r.URL.Query().Get("refresh"))
+	if value == "" {
+		return false
+	}
+	force, err := strconv.ParseBool(value)
+	return err == nil && force
+}
 
 func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -485,132 +713,177 @@ func (n *Router) handleRetailPlayerDevices() http.HandlerFunc {
 			return
 		}
 
-		log.Info(ctx, "Fetching retail player devices from remote API")
-		response, err := fetchRetailPlayerDevices(ctx)
+		response, err := n.buildRetailPlayerDevicesResponse(ctx, retailPlayerForceRefreshRequested(r))
 		if err != nil {
-			cachedResponse, cacheErr := n.cachedRetailPlayerDevicesResponse(ctx)
-			if cacheErr == nil && (len(cachedResponse.Data) > 0 || len(cachedResponse.Folders) > 0) {
-				log.Warn(ctx, "Unable to fetch retail player devices, serving cached mappings", "err", err, "count", len(cachedResponse.Data))
-				writeRetailPlayerJSON(ctx, w, http.StatusOK, cachedResponse)
+			if errors.Is(err, errRetailPlayerFolderData) {
+				log.Error(ctx, "Unable to load retail player folder data", "err", err)
+				http.Error(w, "Unable to load retail player folders", http.StatusInternalServerError)
 				return
-			}
-			if cacheErr != nil {
-				log.Warn(ctx, "Unable to load cached retail player devices", "err", cacheErr)
 			}
 			log.Error(ctx, "Unable to fetch retail player devices", "err", err)
 			http.Error(w, "Unable to fetch retail player devices", http.StatusBadGateway)
 			return
 		}
 
-		log.Info(ctx, "Retail player devices fetched", "count", len(response.Data))
-
-		if len(response.Data) > 0 {
-			if err := n.applyRetailPlayerChannelNames(ctx, response.Data); err != nil {
-				log.Warn(ctx, "Unable to fetch retail player channels", "err", err)
-			}
-		}
-
-		n.devices.RememberDevices(response.Data)
-		n.persistRetailPlayerDeviceMappings(ctx, response.Data)
-
-		folders, deviceFolders, err := n.loadRetailPlayerFolderData(ctx)
-		if err != nil {
-			log.Error(ctx, "Unable to load retail player folder data", "err", err)
-			http.Error(w, "Unable to load retail player folders", http.StatusInternalServerError)
-			return
-		}
-
-		if len(deviceFolders) > 0 {
-			folderSet := make(map[string]struct{}, len(folders))
-			for _, folder := range folders {
-				folderSet[folder.ID] = struct{}{}
-			}
-
-			assignments := make(map[string][]string)
-			for _, deviceFolder := range deviceFolders {
-				if _, ok := folderSet[deviceFolder.FolderID]; !ok {
-					continue
-				}
-
-				assignments[deviceFolder.DeviceID] = append(assignments[deviceFolder.DeviceID], deviceFolder.FolderID)
-			}
-
-			for index := range response.Data {
-				id := strings.TrimSpace(response.Data[index].ID)
-				if id == "" {
-					continue
-				}
-				if folderIDs, ok := assignments[id]; ok {
-					response.Data[index].FolderIDs = append([]string(nil), folderIDs...)
-				}
-			}
-		}
-
-		if repo := n.ds.RetailPlayerDeviceMapping(ctx); repo != nil {
-			mappings, err := repo.All(ctx)
-			if err != nil && !errors.Is(err, model.ErrNotFound) {
-				log.Warn(ctx, "Unable to load retail player device mappings", "err", err)
-			}
-
-			if len(mappings) > 0 {
-				remoteControlByID := make(map[string]string, len(mappings))
-				volumeEnabledByID := make(map[string]bool, len(mappings))
-				for _, mapping := range mappings {
-					id := strings.TrimSpace(mapping.DeviceID)
-					remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
-					if id == "" {
-						continue
-					}
-					volumeEnabledByID[id] = mapping.IsVolumeEnabled
-					if remoteControlID != "" {
-						remoteControlByID[id] = remoteControlID
-					}
-					for index := range response.Data {
-						if strings.TrimSpace(response.Data[index].ID) == id {
-							response.Data[index].IsLocked = mapping.IsLocked
-							break
-						}
-					}
-				}
-
-				if len(remoteControlByID) > 0 {
-					for index := range response.Data {
-						id := strings.TrimSpace(response.Data[index].ID)
-						if id == "" {
-							continue
-						}
-						if remoteControlID, ok := remoteControlByID[id]; ok {
-							response.Data[index].RemoteControlID = remoteControlID
-						}
-					}
-				}
-				for index := range response.Data {
-					id := strings.TrimSpace(response.Data[index].ID)
-					if id == "" {
-						continue
-					}
-					if volumeEnabled, ok := volumeEnabledByID[id]; ok {
-						enabled := volumeEnabled
-						response.Data[index].IsVolumeEnabled = &enabled
-					}
-				}
-			}
-		}
-
-		response.Folders = make([]retailPlayerFolder, 0, len(folders))
-		for _, folder := range folders {
-			response.Folders = append(response.Folders, mapModelRetailPlayerFolder(folder))
-		}
-
-		response.DeviceFolder = make([]retailPlayerDeviceFolder, 0, len(deviceFolders))
-		for _, deviceFolder := range deviceFolders {
-			response.DeviceFolder = append(response.DeviceFolder, mapModelRetailPlayerDeviceFolder(deviceFolder))
-		}
-
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Error(ctx, "Unable to encode retail player devices response", "err", err)
 		}
+	}
+}
+
+// filterRetailPlayerResponseToFolder narrows a full devices response down to a
+// single folder subtree. The folder is matched by exact id first, then by
+// case-insensitive name. The matched folder becomes the root of the returned
+// tree: its ancestors are not included, and device folder assignments outside
+// the subtree are dropped.
+func filterRetailPlayerResponseToFolder(response retailPlayerDevicesResponse, identifier string) (retailPlayerDevicesResponse, error) {
+	trimmed := strings.TrimSpace(identifier)
+	if trimmed == "" {
+		return retailPlayerDevicesResponse{}, errRetailPlayerFolderNotFound
+	}
+
+	var target *retailPlayerFolder
+	for index := range response.Folders {
+		if response.Folders[index].ID == trimmed {
+			target = &response.Folders[index]
+			break
+		}
+	}
+	if target == nil {
+		normalized := strings.ToLower(trimmed)
+		for index := range response.Folders {
+			if strings.ToLower(strings.TrimSpace(response.Folders[index].Name)) == normalized {
+				target = &response.Folders[index]
+				break
+			}
+		}
+	}
+	if target == nil {
+		return retailPlayerDevicesResponse{}, errRetailPlayerFolderNotFound
+	}
+
+	childrenByParent := make(map[string][]string, len(response.Folders))
+	for _, folder := range response.Folders {
+		if folder.ParentID == nil {
+			continue
+		}
+		parentID := strings.TrimSpace(*folder.ParentID)
+		if parentID == "" {
+			continue
+		}
+		childrenByParent[parentID] = append(childrenByParent[parentID], folder.ID)
+	}
+
+	subtree := map[string]struct{}{target.ID: {}}
+	queue := []string{target.ID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, childID := range childrenByParent[current] {
+			if _, seen := subtree[childID]; seen {
+				continue
+			}
+			subtree[childID] = struct{}{}
+			queue = append(queue, childID)
+		}
+	}
+
+	filtered := retailPlayerDevicesResponse{
+		Data:         make([]retailPlayerDevice, 0, len(response.Data)),
+		Folders:      make([]retailPlayerFolder, 0, len(subtree)),
+		DeviceFolder: make([]retailPlayerDeviceFolder, 0, len(response.DeviceFolder)),
+	}
+
+	for _, folder := range response.Folders {
+		if _, ok := subtree[folder.ID]; ok {
+			filtered.Folders = append(filtered.Folders, folder)
+		}
+	}
+
+	deviceIDs := make(map[string]struct{})
+	for _, deviceFolder := range response.DeviceFolder {
+		if _, ok := subtree[deviceFolder.FolderID]; !ok {
+			continue
+		}
+		filtered.DeviceFolder = append(filtered.DeviceFolder, deviceFolder)
+		deviceIDs[strings.TrimSpace(deviceFolder.DeviceID)] = struct{}{}
+	}
+
+	for _, device := range response.Data {
+		id := strings.TrimSpace(device.ID)
+		if id == "" {
+			continue
+		}
+		if _, ok := deviceIDs[id]; !ok {
+			continue
+		}
+		folderIDs := make([]string, 0, len(device.FolderIDs))
+		for _, folderID := range device.FolderIDs {
+			if _, ok := subtree[folderID]; ok {
+				folderIDs = append(folderIDs, folderID)
+			}
+		}
+		device.FolderIDs = folderIDs
+		filtered.Data = append(filtered.Data, device)
+	}
+
+	return filtered, nil
+}
+
+func (n *Router) handleRetailPlayerFolderDevices() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		rawIdentifier := chi.URLParam(r, "folderID")
+		identifier := normalizeRetailPlayerIdentifier(rawIdentifier)
+		if identifier == "" {
+			http.Error(w, "Retail player folder identifier is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info(ctx, "Fetching retail player folder devices", "identifier", identifier, "rawIdentifier", rawIdentifier)
+
+		response, err := n.buildRetailPlayerDevicesResponse(ctx, retailPlayerForceRefreshRequested(r))
+		if err != nil {
+			if errors.Is(err, errRetailPlayerFolderData) {
+				log.Error(ctx, "Unable to load retail player folder data", "identifier", identifier, "err", err)
+				http.Error(w, "Unable to load retail player folders", http.StatusInternalServerError)
+				return
+			}
+			log.Error(ctx, "Unable to fetch retail player devices for folder", "identifier", identifier, "err", err)
+			http.Error(w, "Unable to fetch retail player devices", http.StatusBadGateway)
+			return
+		}
+
+		filtered, err := filterRetailPlayerResponseToFolder(response, identifier)
+		if err != nil {
+			if errors.Is(err, errRetailPlayerFolderNotFound) {
+				http.Error(w, "Retail player folder not found", http.StatusNotFound)
+				return
+			}
+			log.Error(ctx, "Unable to filter retail player folder devices", "identifier", identifier, "err", err)
+			http.Error(w, "Unable to fetch retail player folder devices", http.StatusInternalServerError)
+			return
+		}
+
+		// This endpoint is public: never expose QR/remote-control ids to
+		// unauthenticated visitors.
+		for index := range filtered.Data {
+			filtered.Data[index].RemoteControlID = ""
+		}
+
+		page := 1
+		total := len(filtered.Data)
+		filtered.Page = &page
+		filtered.Total = &total
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, filtered)
 	}
 }
 
@@ -637,130 +910,33 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 			return
 		}
 
-		log.Info(ctx, "Fetching retail player device by name from remote API", "name", deviceName)
-		response, err := fetchRetailPlayerDevices(ctx)
+		log.Info(ctx, "Fetching retail player device by name", "name", deviceName)
+
+		response, err := n.buildRetailPlayerDevicesResponse(ctx, false)
 		if err != nil {
 			log.Error(ctx, "Unable to fetch retail player devices", "err", err)
 			http.Error(w, "Unable to fetch retail player devices", http.StatusBadGateway)
 			return
 		}
 
-		if len(response.Data) > 0 {
-			if err := n.applyRetailPlayerChannelNames(ctx, response.Data); err != nil {
-				log.Warn(ctx, "Unable to fetch retail player channels", "err", err)
+		match, ok := findRetailPlayerDeviceByName(response, deviceName)
+		if !ok {
+			// The device may have been added after the last cache sync, so try
+			// once more against the live remote API.
+			if refreshed, refreshErr := n.buildRetailPlayerDevicesResponse(ctx, true); refreshErr == nil {
+				response = refreshed
+				match, ok = findRetailPlayerDeviceByName(response, deviceName)
 			}
 		}
-
-		filtered := retailPlayerDevicesResponse{
-			Data: make([]retailPlayerDevice, 0, 1),
-		}
-		for _, device := range response.Data {
-			if strings.EqualFold(strings.TrimSpace(device.Name), deviceName) {
-				filtered.Data = append(filtered.Data, device)
-				break
-			}
-		}
-
-		if len(filtered.Data) == 0 {
+		if !ok {
 			http.Error(w, "Retail player device not found", http.StatusNotFound)
 			return
 		}
 
-		n.devices.RememberDevices(filtered.Data)
-		n.persistRetailPlayerDeviceMappings(ctx, filtered.Data)
-
-		folders, deviceFolders, err := n.loadRetailPlayerFolderData(ctx)
-		if err != nil {
-			log.Error(ctx, "Unable to load retail player folder data", "err", err)
-			http.Error(w, "Unable to load retail player folders", http.StatusInternalServerError)
-			return
-		}
-
-		if len(deviceFolders) > 0 {
-			folderSet := make(map[string]struct{}, len(folders))
-			for _, folder := range folders {
-				folderSet[folder.ID] = struct{}{}
-			}
-
-			assignments := make(map[string][]string)
-			for _, deviceFolder := range deviceFolders {
-				if _, ok := folderSet[deviceFolder.FolderID]; !ok {
-					continue
-				}
-
-				assignments[deviceFolder.DeviceID] = append(assignments[deviceFolder.DeviceID], deviceFolder.FolderID)
-			}
-
-			for index := range filtered.Data {
-				id := strings.TrimSpace(filtered.Data[index].ID)
-				if id == "" {
-					continue
-				}
-				if folderIDs, ok := assignments[id]; ok {
-					filtered.Data[index].FolderIDs = append([]string(nil), folderIDs...)
-				}
-			}
-		}
-
-		if repo := n.ds.RetailPlayerDeviceMapping(ctx); repo != nil {
-			mappings, err := repo.All(ctx)
-			if err != nil && !errors.Is(err, model.ErrNotFound) {
-				log.Warn(ctx, "Unable to load retail player device mappings", "err", err)
-			}
-
-			if len(mappings) > 0 {
-				remoteControlByID := make(map[string]string, len(mappings))
-				volumeEnabledByID := make(map[string]bool, len(mappings))
-				for _, mapping := range mappings {
-					id := strings.TrimSpace(mapping.DeviceID)
-					remoteControlID := strings.TrimSpace(mapping.RemoteCtrlID)
-					if id == "" {
-						continue
-					}
-					volumeEnabledByID[id] = mapping.IsVolumeEnabled
-					if remoteControlID != "" {
-						remoteControlByID[id] = remoteControlID
-					}
-					for index := range filtered.Data {
-						if strings.TrimSpace(filtered.Data[index].ID) == id {
-							filtered.Data[index].IsLocked = mapping.IsLocked
-							break
-						}
-					}
-				}
-
-				if len(remoteControlByID) > 0 {
-					for index := range filtered.Data {
-						id := strings.TrimSpace(filtered.Data[index].ID)
-						if id == "" {
-							continue
-						}
-						if remoteControlID, ok := remoteControlByID[id]; ok {
-							filtered.Data[index].RemoteControlID = remoteControlID
-						}
-					}
-				}
-				for index := range filtered.Data {
-					id := strings.TrimSpace(filtered.Data[index].ID)
-					if id == "" {
-						continue
-					}
-					if volumeEnabled, ok := volumeEnabledByID[id]; ok {
-						enabled := volumeEnabled
-						filtered.Data[index].IsVolumeEnabled = &enabled
-					}
-				}
-			}
-		}
-
-		filtered.Folders = make([]retailPlayerFolder, 0, len(folders))
-		for _, folder := range folders {
-			filtered.Folders = append(filtered.Folders, mapModelRetailPlayerFolder(folder))
-		}
-
-		filtered.DeviceFolder = make([]retailPlayerDeviceFolder, 0, len(deviceFolders))
-		for _, deviceFolder := range deviceFolders {
-			filtered.DeviceFolder = append(filtered.DeviceFolder, mapModelRetailPlayerDeviceFolder(deviceFolder))
+		filtered := retailPlayerDevicesResponse{
+			Data:         []retailPlayerDevice{match},
+			Folders:      response.Folders,
+			DeviceFolder: response.DeviceFolder,
 		}
 
 		page := 1
@@ -773,6 +949,15 @@ func (n *Router) handleRetailPlayerDeviceByName() http.HandlerFunc {
 			log.Error(ctx, "Unable to encode retail player device response", "err", err)
 		}
 	}
+}
+
+func findRetailPlayerDeviceByName(response retailPlayerDevicesResponse, name string) (retailPlayerDevice, bool) {
+	for _, device := range response.Data {
+		if strings.EqualFold(strings.TrimSpace(device.Name), name) {
+			return device, true
+		}
+	}
+	return retailPlayerDevice{}, false
 }
 
 func (n *Router) cachedRetailPlayerDevicesResponse(ctx context.Context) (retailPlayerDevicesResponse, error) {
@@ -1690,6 +1875,12 @@ func mapRetailPlayerDeviceToMapping(device retailPlayerDevice) (model.RetailPlay
 		isVolumeEnabled = *device.IsVolumeEnabled
 	}
 
+	var online *bool
+	if device.Online != nil {
+		value := *device.Online
+		online = &value
+	}
+
 	return model.RetailPlayerDeviceMapping{
 		DeviceID:        id,
 		DeviceName:      name,
@@ -1697,25 +1888,36 @@ func mapRetailPlayerDeviceToMapping(device retailPlayerDevice) (model.RetailPlay
 		IsLocked:        device.IsLocked,
 		IsVolumeEnabled: isVolumeEnabled,
 		Channel:         strings.TrimSpace(device.Channel),
+		ChannelName:     strings.TrimSpace(device.ChannelName),
 		ChannelList:     strings.TrimSpace(device.ChannelList),
+		MacAddress:      strings.TrimSpace(device.MacAddress),
 		Organization:    strings.TrimSpace(device.Organization),
 		TimeZone:        strings.TrimSpace(device.TimeZone),
 		RemoteCtrlID:    strings.TrimSpace(device.RemoteControlID),
+		Online:          online,
 	}, true
 }
 
 func mapRetailPlayerMappingToDevice(mapping model.RetailPlayerDeviceMapping) retailPlayerDevice {
 	isVolumeEnabled := mapping.IsVolumeEnabled
+	var online *bool
+	if mapping.Online != nil {
+		value := *mapping.Online
+		online = &value
+	}
 	return retailPlayerDevice{
 		ID:              strings.TrimSpace(mapping.DeviceID),
 		Name:            strings.TrimSpace(mapping.DeviceName),
 		IsLocked:        mapping.IsLocked,
 		IsVolumeEnabled: &isVolumeEnabled,
 		Channel:         strings.TrimSpace(mapping.Channel),
+		ChannelName:     strings.TrimSpace(mapping.ChannelName),
 		ChannelList:     strings.TrimSpace(mapping.ChannelList),
+		MacAddress:      strings.TrimSpace(mapping.MacAddress),
 		Organization:    strings.TrimSpace(mapping.Organization),
 		TimeZone:        strings.TrimSpace(mapping.TimeZone),
 		RemoteControlID: strings.TrimSpace(mapping.RemoteCtrlID),
+		Online:          online,
 	}
 }
 

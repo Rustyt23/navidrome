@@ -26,7 +26,32 @@ func NewRetailPlayerDeviceMappingRepository(ctx context.Context, db dbx.Builder)
 	r.ensureRemoteControlColumn()
 	r.ensureIsLockedColumn()
 	r.ensureIsVolumeEnabledColumn()
+	r.ensureDeviceCacheColumns()
 	return r
+}
+
+// ensureDeviceCacheColumns adds the columns needed to serve the device list
+// straight from SQLite (without a remote API round-trip).
+func (r retailPlayerDeviceMappingRepository) ensureDeviceCacheColumns() {
+	statements := map[string]string{
+		"channel_name": `ALTER TABLE retail_player_device_mapping ADD COLUMN channel_name TEXT NOT NULL DEFAULT '';`,
+		"mac_address":  `ALTER TABLE retail_player_device_mapping ADD COLUMN mac_address TEXT NOT NULL DEFAULT '';`,
+		"online":       `ALTER TABLE retail_player_device_mapping ADD COLUMN online BOOLEAN;`,
+	}
+
+	for column, statement := range statements {
+		_, err := r.db.NewQuery(statement).Execute()
+		if err == nil {
+			continue
+		}
+
+		lowerErr := strings.ToLower(err.Error())
+		if strings.Contains(lowerErr, "duplicate column name") || strings.Contains(lowerErr, "already exists") {
+			continue
+		}
+
+		log.Error(r.ctx, "Unable to ensure device cache column for retail player device mappings", "column", column, "err", err)
+	}
 }
 
 func (r retailPlayerDeviceMappingRepository) ensureRemoteControlColumn() {
@@ -106,10 +131,13 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			"is_locked",
 			"is_volume_enabled",
 			"channel",
+			"channel_name",
 			"channel_list",
+			"mac_address",
 			"organization",
 			"time_zone",
 			"remote_control_id",
+			"online",
 			"updated_at",
 		)
 	valuesAdded := 0
@@ -138,10 +166,13 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
 			mapping.IsLocked,
 			mapping.IsVolumeEnabled,
 			strings.TrimSpace(mapping.Channel),
+			strings.TrimSpace(mapping.ChannelName),
 			strings.TrimSpace(mapping.ChannelList),
+			strings.TrimSpace(mapping.MacAddress),
 			strings.TrimSpace(mapping.Organization),
 			strings.TrimSpace(mapping.TimeZone),
 			strings.TrimSpace(mapping.RemoteCtrlID),
+			mapping.Online,
 			now,
 		)
 		valuesAdded++
@@ -157,13 +188,36 @@ func (r retailPlayerDeviceMappingRepository) PutMany(ctx context.Context, mappin
                 is_locked = retail_player_device_mapping.is_locked,
                 is_volume_enabled = retail_player_device_mapping.is_volume_enabled,
                 channel = excluded.channel,
+                channel_name = COALESCE(NULLIF(excluded.channel_name, ''), retail_player_device_mapping.channel_name),
                 channel_list = excluded.channel_list,
+                mac_address = COALESCE(NULLIF(excluded.mac_address, ''), retail_player_device_mapping.mac_address),
                 organization = excluded.organization,
                 time_zone = excluded.time_zone,
                 remote_control_id = COALESCE(NULLIF(excluded.remote_control_id, ''), retail_player_device_mapping.remote_control_id),
+                online = COALESCE(excluded.online, retail_player_device_mapping.online),
                 updated_at = excluded.updated_at`)
 
 	_, err = r.executeSQL(insert)
+	return err
+}
+
+func (r retailPlayerDeviceMappingRepository) DeleteMissing(ctx context.Context, keepIDs []string) error {
+	normalized := make([]string, 0, len(keepIDs))
+	for _, id := range keepIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" {
+			normalized = append(normalized, trimmed)
+		}
+	}
+
+	// Refuse to wipe the cache on an empty device list: it is far more likely
+	// a bad remote response than every device having been deleted.
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	del := Delete(r.tableName).Where(NotEq{"device_id": normalized})
+	_, err := r.executeSQL(del)
 	return err
 }
 
@@ -301,7 +355,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 	orClause := Or{}
 	orClause = append(orClause, conditions...)
 
-	sel := Select("device_id", "device_name", "device_slug", "is_locked", "is_volume_enabled", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "is_locked", "is_volume_enabled", "channel", "channel_name", "channel_list", "mac_address", "organization", "time_zone", "remote_control_id", "online", "updated_at").
 		From(r.tableName).
 		Where(orClause).
 		OrderBy("updated_at DESC").
@@ -315,7 +369,7 @@ func (r retailPlayerDeviceMappingRepository) FindByIdentifier(ctx context.Contex
 }
 
 func (r retailPlayerDeviceMappingRepository) All(ctx context.Context) ([]model.RetailPlayerDeviceMapping, error) {
-	sel := Select("device_id", "device_name", "device_slug", "is_locked", "is_volume_enabled", "channel", "channel_list", "organization", "time_zone", "remote_control_id", "updated_at").
+	sel := Select("device_id", "device_name", "device_slug", "is_locked", "is_volume_enabled", "channel", "channel_name", "channel_list", "mac_address", "organization", "time_zone", "remote_control_id", "online", "updated_at").
 		From(r.tableName).
 		OrderBy("updated_at DESC")
 

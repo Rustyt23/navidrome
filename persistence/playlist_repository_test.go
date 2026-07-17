@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/deluan/rest"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -101,6 +102,20 @@ var _ = Describe("PlaylistRepository", func() {
 
 		By("returns error if tries to retrieve the deleted playlist")
 		Expect(repo.Exists(newPls.ID)).To(BeFalse())
+	})
+
+	It("Save assigns the authenticated user as the playlist owner", func() {
+		playlist := &model.Playlist{Name: "Owned through Save"}
+		id, err := repo.(rest.Persistable).Save(playlist)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(id).ToNot(BeEmpty())
+		DeferCleanup(func() {
+			Expect(repo.Delete(id)).To(Succeed())
+		})
+
+		saved, err := repo.Get(id)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(saved.OwnerID).To(Equal("userid"))
 	})
 
 	It("moves synced playlist files into a deleted folder", func() {

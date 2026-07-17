@@ -33,9 +33,15 @@ export const useSelectedFields = ({
       Object.keys(resourceFields).length !== Object.keys(columns).length ||
       !Object.keys(columns).every((c) => c in resourceFields)
     ) {
+      // Merge: keep the user's saved visibility for known columns and only
+      // apply defaults to columns that are new, so adding a column to a list
+      // does not wipe the user's selection.
       const obj = {}
       for (const key of Object.keys(columns)) {
-        obj[key] = !defaultOff.includes(key)
+        obj[key] =
+          resourceFields && key in resourceFields
+            ? resourceFields[key]
+            : !defaultOff.includes(key)
       }
       dispatch(setToggleableFields({ [resource]: obj }))
     }
@@ -47,7 +53,13 @@ export const useSelectedFields = ({
       columnsOrder.length !== Object.keys(columns).length ||
       !columnsOrder.every((c) => c in columns)
     ) {
-      dispatch(setColumnsOrder({ [resource]: Object.keys(columns) }))
+      const existingOrder = (columnsOrder || []).filter((c) => c in columns)
+      const missingKeys = Object.keys(columns).filter(
+        (c) => !existingOrder.includes(c),
+      )
+      dispatch(
+        setColumnsOrder({ [resource]: [...existingOrder, ...missingKeys] }),
+      )
     }
   }, [
     columns,
@@ -82,9 +94,7 @@ export const useSelectedFields = ({
       const currentOmittedFields = omittedFields || []
       const shouldUpdateOmitted =
         currentOmittedFields.length !== omitted.length ||
-        omitted.some(
-          (field, index) => field !== currentOmittedFields[index],
-        )
+        omitted.some((field, index) => field !== currentOmittedFields[index])
 
       if (shouldUpdateOmitted)
         dispatch(setOmittedFields({ [resource]: omitted }))
