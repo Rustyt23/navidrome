@@ -12,6 +12,7 @@ import {
   useNotify,
   useRecordContext,
   usePermissions,
+  useRefresh,
 } from 'react-admin'
 import { useMediaQuery } from '@material-ui/core'
 import Switch from '@material-ui/core/Switch'
@@ -104,6 +105,7 @@ const rowClick = (id, record) =>
 
 const FolderChildrenList = (props) => {
   const record = useRecordContext()
+  const refresh = useRefresh()
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   useResourceRefresh('folder')
@@ -123,6 +125,23 @@ const FolderChildrenList = (props) => {
   })
 
   const parentId = record?.id ?? ''
+
+  useEffect(() => {
+    const onFolderChanged = (event) => {
+      const detail = event.detail || {}
+      if (detail.resource !== 'playlist') return
+      if (
+        detail.sourceParentId === undefined ||
+        detail.sourceParentId === parentId ||
+        detail.targetParentId === parentId
+      ) {
+        refresh()
+      }
+    }
+
+    window.addEventListener('folder:changed', onFolderChanged)
+    return () => window.removeEventListener('folder:changed', onFolderChanged)
+  }, [parentId, refresh])
 
   return (
     <List

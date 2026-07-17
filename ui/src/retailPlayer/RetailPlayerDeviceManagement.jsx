@@ -83,11 +83,12 @@ const useStyles = makeStyles((theme) => {
     '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)'
   const mobileColumns =
     '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px'
-  // Same grids without the QR ID column, for guest (unauthenticated) sessions.
+  // Read-only grids for guest (unauthenticated) sessions: no select, QR, or
+  // edit columns — only Name, Channel Name, and MAC Address.
   const desktopColumnsGuest =
-    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(96px, 0.8fr)'
+    'minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr)'
   const mobileColumnsGuest =
-    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) 72px'
+    'minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr)'
 
   return {
     root: {
@@ -107,317 +108,314 @@ const useStyles = makeStyles((theme) => {
         gap: theme.spacing(2),
       },
     },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: theme.spacing(2),
-    flexWrap: 'wrap',
-  },
-  titleBlock: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: theme.spacing(1),
-  },
-  headerControls: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1.5),
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-  },
-  actions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1),
-    flexWrap: 'wrap',
-  },
-  syncStatus: {
-    color: theme.palette.text.secondary,
-    fontSize: theme.typography.pxToRem(12),
-    minWidth: 180,
-    textAlign: 'right',
-    [theme.breakpoints.down('xs')]: {
-      textAlign: 'left',
-      width: '100%',
+    header: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: theme.spacing(2),
+      flexWrap: 'wrap',
     },
-  },
-  selectionRibbon: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: theme.spacing(2),
-    padding: theme.spacing(1, 2.5),
-    margin: theme.spacing(2, 2, 2, 2),
-    borderRadius: theme.shape.borderRadius,
-    background: `linear-gradient(135deg, ${fade(theme.palette.primary.dark, 0.9)}, ${fade(
-      theme.palette.primary.main,
-      0.9,
-    )})`,
-    color: theme.palette.primary.contrastText,
-    boxShadow: `0 6px 8px ${fade(theme.palette.primary.main, 0.35)}`,
-    flexWrap: 'wrap',
-    [theme.breakpoints.down('xs')]: {
+    titleBlock: {
+      display: 'flex',
       flexDirection: 'column',
-      alignItems: 'flex-start',
-      gap: theme.spacing(1.25),
+      gap: theme.spacing(1),
     },
-  },
-  selectionSummary: {
-    fontWeight: theme.typography.fontWeightBold,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    fontSize: theme.typography.pxToRem(12),
-  },
-  selectionActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1),
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-  },
-
-  selectionActionButton: {
-    fontSize: theme.typography.pxToRem(12),
-    padding: theme.spacing(0.5, 1.25),
-    minHeight: 32,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-
-  selectionPrimaryButton: {
-  
-    color: fade(theme.palette.common.white, 0.92),
-    backgroundColor: 'transparent',
-    border: 'none',
-    '&:hover': {
-      backgroundColor: fade(theme.palette.error.main, 0.16),
-
-
+    headerControls: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(1.5),
+      flexWrap: 'wrap',
+      justifyContent: 'flex-end',
     },
-  },
-  selectionDeleteButton: {
-    
-  color: fade(theme.palette.common.white, 0.92),
-  backgroundColor: 'transparent',
-  border: 'none',
-  '&:hover': {
-    backgroundColor: fade(theme.palette.error.main, 0.16),
-
+    actions: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(1),
+      flexWrap: 'wrap',
     },
-  },
-  panel: {
-    borderRadius: theme.shape.borderRadius,
-    border: `1px solid ${theme.palette.divider}`,
-    overflow: 'hidden',
-    backgroundColor: theme.palette.background.paper,
-  },
-  listHeader: {
-    display: 'grid',
-    gridTemplateColumns: desktopColumns,
-    paddingTop: theme.spacing(0),
-    paddingBottom: theme.spacing(0),
-    paddingLeft: theme.spacing(1.7),
-    paddingRight: theme.spacing(1.7),
-    backgroundColor: theme.palette.action.hover,
-    color: theme.palette.text.secondary,
-    fontSize: theme.typography.pxToRem(14),
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    fontWeight: theme.typography.fontWeightMedium,
-    alignItems: 'center',
-    gap: theme.spacing(1.2),
-    [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: mobileColumns,
-      fontSize: theme.typography.pxToRem(11),
-      letterSpacing: 0.6,
-    },
-  },
-  headerSelect: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(0.5),
-  },
-  headerLabel: {
-    textTransform: 'uppercase',
-  },
-  headerActions: {
-    justifySelf: 'flex-end',
-  },
-
-  row: {
-    display: 'grid',
-    gridTemplateColumns: desktopColumns,
-    alignItems: 'center',
-    paddingTop: 1,
-    paddingBottom: 1,
-    paddingLeft: theme.spacing(1.7),
-    paddingRight: theme.spacing(1.7),
-    borderTop: `1px solid ${theme.palette.divider}`,
-    minHeight: 28, // 🔥 ensures consistent compact row height
-    '& .MuiTypography-body1': {
-      fontSize: '0.8rem', // reduce font size inside cell
-      lineHeight: 1.2,
-    },
-    '& .MuiIconButton-root': {
-      padding: 2, // shrink edit icon area
-    },
-    '& .MuiCheckbox-root': {
-      padding: 2, // shrink checkbox hit area
-    },
-    [theme.breakpoints.down('sm')]: {
-      gridTemplateColumns: mobileColumns,
-    },
-  },
-
-  // Applied to the panel for guest sessions: removes the QR ID column from
-  // the header and every row.
-  guestPanel: {
-    '& $listHeader, & $row': {
-      gridTemplateColumns: desktopColumnsGuest,
-      [theme.breakpoints.down('sm')]: {
-        gridTemplateColumns: mobileColumnsGuest,
+    syncStatus: {
+      color: theme.palette.text.secondary,
+      fontSize: theme.typography.pxToRem(12),
+      minWidth: 180,
+      textAlign: 'right',
+      [theme.breakpoints.down('xs')]: {
+        textAlign: 'left',
+        width: '100%',
       },
     },
-    '& $remoteControlCell': {
-      display: 'none',
+    selectionRibbon: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: theme.spacing(2),
+      padding: theme.spacing(1, 2.5),
+      margin: theme.spacing(2, 2, 2, 2),
+      borderRadius: theme.shape.borderRadius,
+      background: `linear-gradient(135deg, ${fade(theme.palette.primary.dark, 0.9)}, ${fade(
+        theme.palette.primary.main,
+        0.9,
+      )})`,
+      color: theme.palette.primary.contrastText,
+      boxShadow: `0 6px 8px ${fade(theme.palette.primary.main, 0.35)}`,
+      flexWrap: 'wrap',
+      [theme.breakpoints.down('xs')]: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: theme.spacing(1.25),
+      },
     },
-  },
+    selectionSummary: {
+      fontWeight: theme.typography.fontWeightBold,
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+      fontSize: theme.typography.pxToRem(12),
+    },
+    selectionActions: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(1),
+      flexWrap: 'wrap',
+      justifyContent: 'flex-end',
+    },
 
-  folderRow: {
-    backgroundColor: fade(theme.palette.primary.main, 0.04),
-  },
-  interactiveRow: {
-    cursor: 'pointer',
-    '&:hover': {
-      backgroundColor: fade(theme.palette.primary.main, 0.08),
+    selectionActionButton: {
+      fontSize: theme.typography.pxToRem(12),
+      padding: theme.spacing(0.5, 1.25),
+      minHeight: 32,
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
     },
-    '&:focus': {
-      outline: `2px solid ${theme.palette.primary.main}`,
-      outlineOffset: -2,
+
+    selectionPrimaryButton: {
+      color: fade(theme.palette.common.white, 0.92),
+      backgroundColor: 'transparent',
+      border: 'none',
+      '&:hover': {
+        backgroundColor: fade(theme.palette.error.main, 0.16),
+      },
     },
-  },
-  selectedRow: {
-    backgroundColor: fade(theme.palette.primary.main, 0.12),
-  },
-  selectCell: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nameCell: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1.5),
-    fontWeight: theme.typography.fontWeightMedium,
-  },
-  nameIcon: {
-    color: theme.palette.primary.main,
-    fontSize: theme.typography.pxToRem(16.5),
-  },
-  onlineIcon: {
-    color: theme.palette.success.main,
-  },
-  nameLabel: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: theme.spacing(0.5),
-  },
-  searchField: {
-    minWidth: 220,
-    '& .MuiOutlinedInput-root': {
-      backgroundColor: theme.palette.background.default,
+    selectionDeleteButton: {
+      color: fade(theme.palette.common.white, 0.92),
+      backgroundColor: 'transparent',
+      border: 'none',
+      '&:hover': {
+        backgroundColor: fade(theme.palette.error.main, 0.16),
+      },
     },
-  },
-  nameTitle: {
-    color: theme.palette.common.white,
-    fontWeight: theme.typography.fontWeightMedium,
-  },
-  typeCell: {
-    fontSize: theme.typography.pxToRem(14),
-    color: theme.palette.text.secondary,
-  },
-  remoteControlCell: {
-    fontSize: theme.typography.pxToRem(14),
-    color: theme.palette.text.secondary,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  channelNameCell: {
-    fontSize: theme.typography.pxToRem(14),
-    color: theme.palette.text.secondary,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  macAddressCell: {
-    fontSize: theme.typography.pxToRem(14),
-    fontFamily: 'monospace',
-    color: theme.palette.text.secondary,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  actionsCell: {
-    display: 'flex',
-    gap: theme.spacing(1.2),
-    justifyContent: 'flex-end',
-  },
-  lockIconActive: {
-    color: theme.palette.secondary.main,
-  },
-  breadcrumbBar: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: theme.spacing(1),
-    padding: theme.spacing(1.5, 2),
-    borderBottom: `1px solid ${theme.palette.divider}`,
-    backgroundColor: theme.palette.background.default,
-  },
-  breadcrumbs: {
-    '& .MuiBreadcrumbs-separator': {
+    panel: {
+      borderRadius: theme.shape.borderRadius,
+      border: `1px solid ${theme.palette.divider}`,
+      overflow: 'hidden',
+      backgroundColor: theme.palette.background.paper,
+    },
+    listHeader: {
+      display: 'grid',
+      gridTemplateColumns: desktopColumns,
+      paddingTop: theme.spacing(0),
+      paddingBottom: theme.spacing(0),
+      paddingLeft: theme.spacing(1.7),
+      paddingRight: theme.spacing(1.7),
+      backgroundColor: theme.palette.action.hover,
+      color: theme.palette.text.secondary,
+      fontSize: theme.typography.pxToRem(14),
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+      fontWeight: theme.typography.fontWeightMedium,
+      alignItems: 'center',
+      gap: theme.spacing(1.2),
+      [theme.breakpoints.down('sm')]: {
+        gridTemplateColumns: mobileColumns,
+        fontSize: theme.typography.pxToRem(11),
+        letterSpacing: 0.6,
+      },
+    },
+    headerSelect: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(0.5),
+    },
+    headerLabel: {
+      textTransform: 'uppercase',
+    },
+    headerActions: {
+      justifySelf: 'flex-end',
+    },
+
+    row: {
+      display: 'grid',
+      gridTemplateColumns: desktopColumns,
+      alignItems: 'center',
+      paddingTop: 1,
+      paddingBottom: 1,
+      paddingLeft: theme.spacing(1.7),
+      paddingRight: theme.spacing(1.7),
+      borderTop: `1px solid ${theme.palette.divider}`,
+      minHeight: 28, // 🔥 ensures consistent compact row height
+      '& .MuiTypography-body1': {
+        fontSize: '0.8rem', // reduce font size inside cell
+        lineHeight: 1.2,
+      },
+      '& .MuiIconButton-root': {
+        padding: 2, // shrink edit icon area
+      },
+      '& .MuiCheckbox-root': {
+        padding: 2, // shrink checkbox hit area
+      },
+      [theme.breakpoints.down('sm')]: {
+        gridTemplateColumns: mobileColumns,
+      },
+    },
+
+    // Applied to the panel for guest sessions: hides the select checkbox, QR ID,
+    // and action (lock/volume/edit) columns from the header and every row,
+    // leaving a read-only Name / Channel Name / MAC Address table.
+    guestPanel: {
+      '& $listHeader, & $row': {
+        gridTemplateColumns: desktopColumnsGuest,
+        [theme.breakpoints.down('sm')]: {
+          gridTemplateColumns: mobileColumnsGuest,
+        },
+      },
+      '& $remoteControlCell, & $selectCell, & $actionsCell, & $headerSelect, & $headerActions':
+        {
+          display: 'none',
+        },
+    },
+
+    folderRow: {
+      backgroundColor: fade(theme.palette.primary.main, 0.04),
+    },
+    interactiveRow: {
+      cursor: 'pointer',
+      '&:hover': {
+        backgroundColor: fade(theme.palette.primary.main, 0.08),
+      },
+      '&:focus': {
+        outline: `2px solid ${theme.palette.primary.main}`,
+        outlineOffset: -2,
+      },
+    },
+    selectedRow: {
+      backgroundColor: fade(theme.palette.primary.main, 0.12),
+    },
+    selectCell: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    nameCell: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(1.5),
+      fontWeight: theme.typography.fontWeightMedium,
+    },
+    nameIcon: {
+      color: theme.palette.primary.main,
+      fontSize: theme.typography.pxToRem(16.5),
+    },
+    onlineIcon: {
+      color: theme.palette.success.main,
+    },
+    nameLabel: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(0.5),
+    },
+    searchField: {
+      minWidth: 220,
+      '& .MuiOutlinedInput-root': {
+        backgroundColor: theme.palette.background.default,
+      },
+    },
+    nameTitle: {
+      color: theme.palette.common.white,
+      fontWeight: theme.typography.fontWeightMedium,
+    },
+    typeCell: {
+      fontSize: theme.typography.pxToRem(14),
       color: theme.palette.text.secondary,
     },
-  },
-  breadcrumbLink: {
-    color: theme.palette.primary.main,
-    cursor: 'pointer',
-    fontWeight: theme.typography.fontWeightMedium,
-  },
-  emptyState: {
-    padding: theme.spacing(4),
-    textAlign: 'center',
-    color: theme.palette.text.secondary,
-  },
-  loaderState: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: theme.spacing(4),
-    gap: theme.spacing(2),
-    color: theme.palette.text.secondary,
-  },
-  errorState: {
-    padding: theme.spacing(4),
-    textAlign: 'center',
-    color: theme.palette.error.main,
-  },
-  dialogFields: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: theme.spacing(2.5),
-    minWidth: 360,
-    [theme.breakpoints.down('xs')]: {
-      minWidth: 'auto',
+    remoteControlCell: {
+      fontSize: theme.typography.pxToRem(14),
+      color: theme.palette.text.secondary,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
     },
-  },
-  dropTarget: dndStyles.dropTarget,
-  dropTargetCanDrop: dndStyles.dropTargetCanDrop,
-  dropTargetActive: dndStyles.dropTargetActive,
-  dragging: dndStyles.dragItem,
+    channelNameCell: {
+      fontSize: theme.typography.pxToRem(14),
+      color: theme.palette.text.secondary,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    },
+    macAddressCell: {
+      fontSize: theme.typography.pxToRem(14),
+      fontFamily: 'monospace',
+      color: theme.palette.text.secondary,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    },
+    actionsCell: {
+      display: 'flex',
+      gap: theme.spacing(1.2),
+      justifyContent: 'flex-end',
+    },
+    lockIconActive: {
+      color: theme.palette.secondary.main,
+    },
+    breadcrumbBar: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      flexWrap: 'wrap',
+      gap: theme.spacing(1),
+      padding: theme.spacing(1.5, 2),
+      borderBottom: `1px solid ${theme.palette.divider}`,
+      backgroundColor: theme.palette.background.default,
+    },
+    breadcrumbs: {
+      '& .MuiBreadcrumbs-separator': {
+        color: theme.palette.text.secondary,
+      },
+    },
+    breadcrumbLink: {
+      color: theme.palette.primary.main,
+      cursor: 'pointer',
+      fontWeight: theme.typography.fontWeightMedium,
+    },
+    emptyState: {
+      padding: theme.spacing(4),
+      textAlign: 'center',
+      color: theme.palette.text.secondary,
+    },
+    loaderState: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: theme.spacing(4),
+      gap: theme.spacing(2),
+      color: theme.palette.text.secondary,
+    },
+    errorState: {
+      padding: theme.spacing(4),
+      textAlign: 'center',
+      color: theme.palette.error.main,
+    },
+    dialogFields: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(2.5),
+      minWidth: 360,
+      [theme.breakpoints.down('xs')]: {
+        minWidth: 'auto',
+      },
+    },
+    dropTarget: dndStyles.dropTarget,
+    dropTargetCanDrop: dndStyles.dropTargetCanDrop,
+    dropTargetActive: dndStyles.dropTargetActive,
+    dragging: dndStyles.dragItem,
   }
 })
 
@@ -438,7 +436,9 @@ const FolderDialog = ({ open, onClose, onSubmit, initialValues }) => {
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle>{initialValues?.id ? 'Edit Folder' : 'Create Folder'}</DialogTitle>
+      <DialogTitle>
+        {initialValues?.id ? 'Edit Folder' : 'Create Folder'}
+      </DialogTitle>
       <DialogContent>
         <div className={classes.dialogFields}>
           <TextField
@@ -475,12 +475,7 @@ FolderDialog.defaultProps = {
   initialValues: null,
 }
 
-const DeviceDialog = ({
-  open,
-  onClose,
-  onSubmit,
-  initialValues,
-}) => {
+const DeviceDialog = ({ open, onClose, onSubmit, initialValues }) => {
   const [form, setForm] = useState(() => ({
     name: initialValues?.name || '',
     remoteControlId: initialValues?.remoteControlId || '',
@@ -647,13 +642,22 @@ const RetailPlayerFolderRow = memo(
               aria-label={`${isLocked ? 'Unlock' : 'Lock'} folder ${node.name}`}
             >
               {isLocked ? (
-                <LockIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+                <LockIcon
+                  style={{ fontSize: 15 }}
+                  className={classes.lockIconActive}
+                />
               ) : (
                 <LockOpenIcon style={{ fontSize: 15 }} />
               )}
             </IconButton>
           </Tooltip>
-          <Tooltip title={isVolumeEnabled ? 'Disable folder volume controls' : 'Enable folder volume controls'}>
+          <Tooltip
+            title={
+              isVolumeEnabled
+                ? 'Disable folder volume controls'
+                : 'Enable folder volume controls'
+            }
+          >
             <IconButton
               size="small"
               onClick={(event) => {
@@ -663,7 +667,10 @@ const RetailPlayerFolderRow = memo(
               aria-label={`${isVolumeEnabled ? 'Disable' : 'Enable'} volume controls for folder ${node.name}`}
             >
               {isVolumeEnabled ? (
-                <VolumeUpIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+                <VolumeUpIcon
+                  style={{ fontSize: 15 }}
+                  className={classes.lockIconActive}
+                />
               ) : (
                 <VolumeOffIcon style={{ fontSize: 15 }} />
               )}
@@ -805,13 +812,22 @@ const RetailPlayerDeviceRow = memo(
               aria-label={`${isLocked ? 'Unlock' : 'Lock'} device ${node.name}`}
             >
               {isLocked ? (
-                <LockIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+                <LockIcon
+                  style={{ fontSize: 15 }}
+                  className={classes.lockIconActive}
+                />
               ) : (
                 <LockOpenIcon style={{ fontSize: 15 }} />
               )}
             </IconButton>
           </Tooltip>
-          <Tooltip title={isVolumeEnabled ? 'Disable volume controls' : 'Enable volume controls'}>
+          <Tooltip
+            title={
+              isVolumeEnabled
+                ? 'Disable volume controls'
+                : 'Enable volume controls'
+            }
+          >
             <IconButton
               size="small"
               onClick={(event) => {
@@ -821,7 +837,10 @@ const RetailPlayerDeviceRow = memo(
               aria-label={`${isVolumeEnabled ? 'Disable' : 'Enable'} volume controls for device ${node.name}`}
             >
               {isVolumeEnabled ? (
-                <VolumeUpIcon style={{ fontSize: 15 }} className={classes.lockIconActive} />
+                <VolumeUpIcon
+                  style={{ fontSize: 15 }}
+                  className={classes.lockIconActive}
+                />
               ) : (
                 <VolumeOffIcon style={{ fontSize: 15 }} />
               )}
@@ -895,7 +914,10 @@ const RetailPlayerDeviceManagement = () => {
     target: null,
     parentId: null,
   })
-  const [deviceDialog, setDeviceDialog] = useState({ open: false, target: null })
+  const [deviceDialog, setDeviceDialog] = useState({
+    open: false,
+    target: null,
+  })
   const [activeFolderParam, setActiveFolderParam] = useState(() =>
     getRetailPlayerFolderIdFromSearch(location.search),
   )
@@ -1027,14 +1049,12 @@ const RetailPlayerDeviceManagement = () => {
   )
 
   const selectedFolderIds = useMemo(
-    () =>
-      Array.from(selectedIds).filter((id) => id && folderMap.has(id)),
+    () => Array.from(selectedIds).filter((id) => id && folderMap.has(id)),
     [selectedIds, folderMap],
   )
 
   const selectedDeviceIds = useMemo(
-    () =>
-      Array.from(selectedIds).filter((id) => id && deviceMap.has(id)),
+    () => Array.from(selectedIds).filter((id) => id && deviceMap.has(id)),
     [selectedIds, deviceMap],
   )
 
@@ -1135,7 +1155,9 @@ const RetailPlayerDeviceManagement = () => {
         const existingIds = Array.isArray(device.folderIds)
           ? device.folderIds
           : []
-        const mergedIds = Array.from(new Set([...existingIds, ...targetFolderIds]))
+        const mergedIds = Array.from(
+          new Set([...existingIds, ...targetFolderIds]),
+        )
         const changed =
           mergedIds.length !== existingIds.length ||
           mergedIds.some((id, index) => id !== existingIds[index])
@@ -1363,7 +1385,10 @@ const RetailPlayerDeviceManagement = () => {
       if (folderDialog.target) {
         await updateFolder({ id: folderDialog.target.id, name: values.name })
       } else {
-        await createFolder({ ...values, parentId: folderDialog.parentId || null })
+        await createFolder({
+          ...values,
+          parentId: folderDialog.parentId || null,
+        })
       }
       handleFolderDialogClose()
     } catch (err) {
@@ -1396,7 +1421,9 @@ const RetailPlayerDeviceManagement = () => {
       const successfulResults = Array.isArray(results)
         ? results.filter((result) => result?.remoteControlId && !result?.error)
         : []
-      const createdResults = successfulResults.filter((result) => result?.created)
+      const createdResults = successfulResults.filter(
+        (result) => result?.created,
+      )
       const failedResults = Array.isArray(results)
         ? results.filter((result) => result?.error)
         : []
@@ -1451,8 +1478,8 @@ const RetailPlayerDeviceManagement = () => {
 
   const unlockFolderDevices = useCallback(
     async (folderNode) => {
-      const devicesToUnlock = collectDevicesInNode(folderNode).filter((device) =>
-        isDeviceLocked(device),
+      const devicesToUnlock = collectDevicesInNode(folderNode).filter(
+        (device) => isDeviceLocked(device),
       )
       if (!devicesToUnlock.length) {
         return
@@ -1461,7 +1488,10 @@ const RetailPlayerDeviceManagement = () => {
         try {
           await updateDevice({ id: device.id, isLocked: false })
         } catch (err) {
-          console.error('Failed to unlock retail player device from folder', err)
+          console.error(
+            'Failed to unlock retail player device from folder',
+            err,
+          )
         }
       }
     },
@@ -1481,7 +1511,10 @@ const RetailPlayerDeviceManagement = () => {
           await updateDevice({ id: device.id, isVolumeEnabled: false })
         } catch (err) {
           // eslint-disable-next-line no-console
-          console.error('Failed to disable retail player device volume controls from folder', err)
+          console.error(
+            'Failed to disable retail player device volume controls from folder',
+            err,
+          )
         }
       }
     },
@@ -1501,7 +1534,10 @@ const RetailPlayerDeviceManagement = () => {
           await updateDevice({ id: device.id, isVolumeEnabled: true })
         } catch (err) {
           // eslint-disable-next-line no-console
-          console.error('Failed to enable retail player device volume controls from folder', err)
+          console.error(
+            'Failed to enable retail player device volume controls from folder',
+            err,
+          )
         }
       }
     },
@@ -1532,11 +1568,7 @@ const RetailPlayerDeviceManagement = () => {
       })
       await lockFolderDevices(folderNode)
     },
-    [
-      lockFolderDevices,
-      unlockFolderDevices,
-      updateFolder,
-    ],
+    [lockFolderDevices, unlockFolderDevices, updateFolder],
   )
 
   const handleToggleFolderVolumeControl = useCallback(
@@ -1568,35 +1600,46 @@ const RetailPlayerDeviceManagement = () => {
     ],
   )
 
-  const handleToggleDeviceLock = useCallback(async (device) => {
-    if (!device) {
-      return
-    }
+  const handleToggleDeviceLock = useCallback(
+    async (device) => {
+      if (!device) {
+        return
+      }
 
-    try {
-      const nextLockedValue = !isDeviceLocked(device)
-      await updateDevice({ id: device.id, isLocked: nextLockedValue })
-      setSelectedIds((previous) => new Set(previous))
-    } catch (err) {
-      console.error('Failed to update retail player device lock state', err)
-    }
-  }, [updateDevice])
+      try {
+        const nextLockedValue = !isDeviceLocked(device)
+        await updateDevice({ id: device.id, isLocked: nextLockedValue })
+        setSelectedIds((previous) => new Set(previous))
+      } catch (err) {
+        console.error('Failed to update retail player device lock state', err)
+      }
+    },
+    [updateDevice],
+  )
 
-  const handleToggleDeviceVolumeControl = useCallback(async (device) => {
-    if (!device?.id) {
-      return
-    }
+  const handleToggleDeviceVolumeControl = useCallback(
+    async (device) => {
+      if (!device?.id) {
+        return
+      }
 
-    try {
-      const nextIsVolumeEnabled = device.isVolumeEnabled !== false
-        ? false
-        : true
-      await updateDevice({ id: device.id, isVolumeEnabled: nextIsVolumeEnabled })
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to update retail player volume control state', err)
-    }
-  }, [updateDevice])
+      try {
+        const nextIsVolumeEnabled =
+          device.isVolumeEnabled !== false ? false : true
+        await updateDevice({
+          id: device.id,
+          isVolumeEnabled: nextIsVolumeEnabled,
+        })
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(
+          'Failed to update retail player volume control state',
+          err,
+        )
+      }
+    },
+    [updateDevice],
+  )
 
   const handleNavigateToDevice = useCallback(
     (device) => {
@@ -1648,8 +1691,10 @@ const RetailPlayerDeviceManagement = () => {
   }, [lastSelectedId, visibleNodeIds])
 
   const allSelected =
-    visibleNodeIds.length > 0 && visibleNodeIds.every((id) => selectedIds.has(id))
-  const someSelected = !allSelected && visibleNodeIds.some((id) => selectedIds.has(id))
+    visibleNodeIds.length > 0 &&
+    visibleNodeIds.every((id) => selectedIds.has(id))
+  const someSelected =
+    !allSelected && visibleNodeIds.some((id) => selectedIds.has(id))
 
   const handleSelectAllChange = (event) => {
     const { checked } = event.target
@@ -1730,7 +1775,6 @@ const RetailPlayerDeviceManagement = () => {
     }
   }
 
-
   const isLoading = loading
 
   const renderRows = (nodes) =>
@@ -1763,7 +1807,9 @@ const RetailPlayerDeviceManagement = () => {
       const isSelected = selectedIds.has(node.id)
       const rowKey = node.treeKey || node.id
       const isOnline =
-        typeof node.online === 'boolean' ? node.online : deviceStatusMap.get(node.id) ?? null
+        typeof node.online === 'boolean'
+          ? node.online
+          : (deviceStatusMap.get(node.id) ?? null)
       return (
         <RetailPlayerDeviceRow
           key={`device-row-${rowKey}`}
@@ -1783,13 +1829,19 @@ const RetailPlayerDeviceManagement = () => {
       )
     })
 
+  // Guests reach this page through a shared folder link, so the folder name
+  // stands in for the (admin-only) "Retail Player Devices" heading.
+  const guestFolderName = activeFolderNode?.name || activeFolderParam || ''
+  const pageTitle =
+    isGuest && guestFolderName ? guestFolderName : 'Retail Player Devices'
+
   return (
     <div className={classes.root}>
-      <Title title="Retail Player Devices" />
+      <Title title={pageTitle} />
       <div className={classes.header}>
         <div className={classes.titleBlock}>
           <Typography component="h1" variant="h4">
-            Retail Player Devices
+            {pageTitle}
           </Typography>
         </div>
         <div className={classes.headerControls}>
@@ -1823,14 +1875,16 @@ const RetailPlayerDeviceManagement = () => {
                 QR IDs
               </Button>
             ) : null}
-            <Button
-              color="primary"
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleCreateFolder}
-            >
-              Create Folder
-            </Button>
+            {!isGuest ? (
+              <Button
+                color="primary"
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleCreateFolder}
+              >
+                Create Folder
+              </Button>
+            ) : null}
           </div>
           {qrSyncStatus ? (
             <Typography
@@ -1847,7 +1901,7 @@ const RetailPlayerDeviceManagement = () => {
         className={clsx(classes.panel, isGuest && classes.guestPanel)}
         elevation={0}
       >
-        {activeFolderNode ? (
+        {activeFolderNode && !isGuest ? (
           <div className={classes.breadcrumbBar}>
             <Breadcrumbs
               aria-label="Folder navigation"
@@ -1929,7 +1983,7 @@ const RetailPlayerDeviceManagement = () => {
               indeterminate={someSelected}
               onChange={handleSelectAllChange}
               inputProps={{ 'aria-label': 'Select all retail player items' }}
-              style={{ transform: 'scale(0.8)' }} 
+              style={{ transform: 'scale(0.8)' }}
             />
           </div>
           <span>Name</span>
@@ -1946,7 +2000,8 @@ const RetailPlayerDeviceManagement = () => {
         ) : error ? (
           <div className={classes.errorState}>
             <Typography variant="body2">
-              We could not load retail player devices right now. Please try again.
+              We could not load retail player devices right now. Please try
+              again.
             </Typography>
           </div>
         ) : visibleNodes.length ? (
@@ -1965,8 +2020,8 @@ const RetailPlayerDeviceManagement = () => {
               </Typography>
             ) : (
               <Typography variant="body2">
-                No devices found yet. Use the Create menu to add folders or local
-                devices.
+                No devices found yet. Use the Create menu to add folders or
+                local devices.
               </Typography>
             )}
           </div>
@@ -2024,7 +2079,6 @@ const RetailPlayerDeviceManagement = () => {
         onSubmit={handleDeviceSubmit}
         initialValues={deviceDialog.target}
       />
-
     </div>
   )
 }

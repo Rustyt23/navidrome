@@ -161,7 +161,31 @@ const useChildrenStore = () => {
     })
   }, [])
 
-  return { get, setItems, markDirty, moveItem, ensure }
+  const updateItem = useCallback((item) => {
+    if (!item?.id || !item?.type) return
+
+    setStore((s) => {
+      let changed = false
+      const next = {}
+
+      Object.entries(s).forEach(([key, entry]) => {
+        let entryChanged = false
+        const items = entry.items.map((existing) => {
+          if (existing.id !== item.id || existing.type !== item.type) {
+            return existing
+          }
+          entryChanged = true
+          changed = true
+          return { ...existing, ...item }
+        })
+        next[key] = entryChanged ? { ...entry, items } : entry
+      })
+
+      return changed ? next : s
+    })
+  }, [])
+
+  return { get, setItems, markDirty, moveItem, updateItem, ensure }
 }
 
 const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
@@ -530,7 +554,7 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
     history.push({ pathname: '/folder', state: { parentId: null } })
   }, [history])
 
-  const { get, markDirty, ensure, moveItem } = childrenStore
+  const { get, markDirty, ensure, moveItem, updateItem } = childrenStore
   const { items: rootItems, dirty: rootDirty, cached: rootCached } = get('')
 
   const fetchRootOnce = useCallback(async () => {
@@ -553,7 +577,12 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
 
   useEffect(() => {
     const onChanged = (e) => {
-      const { sourceParentId, targetParentId } = e.detail || {}
+      const { type, resource, id, name, sourceParentId, targetParentId } = e.detail || {}
+      if (type === 'update' && resource && id) {
+        const item = { id, type: resource }
+        if (typeof name === 'string') item.name = name
+        updateItem(item)
+      }
       const targets = []
       if (sourceParentId !== undefined) targets.push(parentKey(sourceParentId))
       if (targetParentId !== undefined) targets.push(parentKey(targetParentId))
@@ -564,7 +593,7 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
     }
     window.addEventListener('folder:changed', onChanged)
     return () => window.removeEventListener('folder:changed', onChanged)
-  }, [markDirty, refresh])
+  }, [markDirty, refresh, updateItem])
 
   const [, dropRef] = useDrop(() => ({
     accept: [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],

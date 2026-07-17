@@ -205,6 +205,9 @@ const emitFoldersChanged = (detail) => {
   }
 }
 
+const folderParentId = (record) =>
+  record?.folderId ?? record?.folder_id ?? record?.parentId ?? record?.parent_id
+
 const wrapperDataProvider = {
   ...dataProvider,
   getList: (resource, params) => {
@@ -242,9 +245,19 @@ const wrapperDataProvider = {
     const [r, p] = mapResource(resource, params)
     return dataProvider.update(r, p).then((res) => {
       if (resource === 'playlist' || resource === 'folder') {
-        const parentId =
-          (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
-        emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
+        const saved = res?.data ?? {}
+        const targetParentId =
+          folderParentId(saved) ?? folderParentId(params?.data) ?? ''
+        const sourceParentId =
+          folderParentId(params?.previousData) ?? targetParentId
+        emitFoldersChanged({
+          type: 'update',
+          resource,
+          id: saved.id ?? params?.id,
+          name: saved.name ?? params?.data?.name,
+          sourceParentId,
+          targetParentId,
+        })
       }
       return res
     })
