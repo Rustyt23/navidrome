@@ -90,13 +90,40 @@ const renderPage = (
   )
 }
 
-const chooseModel = async (model) => {
-  const dialog = await screen.findByRole('dialog')
-  fireEvent.mouseDown(
-    within(dialog).getByRole('button', { name: 'DeepSeek V3.2' }),
+const openRAGControls = async () => {
+  const toggle = await screen.findByRole('button', {
+    name: /RAG controls/,
+  })
+  if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle)
+  return screen.findByRole('region', { name: 'RAG controls' })
+}
+
+const openExplicitActions = () => {
+  fireEvent.click(screen.getByRole('button', { name: 'Explicit' }))
+  return screen.getByRole('menu', { name: 'Explicit actions' })
+}
+
+const openMetadataActions = () => {
+  fireEvent.click(screen.getByRole('button', { name: 'Metadata' }))
+  return screen.getByRole('menu', { name: 'Metadata actions' })
+}
+
+const clickExplicitAction = (name) => {
+  fireEvent.click(within(openExplicitActions()).getByRole('menuitem', { name }))
+}
+
+const clickMetadataAction = (name) => {
+  fireEvent.click(within(openMetadataActions()).getByRole('menuitem', { name }))
+}
+
+const openColumnMenu = () => {
+  const metadataMenu = openMetadataActions()
+  fireEvent.click(
+    within(metadataMenu).getByRole('menuitem', {
+      name: 'Columns to display',
+    }),
   )
-  fireEvent.click(await screen.findByRole('option', { name: model }))
-  return dialog
+  return screen.getByRole('menu')
 }
 
 describe('AiToolPage AI actions', () => {
@@ -127,7 +154,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
+    clickExplicitAction('Fetch Lyrics')
     await screen.findByRole('button', { name: 'Stop' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
@@ -144,46 +171,44 @@ describe('AiToolPage AI actions', () => {
   it('shows the read-only RAG configuration status', async () => {
     renderPage('/api/unused', () => Promise.resolve({ json: {} }))
 
-    const status = await screen.findByRole('region', { name: 'RAG status' })
-    expect(within(status).getByText('Enabled')).toBeInTheDocument()
+    expect(await screen.findByLabelText('RAG status: Enabled')).toBeVisible()
+    expect(screen.getByLabelText('Vector DB status: Online')).toBeVisible()
+
+    const controls = await openRAGControls()
     expect(
-      within(status).getByText('Vector URL: http://vector.test:6333'),
+      within(controls).getByText('Vector URL: http://vector.test:6333'),
     ).toBeInTheDocument()
     expect(
-      within(status).getByText('Collection: test_songs'),
+      within(controls).getByText('Collection: test_songs'),
     ).toBeInTheDocument()
-    expect(within(status).getByText('Online')).toBeInTheDocument()
-    expect(within(status).getByText('Exists')).toBeInTheDocument()
-    expect(within(status).getByText('Indexed: 42')).toBeInTheDocument()
-    expect(within(status).getByText('Top K: 12')).toBeInTheDocument()
+    expect(within(controls).getByText('Exists')).toBeInTheDocument()
+    expect(within(controls).getByText('Indexed: 42')).toBeInTheDocument()
+    expect(within(controls).getByText('Top K: 12')).toBeInTheDocument()
     expect(
-      within(status).getByText(
+      within(controls).getByText(
         'Embeddings: Offline protected · ollama (embeddinggemma)',
       ),
     ).toBeInTheDocument()
     expect(mockHttpClient).toHaveBeenCalledWith('/api/ai/rag/status')
   })
 
-  it('collapses the complete AI model and RAG status section', async () => {
+  it('keeps RAG controls collapsed by default without hiding model health', async () => {
     renderPage('/api/unused', () => Promise.resolve({ json: {} }))
 
     const toggle = await screen.findByRole('button', {
-      name: /AI model and RAG status/,
+      name: /RAG controls/,
     })
-    expect(screen.getByRole('region', { name: 'RAG status' })).toBeVisible()
-
-    fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('region', { name: 'RAG status' }),
-      ).not.toBeInTheDocument(),
-    )
+    expect(screen.queryByRole('region', { name: 'RAG controls' })).toBeNull()
+    expect(screen.getByLabelText('RAG status: Enabled')).toBeVisible()
+    expect(screen.getByLabelText('Vector DB status: Online')).toBeVisible()
+    expect(screen.getByText('Gemma 26B')).toBeVisible()
+    expect(screen.getByText('Whisper')).toBeVisible()
 
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(
-      await screen.findByRole('region', { name: 'RAG status' }),
+      await screen.findByRole('region', { name: 'RAG controls' }),
     ).toBeVisible()
   })
 
@@ -213,13 +238,13 @@ describe('AiToolPage AI actions', () => {
       error: 'Qdrant unavailable: connection refused',
     })
 
-    const status = await screen.findByRole('region', { name: 'RAG status' })
-    expect(within(status).getByText('Enabled')).toBeInTheDocument()
-    expect(within(status).getByText('Offline')).toBeInTheDocument()
-    expect(within(status).getByText('Missing')).toBeInTheDocument()
-    expect(within(status).getByText('Indexed: 0')).toBeInTheDocument()
+    expect(await screen.findByLabelText('RAG status: Enabled')).toBeVisible()
+    expect(screen.getByLabelText('Vector DB status: Offline')).toBeVisible()
+    const controls = await openRAGControls()
+    expect(within(controls).getByText('Missing')).toBeInTheDocument()
+    expect(within(controls).getByText('Indexed: 0')).toBeInTheDocument()
     expect(
-      within(status).getByText('Qdrant unavailable: connection refused'),
+      within(controls).getByText('Qdrant unavailable: connection refused'),
     ).toBeInTheDocument()
   })
 
@@ -232,15 +257,15 @@ describe('AiToolPage AI actions', () => {
       indexedCount: 0,
     })
 
-    const status = await screen.findByRole('region', { name: 'RAG status' })
-    expect(within(status).getByText('Disabled')).toBeInTheDocument()
-    expect(within(status).getByText('Offline')).toBeInTheDocument()
-    expect(within(status).getByText('Missing')).toBeInTheDocument()
+    expect(await screen.findByLabelText('RAG status: Disabled')).toBeVisible()
+    expect(screen.getByLabelText('Vector DB status: Offline')).toBeVisible()
+    const controls = await openRAGControls()
+    expect(within(controls).getByText('Missing')).toBeInTheDocument()
     expect(
-      within(status).getByRole('spinbutton', { name: 'Songs to index' }),
+      within(controls).getByRole('spinbutton', { name: 'Songs to index' }),
     ).toHaveValue(50)
     expect(
-      within(status).getByRole('button', { name: 'Index 50 songs' }),
+      within(controls).getByRole('button', { name: 'Index 50 songs' }),
     ).toBeDisabled()
   })
 
@@ -251,14 +276,16 @@ describe('AiToolPage AI actions', () => {
       return Promise.resolve({ json: { enabled: false } })
     })
 
-    const status = await screen.findByRole('region', { name: 'RAG status' })
-    fireEvent.click(within(status).getByRole('button', { name: 'Disable RAG' }))
+    const controls = await openRAGControls()
+    fireEvent.click(
+      within(controls).getByRole('button', { name: 'Disable RAG' }),
+    )
 
     await waitFor(() => expect(requests).toEqual([{ enabled: false }]))
     expect(
-      within(status).getByRole('button', { name: 'Enable RAG' }),
+      within(controls).getByRole('button', { name: 'Enable RAG' }),
     ).toBeInTheDocument()
-    expect(within(status).getByText('Disabled')).toBeInTheDocument()
+    expect(screen.getByLabelText('RAG status: Disabled')).toBeVisible()
   })
 
   it('selects the default Whisper model', async () => {
@@ -285,6 +312,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
+    await openRAGControls()
     const limitInput = await screen.findByRole('spinbutton', {
       name: 'Songs to index',
     })
@@ -325,6 +353,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
+    await openRAGControls()
     fireEvent.click(
       await screen.findByRole('checkbox', { name: 'Include playlists' }),
     )
@@ -351,6 +380,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
+    await openRAGControls()
     fireEvent.click(
       await screen.findByRole('button', {
         name: 'Refresh 50 indexed songs',
@@ -377,8 +407,8 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    const status = await screen.findByRole('region', { name: 'RAG status' })
-    const addButton = within(status).getByRole('button', {
+    const controls = await openRAGControls()
+    const addButton = within(controls).getByRole('button', {
       name: 'Add Qdrant lyrics',
     })
     await waitFor(() => expect(addButton).toBeEnabled())
@@ -422,8 +452,8 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    const status = await screen.findByRole('region', { name: 'RAG status' })
-    const viewButton = within(status).getByRole('button', {
+    const controls = await openRAGControls()
+    const viewButton = within(controls).getByRole('button', {
       name: 'View Qdrant lyrics',
     })
     await waitFor(() => expect(viewButton).toBeEnabled())
@@ -478,8 +508,8 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    const status = await screen.findByRole('region', { name: 'RAG status' })
-    const button = within(status).getByRole('button', {
+    const controls = await openRAGControls()
+    const button = within(controls).getByRole('button', {
       name: 'Clear indexed songs',
     })
     await waitFor(() => expect(button).toBeEnabled())
@@ -539,8 +569,8 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    const status = await screen.findByRole('region', { name: 'RAG status' })
-    const viewButton = within(status).getByRole('button', {
+    const controls = await openRAGControls()
+    const viewButton = within(controls).getByRole('button', {
       name: 'View indexed songs',
     })
     await waitFor(() => expect(viewButton).toBeEnabled())
@@ -629,6 +659,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
+    await openRAGControls()
     const input = screen.getByPlaceholderText('Test RAG search')
     fireEvent.change(input, { target: { value: 'clean upbeat songs' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'Clean only' }))
@@ -974,7 +1005,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
+    clickExplicitAction('Fetch Lyrics')
 
     await waitFor(() =>
       expect(requests).toEqual([
@@ -1011,7 +1042,8 @@ describe('AiToolPage AI actions', () => {
     const setIntervalSpy = vi.spyOn(window, 'setInterval')
     const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
     try {
-      const switchControl = await screen.findByRole('checkbox', {
+      const explicitMenu = openExplicitActions()
+      const switchControl = within(explicitMenu).getByRole('checkbox', {
         name: 'Fetch All Song Lyrics',
       })
       expect(switchControl).not.toBeChecked()
@@ -1032,8 +1064,10 @@ describe('AiToolPage AI actions', () => {
       )
       expect(switchControl).toBeChecked()
       expect(
-        await screen.findByRole('button', { name: 'Fetching Lyrics...' }),
-      ).toBeDisabled()
+        await within(explicitMenu).findByRole('menuitem', {
+          name: 'Fetching Lyrics...',
+        }),
+      ).toHaveAttribute('aria-disabled', 'true')
       expect(await screen.findByText(/0\/2 done, 2 left/)).toBeInTheDocument()
       await waitFor(() =>
         expect(localStorage.getItem('aiToolAutoFetchAllLyrics')).toBe('true'),
@@ -1054,7 +1088,9 @@ describe('AiToolPage AI actions', () => {
         ]),
       )
       expect(
-        await screen.findByRole('button', { name: 'Fetch Lyrics' }),
+        await within(explicitMenu).findByRole('menuitem', {
+          name: 'Fetch Lyrics',
+        }),
       ).toBeInTheDocument()
       await waitFor(() =>
         expect(localStorage.getItem('aiToolAutoFetchAllLyrics')).toBe('false'),
@@ -1082,7 +1118,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    const switchControl = await screen.findByRole('checkbox', {
+    const switchControl = within(openExplicitActions()).getByRole('checkbox', {
       name: 'Fetch All Song Lyrics',
     })
     expect(switchControl).toBeChecked()
@@ -1104,7 +1140,8 @@ describe('AiToolPage AI actions', () => {
       return Promise.resolve({ json: { songs: [] } })
     })
 
-    const providerSelector = await screen.findByRole('button', {
+    const metadataMenu = openMetadataActions()
+    const providerSelector = within(metadataMenu).getByRole('button', {
       name: 'Default Metadata AI Provider',
     })
     fireEvent.mouseDown(providerSelector)
@@ -1121,7 +1158,7 @@ describe('AiToolPage AI actions', () => {
     const setIntervalSpy = vi.spyOn(window, 'setInterval')
     const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
     try {
-      const switchControl = screen.getByRole('checkbox', {
+      const switchControl = within(metadataMenu).getByRole('checkbox', {
         name: 'Fetch All Song Metadata',
       })
       expect(switchControl).not.toBeChecked()
@@ -1159,37 +1196,49 @@ describe('AiToolPage AI actions', () => {
     }
   })
 
-  it('uses the metadata provider as the manual fetch default', async () => {
+  it('fetches metadata with the saved provider without prompting again', async () => {
     localStorage.setItem('aiToolMetadataAIProvider', 'gemini-2.5')
-    renderPage('/api/unused', () => Promise.resolve({ json: {} }))
+    const requests = []
+    renderPage('/api/ai/fetch-metadata', (_url, options = {}) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({ json: { songs: [] } })
+    })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+    clickMetadataAction('Fetch AI Metadata')
 
-    const dialog = await screen.findByRole('dialog')
-    expect(
-      within(dialog).getByRole('button', { name: 'Gemini 2.5' }),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(requests).toEqual([
+        { songIds: ['song-1'], provider: 'gemini-2.5' },
+        { songIds: ['song-2'], provider: 'gemini-2.5' },
+      ]),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('stops automatic metadata fetching when disabled and labels its spinner', async () => {
     const signals = []
     renderPage('/api/ai/fetch-metadata', createAbortableRequest(signals))
 
-    const switchControl = await screen.findByRole('checkbox', {
+    const metadataMenu = openMetadataActions()
+    const switchControl = within(metadataMenu).getByRole('checkbox', {
       name: 'Fetch All Song Metadata',
     })
     fireEvent.click(switchControl)
 
     expect(
-      await screen.findByRole('button', { name: 'Fetching Metadata...' }),
-    ).toBeDisabled()
+      await within(metadataMenu).findByRole('menuitem', {
+        name: 'Fetching Metadata...',
+      }),
+    ).toHaveAttribute('aria-disabled', 'true')
     expect(signals).toHaveLength(1)
 
     fireEvent.click(switchControl)
 
     await waitFor(() => expect(signals[0].aborted).toBe(true))
     expect(
-      await screen.findByRole('button', { name: 'Fetch AI Metadata' }),
+      await within(metadataMenu).findByRole('menuitem', {
+        name: 'Fetch AI Metadata',
+      }),
     ).toBeInTheDocument()
   })
 
@@ -1241,14 +1290,23 @@ describe('AiToolPage AI actions', () => {
     ).toBeInTheDocument()
     const whisper = screen.getByText('Whisper')
     expect(within(whisper.parentElement).getByText('Busy')).toBeInTheDocument()
+    const metadataMenu = openMetadataActions()
     expect(
-      screen.getByRole('button', { name: 'Fetch AI Metadata' }),
-    ).toBeEnabled()
+      within(metadataMenu).getByRole('menuitem', {
+        name: 'Fetch AI Metadata',
+      }),
+    ).not.toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(
+      within(metadataMenu).getByRole('button', {
+        name: 'Close Metadata actions',
+      }),
+    )
 
-    const classifyButton = screen.getByRole('button', {
+    const explicitMenu = openExplicitActions()
+    const classifyButton = within(explicitMenu).getByRole('menuitem', {
       name: 'Classify Explicit',
     })
-    expect(classifyButton).toBeEnabled()
+    expect(classifyButton).not.toHaveAttribute('aria-disabled', 'true')
     fireEvent.click(classifyButton)
 
     const dialog = await screen.findByRole('dialog')
@@ -1283,11 +1341,7 @@ describe('AiToolPage AI actions', () => {
     expect(
       await screen.findByText(/Fetching lyrics: First song/),
     ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
-    )
+    clickMetadataAction('Fetch AI Metadata')
 
     expect(
       await screen.findByText(/Fetching AI metadata: First song/),
@@ -1326,7 +1380,7 @@ describe('AiToolPage AI actions', () => {
         })
       })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
+      clickExplicitAction('Fetch Lyrics')
 
       expect(
         await screen.findByText(
@@ -1363,7 +1417,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch Lyrics' }))
+    clickExplicitAction('Fetch Lyrics')
 
     expect(
       await screen.findByText('Whisper did not finish the complete song'),
@@ -1387,7 +1441,7 @@ describe('AiToolPage AI actions', () => {
       return Promise.resolve({ json: { deleted: true } })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Lyrics' }))
+    clickExplicitAction('Delete Lyrics')
 
     await waitFor(() => expect(requests).toHaveLength(2))
     expect(requests).toEqual([
@@ -1417,7 +1471,29 @@ describe('AiToolPage AI actions', () => {
     expect(await screen.findByText('Failed')).toBeInTheDocument()
   })
 
+  it('fetches row metadata with the saved provider without prompting again', async () => {
+    localStorage.setItem('aiToolMetadataAIProvider', 'gemini-3.5')
+    const requests = []
+    renderPage('/api/ai/fetch-metadata', (_url, options = {}) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({ json: { songs: [] } })
+    })
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Actions' })[0])
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Fetch AI Metadata' }),
+    )
+
+    await waitFor(() =>
+      expect(requests).toEqual([
+        { songIds: ['song-1'], provider: 'gemini-3.5' },
+      ]),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('stops an in-progress metadata fetch', async () => {
+    localStorage.setItem('aiToolMetadataAIProvider', 'gemma-26b')
     const signals = []
     const requests = []
     renderPage('/api/ai/fetch-metadata', (url, options) => {
@@ -1425,11 +1501,7 @@ describe('AiToolPage AI actions', () => {
       return createAbortableRequest(signals)(url, options)
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await chooseModel('Gemma 26B')
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
-    )
+    clickMetadataAction('Fetch AI Metadata')
     const stopButton = await screen.findByRole('button', { name: 'Stop' })
     expect(signals).toHaveLength(1)
     expect(requests[0].provider).toBe('gemma-26b')
@@ -1450,7 +1522,7 @@ describe('AiToolPage AI actions', () => {
       return Promise.resolve({ json: { songs: [] } })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Classify Explicit' }))
+    clickExplicitAction('Classify Explicit')
     const dialog = await screen.findByRole('dialog')
     expect(
       within(dialog).getByText(
@@ -1479,8 +1551,10 @@ describe('AiToolPage AI actions', () => {
     )
 
     expect(
-      screen.getByRole('button', { name: 'Classify Explicit' }),
-    ).toBeDisabled()
+      within(openExplicitActions()).getByRole('menuitem', {
+        name: 'Classify Explicit',
+      }),
+    ).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('shows classification reasons when Clean or Explicit is clicked', async () => {
@@ -1521,7 +1595,7 @@ describe('AiToolPage AI actions', () => {
       return Promise.resolve({ json: { songs: [] } })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Explicit word rules' }))
+    clickExplicitAction('Explicit word rules')
     fireEvent.change(
       await screen.findByRole('textbox', {
         name: 'Words categorised as explicit',
@@ -1535,11 +1609,11 @@ describe('AiToolPage AI actions', () => {
       { target: { value: 'custom mild' } },
     )
     fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    )
 
-    const classifyButton = await screen.findByRole('button', {
-      name: 'Classify Explicit',
-    })
-    fireEvent.click(classifyButton)
+    clickExplicitAction('Classify Explicit')
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Classify' }))
 
@@ -1587,7 +1661,7 @@ describe('AiToolPage AI actions', () => {
     )
     renderPage('/api/unused', () => Promise.resolve({ json: {} }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Explicit word rules' }))
+    clickExplicitAction('Explicit word rules')
     expect(
       (
         await screen.findByRole('textbox', {
@@ -1602,21 +1676,29 @@ describe('AiToolPage AI actions', () => {
     ).toContain('goddamn')
   })
 
-  it('uses Gemma 3:4b for metadata when selected', async () => {
+  it('uses the selected default provider for metadata', async () => {
     const requests = []
     renderPage('/api/ai/fetch-metadata', (_url, options) => {
       requests.push(JSON.parse(options.body))
       return Promise.resolve({ json: { songs: [] } })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await chooseModel('Gemma 3:4b')
+    const metadataMenu = openMetadataActions()
+    const providerSelector = within(metadataMenu).getByRole('button', {
+      name: 'Default Metadata AI Provider',
+    })
+    fireEvent.mouseDown(providerSelector)
+    fireEvent.click(await screen.findByRole('option', { name: 'Gemma 3:4b' }))
+
     fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
+      within(metadataMenu).getByRole('menuitem', {
+        name: 'Fetch AI Metadata',
+      }),
     )
 
     await waitFor(() => expect(requests).toHaveLength(1))
     expect(requests[0].provider).toBe('gemma-3-4b')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('batches multiple songs into one request when a batch size is chosen', async () => {
@@ -1626,7 +1708,8 @@ describe('AiToolPage AI actions', () => {
       return Promise.resolve({ json: { songs: [] } })
     })
 
-    const batchSelector = screen.getByRole('button', {
+    const metadataMenu = openMetadataActions()
+    const batchSelector = within(metadataMenu).getByRole('button', {
       name: 'Songs per AI Prompt',
     })
     fireEvent.mouseDown(batchSelector)
@@ -1636,10 +1719,10 @@ describe('AiToolPage AI actions', () => {
       expect(localStorage.getItem('aiToolMetadataBatchSize')).toBe('2'),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await screen.findByRole('dialog')
     fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
+      within(metadataMenu).getByRole('menuitem', {
+        name: 'Fetch AI Metadata',
+      }),
     )
 
     // Both songs go out in a single request instead of one request each.
@@ -1663,11 +1746,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
-    )
+    clickMetadataAction('Fetch AI Metadata')
 
     await waitFor(() => {
       expect(screen.getAllByText('73%')).toHaveLength(2)
@@ -1700,11 +1779,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
-    )
+    clickMetadataAction('Fetch AI Metadata')
 
     await waitFor(() => {
       const saved = JSON.parse(localStorage.getItem('aiToolAddedSongs'))[0]
@@ -1739,11 +1814,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
-    )
+    clickMetadataAction('Fetch AI Metadata')
 
     await waitFor(() => {
       expect(screen.getAllByText('Indie Pop').length).toBeGreaterThan(0)
@@ -1774,11 +1845,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
-    )
+    clickMetadataAction('Fetch AI Metadata')
 
     await waitFor(() => {
       expect(screen.getAllByText('House').length).toBeGreaterThan(0)
@@ -1853,11 +1920,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const modelDialog = await screen.findByRole('dialog')
-    fireEvent.click(
-      within(modelDialog).getByRole('button', { name: 'Fetch Metadata' }),
-    )
+    clickMetadataAction('Fetch AI Metadata')
 
     fireEvent.click(
       await screen.findByRole('button', {
@@ -1933,11 +1996,7 @@ describe('AiToolPage AI actions', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
-    )
+    clickMetadataAction('Fetch AI Metadata')
 
     const badge = await screen.findByText('100%')
     fireEvent.click(badge)
@@ -1982,9 +2041,7 @@ describe('AiToolPage AI actions', () => {
       return Promise.resolve({ json: { songIds: ['song-1', 'song-2'] } })
     })
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Clear Fetched Metadata' }),
-    )
+    clickMetadataAction('Clear Fetched Metadata')
 
     await waitFor(() => expect(requests).toHaveLength(1))
     expect(requests[0]).toEqual({
@@ -2014,8 +2071,7 @@ describe('AiToolPage AI actions', () => {
   it('lets the user choose visible columns from the Columns menu', () => {
     renderPage('/api/unused', () => Promise.resolve({ json: {} }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Columns' }))
-    const menu = screen.getByRole('menu')
+    const menu = openColumnMenu()
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Album' }))
     fireEvent.keyDown(menu, { key: 'Escape' })
 
@@ -2026,8 +2082,7 @@ describe('AiToolPage AI actions', () => {
       screen.getByRole('columnheader', { name: 'Year' }),
     ).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Columns' }))
-    const reopenedMenu = screen.getByRole('menu')
+    const reopenedMenu = openColumnMenu()
     fireEvent.click(
       within(reopenedMenu).getByRole('menuitem', { name: 'Album' }),
     )
@@ -2040,8 +2095,7 @@ describe('AiToolPage AI actions', () => {
   it('toggles all confidence columns together from the Columns menu', () => {
     renderPage('/api/unused', () => Promise.resolve({ json: {} }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Columns' }))
-    const menu = screen.getByRole('menu')
+    const menu = openColumnMenu()
     const confidenceToggle = within(menu).getByRole('menuitem', {
       name: 'All Confidence Columns',
     })
@@ -2052,8 +2106,7 @@ describe('AiToolPage AI actions', () => {
       screen.queryByRole('columnheader', { name: 'Genre Confidence' }),
     ).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Columns' }))
-    const reopenedMenu = screen.getByRole('menu')
+    const reopenedMenu = openColumnMenu()
     fireEvent.click(
       within(reopenedMenu).getByRole('menuitem', {
         name: 'All Confidence Columns',
@@ -2069,12 +2122,12 @@ describe('AiToolPage AI actions', () => {
   it('hides and shows confidence columns from the toolbar', () => {
     renderPage('/api/unused', () => Promise.resolve({ json: {} }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hide Confidence' }))
+    clickMetadataAction('Hide Confidence')
     expect(
       screen.queryByRole('columnheader', { name: 'Genre Confidence' }),
     ).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show Confidence' }))
+    clickMetadataAction('Show Confidence')
     expect(
       screen.getByRole('columnheader', { name: 'Genre Confidence' }),
     ).toBeInTheDocument()

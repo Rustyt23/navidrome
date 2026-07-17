@@ -11,7 +11,13 @@ import useCurrentTheme from '../themes/useCurrentTheme'
 import { useSearchRefocus } from '../common'
 
 const useStyles = makeStyles({
-  root: { paddingBottom: (props) => (props.addPadding ? '80px' : 0) },
+  root: {
+    paddingBottom: (props) => (props.addPadding ? '80px' : 0),
+    '& #main-content': {
+      minWidth: 0,
+      overflowX: 'hidden',
+    },
+  },
 })
 
 const Empty = () => null

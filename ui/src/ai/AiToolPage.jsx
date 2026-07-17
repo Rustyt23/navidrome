@@ -30,6 +30,13 @@ import MoreVertIcon from '@material-ui/icons/MoreVert'
 import AspectRatioIcon from '@material-ui/icons/AspectRatio'
 import StopIcon from '@material-ui/icons/Stop'
 import ViewColumnIcon from '@material-ui/icons/ViewColumn'
+import DeleteOutlineIcon from '@material-ui/icons/DeleteOutline'
+import ExpandLessIcon from '@material-ui/icons/ExpandLess'
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
+import LabelOutlinedIcon from '@material-ui/icons/LabelOutlined'
+import LibraryMusicIcon from '@material-ui/icons/LibraryMusic'
+import QueueMusicIcon from '@material-ui/icons/QueueMusic'
+import SettingsApplicationsIcon from '@material-ui/icons/SettingsApplications'
 import { Title, useDataProvider, useTranslate } from 'react-admin'
 import { httpClient } from '../dataProvider'
 
@@ -321,13 +328,31 @@ const normalizeAddedSongs = (songs = []) => {
 const useStyles = makeStyles((theme) => ({
   root: {
     padding: theme.spacing(2),
+    minWidth: 0,
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+    overflowX: 'hidden',
+    '& > .MuiCard-root': {
+      minWidth: 0,
+      maxWidth: '100%',
+      overflow: 'hidden',
+    },
+    '& .MuiCardContent-root': {
+      minWidth: 0,
+      maxWidth: '100%',
+      boxSizing: 'border-box',
+    },
   },
   section: {
     marginBottom: theme.spacing(2),
   },
   tableWrap: {
     marginTop: theme.spacing(2),
+    width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
     overflowX: 'auto',
+    overscrollBehaviorX: 'contain',
   },
   tableActions: {
     display: 'flex',
@@ -377,6 +402,157 @@ const useStyles = makeStyles((theme) => ({
   songToolsActions: {
     padding: theme.spacing(0, 1.5, 1.25),
   },
+  songToolsActionButton: {
+    borderColor: 'rgba(255, 42, 142, 0.52)',
+    color: '#ff8fc6',
+    background: 'rgba(255, 42, 142, 0.06)',
+    '&:hover': {
+      borderColor: '#ff2a8e',
+      background: 'rgba(255, 42, 142, 0.15)',
+    },
+    '& .MuiButton-endIcon': {
+      marginLeft: theme.spacing(0.25),
+    },
+  },
+  songToolsActionButtonOpen: {
+    borderColor: '#ff2a8e',
+    color: '#ffffff',
+    background: '#ff2a8e',
+    '&:hover': {
+      borderColor: '#e9197c',
+      background: '#e9197c',
+    },
+  },
+  songToolsMenu: {
+    '& .MuiPaper-root': {
+      width: 980,
+      maxWidth: 'calc(100vw - 32px)',
+      maxHeight: 'calc(100vh - 96px)',
+      border: '1px solid rgba(255, 42, 142, 0.48)',
+      borderRadius: 10,
+      color: '#f7f8fb',
+      background: '#151f2d',
+      boxShadow:
+        '0 20px 46px rgba(0, 0, 0, 0.46), 0 0 18px rgba(255, 42, 142, 0.12)',
+      overflow: 'hidden',
+    },
+    '& .MuiMenu-list': {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))',
+      gap: theme.spacing(1),
+      maxHeight: 'calc(100vh - 96px)',
+      padding: theme.spacing(1),
+      overflowY: 'auto',
+    },
+    [theme.breakpoints.down('sm')]: {
+      '& .MuiPaper-root': {
+        width: 'calc(100vw - 24px)',
+      },
+      '& .MuiMenu-list': {
+        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+      },
+    },
+  },
+  songToolsMenuItem: {
+    minHeight: 58,
+    borderRadius: 8,
+    margin: 0,
+    padding: theme.spacing(1, 1.25),
+    border: '1px solid rgba(255, 255, 255, 0.09)',
+    color: '#f7f8fb',
+    background: '#1f2b3a',
+    fontSize: 13,
+    fontWeight: 650,
+    gap: theme.spacing(1),
+    transition: 'background-color 140ms ease, color 140ms ease',
+    '& .MuiSvgIcon-root': {
+      color: '#ff8fc6',
+    },
+    '&:hover': {
+      color: '#ffffff',
+      borderColor: 'rgba(255, 42, 142, 0.62)',
+      background: 'rgba(255, 42, 142, 0.16)',
+      transform: 'none',
+    },
+    '&:hover .MuiSvgIcon-root': {
+      color: '#ff2a8e',
+    },
+    '&.Mui-disabled': {
+      color: '#7f8997',
+      background: '#192331',
+      opacity: 0.72,
+    },
+    '&.Mui-disabled .MuiSvgIcon-root': {
+      color: '#7f8997',
+    },
+  },
+  songToolsMenuItemPrimary: {
+    color: '#ff8fc6',
+    borderColor: 'rgba(255, 42, 142, 0.48)',
+    background: 'rgba(255, 42, 142, 0.11)',
+    '& .MuiSvgIcon-root': {
+      color: '#ff2a8e',
+    },
+    '&:hover': {
+      color: '#ffffff',
+      background: '#ff2a8e',
+    },
+    '&:hover .MuiSvgIcon-root': {
+      color: '#ffffff',
+    },
+  },
+  songToolsMenuControl: {
+    display: 'block',
+    minHeight: 0,
+    margin: 0,
+    padding: 0,
+    borderRadius: 8,
+    cursor: 'default',
+    '&:hover': {
+      background: 'transparent',
+    },
+  },
+  songToolsMenuToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing(1),
+    minHeight: 54,
+    padding: theme.spacing(0.75, 1.25),
+    border: '1px solid rgba(255, 255, 255, 0.09)',
+    borderRadius: 8,
+    background: '#1f2b3a',
+    boxSizing: 'border-box',
+  },
+  songToolsMenuToggleEnabled: {
+    borderColor: 'rgba(255, 42, 142, 0.58)',
+    background: 'rgba(255, 42, 142, 0.13)',
+  },
+  songToolsMenuToggleText: {
+    minWidth: 0,
+  },
+  songToolsMenuToggleLabel: {
+    color: '#f7f8fb',
+    fontSize: 13,
+    fontWeight: 700,
+  },
+  songToolsMenuToggleHint: {
+    marginTop: 2,
+    color: '#aeb8c5',
+    fontSize: 11,
+    lineHeight: 1.35,
+  },
+  songToolsMenuToggleAction: {
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: theme.spacing(0.25),
+  },
+  songToolsMenuToggleStatus: {
+    color: '#ff8fc6',
+    fontSize: 11,
+    fontWeight: 700,
+  },
   providerToolbar: {
     display: 'flex',
     alignItems: 'center',
@@ -402,6 +578,27 @@ const useStyles = makeStyles((theme) => ({
       color: '#ff8fc6',
     },
   },
+  songToolsMenuSelect: {
+    width: '100%',
+    minWidth: 0,
+    '& .MuiOutlinedInput-root': {
+      color: '#f7f8fb',
+      background: '#111b28',
+      borderRadius: 8,
+    },
+    '& .MuiInputLabel-root': {
+      color: '#ff8fc6',
+    },
+    '& .MuiOutlinedInput-notchedOutline': {
+      borderColor: 'rgba(255, 42, 142, 0.45)',
+    },
+    '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
+      borderColor: '#ff2a8e',
+    },
+    '& .MuiSelect-icon': {
+      color: '#ff8fc6',
+    },
+  },
   serviceStatusPanel: {
     width: '100%',
     borderRadius: 8,
@@ -413,18 +610,40 @@ const useStyles = makeStyles((theme) => ({
     width: '100%',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: theme.spacing(0.75, 1.5),
     padding: theme.spacing(1.25, 1.5),
     color: '#ffffff',
-    cursor: 'pointer',
-    background: 'transparent',
-    border: 0,
-    textAlign: 'left',
-    font: 'inherit',
+  },
+  serviceStatusHeaderTitle: {
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+  },
+  serviceStatusRibbon: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: theme.spacing(0.5),
+  },
+  serviceStatusRibbonItem: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.25, 0.75),
+    border: '1px solid rgba(255, 255, 255, 0.12)',
+    borderRadius: 12,
+    background: 'rgba(15, 23, 34, 0.72)',
+    fontSize: 12,
+    whiteSpace: 'nowrap',
+  },
+  serviceStatusRibbonLabel: {
+    color: '#c9d1dc',
   },
   serviceStatusSummary: {
+    marginLeft: 'auto',
     color: '#c9d1dc',
     fontSize: 13,
+    whiteSpace: 'nowrap',
   },
   serviceStatusList: {
     display: 'grid',
@@ -434,6 +653,24 @@ const useStyles = makeStyles((theme) => ({
   },
   serviceStatusContent: {
     width: '100%',
+  },
+  ragControlsHeader: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    padding: theme.spacing(1, 1.5),
+    border: 0,
+    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+    color: '#f7f8fb',
+    background: 'transparent',
+    cursor: 'pointer',
+    font: 'inherit',
+    textAlign: 'left',
+  },
+  ragControlsSummary: {
+    marginLeft: 'auto',
+    color: '#c9d1dc',
+    fontSize: 13,
   },
   serviceStatusItem: {
     display: 'flex',
@@ -466,16 +703,6 @@ const useStyles = makeStyles((theme) => ({
     background: '#151f2d',
     margin: theme.spacing(0, 1.5, 1.5),
     boxSizing: 'border-box',
-  },
-  ragStatusTitle: {
-    fontWeight: 600,
-  },
-  ragStatusBadge: {
-    padding: theme.spacing(0.25, 0.75),
-    borderRadius: 10,
-    fontSize: 12,
-    color: '#c9d1dc',
-    background: 'rgba(255, 255, 255, 0.08)',
   },
   ragStatusEnabled: {
     color: '#3ddc84',
@@ -1492,10 +1719,9 @@ const AiToolPage = () => {
       }
     })
   const [isClearingMetadata, setIsClearingMetadata] = useState(false)
-  const [modelDialogAction, setModelDialogAction] = useState('')
-  const [modelDialogSongs, setModelDialogSongs] = useState([])
-  const [modelDialogProvider, setModelDialogProvider] =
-    useState(defaultProvider)
+  const [explicitDialogSongs, setExplicitDialogSongs] = useState([])
+  const [explicitMenuAnchorEl, setExplicitMenuAnchorEl] = useState(null)
+  const [metadataMenuAnchorEl, setMetadataMenuAnchorEl] = useState(null)
   const [columnMenuAnchorEl, setColumnMenuAnchorEl] = useState(null)
   const [visibleColumns, setVisibleColumns] = useState(() => {
     try {
@@ -1517,7 +1743,7 @@ const AiToolPage = () => {
   const [isMetadataProgressHidden, setIsMetadataProgressHidden] =
     useState(false)
   const [progressClock, setProgressClock] = useState(() => Date.now())
-  const [isStatusOpen, setIsStatusOpen] = useState(true)
+  const [isRAGControlsOpen, setIsRAGControlsOpen] = useState(false)
   const [isSongToolsOpen, setIsSongToolsOpen] = useState(true)
   const [modelStatuses, setModelStatuses] = useState(() =>
     AI_SERVICES.map((service) => ({ ...service, online: null })),
@@ -3292,19 +3518,14 @@ const AiToolPage = () => {
     }
   }
 
-  const openModelDialog = (action, songs) => {
+  const openExplicitDialog = (songs) => {
     if (!songs.length) return
 
-    setModelDialogAction(action)
-    setModelDialogSongs(songs)
-    setModelDialogProvider(
-      action === 'fetchMetadata' ? metadataProvider : EXPLICIT_AI_PROVIDER,
-    )
+    setExplicitDialogSongs(songs)
   }
 
-  const closeModelDialog = () => {
-    setModelDialogAction('')
-    setModelDialogSongs([])
+  const closeExplicitDialog = () => {
+    setExplicitDialogSongs([])
   }
 
   const saveExplicitWordRules = () => {
@@ -3580,23 +3801,10 @@ const AiToolPage = () => {
     }
   }
 
-  const runModelAction = async () => {
-    const action = modelDialogAction
-    const songs = modelDialogSongs
-    const provider = modelDialogProvider
-    closeModelDialog()
-
-    // Metadata keeps its independent model preference. Explicit
-    // classification is always the dedicated DeepSeek lyrics task.
-    if (action === 'fetchMetadata') {
-      setMetadataProvider(provider)
-    }
-
-    if (action === 'classifyExplicit') {
-      await classifyExplicit(songs)
-    } else if (action === 'fetchMetadata') {
-      await fetchAIMetadataForSongs(songs, provider)
-    }
+  const runExplicitAction = async () => {
+    const songs = explicitDialogSongs
+    closeExplicitDialog()
+    await classifyExplicit(songs)
   }
 
   const runRowAction = async (action) => {
@@ -3611,7 +3819,7 @@ const AiToolPage = () => {
     } else if (action === 'deleteLyrics') {
       await deleteLyricsForSongs([song])
     } else if (action === 'fetchMetadata') {
-      openModelDialog('fetchMetadata', [song])
+      await fetchAIMetadataForSongs([song], metadataProvider)
     } else if (action === 'removeSong') {
       removeSong(song.id)
     }
@@ -3663,103 +3871,35 @@ const AiToolPage = () => {
               ))}
             </TextField>
             <Box className={classes.serviceStatusPanel}>
-              <button
-                type="button"
-                className={classes.serviceStatusHeader}
-                onClick={() => setIsStatusOpen((open) => !open)}
-                aria-expanded={isStatusOpen}
-              >
-                <Typography component="span">
-                  AI model and RAG status
-                </Typography>
+              <Box className={classes.serviceStatusHeader}>
                 <Typography
                   component="span"
-                  className={classes.serviceStatusSummary}
+                  className={classes.serviceStatusHeaderTitle}
                 >
-                  {areStatusesChecking
-                    ? 'Checking…'
-                    : `${onlineServiceCount}/${AI_SERVICES.length} online · RAG ${
-                        ragStatus?.enabled ? 'enabled' : 'disabled'
-                      }`}{' '}
-                  {isStatusOpen ? '−' : '+'}
+                  AI model and RAG status
                 </Typography>
-              </button>
-              <Collapse in={isStatusOpen}>
-                <Box className={classes.serviceStatusContent}>
-                  <Box className={classes.serviceStatusList}>
-                    {modelStatuses.map((service) => {
-                      const serviceState =
-                        service.id === 'whisper' && isLyricsJobRunning
-                          ? 'busy'
-                          : service.state
-                      const statusLabel =
-                        serviceState === 'busy'
-                          ? 'Busy'
-                          : service.online === null
-                            ? 'Checking…'
-                            : service.online
-                              ? 'Online'
-                              : 'Offline'
-                      return (
-                        <Box
-                          className={classes.serviceStatusItem}
-                          key={service.id}
-                        >
-                          <Typography
-                            className={classes.serviceStatusName}
-                            variant="body2"
-                          >
-                            {service.label}
-                          </Typography>
-                          <Typography
-                            component="span"
-                            className={classes.serviceStatusValue}
-                            style={{
-                              color:
-                                serviceState === 'busy'
-                                  ? '#c084fc'
-                                  : service.online === true
-                                    ? '#3ddc84'
-                                    : service.online === false
-                                      ? '#ff8fc6'
-                                      : '#c9d1dc',
-                            }}
-                          >
-                            <span
-                              className={`${classes.statusDot} ${
-                                serviceState === 'busy'
-                                  ? classes.statusDotBusy
-                                  : service.online === true
-                                    ? classes.statusDotOnline
-                                    : service.online === false
-                                      ? classes.statusDotOffline
-                                      : ''
-                              }`}
-                            />
-                            {statusLabel}
-                          </Typography>
-                        </Box>
-                      )
-                    })}
-                  </Box>
-                  <Box
-                    className={classes.ragStatusCard}
-                    role="region"
-                    aria-label="RAG status"
+                <Box component="span" className={classes.serviceStatusRibbon}>
+                  <span
+                    className={classes.serviceStatusRibbonItem}
+                    aria-label={`RAG status: ${
+                      ragStatus
+                        ? ragStatus.enabled
+                          ? 'Enabled'
+                          : 'Disabled'
+                        : ragStatusError
+                          ? 'Unavailable'
+                          : 'Loading…'
+                    }`}
                   >
-                    <Typography
-                      className={classes.ragStatusTitle}
-                      variant="body2"
-                    >
-                      RAG status
-                    </Typography>
-                    <Typography
-                      component="span"
-                      className={`${classes.ragStatusBadge} ${
+                    <span className={classes.serviceStatusRibbonLabel}>
+                      RAG
+                    </span>
+                    <strong
+                      className={
                         ragStatus?.enabled
                           ? classes.ragStatusEnabled
                           : classes.ragStatusDisabled
-                      }`}
+                      }
                     >
                       {ragStatus
                         ? ragStatus.enabled
@@ -3768,7 +3908,126 @@ const AiToolPage = () => {
                         : ragStatusError
                           ? 'Unavailable'
                           : 'Loading…'}
-                    </Typography>
+                    </strong>
+                  </span>
+                  <span
+                    className={classes.serviceStatusRibbonItem}
+                    aria-label={`Vector DB status: ${
+                      ragStatus
+                        ? ragStatus.vectorDbOnline
+                          ? 'Online'
+                          : 'Offline'
+                        : ragStatusError
+                          ? 'Unavailable'
+                          : 'Checking…'
+                    }`}
+                  >
+                    <span className={classes.serviceStatusRibbonLabel}>
+                      Vector DB
+                    </span>
+                    <strong
+                      className={
+                        ragStatus?.vectorDbOnline
+                          ? classes.ragStatusEnabled
+                          : classes.ragStatusDisabled
+                      }
+                    >
+                      {ragStatus
+                        ? ragStatus.vectorDbOnline
+                          ? 'Online'
+                          : 'Offline'
+                        : ragStatusError
+                          ? 'Unavailable'
+                          : 'Checking…'}
+                    </strong>
+                  </span>
+                </Box>
+                <Typography
+                  component="span"
+                  className={classes.serviceStatusSummary}
+                >
+                  {areStatusesChecking
+                    ? 'Checking…'
+                    : `${onlineServiceCount}/${AI_SERVICES.length} AI models online`}
+                </Typography>
+              </Box>
+              <Box className={classes.serviceStatusContent}>
+                <Box className={classes.serviceStatusList}>
+                  {modelStatuses.map((service) => {
+                    const serviceState =
+                      service.id === 'whisper' && isLyricsJobRunning
+                        ? 'busy'
+                        : service.state
+                    const statusLabel =
+                      serviceState === 'busy'
+                        ? 'Busy'
+                        : service.online === null
+                          ? 'Checking…'
+                          : service.online
+                            ? 'Online'
+                            : 'Offline'
+                    return (
+                      <Box
+                        className={classes.serviceStatusItem}
+                        key={service.id}
+                      >
+                        <Typography
+                          className={classes.serviceStatusName}
+                          variant="body2"
+                        >
+                          {service.label}
+                        </Typography>
+                        <Typography
+                          component="span"
+                          className={classes.serviceStatusValue}
+                          style={{
+                            color:
+                              serviceState === 'busy'
+                                ? '#c084fc'
+                                : service.online === true
+                                  ? '#3ddc84'
+                                  : service.online === false
+                                    ? '#ff8fc6'
+                                    : '#c9d1dc',
+                          }}
+                        >
+                          <span
+                            className={`${classes.statusDot} ${
+                              serviceState === 'busy'
+                                ? classes.statusDotBusy
+                                : service.online === true
+                                  ? classes.statusDotOnline
+                                  : service.online === false
+                                    ? classes.statusDotOffline
+                                    : ''
+                            }`}
+                          />
+                          {statusLabel}
+                        </Typography>
+                      </Box>
+                    )
+                  })}
+                </Box>
+                <button
+                  type="button"
+                  className={classes.ragControlsHeader}
+                  onClick={() => setIsRAGControlsOpen((open) => !open)}
+                  aria-expanded={isRAGControlsOpen}
+                >
+                  <Typography component="span">RAG controls</Typography>
+                  <Typography
+                    component="span"
+                    className={classes.ragControlsSummary}
+                  >
+                    {isRAGControlsOpen ? '−' : '+'}
+                  </Typography>
+                </button>
+                <Collapse in={isRAGControlsOpen}>
+                  <Box
+                    className={classes.ragStatusCard}
+                    role="region"
+                    aria-label="RAG controls"
+                  >
                     <Button
                       className={classes.ragToggleButton}
                       size="small"
@@ -3785,18 +4044,6 @@ const AiToolPage = () => {
                     </Button>
                     {ragStatus ? (
                       <Box className={classes.ragStatusDetails}>
-                        <span>
-                          Vector DB:{' '}
-                          <strong
-                            className={
-                              ragStatus.vectorDbOnline
-                                ? classes.ragStatusEnabled
-                                : classes.ragStatusDisabled
-                            }
-                          >
-                            {ragStatus.vectorDbOnline ? 'Online' : 'Offline'}
-                          </strong>
-                        </span>
                         <span>Vector URL: {ragStatus.vectorUrl}</span>
                         <span>Collection: {ragStatus.collection}</span>
                         <span>
@@ -4144,8 +4391,8 @@ const AiToolPage = () => {
                       </Typography>
                     ) : null}
                   </Box>
-                </Box>
-              </Collapse>
+                </Collapse>
+              </Box>
             </Box>
           </Box>
           <Box className={classes.songToolsPanel}>
@@ -4177,160 +4424,277 @@ const AiToolPage = () => {
                 <Button
                   variant="outlined"
                   color="primary"
-                  onClick={() =>
-                    openModelDialog(
-                      'classifyExplicit',
-                      selectedSongsAvailableForExplicit,
-                    )
-                  }
-                  disabled={
-                    !selectedSongsAvailableForExplicit.length ||
-                    isClassifyingExplicit
-                  }
-                >
-                  {isClassifyingExplicit
-                    ? translate('menu.aiTool.classifyingExplicit', {
-                        _: 'Classifying...',
-                      })
-                    : translate('menu.aiTool.classifyExplicit', {
-                        _: 'Classify Explicit',
-                      })}
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={() => setExplicitRulesOpen(true)}
-                >
-                  Explicit word rules
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={fetchSelectedLyrics}
-                  disabled={
-                    selectedSongsAvailableForLyrics.length === 0 ||
-                    isLyricsJobRunning
-                  }
-                >
-                  {lyricsLoadingId ? (
-                    <CircularProgress
-                      size={14}
-                      color="inherit"
-                      className={classes.buttonProgress}
-                    />
-                  ) : null}
-                  {lyricsProgressStatus === 'stopping'
-                    ? translate('menu.aiTool.stoppingLyrics', {
-                        _: 'Stopping Lyrics...',
-                      })
-                    : lyricsLoadingId
-                      ? translate('menu.aiTool.fetchingLyrics', {
-                          _: 'Fetching Lyrics...',
-                        })
-                      : translate('menu.aiTool.fetchLyrics', {
-                          _: 'Fetch Lyrics',
-                        })}
-                </Button>
-                <Box
-                  className={`${classes.fetchAllLyricsSwitch} ${
-                    isAutoFetchAllLyricsEnabled
-                      ? classes.fetchAllLyricsSwitchEnabled
+                  className={`${classes.songToolsActionButton} ${
+                    explicitMenuAnchorEl
+                      ? classes.songToolsActionButtonOpen
                       : ''
                   }`}
+                  aria-controls={
+                    explicitMenuAnchorEl ? 'explicit-actions-menu' : undefined
+                  }
+                  aria-expanded={Boolean(explicitMenuAnchorEl)}
+                  aria-haspopup="menu"
+                  endIcon={
+                    explicitMenuAnchorEl ? (
+                      <ExpandLessIcon />
+                    ) : (
+                      <ExpandMoreIcon />
+                    )
+                  }
+                  onClick={(event) => {
+                    setMetadataMenuAnchorEl(null)
+                    setExplicitMenuAnchorEl(event.currentTarget)
+                  }}
                 >
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={isAutoFetchAllLyricsEnabled}
-                        onChange={toggleAutoFetchAllLyrics}
-                        color="primary"
-                        inputProps={{ 'aria-label': 'Fetch All Song Lyrics' }}
-                      />
-                    }
-                    label="Fetch All Song Lyrics"
-                  />
-                  <Typography
-                    component="span"
-                    className={classes.fetchAllLyricsSwitchStatus}
-                  >
-                    {isAutoFetchAllLyricsEnabled ? 'Enabled' : 'Disabled'}
-                  </Typography>
-                </Box>
+                  Explicit
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  className={`${classes.songToolsActionButton} ${
+                    metadataMenuAnchorEl
+                      ? classes.songToolsActionButtonOpen
+                      : ''
+                  }`}
+                  aria-controls={
+                    metadataMenuAnchorEl ? 'metadata-actions-menu' : undefined
+                  }
+                  aria-expanded={Boolean(metadataMenuAnchorEl)}
+                  aria-haspopup="menu"
+                  endIcon={
+                    metadataMenuAnchorEl ? (
+                      <ExpandLessIcon />
+                    ) : (
+                      <ExpandMoreIcon />
+                    )
+                  }
+                  onClick={(event) => {
+                    setExplicitMenuAnchorEl(null)
+                    setMetadataMenuAnchorEl(event.currentTarget)
+                  }}
+                >
+                  Metadata
+                </Button>
                 <Button
                   variant="outlined"
                   color="secondary"
-                  onClick={() => deleteLyricsForSongs(selectedAddedSongs)}
-                  disabled={
-                    selectedSongsAvailableForLyricsDeletion.length === 0 ||
-                    isDeletingLyrics
-                  }
+                  onClick={removeSelectedSongs}
+                  disabled={!selectedAddedIds.length}
                 >
-                  {isDeletingLyrics ? 'Deleting lyrics…' : 'Delete Lyrics'}
+                  {translate('ra.action.remove', { _: 'Remove' })}
                 </Button>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={() =>
-                    openModelDialog('fetchMetadata', selectedAddedSongs)
-                  }
-                  disabled={
-                    !selectedAddedIds.length ||
-                    isFetchingMetadata ||
-                    isClearingMetadata
-                  }
-                >
-                  {isFetchingMetadata ? (
-                    <CircularProgress
-                      size={14}
-                      color="inherit"
-                      className={classes.buttonProgress}
-                    />
-                  ) : null}
-                  {metadataProgressStatus === 'stopping'
-                    ? translate('menu.aiTool.stoppingMetadata', {
-                        _: 'Stopping Metadata...',
+                {selectedAddedIds.length ? (
+                  <Typography variant="body2">
+                    {selectedAddedIds.length} selected
+                  </Typography>
+                ) : null}
+              </Box>
+            </Collapse>
+            <Menu
+              id="explicit-actions-menu"
+              anchorEl={explicitMenuAnchorEl}
+              open={Boolean(explicitMenuAnchorEl)}
+              onClose={() => setExplicitMenuAnchorEl(null)}
+              className={classes.songToolsMenu}
+              PaperProps={{ elevation: 0 }}
+              getContentAnchorEl={null}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              MenuListProps={{ 'aria-label': 'Explicit actions' }}
+            >
+              <MenuItem
+                className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemPrimary}`}
+                onClick={() => {
+                  setExplicitMenuAnchorEl(null)
+                  openExplicitDialog(selectedSongsAvailableForExplicit)
+                }}
+                disabled={
+                  !selectedSongsAvailableForExplicit.length ||
+                  isClassifyingExplicit
+                }
+              >
+                <LabelOutlinedIcon fontSize="small" />
+                {isClassifyingExplicit
+                  ? translate('menu.aiTool.classifyingExplicit', {
+                      _: 'Classifying...',
+                    })
+                  : translate('menu.aiTool.classifyExplicit', {
+                      _: 'Classify Explicit',
+                    })}
+              </MenuItem>
+              <MenuItem
+                className={classes.songToolsMenuItem}
+                onClick={() => {
+                  setExplicitMenuAnchorEl(null)
+                  setExplicitRulesOpen(true)
+                }}
+              >
+                <SettingsApplicationsIcon fontSize="small" />
+                Explicit word rules
+              </MenuItem>
+              <MenuItem
+                className={classes.songToolsMenuItem}
+                onClick={() => {
+                  setExplicitMenuAnchorEl(null)
+                  void fetchSelectedLyrics()
+                }}
+                disabled={
+                  selectedSongsAvailableForLyrics.length === 0 ||
+                  isLyricsJobRunning
+                }
+              >
+                <LibraryMusicIcon fontSize="small" />
+                {lyricsProgressStatus === 'stopping'
+                  ? translate('menu.aiTool.stoppingLyrics', {
+                      _: 'Stopping Lyrics...',
+                    })
+                  : lyricsLoadingId
+                    ? translate('menu.aiTool.fetchingLyrics', {
+                        _: 'Fetching Lyrics...',
                       })
-                    : isFetchingMetadata
-                      ? translate('menu.aiTool.fetchingMetadata', {
-                          _: 'Fetching Metadata...',
-                        })
-                      : translate('menu.aiTool.fetchAIMetadata', {
-                          _: 'Fetch AI Metadata',
-                        })}
-                </Button>
+                    : translate('menu.aiTool.fetchLyrics', {
+                        _: 'Fetch Lyrics',
+                      })}
+              </MenuItem>
+              <MenuItem
+                disableRipple
+                className={classes.songToolsMenuControl}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <Box
-                  className={`${classes.fetchAllLyricsSwitch} ${
-                    isAutoFetchAllMetadataEnabled
-                      ? classes.fetchAllLyricsSwitchEnabled
+                  className={`${classes.songToolsMenuToggle} ${
+                    isAutoFetchAllLyricsEnabled
+                      ? classes.songToolsMenuToggleEnabled
                       : ''
                   }`}
                 >
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={isAutoFetchAllMetadataEnabled}
-                        onChange={toggleAutoFetchAllMetadata}
-                        color="primary"
-                        inputProps={{ 'aria-label': 'Fetch All Song Metadata' }}
-                      />
-                    }
-                    label="Fetch All Song Metadata"
-                  />
-                  <Typography
-                    component="span"
-                    className={classes.fetchAllLyricsSwitchStatus}
-                  >
-                    {isAutoFetchAllMetadataEnabled ? 'Enabled' : 'Disabled'}
-                  </Typography>
+                  <Box className={classes.songToolsMenuToggleText}>
+                    <Typography className={classes.songToolsMenuToggleLabel}>
+                      Fetch all song lyrics
+                    </Typography>
+                    <Typography className={classes.songToolsMenuToggleHint}>
+                      Automatically fill lyrics for added songs
+                    </Typography>
+                  </Box>
+                  <Box className={classes.songToolsMenuToggleAction}>
+                    <Typography className={classes.songToolsMenuToggleStatus}>
+                      {isAutoFetchAllLyricsEnabled ? 'On' : 'Off'}
+                    </Typography>
+                    <Switch
+                      checked={isAutoFetchAllLyricsEnabled}
+                      onChange={toggleAutoFetchAllLyrics}
+                      color="primary"
+                      inputProps={{ 'aria-label': 'Fetch All Song Lyrics' }}
+                    />
+                  </Box>
                 </Box>
+              </MenuItem>
+              <MenuItem
+                className={classes.songToolsMenuItem}
+                onClick={() => {
+                  setExplicitMenuAnchorEl(null)
+                  void deleteLyricsForSongs(selectedAddedSongs)
+                }}
+                disabled={
+                  selectedSongsAvailableForLyricsDeletion.length === 0 ||
+                  isDeletingLyrics
+                }
+              >
+                <DeleteOutlineIcon fontSize="small" />
+                {isDeletingLyrics ? 'Deleting lyrics…' : 'Delete Lyrics'}
+              </MenuItem>
+            </Menu>
+            <Menu
+              id="metadata-actions-menu"
+              anchorEl={metadataMenuAnchorEl}
+              open={Boolean(metadataMenuAnchorEl)}
+              onClose={() => setMetadataMenuAnchorEl(null)}
+              className={classes.songToolsMenu}
+              PaperProps={{ elevation: 0 }}
+              getContentAnchorEl={null}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              MenuListProps={{ 'aria-label': 'Metadata actions' }}
+            >
+              <MenuItem
+                className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemPrimary}`}
+                onClick={() => {
+                  setMetadataMenuAnchorEl(null)
+                  void fetchAIMetadataForSongs(
+                    selectedAddedSongs,
+                    metadataProvider,
+                  )
+                }}
+                disabled={
+                  !selectedAddedIds.length ||
+                  isFetchingMetadata ||
+                  isClearingMetadata
+                }
+              >
+                <QueueMusicIcon fontSize="small" />
+                {metadataProgressStatus === 'stopping'
+                  ? translate('menu.aiTool.stoppingMetadata', {
+                      _: 'Stopping Metadata...',
+                    })
+                  : isFetchingMetadata
+                    ? translate('menu.aiTool.fetchingMetadata', {
+                        _: 'Fetching Metadata...',
+                      })
+                    : translate('menu.aiTool.fetchAIMetadata', {
+                        _: 'Fetch AI Metadata',
+                      })}
+              </MenuItem>
+              <MenuItem
+                disableRipple
+                className={classes.songToolsMenuControl}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <Box
+                  className={`${classes.songToolsMenuToggle} ${
+                    isAutoFetchAllMetadataEnabled
+                      ? classes.songToolsMenuToggleEnabled
+                      : ''
+                  }`}
+                >
+                  <Box className={classes.songToolsMenuToggleText}>
+                    <Typography className={classes.songToolsMenuToggleLabel}>
+                      Fetch all song metadata
+                    </Typography>
+                    <Typography className={classes.songToolsMenuToggleHint}>
+                      Refresh metadata for added songs every 10 minutes
+                    </Typography>
+                  </Box>
+                  <Box className={classes.songToolsMenuToggleAction}>
+                    <Typography className={classes.songToolsMenuToggleStatus}>
+                      {isAutoFetchAllMetadataEnabled ? 'On' : 'Off'}
+                    </Typography>
+                    <Switch
+                      checked={isAutoFetchAllMetadataEnabled}
+                      onChange={toggleAutoFetchAllMetadata}
+                      color="primary"
+                      inputProps={{
+                        'aria-label': 'Fetch All Song Metadata',
+                      }}
+                    />
+                  </Box>
+                </Box>
+              </MenuItem>
+              <MenuItem
+                disableRipple
+                className={classes.songToolsMenuControl}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <TextField
                   select
-                  className={classes.defaultProviderSelect}
+                  fullWidth
+                  className={`${classes.defaultProviderSelect} ${classes.songToolsMenuSelect}`}
                   label="Default Metadata AI Provider"
                   variant="outlined"
                   size="small"
                   value={metadataProvider}
-                  inputProps={{ 'aria-label': 'Default Metadata AI Provider' }}
+                  inputProps={{
+                    'aria-label': 'Default Metadata AI Provider',
+                  }}
                   onChange={(event) =>
                     setMetadataProvider(normalizeAIProvider(event.target.value))
                   }
@@ -4341,9 +4705,16 @@ const AiToolPage = () => {
                     </MenuItem>
                   ))}
                 </TextField>
+              </MenuItem>
+              <MenuItem
+                disableRipple
+                className={classes.songToolsMenuControl}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <TextField
                   select
-                  className={classes.defaultProviderSelect}
+                  fullWidth
+                  className={`${classes.defaultProviderSelect} ${classes.songToolsMenuSelect}`}
                   label="Songs per AI Prompt"
                   variant="outlined"
                   size="small"
@@ -4362,67 +4733,51 @@ const AiToolPage = () => {
                     </MenuItem>
                   ))}
                 </TextField>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={(event) =>
-                    setColumnMenuAnchorEl(event.currentTarget)
-                  }
-                  startIcon={<ViewColumnIcon />}
-                >
-                  {translate('ra.toggleFieldsMenu.columnsToDisplay', {
-                    _: 'Columns',
-                  })}
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={toggleAllConfidenceColumns}
-                >
-                  {someConfidenceColumnsVisible
-                    ? 'Hide Confidence'
-                    : 'Show Confidence'}
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={clearFetchedMetadata}
-                  disabled={
-                    !selectedAddedIds.length ||
-                    isClearingMetadata ||
-                    isFetchingMetadata
-                  }
-                >
-                  {isClearingMetadata ? (
-                    <CircularProgress
-                      size={14}
-                      color="inherit"
-                      className={classes.buttonProgress}
-                    />
-                  ) : null}
-                  {isClearingMetadata
-                    ? translate('menu.aiTool.clearingMetadata', {
-                        _: 'Clearing...',
-                      })
-                    : translate('menu.aiTool.clearFetchedMetadata', {
-                        _: 'Clear Fetched Metadata',
-                      })}
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={removeSelectedSongs}
-                  disabled={!selectedAddedIds.length}
-                >
-                  {translate('ra.action.remove', { _: 'Remove' })}
-                </Button>
-                {selectedAddedIds.length ? (
-                  <Typography variant="body2">
-                    {selectedAddedIds.length} selected
-                  </Typography>
-                ) : null}
-              </Box>
-            </Collapse>
+              </MenuItem>
+              <MenuItem
+                className={classes.songToolsMenuItem}
+                onClick={() => {
+                  setColumnMenuAnchorEl(metadataMenuAnchorEl)
+                  setMetadataMenuAnchorEl(null)
+                }}
+              >
+                <ViewColumnIcon fontSize="small" />
+                {translate('ra.toggleFieldsMenu.columnsToDisplay', {
+                  _: 'Columns to display',
+                })}
+              </MenuItem>
+              <MenuItem
+                className={classes.songToolsMenuItem}
+                onClick={() => {
+                  toggleAllConfidenceColumns()
+                  setMetadataMenuAnchorEl(null)
+                }}
+              >
+                {someConfidenceColumnsVisible
+                  ? 'Hide Confidence'
+                  : 'Show Confidence'}
+              </MenuItem>
+              <MenuItem
+                className={classes.songToolsMenuItem}
+                onClick={() => {
+                  setMetadataMenuAnchorEl(null)
+                  void clearFetchedMetadata()
+                }}
+                disabled={
+                  !selectedAddedIds.length ||
+                  isClearingMetadata ||
+                  isFetchingMetadata
+                }
+              >
+                {isClearingMetadata
+                  ? translate('menu.aiTool.clearingMetadata', {
+                      _: 'Clearing...',
+                    })
+                  : translate('menu.aiTool.clearFetchedMetadata', {
+                      _: 'Clear Fetched Metadata',
+                    })}
+              </MenuItem>
+            </Menu>
           </Box>
 
           {['lyrics', 'metadata'].map((type) => {
@@ -4787,70 +5142,39 @@ const AiToolPage = () => {
       </Menu>
 
       <Dialog
-        open={Boolean(modelDialogAction)}
-        onClose={closeModelDialog}
+        open={explicitDialogSongs.length > 0}
+        onClose={closeExplicitDialog}
         fullWidth
         maxWidth="xs"
       >
         <DialogTitle>
-          {modelDialogAction === 'classifyExplicit'
-            ? translate('menu.aiTool.classifyExplicit', {
-                _: 'Classify Explicit',
-              })
-            : translate('menu.aiTool.fetchAIMetadata', {
-                _: 'Fetch AI Metadata',
-              })}
+          {translate('menu.aiTool.classifyExplicit', {
+            _: 'Classify Explicit',
+          })}
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            {modelDialogAction === 'classifyExplicit'
-              ? `DeepSeek V3.2 will analyze the saved lyrics for ${
-                  modelDialogSongs.length
-                } ${modelDialogSongs.length === 1 ? 'song' : 'songs'}.`
-              : `Choose the AI model for ${modelDialogSongs.length} ${
-                  modelDialogSongs.length === 1 ? 'song' : 'songs'
-                }.`}
+            {`DeepSeek V3.2 will analyze the saved lyrics for ${
+              explicitDialogSongs.length
+            } ${explicitDialogSongs.length === 1 ? 'song' : 'songs'}.`}
           </Typography>
-          {modelDialogAction === 'fetchMetadata' ? (
-            <TextField
-              select
-              fullWidth
-              margin="normal"
-              variant="outlined"
-              label={translate('menu.aiTool.aiModel', { _: 'AI Model' })}
-              value={modelDialogProvider}
-              onChange={(event) =>
-                setModelDialogProvider(normalizeAIProvider(event.target.value))
-              }
-            >
-              {AI_PROVIDERS.map((provider) => (
-                <MenuItem key={provider.id} value={provider.id}>
-                  {provider.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          ) : null}
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeModelDialog}>
+          <Button onClick={closeExplicitDialog}>
             {translate('ra.action.cancel', { _: 'Cancel' })}
           </Button>
           <Button
             color="primary"
             variant="contained"
-            onClick={runModelAction}
+            onClick={runExplicitAction}
             disabled={
-              modelDialogAction === 'classifyExplicit'
-                ? isClassifyingExplicit ||
-                  !modelDialogSongs.some(
-                    (song) => !lyricsFetchingSongIdSet.has(song.id),
-                  )
-                : isFetchingMetadata || isClearingMetadata
+              isClassifyingExplicit ||
+              !explicitDialogSongs.some(
+                (song) => !lyricsFetchingSongIdSet.has(song.id),
+              )
             }
           >
-            {modelDialogAction === 'classifyExplicit'
-              ? translate('menu.aiTool.classify', { _: 'Classify' })
-              : translate('menu.aiTool.fetchMetadata', { _: 'Fetch Metadata' })}
+            {translate('menu.aiTool.classify', { _: 'Classify' })}
           </Button>
         </DialogActions>
       </Dialog>
