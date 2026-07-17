@@ -40,8 +40,22 @@ const EXPLICIT_WORD_RULES_STORAGE_KEY = 'aiToolExplicitWordRules'
 const AUTO_FETCH_ALL_LYRICS_STORAGE_KEY = 'aiToolAutoFetchAllLyrics'
 const AUTO_FETCH_ALL_METADATA_STORAGE_KEY = 'aiToolAutoFetchAllMetadata'
 const METADATA_AI_PROVIDER_STORAGE_KEY = 'aiToolMetadataAIProvider'
+const METADATA_BATCH_SIZE_STORAGE_KEY = 'aiToolMetadataBatchSize'
 const AI_CHAT_DEVELOPER_TRACE_STORAGE_KEY = 'aiToolChatDeveloperTrace'
-const DEFAULT_AI_PROVIDER = 'gemma-3-4b'
+const DEFAULT_AI_PROVIDER = 'deepseek-v3.2'
+const EXPLICIT_AI_PROVIDER = 'deepseek-v3.2'
+const EXPLICIT_WORD_RULES_VERSION = 2
+const MAX_METADATA_BATCH_SIZE = 20
+const DEFAULT_METADATA_BATCH_SIZE = 1
+const METADATA_BATCH_SIZE_OPTIONS = Array.from(
+  { length: MAX_METADATA_BATCH_SIZE },
+  (_, index) => index + 1,
+)
+const normalizeMetadataBatchSize = (value) => {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed)) return DEFAULT_METADATA_BATCH_SIZE
+  return Math.min(Math.max(parsed, 1), MAX_METADATA_BATCH_SIZE)
+}
 const DEFAULT_WHISPER_MODEL = 'large-v3'
 const AUTO_FETCH_ALL_LYRICS_INTERVAL_MS = 10 * 60 * 1000
 const AUTO_FETCH_ALL_METADATA_INTERVAL_MS = 10 * 60 * 1000
@@ -59,7 +73,9 @@ const AI_TOOL_COLUMNS = [
   { id: 'spotifyGenre', label: 'Spotify Genre' },
   { id: 'musicBrainzGenre', label: 'iTunes Genre' },
   { id: 'aiGenre', label: 'AI Genre' },
+  { id: 'aiSubgenre', label: 'AI Subgenre' },
   { id: 'genreConfidence', label: 'Genre Confidence' },
+  { id: 'tokens', label: 'Tokens' },
 ]
 
 const CONFIDENCE_COLUMN_IDS = ['genreConfidence']
@@ -100,7 +116,7 @@ const CHAT_DEFAULT_WIDTH = 360
 const CHAT_DEFAULT_HEIGHT = 520
 const DEFAULT_RAG_INDEX_LIMIT = 50
 const MAX_RAG_INDEX_LIMIT = 500
-const DEFAULT_EXPLICIT_INCLUDED_WORDS = [
+const LEGACY_DEFAULT_EXPLICIT_INCLUDED_WORDS = [
   'fuck',
   'fucking',
   'motherfucker',
@@ -113,11 +129,77 @@ const DEFAULT_EXPLICIT_INCLUDED_WORDS = [
   'dick',
   'cock',
 ]
-const DEFAULT_EXPLICIT_EXCLUDED_WORDS = [
+const DEFAULT_EXPLICIT_INCLUDED_WORDS = [
+  'fuck',
+  'fucks',
+  'fucked',
+  'fucker',
+  'fuckers',
+  'fuckin',
+  'fucking',
+  'motherfuck',
+  'motherfucker',
+  'motherfuckers',
+  'motherfucking',
+  'shit',
+  'shits',
+  'shitty',
+  'bullshit',
+  'horseshit',
+  'dipshit',
+  'shithead',
+  'bitch',
+  'bitches',
+  'cunt',
+  'cunts',
+  'nigga',
+  'niggas',
+  'nigger',
+  'niggers',
+  'faggot',
+  'faggots',
+  'asshole',
+  'assholes',
+  'cocksucker',
+  'cocksuckers',
+  'pussy',
+  'dick',
+  'cock',
+  'tits',
+  'whore',
+  'whores',
+  'slut',
+  'sluts',
+  'cum',
+  'blowjob',
+  'blow job',
+  'handjob',
+  'hand job',
+]
+const LEGACY_DEFAULT_EXPLICIT_EXCLUDED_WORDS = [
   'damn',
   'hell',
   'crap',
   'ass',
+  'alcohol',
+  'drunk',
+  'weed',
+  'marijuana',
+  'kiss',
+  'kissing',
+  'sexy',
+  'gun',
+  'kill',
+]
+const DEFAULT_EXPLICIT_EXCLUDED_WORDS = [
+  'damn',
+  'goddamn',
+  'hell',
+  'crap',
+  'ass',
+  'bloody',
+  'stupid',
+  'idiot',
   'alcohol',
   'drunk',
   'weed',
@@ -590,6 +672,16 @@ const useStyles = makeStyles((theme) => ({
     textAlign: 'left',
     textTransform: 'none',
     justifyContent: 'flex-start',
+    borderRadius: 0,
+    borderBottom: '1px dashed currentColor',
+  },
+  tokenUsageButton: {
+    minWidth: 0,
+    padding: 0,
+    color: 'inherit',
+    fontSize: 'inherit',
+    lineHeight: 'inherit',
+    textTransform: 'none',
     borderRadius: 0,
     borderBottom: '1px dashed currentColor',
   },
@@ -1085,6 +1177,37 @@ const parseExplicitWordList = (value) => [
   ),
 ]
 
+const sameExplicitWordSet = (left, right) => {
+  const leftWords = parseExplicitWordList(left)
+  const rightSet = new Set(parseExplicitWordList(right))
+  return (
+    leftWords.length === rightSet.size &&
+    leftWords.every((word) => rightSet.has(word))
+  )
+}
+
+const loadExplicitWordRuleList = (field, defaults, legacyDefaults) => {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(EXPLICIT_WORD_RULES_STORAGE_KEY) || '{}',
+    )
+    if (!Array.isArray(saved[field])) return defaults
+    const savedVersion = Number(saved.version)
+    // Upgrade only an untouched legacy default. Custom rule sets are always
+    // preserved exactly as the user saved them.
+    if (
+      (!Number.isFinite(savedVersion) ||
+        savedVersion < EXPLICIT_WORD_RULES_VERSION) &&
+      sameExplicitWordSet(saved[field], legacyDefaults)
+    ) {
+      return defaults
+    }
+    return parseExplicitWordList(saved[field])
+  } catch {
+    return defaults
+  }
+}
+
 const formatTraceValue = (value) => {
   if (typeof value === 'string') return value
   try {
@@ -1307,31 +1430,22 @@ const AiToolPage = () => {
   const [explicitReasonSong, setExplicitReasonSong] = useState(null)
   const [confidenceDetail, setConfidenceDetail] = useState(null)
   const [genreTraceDetail, setGenreTraceDetail] = useState(null)
+  const [tokenUsageDetail, setTokenUsageDetail] = useState(null)
   const [explicitRulesOpen, setExplicitRulesOpen] = useState(false)
-  const [explicitIncludedWords, setExplicitIncludedWords] = useState(() => {
-    try {
-      const saved = JSON.parse(
-        localStorage.getItem(EXPLICIT_WORD_RULES_STORAGE_KEY) || '{}',
-      )
-      return Array.isArray(saved.included)
-        ? saved.included.join(', ')
-        : DEFAULT_EXPLICIT_INCLUDED_WORDS.join(', ')
-    } catch {
-      return DEFAULT_EXPLICIT_INCLUDED_WORDS.join(', ')
-    }
-  })
-  const [explicitExcludedWords, setExplicitExcludedWords] = useState(() => {
-    try {
-      const saved = JSON.parse(
-        localStorage.getItem(EXPLICIT_WORD_RULES_STORAGE_KEY) || '{}',
-      )
-      return Array.isArray(saved.excluded)
-        ? saved.excluded.join(', ')
-        : DEFAULT_EXPLICIT_EXCLUDED_WORDS.join(', ')
-    } catch {
-      return DEFAULT_EXPLICIT_EXCLUDED_WORDS.join(', ')
-    }
-  })
+  const [explicitIncludedWords, setExplicitIncludedWords] = useState(() =>
+    loadExplicitWordRuleList(
+      'included',
+      DEFAULT_EXPLICIT_INCLUDED_WORDS,
+      LEGACY_DEFAULT_EXPLICIT_INCLUDED_WORDS,
+    ).join(', '),
+  )
+  const [explicitExcludedWords, setExplicitExcludedWords] = useState(() =>
+    loadExplicitWordRuleList(
+      'excluded',
+      DEFAULT_EXPLICIT_EXCLUDED_WORDS,
+      LEGACY_DEFAULT_EXPLICIT_EXCLUDED_WORDS,
+    ).join(', '),
+  )
   const [isDeletingLyrics, setIsDeletingLyrics] = useState(false)
   const [isClassifyingExplicit, setIsClassifyingExplicit] = useState(false)
   const [explicitClassifyingSongIds, setExplicitClassifyingSongIds] = useState(
@@ -1345,6 +1459,15 @@ const AiToolPage = () => {
       )
     } catch {
       return DEFAULT_AI_PROVIDER
+    }
+  })
+  const [metadataBatchSize, setMetadataBatchSize] = useState(() => {
+    try {
+      return normalizeMetadataBatchSize(
+        localStorage.getItem(METADATA_BATCH_SIZE_STORAGE_KEY),
+      )
+    } catch {
+      return DEFAULT_METADATA_BATCH_SIZE
     }
   })
   const [isAutoFetchAllMetadataEnabled, setIsAutoFetchAllMetadataEnabled] =
@@ -1799,7 +1922,7 @@ const AiToolPage = () => {
   const selectedSongsAvailableForExplicit = useMemo(
     () =>
       selectedAddedSongs.filter(
-        (song) => !lyricsFetchingSongIdSet.has(song.id),
+        (song) => hasSavedLyrics(song) && !lyricsFetchingSongIdSet.has(song.id),
       ),
     [selectedAddedSongs, lyricsFetchingSongIdSet],
   )
@@ -1915,6 +2038,66 @@ const AiToolPage = () => {
       >
         {confidence}%
       </Typography>
+    )
+  }
+
+  const renderTokenUsage = (song) => {
+    const usage = song?.aiTokens
+    if (!usage || !usage.total) return '—'
+    return (
+      <Button
+        className={classes.tokenUsageButton}
+        size="small"
+        aria-label={`View token breakdown for ${song.title || 'song'}`}
+        title={`Input ${usage.input || 0} · Output ${usage.output || 0}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          setTokenUsageDetail({ song, usage })
+        }}
+      >
+        {usage.total}
+      </Button>
+    )
+  }
+
+  const renderTokenUsageBreakdown = (detail) => {
+    const input = Number(detail?.usage?.input) || 0
+    const output = Number(detail?.usage?.output) || 0
+    const total = Number(detail?.usage?.total) || 0
+    const calculatedTotal = input + output
+    return (
+      <Box>
+        <Typography variant="body2" paragraph>
+          {input} input + {output} output = {calculatedTotal} calculated tokens.
+        </Typography>
+        <Table size="small">
+          <TableBody>
+            <TableRow>
+              <TableCell>Input tokens</TableCell>
+              <TableCell align="right">{input}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>Output tokens</TableCell>
+              <TableCell align="right">{output}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>
+                <strong>Total tokens shown</strong>
+              </TableCell>
+              <TableCell align="right">
+                <strong>{total}</strong>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+        {total !== calculatedTotal ? (
+          <Typography variant="body2" color="textSecondary" paragraph>
+            The displayed total is the provider-reported total allocated to this
+            song. Provider accounting and batch rounding can make it differ from
+            input plus output.
+          </Typography>
+        ) : null}
+      </Box>
     )
   }
 
@@ -2166,6 +2349,13 @@ const AiToolPage = () => {
   useEffect(() => {
     localStorage.setItem(METADATA_AI_PROVIDER_STORAGE_KEY, metadataProvider)
   }, [metadataProvider])
+
+  useEffect(() => {
+    localStorage.setItem(
+      METADATA_BATCH_SIZE_STORAGE_KEY,
+      String(metadataBatchSize),
+    )
+  }, [metadataBatchSize])
 
   useEffect(() => {
     localStorage.setItem(
@@ -3108,7 +3298,7 @@ const AiToolPage = () => {
     setModelDialogAction(action)
     setModelDialogSongs(songs)
     setModelDialogProvider(
-      action === 'fetchMetadata' ? metadataProvider : defaultProvider,
+      action === 'fetchMetadata' ? metadataProvider : EXPLICIT_AI_PROVIDER,
     )
   }
 
@@ -3124,7 +3314,11 @@ const AiToolPage = () => {
     setExplicitExcludedWords(excluded.join(', '))
     localStorage.setItem(
       EXPLICIT_WORD_RULES_STORAGE_KEY,
-      JSON.stringify({ included, excluded }),
+      JSON.stringify({
+        version: EXPLICIT_WORD_RULES_VERSION,
+        included,
+        excluded,
+      }),
     )
     setExplicitRulesOpen(false)
   }
@@ -3134,9 +3328,14 @@ const AiToolPage = () => {
     setExplicitExcludedWords(DEFAULT_EXPLICIT_EXCLUDED_WORDS.join(', '))
   }
 
-  const classifyExplicit = async (songs, provider) => {
+  const classifyExplicit = async (songs) => {
     const songIds = songs
-      .filter((song) => song?.id && !lyricsFetchingSongIdSet.has(song.id))
+      .filter(
+        (song) =>
+          song?.id &&
+          hasSavedLyrics(song) &&
+          !lyricsFetchingSongIdSet.has(song.id),
+      )
       .map((song) => song.id)
     if (!songIds.length || isClassifyingExplicit) return
 
@@ -3149,7 +3348,7 @@ const AiToolPage = () => {
         method: 'POST',
         body: JSON.stringify({
           songIds,
-          provider: normalizeAIProvider(provider),
+          provider: EXPLICIT_AI_PROVIDER,
           includedWords: parseExplicitWordList(explicitIncludedWords),
           excludedWords: parseExplicitWordList(explicitExcludedWords),
         }),
@@ -3170,6 +3369,8 @@ const AiToolPage = () => {
             explicitEvidence: Array.isArray(classification.evidence)
               ? classification.evidence
               : [],
+            explicitProvider: classification.provider || '',
+            explicitBasis: classification.basis || '',
             aiFields: {
               ...(song.aiFields || {}),
               explicitStatus: Boolean(classification.explicitStatus),
@@ -3203,13 +3404,20 @@ const AiToolPage = () => {
     setIsFetchingMetadata(true)
     startProgress('metadata', songs)
     try {
-      for (const [index, song] of songs.entries()) {
-        updateProgress('metadata', song, index, songs.length)
+      // The batch size controls how many songs the server classifies in one
+      // AI prompt: the instruction block is paid for once per batch, saving
+      // input tokens at some accuracy cost. 1 keeps the focused single-song
+      // prompt.
+      const batchSize = normalizeMetadataBatchSize(metadataBatchSize)
+      let done = 0
+      for (let start = 0; start < songs.length; start += batchSize) {
+        const batch = songs.slice(start, start + batchSize)
+        updateProgress('metadata', batch[0], done, songs.length)
         const { json: payload } = await httpClient('/api/ai/fetch-metadata', {
           method: 'POST',
           signal: abortController.signal,
           body: JSON.stringify({
-            songIds: [song.id],
+            songIds: batch.map((song) => song.id),
             provider: normalizeAIProvider(provider),
           }),
         })
@@ -3234,9 +3442,11 @@ const AiToolPage = () => {
             return {
               ...item,
               aiGenre: update.aiGenre || item.aiGenre || '',
+              aiSubgenre: update.aiSubgenre || item.aiSubgenre || '',
               spotifyGenre: update.spotifyGenre || item.spotifyGenre || '',
               musicBrainzGenre:
                 update.musicBrainzGenre || item.musicBrainzGenre || '',
+              aiTokens: update.aiTokens || item.aiTokens || null,
               metadataConfidence,
               metadataConfidenceBreakdown:
                 update.confidenceBreakdown || item.metadataConfidenceBreakdown,
@@ -3245,6 +3455,9 @@ const AiToolPage = () => {
                 ...(item.aiFields || {}),
                 aiGenre:
                   Boolean(update.aiGenre) || Boolean(item.aiFields?.aiGenre),
+                aiSubgenre:
+                  Boolean(update.aiSubgenre) ||
+                  Boolean(item.aiFields?.aiSubgenre),
                 spotifyGenre:
                   Boolean(update.spotifyGenre) ||
                   Boolean(item.aiFields?.spotifyGenre),
@@ -3260,7 +3473,8 @@ const AiToolPage = () => {
           )
           return nextSongs
         })
-        updateProgress('metadata', song, index + 1, songs.length)
+        done += batch.length
+        updateProgress('metadata', batch[batch.length - 1], done, songs.length)
       }
       finishProgress('metadata', songs.length)
     } catch (err) {
@@ -3337,8 +3551,10 @@ const AiToolPage = () => {
                 album: song.aiFields?.album ? '[Unknown Album]' : song.album,
                 year: song.aiFields?.year ? 0 : song.year,
                 aiGenre: '',
+                aiSubgenre: '',
                 spotifyGenre: '',
                 musicBrainzGenre: '',
+                aiTokens: null,
                 metadataConfidence: {},
                 metadataConfidenceBreakdown: undefined,
                 genreDeveloperTrace: undefined,
@@ -3347,6 +3563,7 @@ const AiToolPage = () => {
                   album: false,
                   year: false,
                   aiGenre: false,
+                  aiSubgenre: false,
                   spotifyGenre: false,
                   musicBrainzGenre: false,
                 },
@@ -3369,8 +3586,14 @@ const AiToolPage = () => {
     const provider = modelDialogProvider
     closeModelDialog()
 
+    // Metadata keeps its independent model preference. Explicit
+    // classification is always the dedicated DeepSeek lyrics task.
+    if (action === 'fetchMetadata') {
+      setMetadataProvider(provider)
+    }
+
     if (action === 'classifyExplicit') {
-      await classifyExplicit(songs, provider)
+      await classifyExplicit(songs)
     } else if (action === 'fetchMetadata') {
       await fetchAIMetadataForSongs(songs, provider)
     }
@@ -4118,6 +4341,27 @@ const AiToolPage = () => {
                     </MenuItem>
                   ))}
                 </TextField>
+                <TextField
+                  select
+                  className={classes.defaultProviderSelect}
+                  label="Songs per AI Prompt"
+                  variant="outlined"
+                  size="small"
+                  value={metadataBatchSize}
+                  disabled={isFetchingMetadata}
+                  inputProps={{ 'aria-label': 'Songs per AI Prompt' }}
+                  onChange={(event) =>
+                    setMetadataBatchSize(
+                      normalizeMetadataBatchSize(event.target.value),
+                    )
+                  }
+                >
+                  {METADATA_BATCH_SIZE_OPTIONS.map((size) => (
+                    <MenuItem key={size} value={size}>
+                      {size}
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <Button
                   variant="outlined"
                   color="primary"
@@ -4312,9 +4556,17 @@ const AiToolPage = () => {
                       {translate('menu.aiTool.aiGenre', { _: 'AI Genre' })}
                     </TableCell>
                   ) : null}
+                  {isColumnVisible('aiSubgenre') ? (
+                    <TableCell>AI Subgenre</TableCell>
+                  ) : null}
                   {isColumnVisible('genreConfidence') ? (
                     <TableCell className={classes.confidenceColumn}>
                       Genre Confidence
+                    </TableCell>
+                  ) : null}
+                  {isColumnVisible('tokens') ? (
+                    <TableCell className={classes.confidenceColumn}>
+                      Tokens
                     </TableCell>
                   ) : null}
                   <TableCell>
@@ -4408,6 +4660,11 @@ const AiToolPage = () => {
                         {renderFetchedGenre(song, 'ai')}
                       </TableCell>
                     ) : null}
+                    {isColumnVisible('aiSubgenre') ? (
+                      <TableCell className={valueClass(song, 'aiSubgenre')}>
+                        {song.aiSubgenre || '-'}
+                      </TableCell>
+                    ) : null}
                     {isColumnVisible('genreConfidence') ? (
                       <TableCell className={classes.confidenceColumn}>
                         {renderMetadataConfidence(
@@ -4415,6 +4672,11 @@ const AiToolPage = () => {
                           song,
                           'genre',
                         ) || '—'}
+                      </TableCell>
+                    ) : null}
+                    {isColumnVisible('tokens') ? (
+                      <TableCell className={classes.confidenceColumn}>
+                        {renderTokenUsage(song)}
                       </TableCell>
                     ) : null}
                     <TableCell>
@@ -4541,26 +4803,33 @@ const AiToolPage = () => {
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            Choose the AI model for {modelDialogSongs.length}{' '}
-            {modelDialogSongs.length === 1 ? 'song' : 'songs'}.
+            {modelDialogAction === 'classifyExplicit'
+              ? `DeepSeek V3.2 will analyze the saved lyrics for ${
+                  modelDialogSongs.length
+                } ${modelDialogSongs.length === 1 ? 'song' : 'songs'}.`
+              : `Choose the AI model for ${modelDialogSongs.length} ${
+                  modelDialogSongs.length === 1 ? 'song' : 'songs'
+                }.`}
           </Typography>
-          <TextField
-            select
-            fullWidth
-            margin="normal"
-            variant="outlined"
-            label={translate('menu.aiTool.aiModel', { _: 'AI Model' })}
-            value={modelDialogProvider}
-            onChange={(event) =>
-              setModelDialogProvider(normalizeAIProvider(event.target.value))
-            }
-          >
-            {AI_PROVIDERS.map((provider) => (
-              <MenuItem key={provider.id} value={provider.id}>
-                {provider.label}
-              </MenuItem>
-            ))}
-          </TextField>
+          {modelDialogAction === 'fetchMetadata' ? (
+            <TextField
+              select
+              fullWidth
+              margin="normal"
+              variant="outlined"
+              label={translate('menu.aiTool.aiModel', { _: 'AI Model' })}
+              value={modelDialogProvider}
+              onChange={(event) =>
+                setModelDialogProvider(normalizeAIProvider(event.target.value))
+              }
+            >
+              {AI_PROVIDERS.map((provider) => (
+                <MenuItem key={provider.id} value={provider.id}>
+                  {provider.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          ) : null}
         </DialogContent>
         <DialogActions>
           <Button onClick={closeModelDialog}>
@@ -5466,6 +5735,16 @@ const AiToolPage = () => {
               ? `${explicitReasonSong.explicitConfidence}%`
               : 'Not available'}
           </Typography>
+          {explicitReasonSong?.explicitProvider ? (
+            <Typography variant="body2">
+              Provider: {aiProviderLabel(explicitReasonSong.explicitProvider)}
+            </Typography>
+          ) : null}
+          {explicitReasonSong?.explicitBasis ? (
+            <Typography variant="body2">
+              Basis: {explicitReasonSong.explicitBasis}
+            </Typography>
+          ) : null}
           {explicitReasonSong?.explicitEvidence?.length ? (
             <Box mt={2}>
               <Typography variant="subtitle2">
@@ -5514,6 +5793,34 @@ const AiToolPage = () => {
       </Dialog>
 
       <Dialog
+        open={Boolean(tokenUsageDetail)}
+        onClose={() => setTokenUsageDetail(null)}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="token-usage-breakdown-title"
+      >
+        {tokenUsageDetail ? (
+          <>
+            <DialogTitle id="token-usage-breakdown-title">
+              Token Usage Breakdown
+            </DialogTitle>
+            <DialogContent dividers>
+              <Typography variant="subtitle1" paragraph>
+                {tokenUsageDetail.song?.title || 'Song'}
+                {tokenUsageDetail.song?.artist
+                  ? ` · ${tokenUsageDetail.song.artist}`
+                  : ''}
+              </Typography>
+              {renderTokenUsageBreakdown(tokenUsageDetail)}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setTokenUsageDetail(null)}>Close</Button>
+            </DialogActions>
+          </>
+        ) : null}
+      </Dialog>
+
+      <Dialog
         open={Boolean(confidenceDetail)}
         onClose={() => setConfidenceDetail(null)}
         fullWidth
@@ -5544,9 +5851,10 @@ const AiToolPage = () => {
         <DialogTitle>Explicit word rules</DialogTitle>
         <DialogContent>
           <Typography variant="body2" paragraph>
-            Explicit words are strong indicators. Excluded words do not mark a
-            song explicit by themselves. Separate entries with commas or new
-            lines.
+            DeepSeek reviews these words in the context of the complete saved
+            lyrics. Included words focus its review; excluded or mild words do
+            not mark a song explicit by themselves. Separate entries with commas
+            or new lines.
           </Typography>
           <TextField
             fullWidth

@@ -33,6 +33,10 @@ const songs = [
   { id: 'song-1', title: 'First song', artist: 'Artist' },
   { id: 'song-2', title: 'Second song', artist: 'Artist' },
 ]
+const songsWithLyrics = songs.map((song, index) => ({
+  ...song,
+  lyrics: `Complete fetched lyrics for song ${index + 1}`,
+}))
 
 const createAbortableRequest = (signals) => (_url, options) =>
   new Promise((_resolve, reject) => {
@@ -89,7 +93,7 @@ const renderPage = (
 const chooseModel = async (model) => {
   const dialog = await screen.findByRole('dialog')
   fireEvent.mouseDown(
-    within(dialog).getByRole('button', { name: 'Gemma 3:4b' }),
+    within(dialog).getByRole('button', { name: 'DeepSeek V3.2' }),
   )
   fireEvent.click(await screen.findByRole('option', { name: model }))
   return dialog
@@ -701,7 +705,7 @@ describe('AiToolPage AI actions', () => {
 
     expect(await screen.findByText('Try Bright Song.')).toBeInTheDocument()
     expect(requests[0].useRag).toBe(true)
-    expect(requests[0].provider).toBe('gemma-3-4b')
+    expect(requests[0].provider).toBe('deepseek-v3.2')
     expect(await screen.findByText('Sources')).toBeInTheDocument()
     expect(
       await screen.findByText(/Bright Song — Artist · 0\.910/),
@@ -899,7 +903,7 @@ describe('AiToolPage AI actions', () => {
     ).toBeInTheDocument()
     expect(requests).toHaveLength(1)
     expect(requests[0].useRag).toBe(false)
-    expect(requests[0].provider).toBe('gemma-3-4b')
+    expect(requests[0].provider).toBe('deepseek-v3.2')
   })
 
   it('shows when chat falls back after a RAG failure', async () => {
@@ -1217,7 +1221,8 @@ describe('AiToolPage AI actions', () => {
     )
   })
 
-  it('keeps metadata available and only excludes songs currently fetching lyrics from explicit classification', async () => {
+  it('classifies only complete fetched lyrics while another song is fetching', async () => {
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify(songsWithLyrics))
     renderPage('/api/ai/lyrics/fetch-job/status', () =>
       Promise.resolve({
         json: {
@@ -1248,7 +1253,9 @@ describe('AiToolPage AI actions', () => {
 
     const dialog = await screen.findByRole('dialog')
     expect(
-      within(dialog).getByText('Choose the AI model for 1 song.'),
+      within(dialog).getByText(
+        'DeepSeek V3.2 will analyze the saved lyrics for 1 song.',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -1434,7 +1441,9 @@ describe('AiToolPage AI actions', () => {
     expect(signals).toHaveLength(1)
   })
 
-  it('uses the selected model to classify explicit content', async () => {
+  it('always uses DeepSeek to classify complete fetched lyrics', async () => {
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify(songsWithLyrics))
+    localStorage.setItem('aiToolDefaultProviderV3', 'gemini-3.5')
     const requests = []
     renderPage('/api/ai/classify-explicit', (_url, options) => {
       requests.push(JSON.parse(options.body))
@@ -1442,16 +1451,36 @@ describe('AiToolPage AI actions', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Classify Explicit' }))
-    const dialog = await chooseModel('Gemini 3.5')
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByText(
+        'DeepSeek V3.2 will analyze the saved lyrics for 2 songs.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: 'Gemini 3.5' }),
+    ).not.toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Classify' }))
 
     await waitFor(() => expect(requests).toHaveLength(1))
     expect(requests[0]).toMatchObject({
       songIds: ['song-1', 'song-2'],
-      provider: 'gemini-3.5',
+      provider: 'deepseek-v3.2',
     })
     expect(requests[0].includedWords).toContain('fuck')
+    expect(requests[0].includedWords).toContain('fucked')
+    expect(requests[0].includedWords).toContain('cocksucker')
     expect(requests[0].excludedWords).toContain('damn')
+  })
+
+  it('does not submit songs whose fetched lyrics are missing', () => {
+    renderPage('/api/ai/classify-explicit', () =>
+      Promise.resolve({ json: { songs: [] } }),
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Classify Explicit' }),
+    ).toBeDisabled()
   })
 
   it('shows classification reasons when Clean or Explicit is clicked', async () => {
@@ -1463,7 +1492,9 @@ describe('AiToolPage AI actions', () => {
           explicitStatus: 'c',
           explicitReason: 'No qualifying explicit language was found.',
           explicitConfidence: 94,
-          explicitEvidence: [],
+          explicitEvidence: ['We dance together all night'],
+          explicitProvider: 'deepseek-v3.2',
+          explicitBasis: 'saved lyrics',
         },
       ]),
     )
@@ -1475,9 +1506,15 @@ describe('AiToolPage AI actions', () => {
       await screen.findByText('No qualifying explicit language was found.'),
     ).toBeInTheDocument()
     expect(screen.getByText('Confidence: 94%')).toBeInTheDocument()
+    expect(screen.getByText('Provider: DeepSeek V3.2')).toBeInTheDocument()
+    expect(screen.getByText('Basis: saved lyrics')).toBeInTheDocument()
+    expect(
+      screen.getByText('“We dance together all night”'),
+    ).toBeInTheDocument()
   })
 
   it('edits explicit and excluded word rules used for classification', async () => {
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify(songsWithLyrics))
     const requests = []
     renderPage('/api/ai/classify-explicit', (_url, options) => {
       requests.push(JSON.parse(options.body))
@@ -1503,7 +1540,7 @@ describe('AiToolPage AI actions', () => {
       name: 'Classify Explicit',
     })
     fireEvent.click(classifyButton)
-    const dialog = await chooseModel('Gemini 3.5')
+    const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Classify' }))
 
     await waitFor(() => expect(requests).toHaveLength(1))
@@ -1512,6 +1549,57 @@ describe('AiToolPage AI actions', () => {
       'second strong',
     ])
     expect(requests[0].excludedWords).toEqual(['custom mild'])
+  })
+
+  it('upgrades untouched legacy explicit word defaults without replacing custom rules', async () => {
+    localStorage.setItem(
+      'aiToolExplicitWordRules',
+      JSON.stringify({
+        included: [
+          'fuck',
+          'fucking',
+          'motherfucker',
+          'shit',
+          'bitch',
+          'cunt',
+          'nigga',
+          'nigger',
+          'pussy',
+          'dick',
+          'cock',
+        ],
+        excluded: [
+          'damn',
+          'hell',
+          'crap',
+          'ass',
+          'alcohol',
+          'drunk',
+          'weed',
+          'marijuana',
+          'kiss',
+          'kissing',
+          'sexy',
+          'gun',
+          'kill',
+        ],
+      }),
+    )
+    renderPage('/api/unused', () => Promise.resolve({ json: {} }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Explicit word rules' }))
+    expect(
+      (
+        await screen.findByRole('textbox', {
+          name: 'Words categorised as explicit',
+        })
+      ).value,
+    ).toContain('fucked')
+    expect(
+      screen.getByRole('textbox', {
+        name: 'Words excluded from explicit categorisation',
+      }).value,
+    ).toContain('goddamn')
   })
 
   it('uses Gemma 3:4b for metadata when selected', async () => {
@@ -1529,6 +1617,34 @@ describe('AiToolPage AI actions', () => {
 
     await waitFor(() => expect(requests).toHaveLength(1))
     expect(requests[0].provider).toBe('gemma-3-4b')
+  })
+
+  it('batches multiple songs into one request when a batch size is chosen', async () => {
+    const requests = []
+    renderPage('/api/ai/fetch-metadata', (_url, options) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({ json: { songs: [] } })
+    })
+
+    const batchSelector = screen.getByRole('button', {
+      name: 'Songs per AI Prompt',
+    })
+    fireEvent.mouseDown(batchSelector)
+    fireEvent.click(await screen.findByRole('option', { name: '2' }))
+
+    await waitFor(() =>
+      expect(localStorage.getItem('aiToolMetadataBatchSize')).toBe('2'),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
+    )
+
+    // Both songs go out in a single request instead of one request each.
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0].songIds).toEqual(['song-1', 'song-2'])
   })
 
   it('shows confidence for the fetched genre', async () => {
@@ -1637,6 +1753,59 @@ describe('AiToolPage AI actions', () => {
     // Column headers exist for each source.
     expect(screen.getAllByText('Spotify Genre').length).toBeGreaterThan(0)
     expect(screen.getAllByText('iTunes Genre').length).toBeGreaterThan(0)
+  })
+
+  it('shows AI subgenre and token count in their own columns', async () => {
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify([songs[0]]))
+    renderPage('/api/ai/fetch-metadata', (_url, options) => {
+      const request = JSON.parse(options.body)
+      return Promise.resolve({
+        json: {
+          songs: [
+            {
+              id: request.songIds[0],
+              aiGenre: 'Dance/Electronic',
+              aiSubgenre: 'House',
+              genreConfidence: 95,
+              aiTokens: { input: 210, output: 24, total: 234 },
+            },
+          ],
+        },
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch AI Metadata' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Fetch Metadata' }),
+    )
+
+    await waitFor(() => {
+      expect(screen.getAllByText('House').length).toBeGreaterThan(0)
+    })
+    const tokenButton = await screen.findByRole('button', {
+      name: 'View token breakdown for First song',
+    })
+    expect(tokenButton).toHaveTextContent('234')
+    expect(screen.getAllByText('AI Subgenre').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Tokens').length).toBeGreaterThan(0)
+
+    fireEvent.click(tokenButton)
+    const tokenDialog = await screen.findByRole('dialog', {
+      name: 'Token Usage Breakdown',
+    })
+    expect(tokenDialog).toHaveTextContent(
+      '210 input + 24 output = 234 calculated tokens.',
+    )
+    expect(
+      within(tokenDialog).getByRole('row', { name: 'Input tokens 210' }),
+    ).toBeInTheDocument()
+    expect(
+      within(tokenDialog).getByRole('row', { name: 'Output tokens 24' }),
+    ).toBeInTheDocument()
+    expect(
+      within(tokenDialog).getByRole('row', { name: 'Total tokens shown 234' }),
+    ).toBeInTheDocument()
   })
 
   it('opens developer traces from the fetched iTunes and AI genres', async () => {

@@ -1755,15 +1755,25 @@ func (j *spotifyMetadataJob) fetchArtists(ctx context.Context, token string, ids
 }
 
 // titleCaseGenre upper-cases the first letter of each word so lowercase Spotify
-// genres (e.g. "indie pop") display consistently with the rest of the UI.
+// genres (e.g. "indie pop") display consistently with the rest of the UI. It
+// also capitalizes after the separators used inside genre names — "/", "-",
+// "&" — so taxonomy genres like "Hip-Hop/Rap", "R&B/Soul", and "K-Pop" keep
+// their canonical casing.
 func titleCaseGenre(genre string) string {
-	words := strings.Fields(strings.ToLower(genre))
-	for i, word := range words {
-		runes := []rune(word)
-		runes[0] = unicode.ToUpper(runes[0])
-		words[i] = string(runes)
+	runes := []rune(strings.ToLower(genre))
+	capitalizeNext := true
+	for i, r := range runes {
+		switch r {
+		case ' ', '/', '-', '&':
+			capitalizeNext = true
+		default:
+			if capitalizeNext {
+				runes[i] = unicode.ToUpper(r)
+			}
+			capitalizeNext = false
+		}
 	}
-	return strings.Join(words, " ")
+	return strings.Join(strings.Fields(string(runes)), " ")
 }
 
 func (j *spotifyMetadataJob) fetchAndSetCoverFromURL(ctx context.Context, ds model.DataStore, songID, spotifyURL string) (spotifyConfidenceEntry, error) {
