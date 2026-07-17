@@ -1,15 +1,16 @@
 import React, { useState, useCallback } from 'react'
 import {
-  ReferenceManyField,
-  ShowContextProvider,
-  useShowContext,
-  useShowController,
-  SearchInput,
   Filter,
   Pagination,
+  ReferenceManyField,
+  SearchInput,
+  ShowContextProvider,
   Title as RaTitle,
-} 
-from 'react-admin'
+  useShowContext,
+  useShowController,
+  useTranslate,
+} from 'react-admin'
+import { FormControlLabel, Switch } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import PlaylistDetails from './PlaylistDetails'
 import PlaylistSongs from './PlaylistSongs'
@@ -21,6 +22,15 @@ const useStyles = makeStyles(
     playlistActions: {
       width: '100%',
     },
+    filterBar: {
+      display: 'flex',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+    },
+    filterToggle: {
+      marginLeft: theme.spacing(1),
+      marginBottom: theme.spacing(1),
+    },
   }),
   {
     name: 'NDPlaylistShow',
@@ -31,28 +41,33 @@ const PlaylistShowLayout = (props) => {
   const { loading, ...context } = useShowContext(props)
   const { record } = context
   const classes = useStyles()
+  const translate = useTranslate()
   useResourceRefresh('song')
 
-  // Store search query in state to prevent losing focus
   const [searchTerm, setSearchTerm] = useState('')
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false)
+  const [includeMissing, setIncludeMissing] = useState(true)
 
-  // Handle search change
   const handleSearchChange = useCallback((eventOrValue) => {
     const value =
       typeof eventOrValue === 'string'
         ? eventOrValue
-        : eventOrValue?.target?.value ?? ''
+        : (eventOrValue?.target?.value ?? '')
 
     setSearchTerm(value)
   }, [])
 
-  const handleToggleDuplicates = useCallback(() => {
-    setShowDuplicatesOnly((prev) => !prev)
+  const handleToggleDuplicates = useCallback((event) => {
+    setShowDuplicatesOnly(event.target.checked)
+  }, [])
+
+  const handleToggleMissing = useCallback((event) => {
+    setIncludeMissing(event.target.checked)
   }, [])
 
   React.useEffect(() => {
     setShowDuplicatesOnly(false)
+    setIncludeMissing(true)
   }, [record?.id])
 
   return (
@@ -61,16 +76,49 @@ const PlaylistShowLayout = (props) => {
       {record && <PlaylistDetails {...context} />}
       {record && (
         <>
-          {/* Pass search state and handler to Filter */}
-          <Filter variant="outlined">
-            <SearchInput
-              id="search"
-              source="q"
-              alwaysOn
-              value={searchTerm}
-              onChange={handleSearchChange} // Update parent state on change
+          <div className={classes.filterBar}>
+            <Filter variant="outlined">
+              <SearchInput
+                id="search"
+                source="q"
+                alwaysOn
+                value={searchTerm}
+                onChange={handleSearchChange}
+              />
+            </Filter>
+            <FormControlLabel
+              className={classes.filterToggle}
+              control={
+                <Switch
+                  checked={showDuplicatesOnly}
+                  onChange={handleToggleDuplicates}
+                  color="secondary"
+                  inputProps={{
+                    'aria-label': translate(
+                      'resources.playlist.actions.duplicates',
+                    ),
+                  }}
+                />
+              }
+              label={translate('resources.playlist.actions.duplicates')}
             />
-          </Filter>
+            <FormControlLabel
+              className={classes.filterToggle}
+              control={
+                <Switch
+                  checked={includeMissing}
+                  onChange={handleToggleMissing}
+                  color="secondary"
+                  inputProps={{
+                    'aria-label': translate(
+                      'resources.playlist.actions.includeMissing',
+                    ),
+                  }}
+                />
+              }
+              label={translate('resources.playlist.actions.includeMissing')}
+            />
+          </div>
 
           <ReferenceManyField
             {...context}
@@ -82,8 +130,9 @@ const PlaylistShowLayout = (props) => {
             filter={{
               playlist_id: props.id,
               q: searchTerm,
-              ...(showDuplicatesOnly ? { duplicatesOnly: true } : {}),
-            }} // Pass searchTerm as a filter
+              duplicatesOnly: showDuplicatesOnly,
+              includeMissing,
+            }}
           >
             <PlaylistSongs
               {...props}
@@ -93,17 +142,19 @@ const PlaylistShowLayout = (props) => {
                 <PlaylistActions
                   className={classes.playlistActions}
                   record={record}
-                  showDuplicatesOnly={showDuplicatesOnly}
-                  onToggleDuplicates={handleToggleDuplicates}
                 />
               }
               resource={'playlistTrack'}
               exporter={false}
-              pagination={<Pagination rowsPerPageOptions={[50, 100, 200, 500]}
-              perPage={50}
-                />}
-              searchTerm={searchTerm} // Pass search term to child
+              pagination={
+                <Pagination
+                  rowsPerPageOptions={[50, 100, 200, 500]}
+                  perPage={50}
+                />
+              }
+              searchTerm={searchTerm}
               showDuplicatesOnly={showDuplicatesOnly}
+              includeMissing={includeMissing}
             />
           </ReferenceManyField>
         </>

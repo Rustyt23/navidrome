@@ -461,7 +461,7 @@ var _ = Describe("folder_entry", func() {
 			})
 
 			It("returns true for new folders", func() {
-				entry = newFolderEntry(job, path)
+				entry = newFolderEntry(job, "", path, time.Time{}, "")
 				Expect(entry.isOutdated()).To(BeTrue())
 			})
 

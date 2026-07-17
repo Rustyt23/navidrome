@@ -87,9 +87,18 @@ func TestAnalyzeLoudnessArgsSelectsAudioOnly(t *testing.T) {
 	assertStringSliceEqual(t, got, want)
 }
 
-func TestNormalizeLoudnessArgsSelectsAudioOnly(t *testing.T) {
+func TestNormalizeLoudnessArgsPreservesAttachedArtwork(t *testing.T) {
 	got := normalizeLoudnessArgs("in.mp3", "out.mp3", "loudnorm=I=-12.6")
-	want := []string{"-nostdin", "-hide_banner", "-y", "-i", "in.mp3", "-map", "0:a:0", "-map_metadata", "0", "-vn", "-af", "loudnorm=I=-12.6", "out.mp3"}
+	want := []string{
+		"-nostdin", "-hide_banner", "-y", "-i", "in.mp3",
+		"-map", "0:a:0",
+		"-map", "0:v?",
+		"-map_metadata", "0",
+		"-map_chapters", "0",
+		"-c:v", "copy",
+		"-af", "loudnorm=I=-12.6",
+		"out.mp3",
+	}
 	assertStringSliceEqual(t, got, want)
 }
 

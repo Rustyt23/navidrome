@@ -4,16 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"math"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/core/ffmpeg"
+	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/slice"
@@ -21,8 +18,6 @@ import (
 
 const (
 	maxManualLoudnessNormalizeAttempts = 3
-	closeManualLoudnessMissLUFS        = 1.0
-	minManualLoudnessImprovementLUFS   = 0.02
 )
 
 type songLoudnessPayload struct {
@@ -169,155 +164,16 @@ func updateSongLoudnessTag(ctx context.Context, repo model.MediaFileRepository, 
 	return true
 }
 
-func normalizeSelectedTrackLoudness(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPath string, target ffmpeg.LoudnessTarget, analysis ffmpeg.LoudnessAnalysis, tolerance, minLUFS, maxLUFS float64, backup bool, backupSuffix string) (float64, error) {
-	fromLUFS := analysis.InputIntegrated
-	attemptAnalysis := analysis
-	attemptTarget := target
-	previousDistance := math.Abs(analysis.InputIntegrated - target.IntegratedLUFS)
-	if math.Abs(target.IntegratedLUFS-analysis.InputIntegrated) <= closeManualLoudnessMissLUFS {
-		var err error
-		attemptTarget = adjustedManualLoudnessTarget(target, analysis.InputIntegrated, minLUFS, maxLUFS)
-		attemptAnalysis, err = analyzeSelectedLoudnessForTarget(ctx, normalizer, trackPath, target, attemptTarget, 1)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	for attempt := 1; attempt <= maxManualLoudnessNormalizeAttempts; attempt++ {
-		if err := writeNormalizedTrackLoudness(ctx, normalizer, trackPath, attemptTarget, attemptAnalysis, backup, backupSuffix); err != nil {
-			return 0, err
-		}
-
-		finalAnalysis, err := normalizer.AnalyzeLoudness(ctx, trackPath, target)
-		if err != nil {
-			return 0, fmt.Errorf("normalized track loudness but could not verify final LUFS: %w", err)
-		}
-		log.Info(ctx, "Optimized selected song loudness", "path", trackPath, "fromLUFS", fromLUFS, "finalLUFS", finalAnalysis.InputIntegrated, "targetLUFS", target.IntegratedLUFS, "minLUFS", minLUFS, "maxLUFS", maxLUFS, "attempt", attempt)
-		if !shouldNormalizeManualLoudness(finalAnalysis.InputIntegrated, target.IntegratedLUFS, tolerance) {
-			return finalAnalysis.InputIntegrated, nil
-		}
-
-		currentDistance := math.Abs(finalAnalysis.InputIntegrated - target.IntegratedLUFS)
-		if isAdjustedManualLoudnessTarget(target, attemptTarget) && currentDistance > previousDistance-minManualLoudnessImprovementLUFS {
-			return finalAnalysis.InputIntegrated, nil
-		}
-		if attempt == maxManualLoudnessNormalizeAttempts {
-			return finalAnalysis.InputIntegrated, nil
-		}
-
-		previousDistance = currentDistance
-		attemptTarget = adjustedManualLoudnessTarget(target, finalAnalysis.InputIntegrated, minLUFS, maxLUFS)
-		attemptAnalysis, err = analyzeSelectedLoudnessForTarget(ctx, normalizer, trackPath, target, attemptTarget, attempt+1)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	return attemptAnalysis.InputIntegrated, nil
-}
-
 func effectiveManualLoudnessTolerance(tolerance float64) float64 {
 	if tolerance <= 0 {
 		return conf.DefaultLoudnessNormalizationTolerance
 	}
 	return tolerance
 }
-
-func adjustedManualLoudnessTarget(target ffmpeg.LoudnessTarget, measuredLUFS, minLUFS, maxLUFS float64) ffmpeg.LoudnessTarget {
-	target.IntegratedLUFS += target.IntegratedLUFS - measuredLUFS
-	target.IntegratedLUFS = min(max(target.IntegratedLUFS, minLUFS), maxLUFS)
-	return target
-}
-
-func isAdjustedManualLoudnessTarget(target, attemptTarget ffmpeg.LoudnessTarget) bool {
-	return attemptTarget.IntegratedLUFS != target.IntegratedLUFS
-}
-
-func analyzeSelectedLoudnessForTarget(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPath string, target, attemptTarget ffmpeg.LoudnessTarget, attempt int) (ffmpeg.LoudnessAnalysis, error) {
-	analysis, err := normalizer.AnalyzeLoudness(ctx, trackPath, attemptTarget)
-	if err != nil {
-		log.Warn(ctx, "Could not analyze selected song loudness for adjusted target", "path", trackPath, "targetLUFS", target.IntegratedLUFS, "attemptTargetLUFS", attemptTarget.IntegratedLUFS, "attempt", attempt, err)
-		return ffmpeg.LoudnessAnalysis{}, err
-	}
-	return *analysis, nil
-}
-
-func shouldNormalizeManualLoudness(lufs, targetLUFS, tolerance float64) bool {
-	return math.Abs(lufs-targetLUFS) > tolerance
-}
-
 func absoluteSelectedMediaPath(libraryPath, mediaPath string) string {
 	trackPath := filepath.FromSlash(mediaPath)
 	if !filepath.IsAbs(trackPath) {
 		trackPath = filepath.Join(libraryPath, trackPath)
 	}
 	return filepath.Clean(trackPath)
-}
-
-func writeNormalizedTrackLoudness(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPath string, target ffmpeg.LoudnessTarget, analysis ffmpeg.LoudnessAnalysis, backup bool, backupSuffix string) error {
-	stat, err := os.Stat(trackPath)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(trackPath), "."+trimManualExt(filepath.Base(trackPath))+".loudnorm-*.tmp"+filepath.Ext(trackPath))
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := os.Remove(tmpPath); err != nil {
-		return err
-	}
-	defer os.Remove(tmpPath)
-
-	if err := normalizer.NormalizeLoudness(ctx, trackPath, tmpPath, target, analysis); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpPath, stat.Mode()); err != nil {
-		return err
-	}
-	if backup {
-		if backupSuffix == "" {
-			backupSuffix = ".before_loudnorm"
-		}
-		backupPath := trackPath + backupSuffix
-		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-			if err := copyManualLoudnessFile(trackPath, backupPath, stat); err != nil {
-				return fmt.Errorf("creating loudness backup: %w", err)
-			}
-		} else if err != nil {
-			return err
-		}
-	}
-	return os.Rename(tmpPath, trackPath)
-}
-
-func copyManualLoudnessFile(srcPath, dstPath string, stat os.FileInfo) error {
-	src, err := os.Open(srcPath)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, stat.Mode())
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(dst, src)
-	closeErr := dst.Close()
-	if copyErr != nil {
-		_ = os.Remove(dstPath)
-		return copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(dstPath)
-		return closeErr
-	}
-	return os.Chtimes(dstPath, stat.ModTime(), stat.ModTime())
-}
-
-func trimManualExt(name string) string {
-	return name[:len(name)-len(filepath.Ext(name))]
 }

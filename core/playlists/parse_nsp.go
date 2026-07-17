@@ -27,7 +27,7 @@ func (s *playlists) newSyncedPlaylist(baseDir string, playlistFile string) (*mod
 
 	pls := &model.Playlist{
 		Name:      name,
-		Comment:   fmt.Sprintf("Auto-imported from '%s'", playlistFile),
+		Comment:   "",
 		Public:    false,
 		Path:      playlistPath,
 		Sync:      true,

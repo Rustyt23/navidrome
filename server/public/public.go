@@ -46,8 +46,10 @@ func (pub *Router) routes() http.Handler {
 				conf.Server.DevArtworkThrottleBacklogTimeout))
 			r.HandleFunc("/img/{id}", pub.handleImages)
 		})
+		// Signed stream URLs are also used by public retail-player POCs. The
+		// signature protects the media ID even when general sharing is disabled.
+		r.HandleFunc("/s/{id}", pub.handleStream)
 		if conf.Server.EnableSharing {
-			r.HandleFunc("/s/{id}", pub.handleStream)
 			if conf.Server.EnableDownloads {
 				r.HandleFunc("/d/{id}", pub.handleDownloads)
 			}

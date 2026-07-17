@@ -131,7 +131,6 @@ type spotifyMetadataJob struct {
 	mu             sync.RWMutex
 	status         spotifyMetadataStatus
 	client         *http.Client
-	entries        map[string]spotifyConfidenceEntry
 	coverMisses    sync.Map
 	token          string
 	tokenExpiresAt time.Time
@@ -172,8 +171,7 @@ func decodeSelectedSongIDs(r *http.Request) ([]string, error) {
 
 func newSpotifyMetadataJob() *spotifyMetadataJob {
 	return &spotifyMetadataJob{
-		client:  &http.Client{Timeout: 15 * time.Second},
-		entries: map[string]spotifyConfidenceEntry{},
+		client: &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -1064,7 +1062,6 @@ func (j *spotifyMetadataJob) start(ds model.DataStore, songIDs []string) bool {
 	}
 	now := time.Now()
 	j.status = spotifyMetadataStatus{Running: true, StartedAt: &now}
-	j.entries = map[string]spotifyConfidenceEntry{}
 	j.mu.Unlock()
 
 	go j.run(ds, songIDs)
@@ -1204,19 +1201,6 @@ func (j *spotifyMetadataJob) run(ds model.DataStore, songIDs []string) {
 			log.Debug(ctx, "Could not persist Spotify confidence metadata", "songId", mf.ID, "err", err)
 		}
 
-		j.storeEntry(spotifyConfidenceEntry{
-			SongID:        mf.ID,
-			Title:         mf.Title,
-			Artist:        mf.Artist,
-			Confidence:    confidence,
-			Album:         albumName,
-			SpotifyMatch:  spotifyMatch,
-			SpotifyArtist: spotifyArtist,
-			SpotifyURL:    spotifyURL,
-			CoverURL:      coverURL,
-			Downloaded:    downloaded,
-		})
-
 		j.finishFetch(downloaded || coverURL != "", isMissingAlbum(mf.Album), setAlbum || albumName != "", downloaded)
 	}
 }
@@ -1268,12 +1252,6 @@ func (j *spotifyMetadataJob) finishFetch(coverProcessed, albumMissing, albumFetc
 			j.status.Album.CouldntFetch++
 		}
 	}
-}
-
-func (j *spotifyMetadataJob) storeEntry(entry spotifyConfidenceEntry) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.entries[entry.SongID] = entry
 }
 
 func (j *spotifyMetadataJob) getToken(ctx context.Context) (string, error) {
@@ -1586,7 +1564,6 @@ func (j *spotifyMetadataJob) fetchAndSetCoverFromURL(ctx context.Context, ds mod
 	}
 	entry.Title = mf.Title
 	entry.Artist = mf.Artist
-	j.storeEntry(entry)
 
 	return entry, nil
 }

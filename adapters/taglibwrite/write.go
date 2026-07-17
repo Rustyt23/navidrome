@@ -25,9 +25,13 @@ import (
 	"unsafe"
 
 	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/utils/filelock"
 )
 
 func WriteComment(filename, comment string) (err error) {
+	unlock := filelock.Lock(filename)
+	defer unlock()
+
 	debug.SetPanicOnFault(true)
 	defer func() {
 		if r := recover(); r != nil {
@@ -65,6 +69,9 @@ type FetchedMetadata struct {
 }
 
 func WriteFetchedMetadata(filename string, md FetchedMetadata) (err error) {
+	unlock := filelock.Lock(filename)
+	defer unlock()
+
 	debug.SetPanicOnFault(true)
 	defer func() {
 		if r := recover(); r != nil {
@@ -114,4 +121,3 @@ func WriteFetchedMetadata(filename string, md FetchedMetadata) (err error) {
 		return fmt.Errorf("unknown error writing metadata: %d", int(res))
 	}
 }
-

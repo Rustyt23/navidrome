@@ -34,6 +34,10 @@ type MockDataStore struct {
 	MockedRetailPlayerFolder        model.RetailPlayerFolderRepository
 	scrobbleBufferMu                sync.Mutex
 	repoMu                          sync.Mutex
+
+	// GC tracking
+	GCCalled bool
+	GCError  error
 }
 
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {

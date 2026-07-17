@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"path/filepath"
+
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/ffmpeg"
 	. "github.com/onsi/ginkgo/v2"
@@ -82,6 +84,30 @@ var _ = Describe("loudness normalization", func() {
 
 			Expect(isAdjustedLoudnessTarget(target, target)).To(BeFalse())
 			Expect(isAdjustedLoudnessTarget(target, adjustedLoudnessTarget(target, -12.86, -12.7, -12.5))).To(BeTrue())
+		})
+	})
+
+	Describe("loudnessSyncPath", func() {
+		BeforeEach(func() {
+			conf.Server.SyncFolder = filepath.Join(string(filepath.Separator), "sync")
+		})
+
+		It("preserves a relative media path inside the sync folder", func() {
+			path := loudnessSyncPath("/music", "artist/album/song.mp3", "/music/artist/album/song.mp3")
+
+			Expect(path).To(Equal(filepath.Join(string(filepath.Separator), "sync", "artist", "album", "song.mp3")))
+		})
+
+		It("uses the library-relative path for absolute media paths", func() {
+			path := loudnessSyncPath("/music", "/music/artist/album/song.mp3", "/music/artist/album/song.mp3")
+
+			Expect(path).To(Equal(filepath.Join(string(filepath.Separator), "sync", "artist", "album", "song.mp3")))
+		})
+
+		It("falls back to the track filename for paths outside the library", func() {
+			path := loudnessSyncPath("/music", "../../song.mp3", "/other/song.mp3")
+
+			Expect(path).To(Equal(filepath.Join(string(filepath.Separator), "sync", "song.mp3")))
 		})
 	})
 })

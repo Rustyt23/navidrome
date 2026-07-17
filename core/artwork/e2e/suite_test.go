@@ -92,7 +92,7 @@ func setupHarness() {
 func scan() {
 	GinkgoHelper()
 	s := scanner.New(ctx, ds, artwork.NoopCacheWarmer(), events.NoopBroker(),
-		playlists.NewPlaylists(ds, core.NewImageUploadService()), metrics.NewNoopInstance())
+		playlists.NewPlaylists(ds, core.NewImageUploadService()), core.NewDiscoveries(ds), metrics.NewNoopInstance())
 	_, err := s.ScanAll(ctx, true)
 	Expect(err).ToNot(HaveOccurred())
 }

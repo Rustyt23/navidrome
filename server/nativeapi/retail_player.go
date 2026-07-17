@@ -25,9 +25,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/auth"
+	"github.com/navidrome/navidrome/core/publicurl"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/core/publicurl"
 	"github.com/navidrome/navidrome/utils"
 )
 
@@ -2811,6 +2813,7 @@ type retailPlayerStatusArtwork struct {
 	MediaFileID string `json:"mediaFileId,omitempty"`
 	ArtworkID   string `json:"artworkId,omitempty"`
 	URL         string `json:"url,omitempty"`
+	StreamURL   string `json:"streamUrl,omitempty"`
 }
 
 func (n *Router) sendRetailPlayerDeviceCommand(ctx context.Context, deviceID string, command retailPlayerCommandRequest) (string, error) {
@@ -2987,11 +2990,22 @@ func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.
 				artworkURL += "?square=true"
 			}
 		}
+		streamToken, err := auth.CreatePublicToken(auth.Claims{
+			ID:      matched.ID,
+			Format:  "mp3",
+			BitRate: 128,
+		})
+		if err != nil {
+			log.Error(ctx, "Unable to create retail player public stream URL", "mediaFileId", matched.ID, "err", err)
+			return
+		}
+		streamURL := publicurl.PublicURL(r, path.Join(consts.URLPathPublic, "s", streamToken), nil)
 
 		payload.Artwork = &retailPlayerStatusArtwork{
 			MediaFileID: matched.ID,
 			ArtworkID:   coverArtID,
 			URL:         artworkURL,
+			StreamURL:   streamURL,
 		}
 		return
 	}

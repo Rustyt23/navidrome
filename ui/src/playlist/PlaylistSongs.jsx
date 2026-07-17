@@ -186,6 +186,7 @@ const PlaylistSongs = ({
   readOnly,
   actions,
   showDuplicatesOnly,
+  includeMissing,
   ...props
 }) => {
   const listContext = useListContext()
@@ -207,21 +208,28 @@ const PlaylistSongs = ({
   const version = useVersion()
   useResourceRefresh('song', 'playlist')
 
-  const prevShowDuplicates = React.useRef(showDuplicatesOnly)
+  const previousFilters = React.useRef({
+    showDuplicatesOnly,
+    includeMissing,
+  })
   const [positionDialogOpen, setPositionDialogOpen] = useState(false)
   const [positionDialogTrack, setPositionDialogTrack] = useState(null)
 
   useEffect(() => {
-    if (prevShowDuplicates.current !== showDuplicatesOnly) {
+    const previous = previousFilters.current
+    if (
+      previous.showDuplicatesOnly !== showDuplicatesOnly ||
+      previous.includeMissing !== includeMissing
+    ) {
       refetch()
     }
-    prevShowDuplicates.current = showDuplicatesOnly
-  }, [showDuplicatesOnly, refetch])
+    previousFilters.current = { showDuplicatesOnly, includeMissing }
+  }, [showDuplicatesOnly, includeMissing, refetch])
 
   useEffect(() => {
     setContextPage(1)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [playlistId, showDuplicatesOnly, setContextPage])
+  }, [playlistId, showDuplicatesOnly, includeMissing, setContextPage])
 
   const selectedIds = contextSelectedIds
 
@@ -519,7 +527,9 @@ const PlaylistSongs = ({
                 readOnly={readOnly}
               />
             </BulkActionsToolbar>
-            {showDuplicatesOnly && listContext.loading && <LinearProgress />}
+            {(showDuplicatesOnly || !includeMissing) && listContext.loading && (
+              <LinearProgress />
+            )}
             <ReorderableList
               readOnly={readOnly}
               onDragEnd={handleDragEnd}

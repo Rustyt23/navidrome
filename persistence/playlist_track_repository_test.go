@@ -42,7 +42,7 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			}
 		})
 
-		It("returns only duplicate playlist tracks", func() {
+		It("returns one representative for each duplicated track", func() {
 			repo := playlistRepo.Tracks(playlist.ID, true)
 
 			result, err := repo.ReadAll(rest.QueryOptions{
@@ -53,10 +53,9 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			tracks, ok := result.(model.PlaylistTracks)
 			Expect(ok).To(BeTrue())
 
-			Expect(tracks).To(HaveLen(3))
-			Expect(tracks[0].ID).To(Equal("2"))
-			Expect(tracks[1].ID).To(Equal("4"))
-			Expect(tracks[2].ID).To(Equal("5"))
+			Expect(tracks).To(HaveLen(2))
+			Expect(tracks[0].ID).To(Equal("1"))
+			Expect(tracks[1].ID).To(Equal("3"))
 		})
 
 		It("includes only duplicate missing playlist entries when filtering duplicates", func() {
@@ -77,15 +76,91 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			tracks, ok := result.(model.PlaylistTracks)
 			Expect(ok).To(BeTrue())
 
-			Expect(tracks).To(HaveLen(4))
-			Expect(tracks[0].ID).To(Equal("2"))
-			Expect(tracks[1].ID).To(Equal("4"))
-			Expect(tracks[2].ID).To(Equal("5"))
-			Expect(tracks[3].Missing).To(BeTrue())
-			Expect(tracks[3].Path).To(Equal("ghost-track.mp3"))
+			Expect(tracks).To(HaveLen(3))
+			Expect(tracks).To(ContainElement(HaveField("MediaFileID", "1001")))
+			Expect(tracks).To(ContainElement(HaveField("MediaFileID", "1003")))
+			Expect(tracks).To(ContainElement(And(
+				HaveField("Missing", true),
+				HaveField("Path", "ghost-track.mp3"),
+			)))
 			for _, track := range tracks {
 				Expect(track.Path).ToNot(Equal("phantom.mp3"))
 			}
+		})
+
+		It("excludes duplicated missing entries when missing files are disabled", func() {
+			playlist.Sync = true
+			playlist.Path = filepath.Join(GinkgoT().TempDir(), "duplicates_without_missing.m3u")
+			Expect(os.WriteFile(playlist.Path, []byte("ghost-track.mp3\nghost-track.mp3\n"), 0o600)).To(Succeed())
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+
+			repo := playlistRepo.Tracks(playlist.ID, true)
+			result, err := repo.ReadAll(rest.QueryOptions{
+				Filters: map[string]interface{}{
+					"duplicatesOnly": true,
+					"includeMissing": false,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(2))
+			Expect(tracks).To(ConsistOf(
+				HaveField("MediaFileID", "1001"),
+				HaveField("MediaFileID", "1003"),
+			))
+		})
+	})
+
+	Describe("includeMissing filter", func() {
+		var playlist model.Playlist
+
+		BeforeEach(func() {
+			playlist = model.Playlist{
+				Name:      "Missing Filter",
+				OwnerID:   "userid",
+				OwnerName: "userid",
+				Sync:      true,
+				Path:      filepath.Join(GinkgoT().TempDir(), "missing_filter.m3u"),
+			}
+			playlist.AddMediaFilesByID([]string{songDayInALife.ID})
+			contents := songDayInALife.Path + "\nghost-track.mp3\n"
+			Expect(os.WriteFile(playlist.Path, []byte(contents), 0o600)).To(Succeed())
+			Expect(playlistRepo.Put(&playlist)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			if playlist.ID != "" {
+				Expect(playlistRepo.Delete(playlist.ID)).To(Succeed())
+			}
+		})
+
+		It("includes missing entries by default", func() {
+			repo := playlistRepo.Tracks(playlist.ID, true)
+			result, err := repo.ReadAll(rest.QueryOptions{Sort: "title", Order: "ASC"})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(2))
+			Expect(tracks[1].Missing).To(BeTrue())
+			Expect(tracks[1].Path).To(Equal("ghost-track.mp3"))
+		})
+
+		It("hides missing entries when disabled", func() {
+			repo := playlistRepo.Tracks(playlist.ID, true)
+			result, err := repo.ReadAll(rest.QueryOptions{
+				Sort:    "title",
+				Order:   "ASC",
+				Filters: map[string]interface{}{"includeMissing": false},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(1))
+			Expect(tracks[0].Missing).To(BeFalse())
 		})
 	})
 
@@ -126,6 +201,23 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			}
 		})
 
+		It("finds missing playlist entries by path", func() {
+			contents := songDayInALife.Path + "\nghost-track.mp3\n"
+			Expect(os.WriteFile(playlist.Path, []byte(contents), 0o600)).To(Succeed())
+
+			repo := playlistRepo.Tracks(playlist.ID, true)
+			result, err := repo.ReadAll(rest.QueryOptions{
+				Filters: map[string]interface{}{"q": "ghost"},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(1))
+			Expect(tracks[0].Missing).To(BeTrue())
+			Expect(tracks[0].Path).To(Equal("ghost-track.mp3"))
+		})
+
 		It("finds tracks when substring matches metadata even if full_text is stale", func() {
 			originalID := playlist.ID
 			if originalID != "" {
@@ -134,7 +226,7 @@ var _ = Describe("PlaylistTrackRepository", func() {
 
 			mediaRepo := NewMediaFileRepository(ctx, GetDBXBuilder())
 			track := mf(model.MediaFile{
-				ID:          "2001",
+				ID:          "playlist-substring-track",
 				Title:       "Bonita Applebum (Sir Piers and Si Ashton's Curious House Mix)",
 				ArtistID:    songDayInALife.ArtistID,
 				Artist:      "A Tribe Called Quest, Sir Piers",
@@ -223,13 +315,22 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(playlistRepo.Put(&playlist)).To(Succeed())
 
 			updates := []struct {
-				id    string
-				title string
+				id            string
+				title         string
+				originalOrder string
 			}{
-				{songRadioactivity.ID, songRadioactivity.Title},
-				{songAntenna.ID, songAntenna.Title},
-				{songDayInALife.ID, songDayInALife.Title},
+				{songRadioactivity.ID, songRadioactivity.Title, songRadioactivity.OrderTitle},
+				{songAntenna.ID, songAntenna.Title, songAntenna.OrderTitle},
+				{songDayInALife.ID, songDayInALife.Title, songDayInALife.OrderTitle},
 			}
+			DeferCleanup(func() {
+				for _, upd := range updates {
+					_, err := GetDBXBuilder().Update("media_file", dbx.Params{
+						"order_title": upd.originalOrder,
+					}, dbx.HashExp{"id": upd.id}).Execute()
+					Expect(err).ToNot(HaveOccurred())
+				}
+			})
 			for _, upd := range updates {
 				_, err := GetDBXBuilder().Update("media_file", dbx.Params{
 					"order_title": strings.ToLower(upd.title),

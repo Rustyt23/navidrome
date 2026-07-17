@@ -7,6 +7,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+
+	"github.com/navidrome/navidrome/utils/filelock"
 )
 
 const (
@@ -53,6 +55,9 @@ type NormalizeResult struct {
 // the remaining miss of the previous attempt, clamped to
 // ±maxLoudnessCompensationLUFS around the real target.
 func NormalizeToBest(ctx context.Context, normalizer LoudnessNormalizer, trackPath string, target LoudnessTarget, opts NormalizeOptions) (NormalizeResult, error) {
+	unlock := filelock.Lock(trackPath)
+	defer unlock()
+
 	res := NormalizeResult{}
 	if opts.MaxAttempts <= 0 {
 		opts.MaxAttempts = 3

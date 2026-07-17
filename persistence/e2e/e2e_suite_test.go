@@ -270,7 +270,7 @@ var _ = BeforeSuite(func() {
 
 	buildTestFS()
 	s := scanner.New(ctx, initDS, artwork.NoopCacheWarmer(), events.NoopBroker(),
-		playlists.NewPlaylists(initDS, core.NewImageUploadService()), metrics.NewNoopInstance())
+		playlists.NewPlaylists(initDS, core.NewImageUploadService()), core.NewDiscoveries(initDS), metrics.NewNoopInstance())
 	_, err = s.ScanAll(ctx, true)
 	Expect(err).ToNot(HaveOccurred())
 

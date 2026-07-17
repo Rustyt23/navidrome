@@ -83,7 +83,16 @@ func analyzeLoudnessArgs(path, filter string) []string {
 }
 
 func normalizeLoudnessArgs(inputPath, outputPath, filter string) []string {
-	return []string{"-nostdin", "-hide_banner", "-y", "-i", inputPath, "-map", "0:a:0", "-map_metadata", "0", "-vn", "-af", filter, outputPath}
+	return []string{
+		"-nostdin", "-hide_banner", "-y", "-i", inputPath,
+		"-map", "0:a:0",
+		"-map", "0:v?",
+		"-map_metadata", "0",
+		"-map_chapters", "0",
+		"-c:v", "copy",
+		"-af", filter,
+		outputPath,
+	}
 }
 
 func loudnormFilter(target LoudnessTarget, analysis *LoudnessAnalysis, printJSON bool) string {
