@@ -7,7 +7,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -234,33 +233,11 @@ func (s *Server) mountRootRedirector() {
 }
 
 func (s *Server) frontendAssetsHandler() http.Handler {
-	return s.frontendAssetsHandlerWithFS(ui.BuildAssets())
-}
-
-func (s *Server) frontendAssetsHandlerWithFS(assets fs.FS) http.Handler {
 	r := chi.NewRouter()
 
-	// This standalone route is intentionally public. It bypasses the React app's
-	// login flow and gets its playable signed URL from the public retail status API.
-	r.Get("/player/{deviceName}", serveFrontendAsset(assets, "player/index.html", "text/html; charset=utf-8"))
-	r.Handle("/", Index(s.ds, assets))
-	r.Handle("/*", http.StripPrefix(s.appRoot, http.FileServer(http.FS(assets))))
+	r.Handle("/", Index(s.ds, ui.BuildAssets()))
+	r.Handle("/*", http.StripPrefix(s.appRoot, http.FileServer(http.FS(ui.BuildAssets()))))
 	return r
-}
-
-func serveFrontendAsset(assets fs.FS, assetPath, contentType string) http.HandlerFunc {
-	contents, readErr := fs.ReadFile(assets, assetPath)
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		if readErr != nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(contents)
-	}
 }
 
 // validateTLSCertificates validates the TLS certificate and key files before starting the server.

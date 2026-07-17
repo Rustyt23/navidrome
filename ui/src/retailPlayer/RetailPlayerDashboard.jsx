@@ -27,7 +27,6 @@ import CachedIcon from '@material-ui/icons/Cached'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import ArrowBackIcon from '@material-ui/icons/ArrowBack'
 import StopIcon from '@material-ui/icons/Stop'
-import PlayCircleOutlineIcon from '@material-ui/icons/PlayCircleOutline'
 import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
@@ -35,7 +34,6 @@ import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 import { isHiddenRetailPlayerChannel, normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
 import config from '../config'
-import { baseUrl } from '../utils'
 import {
   isDeviceLocked,
   isDeviceUnlockedForSession,
@@ -280,12 +278,6 @@ const useStyles = makeStyles((theme) => {
     },
     headerStatusIconOffline: {
       color: dangerMain,
-    },
-    headerPlayerLink: {
-      '&:hover': {
-        color: accentColor,
-        transform: 'scale(1.05)',
-      },
     },
     headerClock: {
       display: 'inline-flex',
@@ -955,14 +947,6 @@ const RetailPlayerDashboard = () => {
     sendRemoteControlCommand,
   } = useRetailPlayerDeviceStatus(deviceSlug)
   const device = resolvedDevice || null
-  const playerDeviceSlug =
-    normalizeValue(device?.slug) ||
-    normalizeValue(deviceSlug) ||
-    normalizeValue(device?.name) ||
-    normalizeValue(device?.id)
-  const resonancePlayerUrl = playerDeviceSlug
-    ? `${baseUrl('/app/player')}/${encodeURIComponent(playerDeviceSlug)}`
-    : ''
   const [deviceTime, setDeviceTime] = useState(() => new Date())
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(null)
@@ -2424,26 +2408,6 @@ const RetailPlayerDashboard = () => {
           </Typography>
         </div>
         <div className={classes.headerStatusGroup}>
-          {resonancePlayerUrl ? (
-            <Tooltip title="Open beat resonance player" placement="bottom">
-              <ButtonBase
-                component="a"
-                href={resonancePlayerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={combineClasses(
-                  classes.headerStatusIcon,
-                  classes.headerPlayerLink,
-                )}
-                aria-label={`Open beat resonance player for ${
-                  device?.name || playerDeviceSlug
-                }`}
-                focusRipple
-              >
-                <PlayCircleOutlineIcon />
-              </ButtonBase>
-            </Tooltip>
-          ) : null}
           <Tooltip title={statusTooltipTitle} placement="bottom">
             <span
               tabIndex={0}

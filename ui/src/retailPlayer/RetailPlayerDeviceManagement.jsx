@@ -35,7 +35,6 @@ import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
 import DeleteOutlineIcon from '@material-ui/icons/DeleteOutline'
 import SyncIcon from '@material-ui/icons/Sync'
-import PlayCircleOutlineIcon from '@material-ui/icons/PlayCircleOutline'
 import Breadcrumbs from '@material-ui/core/Breadcrumbs'
 import Link from '@material-ui/core/Link'
 import clsx from 'clsx'
@@ -50,7 +49,6 @@ import {
 } from './useRetailPlayerDnD'
 import buildRetailPlayerDnDStyles from './retailPlayerDnDStyles'
 import { isDeviceLocked } from './deviceLockState'
-import { baseUrl } from '../utils'
 
 const RETAIL_PLAYER_FOLDER_QUERY_PARAM = 'folder'
 
@@ -82,14 +80,14 @@ const buildRetailPlayerFolderSearch = (search, folderId) => {
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
   const desktopColumns =
-    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(126px, 0.8fr)'
+    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)'
   const mobileColumns =
-    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 1fr) 102px'
+    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px'
   // Same grids without the QR ID column, for guest (unauthenticated) sessions.
   const desktopColumnsGuest =
-    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(126px, 0.8fr)'
+    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(96px, 0.8fr)'
   const mobileColumnsGuest =
-    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) 102px'
+    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) 72px'
 
   return {
     root: {
@@ -748,8 +746,6 @@ const RetailPlayerDeviceRow = memo(
       deviceName: node.name,
       origin: 'management-list',
     })
-    const playerDeviceSlug = node.slug || node.name || node.id
-    const resonancePlayerUrl = `${baseUrl('/app/player')}/${encodeURIComponent(playerDeviceSlug)}`
 
     return (
       <div
@@ -799,19 +795,6 @@ const RetailPlayerDeviceRow = memo(
           {node.remoteControlId ? node.remoteControlId : '—'}
         </div>
         <div className={classes.actionsCell}>
-          <Tooltip title="Open beat resonance player">
-            <IconButton
-              component="a"
-              href={resonancePlayerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              size="small"
-              onClick={(event) => event.stopPropagation()}
-              aria-label={`Open beat resonance player for device ${node.name}`}
-            >
-              <PlayCircleOutlineIcon style={{ fontSize: 15 }} />
-            </IconButton>
-          </Tooltip>
           <Tooltip title={isLocked ? 'Unlock device' : 'Lock device'}>
             <IconButton
               size="small"
@@ -866,7 +849,6 @@ RetailPlayerDeviceRow.propTypes = {
   node: PropTypes.shape({
     id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
-    slug: PropTypes.string,
     channelName: PropTypes.string,
     macAddress: PropTypes.string,
   }).isRequired,
