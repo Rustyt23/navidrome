@@ -31,7 +31,7 @@ import { useHistory, useParams } from 'react-router-dom'
 import { BiDislike } from 'react-icons/bi'
 import { MdSkipNext } from 'react-icons/md'
 import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
-import { normalizeValue } from './deviceUtils'
+import { isHiddenRetailPlayerChannel, normalizeValue } from './deviceUtils'
 import httpClient from '../dataProvider/httpClient'
 import config from '../config'
 import {
@@ -1174,7 +1174,15 @@ const RetailPlayerDashboard = () => {
     return () => window.clearInterval(intervalId)
   }, [])
 
-  const schedules = useMemo(() => device?.schedules || [], [device])
+  // Keep the reserved Empty channel available to device actions, but never
+  // expose it through the controls rendered for users.
+  const schedules = useMemo(
+    () =>
+      (Array.isArray(device?.schedules) ? device.schedules : []).filter(
+        (schedule) => !isHiddenRetailPlayerChannel(schedule),
+      ),
+    [device?.schedules],
+  )
 
   const activeChannelKey = useMemo(() => {
     const activeSchedule = schedules.find((schedule) => schedule.isActive)
