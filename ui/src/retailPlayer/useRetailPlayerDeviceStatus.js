@@ -187,6 +187,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const artworkId = normalizeValue(payloadArtwork.artworkId)
   const backendArtworkUrl = normalizeValue(payloadArtwork.url)
   const mediaFileId = normalizeValue(payloadArtwork.mediaFileId)
+  const streamUrl = normalizeValue(payloadArtwork.streamUrl)
 
   const defaultChannelArtist =
     normalizeValue(baseDevice.organization) || baseDevice.name
@@ -650,6 +651,7 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
       streamName,
       artworkId,
       mediaFileId,
+      streamUrl,
       metadata: { ...combinedMetadata },
       isLoading: isLoadingNowPlaying,
     },

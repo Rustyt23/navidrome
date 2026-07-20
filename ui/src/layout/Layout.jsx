@@ -22,7 +22,7 @@ const Layout = (props) => {
   const location = useLocation()
   const hideNavigation = useMemo(() => {
     const path = location?.pathname || ''
-    if (/^\/(retailplayer|musicmatters)\//.test(path)) {
+    if (/^\/(retailplayer|musicmatters|player)\//.test(path)) {
       return true
     }
     // Public (anonymous) visitors of shared retail player folder links get a

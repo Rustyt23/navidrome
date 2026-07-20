@@ -223,6 +223,7 @@ func (s *Server) mountAuthenticationRoutes() chi.Router {
 // Serve UI app assets
 func (s *Server) mountRootRedirector() {
 	r := s.router
+	r.Get(path.Join(conf.Server.BasePath, "/player/*"), Index(s.ds, ui.BuildAssets()))
 	// Redirect root to UI URL
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.appRoot+"/", http.StatusFound)
