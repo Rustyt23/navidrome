@@ -168,6 +168,13 @@ var _ = Describe("Metadata", func() {
 			Entry(nil, "May 12, 2016", 2016, "2016"),
 			Entry(nil, "01/10/1990", 1990, "1990"),
 			Entry(nil, "invalid", 0, ""),
+			// ISO 8601 basic format, normalized to the extended format
+			Entry(nil, "20240316", 2024, "2024-03-16"),
+			Entry(nil, "202403", 2024, "2024-03"),
+			Entry(nil, "20240316T1215", 2024, "2024-03-16"),
+			// invalid month/day in basic format falls back to the year
+			Entry(nil, "20240000", 2024, "2024"),
+			Entry(nil, "20241399", 2024, "2024"),
 		)
 
 		DescribeTable("NumAndTotal",

@@ -160,6 +160,16 @@ func (md Metadata) tuple(key model.TagName) (int, int) {
 
 var dateRegex = regexp.MustCompile(`([12]\d\d\d)`)
 
+// leadingDigits returns the initial run of digits in s.
+func leadingDigits(s string) string {
+	for i, r := range s {
+		if r < '0' || r > '9' {
+			return s[:i]
+		}
+	}
+	return s
+}
+
 func (md Metadata) date(tagName model.TagName) Date {
 	return Date(md.first(tagName))
 }
@@ -180,6 +190,20 @@ func parseDate(filePath string, tagName model.TagName, tagValue string) string {
 	// if the tag is just the year, return it
 	if len(tagValue) < 5 {
 		return match[1]
+	}
+
+	// ISO 8601 basic format (YYYYMMDD/YYYYMM), optionally followed by a time
+	// part. Normalize it to the extended format used everywhere else.
+	if digits := leadingDigits(tagValue); len(digits) >= 6 {
+		masks := []struct{ in, out string }{{"200601", "2006-01"}}
+		if len(digits) >= 8 {
+			masks = []struct{ in, out string }{{"20060102", "2006-01-02"}}
+		}
+		for _, mask := range masks {
+			if d, err := time.Parse(mask.in, digits[:len(mask.in)]); err == nil {
+				return d.Format(mask.out)
+			}
+		}
 	}
 
 	// if the tag is too long, truncate it
