@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -223,7 +224,7 @@ func (s *Server) mountAuthenticationRoutes() chi.Router {
 // Serve UI app assets
 func (s *Server) mountRootRedirector() {
 	r := s.router
-	r.Get(path.Join(conf.Server.BasePath, "/player/*"), Index(s.ds, ui.BuildAssets()))
+	r.Mount(path.Join(conf.Server.BasePath, "/player"), s.retailPlayerHandler())
 	// Redirect root to UI URL
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.appRoot+"/", http.StatusFound)
@@ -231,6 +232,31 @@ func (s *Server) mountRootRedirector() {
 	r.Get(s.appRoot, func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.appRoot+"/", http.StatusFound)
 	})
+}
+
+// The retail player is served from a real path (/player/{device}) instead of a
+// hash route, so the relative asset URLs in index.html resolve against
+// /player/. Serve the UI bundle from under that prefix too, falling back to
+// index.html for the device routes themselves.
+func (s *Server) retailPlayerHandler() http.Handler {
+	r := chi.NewRouter()
+	playerRoot := path.Join(conf.Server.BasePath, "/player")
+	assets := ui.BuildAssets()
+	index := Index(s.ds, assets)
+	assetsHandler := http.StripPrefix(playerRoot, http.FileServer(http.FS(assets)))
+
+	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.Trim(strings.TrimPrefix(r.URL.Path, playerRoot), "/")
+		if name != "" && fs.ValidPath(name) {
+			if f, err := assets.Open(name); err == nil {
+				_ = f.Close()
+				assetsHandler.ServeHTTP(w, r)
+				return
+			}
+		}
+		index.ServeHTTP(w, r)
+	})
+	return r
 }
 
 func (s *Server) frontendAssetsHandler() http.Handler {
