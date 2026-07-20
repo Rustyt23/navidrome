@@ -17,6 +17,7 @@ import { BiDownload } from 'react-icons/bi'
 import { MdSave } from 'react-icons/md'
 import { useSelector } from 'react-redux'
 import { httpClient } from '../dataProvider'
+import { useMusicBrainzVisible } from '../common'
 
 const emptyProgress = {
   existing: 0,
@@ -113,6 +114,7 @@ const CoverArtPanel = () => {
   const classes = useStyles()
   const translate = useTranslate()
   const notify = useNotify()
+  const showMusicBrainz = useMusicBrainzVisible()
   const [anchorEl, setAnchorEl] = useState(null)
   const [status, setStatus] = useState({
     running: false,
@@ -265,7 +267,11 @@ const CoverArtPanel = () => {
           <CardContent>
             <Box className={classes.actionBar}>
               <Typography variant="h6" className={classes.title}>
-                {translate('activity.musicbrainz.title')}
+                {translate(
+                  showMusicBrainz
+                    ? 'activity.musicbrainz.title'
+                    : 'activity.musicbrainz.spotifyTitle',
+                )}
               </Typography>
               <Box className={classes.actions}>
                 <Button
@@ -288,35 +294,41 @@ const CoverArtPanel = () => {
                 >
                   {translate('activity.musicbrainz.save')}
                 </Button>
-                <Button
-                  color="primary"
-                  variant="contained"
-                  startIcon={<BiDownload />}
-                  onClick={startFetch}
-                  disabled={status.running || spotifyStatus.running}
-                  data-testid="coverart-metadata-fetch-btn"
-                >
-                  {translate('activity.musicbrainz.fetch')}
-                </Button>
+                {showMusicBrainz && (
+                  <Button
+                    color="primary"
+                    variant="contained"
+                    startIcon={<BiDownload />}
+                    onClick={startFetch}
+                    disabled={status.running || spotifyStatus.running}
+                    data-testid="coverart-metadata-fetch-btn"
+                  >
+                    {translate('activity.musicbrainz.fetch')}
+                  </Button>
+                )}
               </Box>
             </Box>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title="Cover Art (MusicBrainz)"
-                  progress={status.coverArt || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <ProgressCard
-                  title={`${translate('activity.musicbrainz.album')} (MusicBrainz)`}
-                  progress={status.album || emptyProgress}
-                  translate={translate}
-                  classes={classes}
-                />
-              </Grid>
+              {showMusicBrainz && (
+                <>
+                  <Grid item xs={12} md={4}>
+                    <ProgressCard
+                      title="Cover Art (MusicBrainz)"
+                      progress={status.coverArt || emptyProgress}
+                      translate={translate}
+                      classes={classes}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <ProgressCard
+                      title={`${translate('activity.musicbrainz.album')} (MusicBrainz)`}
+                      progress={status.album || emptyProgress}
+                      translate={translate}
+                      classes={classes}
+                    />
+                  </Grid>
+                </>
+              )}
               <Grid item xs={12} md={4}>
                 <Card variant="outlined" className={classes.progressCard}>
                   <CardContent>

@@ -4,6 +4,7 @@ import {
   SET_TOGGLEABLE_FIELDS,
   SET_COLUMNS_ORDER,
   SET_APPBAR_ICONS,
+  SET_MUSICBRAINZ_VISIBLE,
 } from '../actions'
 
 const initialState = {
@@ -15,6 +16,7 @@ const initialState = {
     nowPlaying: true,
     missingTracks: true,
   },
+  showMusicBrainz: true,
 }
 
 export const settingsReducer = (previousState = initialState, payload) => {
@@ -33,6 +35,11 @@ export const settingsReducer = (previousState = initialState, payload) => {
           ...previousState.appBarIcons,
           ...data,
         },
+      }
+    case SET_MUSICBRAINZ_VISIBLE:
+      return {
+        ...previousState,
+        showMusicBrainz: data,
       }
     case SET_TOGGLEABLE_FIELDS:
       return {

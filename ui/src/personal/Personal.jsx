@@ -14,6 +14,7 @@ import {
   MissingTracksIconToggle,
 } from './AppBarIconToggles'
 import { ProcessLufsButton } from './ProcessLufsButton'
+import { MusicBrainzToggle } from './MusicBrainzToggle'
 
 const useStyles = makeStyles({
   root: { marginTop: '1em' },
@@ -37,6 +38,7 @@ const Personal = () => {
           <NowPlayingIconToggle />
         )}
         {permissions === 'admin' && <MissingTracksIconToggle />}
+        <MusicBrainzToggle />
         {permissions === 'admin' && <ProcessLufsButton />}
         {config.lastFMEnabled && <LastfmScrobbleToggle />}
         {config.listenBrainzEnabled && <ListenBrainzScrobbleToggle />}

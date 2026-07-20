@@ -17,7 +17,24 @@ const useStyles = makeStyles({
 const Empty = () => null
 
 const Layout = (props) => {
-  const theme = useCurrentTheme()
+  const baseTheme = useCurrentTheme()
+  // React-admin renders its refresh button inside the AppBar and gives no prop
+  // to remove it, so hide it here — QuickScanButton takes its place. Overriding
+  // by stylesheet name (rather than the generated class) keeps this working in
+  // production builds, where JSS drops the readable class name prefix.
+  const theme = useMemo(
+    () => ({
+      ...baseTheme,
+      overrides: {
+        ...baseTheme.overrides,
+        RaLoadingIndicator: {
+          ...baseTheme.overrides?.RaLoadingIndicator,
+          loadedIcon: { display: 'none' },
+        },
+      },
+    }),
+    [baseTheme],
+  )
   const queue = useSelector((state) => state.player?.queue)
   const location = useLocation()
   const hideNavigation = useMemo(() => {

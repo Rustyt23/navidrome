@@ -15,7 +15,13 @@ import {
   useTranslate,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
-import { DurationField, Pagination, ToggleFieldsMenu, useSelectedFields } from '../common'
+import {
+  DurationField,
+  Pagination,
+  ToggleFieldsMenu,
+  useMusicBrainzVisible,
+  useSelectedFields,
+} from '../common'
 import { httpClient } from '../dataProvider'
 import subsonic from '../subsonic'
 import CovertartSongBulkActions from './CovertartSongBulkActions'
@@ -74,6 +80,7 @@ const CovertartFilter = (props) => (
 
 const CovertartList = (props) => {
   const classes = useStyles()
+  const showMusicBrainz = useMusicBrainzVisible()
   const [confidenceEntries, setConfidenceEntries] = useState([])
 
   const loadConfidenceEntries = useCallback(() => {
@@ -98,8 +105,8 @@ const CovertartList = (props) => {
     return map
   }, [confidenceEntries])
 
-  const toggleableFields = useMemo(
-    () => ({
+  const toggleableFields = useMemo(() => {
+    const fields = {
       coverArt: (
         <FunctionField
           label="Cover Art"
@@ -222,9 +229,17 @@ const CovertartList = (props) => {
         />
       ),
       duration: <DurationField source="duration" />,
-    }),
-    [classes.mbidText, confidenceBySong],
-  )
+    }
+
+    // The MBID columns are MusicBrainz-sourced (the release one links to the
+    // MusicBrainz Cover Art Archive), so they follow the same visibility toggle.
+    if (!showMusicBrainz) {
+      delete fields.recordingMbid
+      delete fields.releaseMbid
+    }
+
+    return fields
+  }, [classes.mbidText, confidenceBySong, showMusicBrainz])
 
   const columns = useSelectedFields({
     resource: 'covertart',

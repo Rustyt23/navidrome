@@ -5,11 +5,13 @@ import { ImLastfm2 } from 'react-icons/im'
 import MusicBrainz from '../icons/MusicBrainz'
 import { intersperse } from '../utils'
 import config from '../config'
+import { useMusicBrainzVisible } from '../common'
 
 const AlbumExternalLinks = (props) => {
   const { className } = props
   const translate = useTranslate()
   const record = useRecordContext(props)
+  const showMusicBrainz = useMusicBrainzVisible()
   let links = []
 
   const addLink = (url, title, icon) => {
@@ -39,7 +41,8 @@ const AlbumExternalLinks = (props) => {
     )
   }
 
-  record.mbzAlbumId &&
+  showMusicBrainz &&
+    record.mbzAlbumId &&
     addLink(
       `https://musicbrainz.org/release/${record.mbzAlbumId}`,
       'message.openIn.musicbrainz',

@@ -17,6 +17,7 @@ import ActivityPanel from './ActivityPanel'
 import CoverArtPanel from './CoverArtPanel'
 import MissingTracksPanel from './MissingTracksPanel'
 import NowPlayingPanel from './NowPlayingPanel'
+import QuickScanButton from './QuickScanButton'
 import UserMenu from './UserMenu'
 import config from '../config'
 
@@ -123,6 +124,7 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
 
   return (
     <>
+      {permissions === 'admin' && <QuickScanButton />}
       {config.devActivityPanel &&
         permissions === 'admin' &&
         appBarIcons?.missingTracks !== false && <MissingTracksPanel />}

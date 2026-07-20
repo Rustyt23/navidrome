@@ -7,6 +7,7 @@ import MusicBrainz from '../icons/MusicBrainz'
 import { intersperse, isLastFmURL } from '../utils'
 import config from '../config'
 import { makeStyles } from '@material-ui/core/styles'
+import { useMusicBrainzVisible } from '../common'
 
 const useStyles = makeStyles({
   linkBar: {
@@ -17,6 +18,7 @@ const useStyles = makeStyles({
 const ArtistExternalLinks = ({ artistInfo, record }) => {
   const classes = useStyles()
   const translate = useTranslate()
+  const showMusicBrainz = useMusicBrainzVisible()
   let linkButtons = []
   const lastFMlink = artistInfo?.biography?.match(
     /<a\s+(?:[^>]*?\s+)?href=(["'])(.*?)\1/,
@@ -53,7 +55,8 @@ const ArtistExternalLinks = ({ artistInfo, record }) => {
     }
   }
 
-  artistInfo?.musicBrainzId &&
+  showMusicBrainz &&
+    artistInfo?.musicBrainzId &&
     addLink(
       `https://musicbrainz.org/artist/${artistInfo.musicBrainzId}`,
       'message.openIn.musicbrainz',

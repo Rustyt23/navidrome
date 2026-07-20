@@ -5,6 +5,7 @@ import { BiEdit } from 'react-icons/bi'
 import { useListContext, useNotify, useTranslate } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
 import { httpClient } from '../dataProvider'
+import { useMusicBrainzVisible } from '../common'
 
 const useStyles = makeStyles((theme) => ({
   button: {
@@ -17,6 +18,7 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
   const notify = useNotify()
   const translate = useTranslate()
   const { selectedIds = [] } = useListContext()
+  const showMusicBrainz = useMusicBrainzVisible()
   const [isLoadingMusicBrainz, setIsLoadingMusicBrainz] = useState(false)
   const [isLoadingSpotify, setIsLoadingSpotify] = useState(false)
 
@@ -98,20 +100,22 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
       >
         {translate('activity.musicbrainz.editSpotifyUrl')}
       </Button>
-      <Button
-        className={classes.button}
-        startIcon={<BiDownload />}
-        disabled={selectedIds.length === 0 || isLoadingMusicBrainz || isLoadingSpotify}
-        onClick={() =>
-          startFetch(
-            '/api/metadata/musicbrainz/fetch',
-            setIsLoadingMusicBrainz,
-            'activity.musicbrainz.started',
-          )
-        }
-      >
-        {translate('activity.musicbrainz.fetch')}
-      </Button>
+      {showMusicBrainz && (
+        <Button
+          className={classes.button}
+          startIcon={<BiDownload />}
+          disabled={selectedIds.length === 0 || isLoadingMusicBrainz || isLoadingSpotify}
+          onClick={() =>
+            startFetch(
+              '/api/metadata/musicbrainz/fetch',
+              setIsLoadingMusicBrainz,
+              'activity.musicbrainz.started',
+            )
+          }
+        >
+          {translate('activity.musicbrainz.fetch')}
+        </Button>
+      )}
       <Button
         className={classes.button}
         startIcon={<BiDownload />}

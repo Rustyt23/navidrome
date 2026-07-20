@@ -3,6 +3,7 @@ export const SET_TOGGLEABLE_FIELDS = 'SET_TOGGLEABLE_FIELDS'
 export const SET_OMITTED_FIELDS = 'SET_OMITTED_FIELDS'
 export const SET_COLUMNS_ORDER = 'SET_COLUMNS_ORDER'
 export const SET_APPBAR_ICONS = 'SET_APPBAR_ICONS'
+export const SET_MUSICBRAINZ_VISIBLE = 'SET_MUSICBRAINZ_VISIBLE'
 
 export const setNotificationsState = (enabled) => ({
   type: SET_NOTIFICATIONS_STATE,
@@ -27,4 +28,9 @@ export const setColumnsOrder = (obj) => ({
 export const setAppBarIcons = (obj) => ({
   type: SET_APPBAR_ICONS,
   data: obj,
+})
+
+export const setMusicBrainzVisible = (visible) => ({
+  type: SET_MUSICBRAINZ_VISIBLE,
+  data: visible,
 })

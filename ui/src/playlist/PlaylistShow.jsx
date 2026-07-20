@@ -10,7 +10,7 @@ import {
   useShowController,
   useTranslate,
 } from 'react-admin'
-import { FormControlLabel, Switch } from '@material-ui/core'
+import { Switch, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import PlaylistDetails from './PlaylistDetails'
 import PlaylistSongs from './PlaylistSongs'
@@ -86,38 +86,34 @@ const PlaylistShowLayout = (props) => {
                 onChange={handleSearchChange}
               />
             </Filter>
-            <FormControlLabel
-              className={classes.filterToggle}
-              control={
-                <Switch
-                  checked={showDuplicatesOnly}
-                  onChange={handleToggleDuplicates}
-                  color="secondary"
-                  inputProps={{
-                    'aria-label': translate(
-                      'resources.playlist.actions.duplicates',
-                    ),
-                  }}
-                />
-              }
-              label={translate('resources.playlist.actions.duplicates')}
-            />
-            <FormControlLabel
-              className={classes.filterToggle}
-              control={
-                <Switch
-                  checked={includeMissing}
-                  onChange={handleToggleMissing}
-                  color="secondary"
-                  inputProps={{
-                    'aria-label': translate(
-                      'resources.playlist.actions.includeMissing',
-                    ),
-                  }}
-                />
-              }
-              label={translate('resources.playlist.actions.includeMissing')}
-            />
+            <Tooltip title={translate('resources.playlist.actions.duplicates')}>
+              <Switch
+                className={classes.filterToggle}
+                checked={showDuplicatesOnly}
+                onChange={handleToggleDuplicates}
+                color="secondary"
+                inputProps={{
+                  'aria-label': translate(
+                    'resources.playlist.actions.duplicates',
+                  ),
+                }}
+              />
+            </Tooltip>
+            <Tooltip
+              title={translate('resources.playlist.actions.includeMissing')}
+            >
+              <Switch
+                className={classes.filterToggle}
+                checked={includeMissing}
+                onChange={handleToggleMissing}
+                color="secondary"
+                inputProps={{
+                  'aria-label': translate(
+                    'resources.playlist.actions.includeMissing',
+                  ),
+                }}
+              />
+            </Tooltip>
           </div>
 
           <ReferenceManyField
