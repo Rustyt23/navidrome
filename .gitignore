@@ -1,3 +1,11 @@
+.hide
+.gitignore
+discovery
+music
+trash
+Sync
+.codex
+playlist
 .DS_Store
 .idea
 .vscode
