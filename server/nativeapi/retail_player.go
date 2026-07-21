@@ -28,6 +28,7 @@ import (
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/publicurl"
+	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils"
@@ -1649,6 +1650,242 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Error(ctx, "Unable to encode retail player device status response", "identifier", deviceIdentifier, "resolvedID", resolvedID, "err", err)
 		}
+	}
+}
+
+// Uniform output format for the continuous /music stream. Every song is
+// transcoded to the same MP3 profile so the concatenated frames play as a
+// single gapless stream in browsers and VLC (mixed sample rates/channels make
+// players stutter or stop at track boundaries).
+const (
+	retailPlayerStreamFormat       = "mp3"
+	retailPlayerStreamBitRate      = 128
+	retailPlayerStreamSampleRate   = 44100
+	retailPlayerStreamChannels     = 2
+	retailPlayerStreamPollInterval = 4 * time.Second
+)
+
+// RetailPlayerMusicStreamHandler serves a continuous MP3 "radio" stream that
+// follows whatever the named device is currently playing. It is mounted at the
+// top-level /music/{device} path (no auth, no /api prefix) so the URL can be
+// pasted straight into a browser tab or VLC's "Open Network Stream".
+func (n *Router) RetailPlayerMusicStreamHandler() http.Handler {
+	r := chi.NewRouter()
+	handler := n.handleRetailPlayerMusicStream()
+	r.Get("/{deviceID}", handler)
+	// Players (and `curl -I`) probe with HEAD before opening the stream; answer
+	// with the same headers but no body.
+	r.Head("/{deviceID}", handler)
+	return r
+}
+
+func (n *Router) handleRetailPlayerMusicStream() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+		if n.streamer == nil {
+			http.Error(w, "Media streamer not available", http.StatusInternalServerError)
+			return
+		}
+
+		rawIdentifier := chi.URLParam(r, "deviceID")
+		deviceIdentifier := normalizeRetailPlayerIdentifier(rawIdentifier)
+		if deviceIdentifier == "" {
+			http.Error(w, "Retail player device identifier is required", http.StatusBadRequest)
+			return
+		}
+
+		device, err := n.resolveRetailPlayerDevice(ctx, deviceIdentifier)
+		if err != nil {
+			if errors.Is(err, errRetailPlayerDeviceNotFound) {
+				http.Error(w, "Retail player device not found", http.StatusNotFound)
+				return
+			}
+			log.Error(ctx, "Unable to resolve retail player device for music stream", "identifier", deviceIdentifier, "rawIdentifier", rawIdentifier, "err", err)
+			http.Error(w, "Unable to stream retail player device", http.StatusBadGateway)
+			return
+		}
+
+		resolvedID := strings.TrimSpace(device.ID)
+		if resolvedID == "" {
+			http.Error(w, "Retail player device not found", http.StatusNotFound)
+			return
+		}
+
+		// From here on this is a live, open-ended stream: commit to 200, disable
+		// range requests, and never send a Content-Length.
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Header().Set("Accept-Ranges", "none")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("icy-name", fmt.Sprintf("MusicMatters - %s", strings.TrimSpace(device.Name)))
+		w.WriteHeader(http.StatusOK)
+
+		// A HEAD probe only wants the headers; don't start the polling loop.
+		if r.Method == http.MethodHead {
+			return
+		}
+
+		flusher, _ := w.(http.Flusher)
+		if flusher != nil {
+			flusher.Flush()
+		}
+
+		log.Info(ctx, "Retail player music stream started", "identifier", deviceIdentifier, "resolvedID", resolvedID, "device", device.Name)
+
+		lastMediaFileID := ""
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+
+			mf, err := n.resolveRetailPlayerCurrentMediaFile(ctx, r, resolvedID)
+			if err != nil {
+				if errors.Is(err, errRetailPlayerDeviceNotFound) {
+					log.Info(ctx, "Retail player music stream: device disappeared", "resolvedID", resolvedID)
+					return
+				}
+				// Transient remote error: keep the connection open and retry.
+				log.Debug(ctx, "Retail player music stream: unable to resolve current song", "resolvedID", resolvedID, "err", err)
+				if !sleepOrDone(ctx, retailPlayerStreamPollInterval) {
+					return
+				}
+				continue
+			}
+
+			// Nothing new to play yet (device idle, unmatched song, or still on
+			// the track we just streamed): wait for it to advance.
+			if mf == nil || mf.ID == lastMediaFileID {
+				if !sleepOrDone(ctx, retailPlayerStreamPollInterval) {
+					return
+				}
+				continue
+			}
+
+			if err := n.writeRetailPlayerSong(ctx, w, flusher, mf); err != nil {
+				log.Debug(ctx, "Retail player music stream ended", "resolvedID", resolvedID, "mediaFileId", mf.ID, "err", err)
+				return
+			}
+			lastMediaFileID = mf.ID
+		}
+	}
+}
+
+// resolveRetailPlayerCurrentMediaFile fetches the device's live status and maps
+// the active stream name back to a local media file, using the same matching
+// heuristics as the status/artwork endpoint.
+func (n *Router) resolveRetailPlayerCurrentMediaFile(ctx context.Context, r *http.Request, resolvedID string) (*model.MediaFile, error) {
+	status, err := n.fetchRetailPlayerDeviceStatus(ctx, r, resolvedID)
+	if err != nil {
+		return nil, err
+	}
+
+	streamName := normalizeStatusString(status.Status, "activeStreamName")
+	if streamName == "" {
+		streamName = normalizeStatusString(status.Status, "activeStream")
+	}
+	if streamName == "" {
+		return nil, nil
+	}
+
+	cleaned := strings.ReplaceAll(streamName, "\\", "/")
+	baseName := utils.BaseName(cleaned)
+	if baseName == "" {
+		baseName = strings.TrimSpace(streamName)
+	}
+	if baseName == "" {
+		return nil, nil
+	}
+
+	repo := n.ds.MediaFile(ctx)
+	if repo == nil {
+		return nil, nil
+	}
+
+	for _, query := range buildStreamSearchQueries(baseName) {
+		if query == "" {
+			continue
+		}
+		files, err := repo.Search(query, model.QueryOptions{Max: 5})
+		if err != nil {
+			log.Debug(ctx, "Retail player music stream search failed", "query", query, "err", err)
+			continue
+		}
+		if len(files) == 0 {
+			continue
+		}
+		if matched := selectBestMediaFileMatch(baseName, files); matched != nil {
+			return matched, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// writeRetailPlayerSong transcodes a single song to the uniform MP3 profile and
+// copies it to the open response, flushing as it goes. Returns an error only
+// when the write side fails (client disconnected) so the caller stops the loop.
+func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher http.Flusher, mf *model.MediaFile) error {
+	s, err := n.streamer.NewStream(ctx, mf, stream.Request{
+		Format:     retailPlayerStreamFormat,
+		BitRate:    retailPlayerStreamBitRate,
+		SampleRate: retailPlayerStreamSampleRate,
+		Channels:   retailPlayerStreamChannels,
+	})
+	if err != nil {
+		// A transcode failure for one song shouldn't kill the whole stream;
+		// treat it as "skip" by returning nil so the loop polls for the next.
+		log.Warn(ctx, "Retail player music stream: unable to transcode song", "mediaFileId", mf.ID, "title", mf.Title, "err", err)
+		return nil
+	}
+	defer func() {
+		if cerr := s.Close(); cerr != nil {
+			log.Debug(ctx, "Error closing retail player song stream", "mediaFileId", mf.ID, "err", cerr)
+		}
+	}()
+
+	log.Info(ctx, "Retail player music stream: now playing", "mediaFileId", mf.ID, "title", mf.Title, "artist", mf.Artist)
+
+	buf := make([]byte, 32*1024)
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		nr, rerr := s.Read(buf)
+		if nr > 0 {
+			if _, werr := w.Write(buf[:nr]); werr != nil {
+				return werr
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				return nil
+			}
+			// Read-side error (e.g. transcode aborted): stop this song, not the
+			// stream. Returning nil lets the loop advance to the next track.
+			log.Warn(ctx, "Retail player music stream: error reading song", "mediaFileId", mf.ID, "err", rerr)
+			return nil
+		}
+	}
+}
+
+// sleepOrDone waits for d or until the context is cancelled. It returns false if
+// the context was cancelled (client gone), true if the wait completed.
+func sleepOrDone(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
 	}
 }
 

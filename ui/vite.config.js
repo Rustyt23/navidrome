@@ -26,7 +26,10 @@ export default defineConfig({
     host: true,
     port: frontendPort,
     proxy: {
-      '^/(auth|api|rest|backgrounds)/.*': 'http://localhost:' + backendPort,
+      // `music` is the continuous per-device audio stream served by the Go
+      // backend; without it Vite would answer with the SPA index.html.
+      '^/(auth|api|rest|backgrounds|music|share)/.*':
+        'http://localhost:' + backendPort,
     },
   },
   base: './',

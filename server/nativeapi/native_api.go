@@ -26,6 +26,7 @@ import (
 	"github.com/navidrome/navidrome/core/metrics"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/publicurl"
+	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -64,6 +65,7 @@ type PluginManager interface {
 type Router struct {
 	http.Handler
 	ds                     model.DataStore
+	streamer               stream.MediaStreamer
 	share                  core.Share
 	playlists              playlistsvc.Playlists
 	insights               metrics.Insights
@@ -78,9 +80,10 @@ type Router struct {
 	retailPlayerRefreshing atomic.Bool
 }
 
-func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload core.ImageUploadService) *Router {
+func New(ds model.DataStore, streamer stream.MediaStreamer, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload core.ImageUploadService) *Router {
 	r := &Router{
 		ds:            ds,
+		streamer:      streamer,
 		share:         share,
 		playlists:     playlists,
 		insights:      insights,
