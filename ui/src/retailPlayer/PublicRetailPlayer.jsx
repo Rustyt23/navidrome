@@ -328,7 +328,7 @@ const PublicRetailPlayer = () => {
           </ButtonBase>
           {!isPlayable ? (
             <Typography className={classes.unavailable} variant="body2">
-              This song is not available in Navidrome.
+              This song is not available in Musicmatters.
             </Typography>
           ) : null}
           <audio
