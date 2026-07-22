@@ -1663,6 +1663,16 @@ const (
 	retailPlayerStreamSampleRate   = 44100
 	retailPlayerStreamChannels     = 2
 	retailPlayerStreamPollInterval = 4 * time.Second
+
+	// Output is paced to the audio's own bitrate so the listener never runs far
+	// ahead of the device. Without this the whole song is pushed into the
+	// client's buffer within seconds, and a song change on the device is not
+	// heard until minutes of buffered audio have played out.
+	retailPlayerStreamBytesPerSecond = retailPlayerStreamBitRate * 1000 / 8
+	// How far ahead of real time the client is allowed to buffer. Enough for
+	// playback to start instantly and absorb jitter, small enough that a song
+	// change is heard quickly.
+	retailPlayerStreamPrebuffer = 2 * time.Second
 )
 
 // RetailPlayerMusicStreamHandler serves a continuous MP3 "radio" stream that
@@ -1766,7 +1776,13 @@ func (n *Router) handleRetailPlayerMusicStream() http.HandlerFunc {
 				continue
 			}
 
-			if err := n.writeRetailPlayerSong(ctx, w, flusher, mf); err != nil {
+			// Watch for the device switching songs while this one streams, so
+			// playback can cut over instead of finishing the current track.
+			songCtx, stopWatch := context.WithCancel(ctx)
+			changed := n.watchRetailPlayerSongChange(songCtx, r, resolvedID, mf.ID)
+			err = n.writeRetailPlayerSong(songCtx, w, flusher, mf, changed)
+			stopWatch()
+			if err != nil {
 				log.Debug(ctx, "Retail player music stream ended", "resolvedID", resolvedID, "mediaFileId", mf.ID, "err", err)
 				return
 			}
@@ -1827,9 +1843,12 @@ func (n *Router) resolveRetailPlayerCurrentMediaFile(ctx context.Context, r *htt
 }
 
 // writeRetailPlayerSong transcodes a single song to the uniform MP3 profile and
-// copies it to the open response, flushing as it goes. Returns an error only
-// when the write side fails (client disconnected) so the caller stops the loop.
-func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher http.Flusher, mf *model.MediaFile) error {
+// copies it to the open response, flushing as it goes. Output is paced to real
+// time so the client stays close to the device, and writing stops early when
+// `changed` fires, so a song change on the device cuts over mid-track. Returns
+// an error only when the write side fails (client disconnected) so the caller
+// stops the loop.
+func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher http.Flusher, mf *model.MediaFile, changed <-chan struct{}) error {
 	s, err := n.streamer.NewStream(ctx, mf, stream.Request{
 		Format:     retailPlayerStreamFormat,
 		BitRate:    retailPlayerStreamBitRate,
@@ -1851,10 +1870,24 @@ func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher
 	log.Info(ctx, "Retail player music stream: now playing", "mediaFileId", mf.ID, "title", mf.Title, "artist", mf.Artist)
 
 	buf := make([]byte, 32*1024)
+	start := time.Now()
+	var written int64
+
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+
+		// The device moved to another song: stop mid-track so the caller can
+		// switch, instead of finishing this one first.
+		select {
+		case <-changed:
+			log.Debug(ctx, "Retail player music stream: device changed song, cutting over",
+				"mediaFileId", mf.ID, "title", mf.Title)
+			return nil
+		default:
+		}
+
 		nr, rerr := s.Read(buf)
 		if nr > 0 {
 			if _, werr := w.Write(buf[:nr]); werr != nil {
@@ -1862,6 +1895,15 @@ func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher
 			}
 			if flusher != nil {
 				flusher.Flush()
+			}
+			written += int64(nr)
+
+			// Hold the client no more than prebuffer ahead of real time.
+			ahead := time.Duration(written*int64(time.Second)/retailPlayerStreamBytesPerSecond) - time.Since(start)
+			if ahead > retailPlayerStreamPrebuffer {
+				if !sleepOrDone(ctx, ahead-retailPlayerStreamPrebuffer) {
+					return ctx.Err()
+				}
 			}
 		}
 		if rerr != nil {
@@ -1874,6 +1916,30 @@ func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher
 			return nil
 		}
 	}
+}
+
+// watchRetailPlayerSongChange polls the device while a song is streaming and
+// closes the returned channel as soon as the device is playing something else.
+// Polling runs in its own goroutine so a slow remote API never stalls audio
+// writes. The caller must cancel ctx once the song is done.
+func (n *Router) watchRetailPlayerSongChange(ctx context.Context, r *http.Request, resolvedID, currentID string) <-chan struct{} {
+	changed := make(chan struct{})
+	go func() {
+		defer close(changed)
+		for {
+			if !sleepOrDone(ctx, retailPlayerStreamPollInterval) {
+				return
+			}
+			mf, err := n.resolveRetailPlayerCurrentMediaFile(ctx, r, resolvedID)
+			if err != nil || mf == nil {
+				continue
+			}
+			if mf.ID != currentID {
+				return
+			}
+		}
+	}()
+	return changed
 }
 
 // sleepOrDone waits for d or until the context is cancelled. It returns false if
