@@ -25,6 +25,7 @@ import RefreshIcon from '@material-ui/icons/Refresh'
 import { Title, useDataProvider } from 'react-admin'
 import PropTypes from 'prop-types'
 import { httpClient } from '../dataProvider'
+import AiToolNavTabs from './AiToolNavTabs'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -510,6 +511,7 @@ const PlaylistAiToolPage = () => {
   return (
     <Box className={classes.root}>
       <Title title="Playlist-Ai-Tool" />
+      <AiToolNavTabs />
       <Box className={classes.heading}>
         <Box>
           <Typography variant="h5">Playlist-Ai-Tool</Typography>

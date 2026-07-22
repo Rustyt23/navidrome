@@ -7,6 +7,7 @@ import {
   waitFor,
 } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route } from 'react-router-dom'
 import AiDashboardPage from './AiDashboardPage'
 
 const { mockHttpClient } = vi.hoisted(() => ({ mockHttpClient: vi.fn() }))
@@ -49,6 +50,23 @@ const report = {
   collectionExists: true,
 }
 
+const renderPage = () => {
+  const location = { pathname: '/ai-dashboard' }
+  render(
+    <MemoryRouter initialEntries={['/ai-dashboard']}>
+      <AiDashboardPage />
+      <Route
+        path="*"
+        render={({ location: current }) => {
+          location.pathname = current.pathname
+          return null
+        }}
+      />
+    </MemoryRouter>,
+  )
+  return location
+}
+
 describe('AiDashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -58,7 +76,7 @@ describe('AiDashboardPage', () => {
   afterEach(() => cleanup())
 
   it('renders dashboard summary cards and quality panels', async () => {
-    render(<AiDashboardPage />)
+    renderPage()
 
     expect(await screen.findByText('Library Health Score')).toBeInTheDocument()
     expect(screen.getByText('82/100')).toBeInTheDocument()
@@ -72,8 +90,19 @@ describe('AiDashboardPage', () => {
     expect(mockHttpClient).toHaveBeenCalledWith('/api/ai/rag/reports/dashboard')
   })
 
+  it('navigates to the AI tool pages from the tabs', async () => {
+    const location = renderPage()
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Ai-Matters/ }),
+    )
+    expect(location.pathname).toBe('/ai-tool')
+
+    fireEvent.click(screen.getByRole('button', { name: /Playlist AI Tool/ }))
+    expect(location.pathname).toBe('/playlist-ai-tool')
+  })
+
   it('refreshes the dashboard on demand', async () => {
-    render(<AiDashboardPage />)
+    renderPage()
     const refresh = await screen.findByRole('button', {
       name: 'Refresh Dashboard',
     })
@@ -99,7 +128,7 @@ describe('AiDashboardPage', () => {
         downloads.push(this.download)
       })
 
-    render(<AiDashboardPage />)
+    renderPage()
     await screen.findByText('Library Health Score')
     fireEvent.click(screen.getByRole('button', { name: 'Export JSON' }))
     fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }))

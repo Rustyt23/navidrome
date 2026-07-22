@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import PlaylistAiToolPage from './PlaylistAiToolPage'
 
 const { mockGetList, mockHttpClient } = vi.hoisted(() => ({
@@ -113,7 +114,11 @@ describe('PlaylistAiToolPage', () => {
   })
 
   it('renders the playlist intelligence table', async () => {
-    render(<PlaylistAiToolPage />)
+    render(
+      <MemoryRouter initialEntries={['/playlist-ai-tool']}>
+        <PlaylistAiToolPage />
+      </MemoryRouter>,
+    )
 
     expect(await screen.findByText('Store Mix')).toBeInTheDocument()
     expect(screen.getAllByText('Owner')).toHaveLength(2)
@@ -135,7 +140,11 @@ describe('PlaylistAiToolPage', () => {
         playlists: { indexed: 1, skipped: 0, failed: 0 },
       },
     })
-    render(<PlaylistAiToolPage />)
+    render(
+      <MemoryRouter initialEntries={['/playlist-ai-tool']}>
+        <PlaylistAiToolPage />
+      </MemoryRouter>,
+    )
 
     const indexButton = await screen.findByRole('button', {
       name: 'Index playlists',
@@ -161,7 +170,11 @@ describe('PlaylistAiToolPage', () => {
 
   it('renders recommendation controls and read-only results', async () => {
     mockHttpClient.mockResolvedValueOnce({ json: recommendationResponse })
-    render(<PlaylistAiToolPage />)
+    render(
+      <MemoryRouter initialEntries={['/playlist-ai-tool']}>
+        <PlaylistAiToolPage />
+      </MemoryRouter>,
+    )
 
     expect(await screen.findByText('Store Mix')).toBeInTheDocument()
     expect(
@@ -191,7 +204,11 @@ describe('PlaylistAiToolPage', () => {
       message: 'Service Unavailable',
       body: { error: 'Qdrant unavailable: connection refused' },
     })
-    render(<PlaylistAiToolPage />)
+    render(
+      <MemoryRouter initialEntries={['/playlist-ai-tool']}>
+        <PlaylistAiToolPage />
+      </MemoryRouter>,
+    )
 
     expect(await screen.findByText('Store Mix')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retail-safe Picks' }))
@@ -203,7 +220,11 @@ describe('PlaylistAiToolPage', () => {
   })
 
   it('analyzes a playlist and renders its report', async () => {
-    render(<PlaylistAiToolPage />)
+    render(
+      <MemoryRouter initialEntries={['/playlist-ai-tool']}>
+        <PlaylistAiToolPage />
+      </MemoryRouter>,
+    )
     fireEvent.click(
       await screen.findByRole('button', { name: 'Analyze playlist' }),
     )

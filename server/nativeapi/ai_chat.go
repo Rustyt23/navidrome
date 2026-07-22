@@ -105,6 +105,7 @@ type genreSourceDeveloperTrace struct {
 	Source       string                  `json:"source"`
 	Provider     string                  `json:"provider,omitempty"`
 	Model        string                  `json:"model,omitempty"`
+	SongURL      string                  `json:"songUrl,omitempty"`
 	Request      string                  `json:"request,omitempty"`
 	Prompt       string                  `json:"prompt,omitempty"`
 	Response     string                  `json:"response,omitempty"`

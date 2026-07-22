@@ -20,6 +20,7 @@ import GetAppIcon from '@material-ui/icons/GetApp'
 import PropTypes from 'prop-types'
 import { Title } from 'react-admin'
 import { httpClient } from '../dataProvider'
+import AiToolNavTabs from './AiToolNavTabs'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -378,6 +379,7 @@ const AiDashboardPage = () => {
     return (
       <Box className={classes.root}>
         <Title title="AI Dashboard" />
+        <AiToolNavTabs />
         <Box className={classes.error}>
           <Typography variant="h6">Dashboard unavailable</Typography>
           <Typography variant="body2" paragraph>
@@ -406,6 +408,7 @@ const AiDashboardPage = () => {
   return (
     <Box className={classes.root}>
       <Title title="AI Dashboard" />
+      <AiToolNavTabs />
       <Box className={classes.header}>
         <Box>
           <Typography variant="h5">AI Dashboard</Typography>

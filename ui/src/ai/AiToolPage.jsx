@@ -14,6 +14,7 @@ import {
   FormControlLabel,
   IconButton,
   LinearProgress,
+  ListSubheader,
   Menu,
   MenuItem,
   Switch,
@@ -28,6 +29,9 @@ import {
 } from '@material-ui/core'
 import MoreVertIcon from '@material-ui/icons/MoreVert'
 import AspectRatioIcon from '@material-ui/icons/AspectRatio'
+import AddIcon from '@material-ui/icons/Add'
+import CloseIcon from '@material-ui/icons/Close'
+import OpenInNewIcon from '@material-ui/icons/OpenInNew'
 import StopIcon from '@material-ui/icons/Stop'
 import ViewColumnIcon from '@material-ui/icons/ViewColumn'
 import DeleteOutlineIcon from '@material-ui/icons/DeleteOutline'
@@ -37,8 +41,11 @@ import LabelOutlinedIcon from '@material-ui/icons/LabelOutlined'
 import LibraryMusicIcon from '@material-ui/icons/LibraryMusic'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
 import SettingsApplicationsIcon from '@material-ui/icons/SettingsApplications'
+import VisibilityIcon from '@material-ui/icons/Visibility'
+import VisibilityOffIcon from '@material-ui/icons/VisibilityOff'
 import { Title, useDataProvider, useTranslate } from 'react-admin'
 import { httpClient } from '../dataProvider'
+import AiToolNavTabs from './AiToolNavTabs'
 
 const ADDED_SONGS_STORAGE_KEY = 'aiToolAddedSongs'
 const DEFAULT_AI_PROVIDER_STORAGE_KEY = 'aiToolDefaultProviderV3'
@@ -316,6 +323,31 @@ const aiProviderLabel = (provider) =>
   AI_PROVIDERS.find((option) => option.id === normalizeAIProvider(provider))
     ?.label || 'AI'
 
+const normalizeITunesSongURL = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return ''
+  try {
+    const parsed = new URL(value.trim())
+    const host = parsed.hostname.toLowerCase()
+    const isAppleStoreHost =
+      host === 'itunes.apple.com' ||
+      host.endsWith('.itunes.apple.com') ||
+      host === 'music.apple.com' ||
+      host.endsWith('.music.apple.com')
+    if (
+      !isAppleStoreHost ||
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password
+    ) {
+      return ''
+    }
+    parsed.protocol = 'https:'
+    return parsed.toString()
+  } catch {
+    return ''
+  }
+}
+
 const normalizeAddedSongs = (songs = []) => {
   const byId = new Map()
   songs.forEach((song) => {
@@ -400,78 +432,219 @@ const useStyles = makeStyles((theme) => ({
     fontSize: 13,
   },
   songToolsActions: {
-    padding: theme.spacing(0, 1.5, 1.25),
+    gap: theme.spacing(1.25),
+    padding: theme.spacing(0.25, 1.5, 1.5),
+  },
+  songToolsAddButton: {
+    minHeight: '40px !important',
+    padding: `${theme.spacing(0.75, 1.5)} !important`,
+    border: '1px solid #ff2a8e',
+    borderRadius: '9px !important',
+    color: '#ffffff',
+    background: 'linear-gradient(135deg, #ff2a8e 0%, #dd176f 100%)',
+    boxShadow: '0 6px 16px rgba(255, 42, 142, 0.2)',
+    '&:hover': {
+      borderColor: '#ff56a5',
+      background: 'linear-gradient(135deg, #ff4da2 0%, #e91e7d 100%)',
+      boxShadow: '0 8px 20px rgba(255, 42, 142, 0.28)',
+    },
+    '& .MuiButton-startIcon': {
+      marginRight: theme.spacing(0.75),
+    },
   },
   songToolsActionButton: {
-    borderColor: 'rgba(255, 42, 142, 0.52)',
-    color: '#ff8fc6',
-    background: 'rgba(255, 42, 142, 0.06)',
+    minWidth: '142px !important',
+    minHeight: '40px !important',
+    padding: `${theme.spacing(0.5, 1)} !important`,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: '9px !important',
+    color: '#eef2f7',
+    background: 'linear-gradient(180deg, #202c3b 0%, #192432 100%)',
+    boxShadow: '0 3px 10px rgba(0, 0, 0, 0.16)',
+    '& .MuiButton-label': {
+      justifyContent: 'flex-start',
+    },
+    '& .MuiButton-startIcon': {
+      width: 28,
+      height: 28,
+      marginRight: theme.spacing(0.75),
+      borderRadius: 7,
+      color: '#ff8fc6',
+      background: 'rgba(255, 42, 142, 0.12)',
+      '& .MuiSvgIcon-root': {
+        fontSize: 17,
+      },
+    },
     '&:hover': {
-      borderColor: '#ff2a8e',
-      background: 'rgba(255, 42, 142, 0.15)',
+      borderColor: 'rgba(255, 42, 142, 0.58)',
+      background: 'linear-gradient(180deg, #263446 0%, #1d2938 100%)',
+      boxShadow: '0 5px 14px rgba(0, 0, 0, 0.22)',
     },
     '& .MuiButton-endIcon': {
-      marginLeft: theme.spacing(0.25),
+      marginLeft: 'auto',
+      color: '#ff8fc6',
+      '& .MuiSvgIcon-root': {
+        fontSize: 18,
+      },
     },
   },
   songToolsActionButtonOpen: {
-    borderColor: '#ff2a8e',
+    borderColor: 'rgba(255, 42, 142, 0.78)',
     color: '#ffffff',
-    background: '#ff2a8e',
+    background:
+      'linear-gradient(180deg, rgba(255, 42, 142, 0.25) 0%, rgba(255, 42, 142, 0.13) 100%)',
+    boxShadow:
+      'inset 0 0 0 1px rgba(255, 42, 142, 0.16), 0 6px 16px rgba(255, 42, 142, 0.13)',
     '&:hover': {
-      borderColor: '#e9197c',
-      background: '#e9197c',
+      borderColor: '#ff2a8e',
+      background:
+        'linear-gradient(180deg, rgba(255, 42, 142, 0.31) 0%, rgba(255, 42, 142, 0.17) 100%)',
     },
+    '& .MuiButton-startIcon': {
+      color: '#ffffff',
+      background: '#ff2a8e',
+    },
+  },
+  songToolsRemoveButton: {
+    minHeight: '40px !important',
+    padding: `${theme.spacing(0.75, 1.25)} !important`,
+    borderRadius: '9px !important',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    color: '#d8dee8',
+    '&:hover': {
+      borderColor: 'rgba(255, 111, 145, 0.7)',
+      color: '#ff9ab2',
+      background: 'rgba(255, 92, 138, 0.08)',
+    },
+    '&.Mui-disabled': {
+      borderColor: 'rgba(255, 255, 255, 0.07)',
+      color: '#687383',
+    },
+  },
+  songToolsSelectionBadge: {
+    padding: theme.spacing(0.4, 0.9),
+    borderRadius: 999,
+    color: '#cbd3df',
+    background: 'rgba(255, 255, 255, 0.07)',
+    fontSize: 11,
+    fontWeight: 700,
   },
   songToolsMenu: {
     '& .MuiPaper-root': {
-      width: 980,
-      maxWidth: 'calc(100vw - 32px)',
-      maxHeight: 'calc(100vh - 96px)',
-      border: '1px solid rgba(255, 42, 142, 0.48)',
-      borderRadius: 10,
+      width: 440,
+      maxWidth: 'calc(100vw - 24px)',
+      maxHeight: 'calc(100vh - 80px)',
+      border: '1px solid rgba(255, 255, 255, 0.13)',
+      borderRadius: 12,
       color: '#f7f8fb',
-      background: '#151f2d',
+      background: '#141e2b',
       boxShadow:
-        '0 20px 46px rgba(0, 0, 0, 0.46), 0 0 18px rgba(255, 42, 142, 0.12)',
+        '0 24px 56px rgba(0, 0, 0, 0.52), 0 0 0 1px rgba(255, 42, 142, 0.05)',
       overflow: 'hidden',
     },
     '& .MuiMenu-list': {
       display: 'grid',
-      gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))',
+      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
       gap: theme.spacing(1),
-      maxHeight: 'calc(100vh - 96px)',
-      padding: theme.spacing(1),
+      maxHeight: 'calc(100vh - 80px)',
+      padding: theme.spacing(0, 1.5, 1.5),
       overflowY: 'auto',
     },
-    [theme.breakpoints.down('sm')]: {
+    [theme.breakpoints.down('xs')]: {
       '& .MuiPaper-root': {
         width: 'calc(100vw - 24px)',
       },
       '& .MuiMenu-list': {
-        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        gridTemplateColumns: 'minmax(0, 1fr)',
       },
     },
   },
+  metadataToolsMenu: {
+    '& .MuiPaper-root': {
+      width: 560,
+    },
+  },
+  songToolsMenuHeader: {
+    gridColumn: '1 / -1',
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1.25),
+    minHeight: 68,
+    margin: theme.spacing(0, -1.5, 0.5),
+    padding: theme.spacing(1.25, 1.5),
+    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+    color: '#f7f8fb',
+    background: '#111a26',
+    lineHeight: 'normal',
+  },
+  songToolsMenuHeaderIcon: {
+    width: 36,
+    height: 36,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    borderRadius: 9,
+    color: '#ff8fc6',
+    background: 'rgba(255, 42, 142, 0.13)',
+    border: '1px solid rgba(255, 42, 142, 0.2)',
+    '& .MuiSvgIcon-root': {
+      fontSize: 20,
+    },
+  },
+  songToolsMenuHeaderText: {
+    minWidth: 0,
+  },
+  songToolsMenuTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 750,
+    lineHeight: 1.3,
+  },
+  songToolsMenuSubtitle: {
+    marginTop: 2,
+    color: '#9da9b8',
+    fontSize: 11,
+    lineHeight: 1.35,
+    whiteSpace: 'normal',
+  },
+  songToolsMenuClose: {
+    width: 32,
+    height: 32,
+    marginLeft: 'auto',
+    flexShrink: 0,
+    color: '#aeb8c5',
+    border: '1px solid transparent',
+    '&:hover': {
+      color: '#ffffff',
+      borderColor: 'rgba(255, 255, 255, 0.12)',
+      background: 'rgba(255, 255, 255, 0.06)',
+    },
+  },
   songToolsMenuItem: {
-    minHeight: 58,
-    borderRadius: 8,
+    minWidth: 0,
+    minHeight: 52,
+    borderRadius: 9,
     margin: 0,
     padding: theme.spacing(1, 1.25),
-    border: '1px solid rgba(255, 255, 255, 0.09)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
     color: '#f7f8fb',
-    background: '#1f2b3a',
-    fontSize: 13,
-    fontWeight: 650,
+    background: '#1b2736',
+    fontSize: 12,
+    fontWeight: 700,
     gap: theme.spacing(1),
-    transition: 'background-color 140ms ease, color 140ms ease',
+    lineHeight: 1.3,
+    whiteSpace: 'normal',
+    transition:
+      'background-color 140ms ease, border-color 140ms ease, color 140ms ease',
     '& .MuiSvgIcon-root': {
       color: '#ff8fc6',
+      flexShrink: 0,
     },
     '&:hover': {
       color: '#ffffff',
-      borderColor: 'rgba(255, 42, 142, 0.62)',
-      background: 'rgba(255, 42, 142, 0.16)',
+      borderColor: 'rgba(255, 42, 142, 0.5)',
+      background: '#243244',
       transform: 'none',
     },
     '&:hover .MuiSvgIcon-root': {
@@ -487,41 +660,62 @@ const useStyles = makeStyles((theme) => ({
     },
   },
   songToolsMenuItemPrimary: {
-    color: '#ff8fc6',
-    borderColor: 'rgba(255, 42, 142, 0.48)',
-    background: 'rgba(255, 42, 142, 0.11)',
+    gridColumn: '1 / -1',
+    color: '#ffffff',
+    borderColor: 'rgba(255, 42, 142, 0.58)',
+    background:
+      'linear-gradient(135deg, rgba(255, 42, 142, 0.25), rgba(255, 42, 142, 0.11))',
     '& .MuiSvgIcon-root': {
-      color: '#ff2a8e',
+      color: '#ff8fc6',
     },
     '&:hover': {
       color: '#ffffff',
-      background: '#ff2a8e',
+      borderColor: '#ff2a8e',
+      background:
+        'linear-gradient(135deg, rgba(255, 42, 142, 0.36), rgba(255, 42, 142, 0.18))',
     },
-    '&:hover .MuiSvgIcon-root': {
-      color: '#ffffff',
+  },
+  songToolsMenuItemDanger: {
+    gridColumn: '1 / -1',
+    color: '#ffb0c2',
+    borderColor: 'rgba(255, 92, 138, 0.22)',
+    background: 'rgba(255, 92, 138, 0.05)',
+    '& .MuiSvgIcon-root': {
+      color: '#ff7d9b',
+    },
+    '&:hover': {
+      color: '#ffd2dc',
+      borderColor: 'rgba(255, 92, 138, 0.55)',
+      background: 'rgba(255, 92, 138, 0.12)',
     },
   },
   songToolsMenuControl: {
     display: 'block',
+    minWidth: 0,
     minHeight: 0,
     margin: 0,
     padding: 0,
-    borderRadius: 8,
+    borderRadius: 9,
     cursor: 'default',
+    overflow: 'visible',
     '&:hover': {
       background: 'transparent',
     },
+  },
+  songToolsMenuControlWide: {
+    gridColumn: '1 / -1',
   },
   songToolsMenuToggle: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: theme.spacing(1),
-    minHeight: 54,
-    padding: theme.spacing(0.75, 1.25),
-    border: '1px solid rgba(255, 255, 255, 0.09)',
-    borderRadius: 8,
-    background: '#1f2b3a',
+    width: '100%',
+    minHeight: 64,
+    padding: theme.spacing(1, 1.25),
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: 9,
+    background: '#1b2736',
     boxSizing: 'border-box',
   },
   songToolsMenuToggleEnabled: {
@@ -533,7 +727,7 @@ const useStyles = makeStyles((theme) => ({
   },
   songToolsMenuToggleLabel: {
     color: '#f7f8fb',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 700,
   },
   songToolsMenuToggleHint: {
@@ -547,6 +741,9 @@ const useStyles = makeStyles((theme) => ({
     alignItems: 'center',
     flexShrink: 0,
     gap: theme.spacing(0.25),
+    '& .MuiSwitch-root': {
+      marginRight: -6,
+    },
   },
   songToolsMenuToggleStatus: {
     color: '#ff8fc6',
@@ -583,21 +780,45 @@ const useStyles = makeStyles((theme) => ({
     minWidth: 0,
     '& .MuiOutlinedInput-root': {
       color: '#f7f8fb',
-      background: '#111b28',
-      borderRadius: 8,
-    },
-    '& .MuiInputLabel-root': {
-      color: '#ff8fc6',
+      background: '#111a26',
+      borderRadius: 7,
     },
     '& .MuiOutlinedInput-notchedOutline': {
-      borderColor: 'rgba(255, 42, 142, 0.45)',
+      borderColor: 'rgba(255, 255, 255, 0.13)',
     },
     '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
+      borderColor: 'rgba(255, 42, 142, 0.65)',
+    },
+    '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
       borderColor: '#ff2a8e',
+      borderWidth: 1,
     },
     '& .MuiSelect-icon': {
       color: '#ff8fc6',
     },
+    '& .MuiSelect-select.MuiSelect-select': {
+      paddingTop: 10,
+      paddingBottom: 10,
+      fontSize: 13,
+    },
+  },
+  songToolsMenuField: {
+    minWidth: 0,
+    padding: theme.spacing(1),
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: 9,
+    background: '#1b2736',
+    boxSizing: 'border-box',
+  },
+  songToolsMenuFieldLabel: {
+    display: 'block',
+    marginBottom: theme.spacing(0.75),
+    color: '#aeb8c5',
+    fontSize: 10,
+    fontWeight: 750,
+    letterSpacing: 0.55,
+    lineHeight: 1.2,
+    textTransform: 'uppercase',
   },
   serviceStatusPanel: {
     width: '100%',
@@ -917,6 +1138,75 @@ const useStyles = makeStyles((theme) => ({
     padding: theme.spacing(1),
     borderRadius: 6,
     background: '#0f1722',
+  },
+  genreTraceSourceLink: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing(2),
+    marginBottom: theme.spacing(2),
+    padding: theme.spacing(1.25, 1.5),
+    border: '1px solid rgba(255, 42, 142, 0.4)',
+    borderRadius: 8,
+    color: '#f7f8fb',
+    background:
+      'linear-gradient(135deg, rgba(255, 42, 142, 0.14), rgba(15, 23, 34, 0.76))',
+    textDecoration: 'none',
+    transition:
+      'border-color 140ms ease, background-color 140ms ease, transform 140ms ease',
+    '&:hover': {
+      borderColor: '#ff2a8e',
+      color: '#ffffff',
+      background:
+        'linear-gradient(135deg, rgba(255, 42, 142, 0.22), rgba(15, 23, 34, 0.88))',
+      transform: 'translateY(-1px)',
+      textDecoration: 'none',
+    },
+    '&:focus-visible': {
+      outline: '2px solid #ff8fc6',
+      outlineOffset: 2,
+    },
+    [theme.breakpoints.down('xs')]: {
+      alignItems: 'flex-start',
+      flexDirection: 'column',
+      gap: theme.spacing(1),
+    },
+  },
+  genreTraceSourceLinkText: {
+    minWidth: 0,
+  },
+  genreTraceSourceLinkLabel: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 750,
+  },
+  genreTraceSourceLinkURL: {
+    display: 'block',
+    marginTop: 3,
+    overflow: 'hidden',
+    color: '#ff8fc6',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    lineHeight: 1.4,
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  genreTraceSourceLinkAction: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    flexShrink: 0,
+    color: '#ff8fc6',
+    fontSize: 12,
+    fontWeight: 750,
+    '& .MuiSvgIcon-root': {
+      fontSize: 16,
+    },
+  },
+  genreTraceSourceLinkUnavailable: {
+    marginBottom: theme.spacing(2),
+    color: '#aeb8c5',
+    fontSize: 12,
   },
   confidenceBadge: {
     padding: '1px 6px',
@@ -2386,6 +2676,8 @@ const AiToolPage = () => {
       )
     }
     const attempts = Array.isArray(trace.attempts) ? trace.attempts : []
+    const songURL =
+      detail.source === 'itunes' ? normalizeITunesSongURL(trace.songUrl) : ''
     return (
       <Box>
         <Typography variant="body2" paragraph>
@@ -2395,6 +2687,41 @@ const AiToolPage = () => {
             : ''}
           {trace.model ? ` · Model: ${trace.model}` : ''}
         </Typography>
+        {songURL ? (
+          <Box
+            component="a"
+            className={classes.genreTraceSourceLink}
+            href={songURL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Open ${detail.song?.title || 'song'} on iTunes`}
+          >
+            <Box className={classes.genreTraceSourceLinkText}>
+              <Typography className={classes.genreTraceSourceLinkLabel}>
+                Original iTunes song
+              </Typography>
+              <Typography
+                component="span"
+                className={classes.genreTraceSourceLinkURL}
+                title={songURL}
+              >
+                {songURL}
+              </Typography>
+            </Box>
+            <Box
+              component="span"
+              className={classes.genreTraceSourceLinkAction}
+            >
+              Open song page
+              <OpenInNewIcon aria-hidden="true" />
+            </Box>
+          </Box>
+        ) : detail.source === 'itunes' ? (
+          <Typography className={classes.genreTraceSourceLinkUnavailable}>
+            The original song link is not stored in this trace. Fetch AI
+            Metadata again to capture it.
+          </Typography>
+        ) : null}
         <ChatTraceSection
           label="Request sent to iTunes"
           value={trace.request}
@@ -3827,7 +4154,9 @@ const AiToolPage = () => {
 
   return (
     <Box className={classes.root}>
-      <Title title={translate('menu.aiTool.name', { _: 'AI Tool' })} />
+      <Title title={translate('menu.aiTool.name', { _: 'Ai-Matters' })} />
+
+      <AiToolNavTabs />
 
       <Card>
         <CardContent>
@@ -4415,8 +4744,10 @@ const AiToolPage = () => {
                 className={`${classes.tableActions} ${classes.songToolsActions}`}
               >
                 <Button
-                  variant="outlined"
+                  variant="contained"
                   color="primary"
+                  className={classes.songToolsAddButton}
+                  startIcon={<AddIcon />}
                   onClick={openAddSongsDialog}
                 >
                   {translate('menu.aiTool.addSongs', { _: 'Add songs' })}
@@ -4434,6 +4765,7 @@ const AiToolPage = () => {
                   }
                   aria-expanded={Boolean(explicitMenuAnchorEl)}
                   aria-haspopup="menu"
+                  startIcon={<LabelOutlinedIcon />}
                   endIcon={
                     explicitMenuAnchorEl ? (
                       <ExpandLessIcon />
@@ -4442,8 +4774,11 @@ const AiToolPage = () => {
                     )
                   }
                   onClick={(event) => {
+                    const shouldOpen = !explicitMenuAnchorEl
                     setMetadataMenuAnchorEl(null)
-                    setExplicitMenuAnchorEl(event.currentTarget)
+                    setExplicitMenuAnchorEl(
+                      shouldOpen ? event.currentTarget : null,
+                    )
                   }}
                 >
                   Explicit
@@ -4461,6 +4796,7 @@ const AiToolPage = () => {
                   }
                   aria-expanded={Boolean(metadataMenuAnchorEl)}
                   aria-haspopup="menu"
+                  startIcon={<QueueMusicIcon />}
                   endIcon={
                     metadataMenuAnchorEl ? (
                       <ExpandLessIcon />
@@ -4469,8 +4805,11 @@ const AiToolPage = () => {
                     )
                   }
                   onClick={(event) => {
+                    const shouldOpen = !metadataMenuAnchorEl
                     setExplicitMenuAnchorEl(null)
-                    setMetadataMenuAnchorEl(event.currentTarget)
+                    setMetadataMenuAnchorEl(
+                      shouldOpen ? event.currentTarget : null,
+                    )
                   }}
                 >
                   Metadata
@@ -4478,13 +4817,18 @@ const AiToolPage = () => {
                 <Button
                   variant="outlined"
                   color="secondary"
+                  className={classes.songToolsRemoveButton}
+                  startIcon={<DeleteOutlineIcon />}
                   onClick={removeSelectedSongs}
                   disabled={!selectedAddedIds.length}
                 >
                   {translate('ra.action.remove', { _: 'Remove' })}
                 </Button>
                 {selectedAddedIds.length ? (
-                  <Typography variant="body2">
+                  <Typography
+                    variant="body2"
+                    className={classes.songToolsSelectionBadge}
+                  >
                     {selectedAddedIds.length} selected
                   </Typography>
                 ) : null}
@@ -4502,6 +4846,29 @@ const AiToolPage = () => {
               transformOrigin={{ vertical: 'top', horizontal: 'left' }}
               MenuListProps={{ 'aria-label': 'Explicit actions' }}
             >
+              <ListSubheader
+                disableSticky
+                className={classes.songToolsMenuHeader}
+              >
+                <Box className={classes.songToolsMenuHeaderIcon}>
+                  <LabelOutlinedIcon />
+                </Box>
+                <Box className={classes.songToolsMenuHeaderText}>
+                  <Typography className={classes.songToolsMenuTitle}>
+                    Explicit tools
+                  </Typography>
+                  <Typography className={classes.songToolsMenuSubtitle}>
+                    Manage lyrics and content classifications
+                  </Typography>
+                </Box>
+                <IconButton
+                  className={classes.songToolsMenuClose}
+                  aria-label="Close Explicit actions"
+                  onClick={() => setExplicitMenuAnchorEl(null)}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </ListSubheader>
               <MenuItem
                 className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemPrimary}`}
                 onClick={() => {
@@ -4558,7 +4925,7 @@ const AiToolPage = () => {
               </MenuItem>
               <MenuItem
                 disableRipple
-                className={classes.songToolsMenuControl}
+                className={`${classes.songToolsMenuControl} ${classes.songToolsMenuControlWide}`}
                 onClick={(event) => event.stopPropagation()}
               >
                 <Box
@@ -4590,7 +4957,7 @@ const AiToolPage = () => {
                 </Box>
               </MenuItem>
               <MenuItem
-                className={classes.songToolsMenuItem}
+                className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemDanger}`}
                 onClick={() => {
                   setExplicitMenuAnchorEl(null)
                   void deleteLyricsForSongs(selectedAddedSongs)
@@ -4609,13 +4976,36 @@ const AiToolPage = () => {
               anchorEl={metadataMenuAnchorEl}
               open={Boolean(metadataMenuAnchorEl)}
               onClose={() => setMetadataMenuAnchorEl(null)}
-              className={classes.songToolsMenu}
+              className={`${classes.songToolsMenu} ${classes.metadataToolsMenu}`}
               PaperProps={{ elevation: 0 }}
               getContentAnchorEl={null}
               anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
               transformOrigin={{ vertical: 'top', horizontal: 'left' }}
               MenuListProps={{ 'aria-label': 'Metadata actions' }}
             >
+              <ListSubheader
+                disableSticky
+                className={classes.songToolsMenuHeader}
+              >
+                <Box className={classes.songToolsMenuHeaderIcon}>
+                  <QueueMusicIcon />
+                </Box>
+                <Box className={classes.songToolsMenuHeaderText}>
+                  <Typography className={classes.songToolsMenuTitle}>
+                    Metadata tools
+                  </Typography>
+                  <Typography className={classes.songToolsMenuSubtitle}>
+                    Enrich song data and control visible details
+                  </Typography>
+                </Box>
+                <IconButton
+                  className={classes.songToolsMenuClose}
+                  aria-label="Close Metadata actions"
+                  onClick={() => setMetadataMenuAnchorEl(null)}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </ListSubheader>
               <MenuItem
                 className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemPrimary}`}
                 onClick={() => {
@@ -4646,7 +5036,7 @@ const AiToolPage = () => {
               </MenuItem>
               <MenuItem
                 disableRipple
-                className={classes.songToolsMenuControl}
+                className={`${classes.songToolsMenuControl} ${classes.songToolsMenuControlWide}`}
                 onClick={(event) => event.stopPropagation()}
               >
                 <Box
@@ -4684,55 +5074,67 @@ const AiToolPage = () => {
                 className={classes.songToolsMenuControl}
                 onClick={(event) => event.stopPropagation()}
               >
-                <TextField
-                  select
-                  fullWidth
-                  className={`${classes.defaultProviderSelect} ${classes.songToolsMenuSelect}`}
-                  label="Default Metadata AI Provider"
-                  variant="outlined"
-                  size="small"
-                  value={metadataProvider}
-                  inputProps={{
-                    'aria-label': 'Default Metadata AI Provider',
-                  }}
-                  onChange={(event) =>
-                    setMetadataProvider(normalizeAIProvider(event.target.value))
-                  }
-                >
-                  {AI_PROVIDERS.map((provider) => (
-                    <MenuItem key={provider.id} value={provider.id}>
-                      {provider.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                <Box className={classes.songToolsMenuField}>
+                  <Typography className={classes.songToolsMenuFieldLabel}>
+                    Default AI provider
+                  </Typography>
+                  <TextField
+                    id="metadata-provider-select"
+                    select
+                    fullWidth
+                    className={classes.songToolsMenuSelect}
+                    variant="outlined"
+                    size="small"
+                    value={metadataProvider}
+                    inputProps={{
+                      'aria-label': 'Default Metadata AI Provider',
+                    }}
+                    onChange={(event) =>
+                      setMetadataProvider(
+                        normalizeAIProvider(event.target.value),
+                      )
+                    }
+                  >
+                    {AI_PROVIDERS.map((provider) => (
+                      <MenuItem key={provider.id} value={provider.id}>
+                        {provider.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Box>
               </MenuItem>
               <MenuItem
                 disableRipple
                 className={classes.songToolsMenuControl}
                 onClick={(event) => event.stopPropagation()}
               >
-                <TextField
-                  select
-                  fullWidth
-                  className={`${classes.defaultProviderSelect} ${classes.songToolsMenuSelect}`}
-                  label="Songs per AI Prompt"
-                  variant="outlined"
-                  size="small"
-                  value={metadataBatchSize}
-                  disabled={isFetchingMetadata}
-                  inputProps={{ 'aria-label': 'Songs per AI Prompt' }}
-                  onChange={(event) =>
-                    setMetadataBatchSize(
-                      normalizeMetadataBatchSize(event.target.value),
-                    )
-                  }
-                >
-                  {METADATA_BATCH_SIZE_OPTIONS.map((size) => (
-                    <MenuItem key={size} value={size}>
-                      {size}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                <Box className={classes.songToolsMenuField}>
+                  <Typography className={classes.songToolsMenuFieldLabel}>
+                    Songs per AI prompt
+                  </Typography>
+                  <TextField
+                    id="metadata-batch-size-select"
+                    select
+                    fullWidth
+                    className={classes.songToolsMenuSelect}
+                    variant="outlined"
+                    size="small"
+                    value={metadataBatchSize}
+                    disabled={isFetchingMetadata}
+                    inputProps={{ 'aria-label': 'Songs per AI Prompt' }}
+                    onChange={(event) =>
+                      setMetadataBatchSize(
+                        normalizeMetadataBatchSize(event.target.value),
+                      )
+                    }
+                  >
+                    {METADATA_BATCH_SIZE_OPTIONS.map((size) => (
+                      <MenuItem key={size} value={size}>
+                        {size}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Box>
               </MenuItem>
               <MenuItem
                 className={classes.songToolsMenuItem}
@@ -4753,12 +5155,17 @@ const AiToolPage = () => {
                   setMetadataMenuAnchorEl(null)
                 }}
               >
+                {someConfidenceColumnsVisible ? (
+                  <VisibilityOffIcon fontSize="small" />
+                ) : (
+                  <VisibilityIcon fontSize="small" />
+                )}
                 {someConfidenceColumnsVisible
                   ? 'Hide Confidence'
                   : 'Show Confidence'}
               </MenuItem>
               <MenuItem
-                className={classes.songToolsMenuItem}
+                className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemDanger}`}
                 onClick={() => {
                   setMetadataMenuAnchorEl(null)
                   void clearFetchedMetadata()
@@ -4769,6 +5176,7 @@ const AiToolPage = () => {
                   isFetchingMetadata
                 }
               >
+                <DeleteOutlineIcon fontSize="small" />
                 {isClearingMetadata
                   ? translate('menu.aiTool.clearingMetadata', {
                       _: 'Clearing...',

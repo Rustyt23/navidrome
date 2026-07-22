@@ -252,8 +252,8 @@ func TestFetchITunesGenreMatchesDecoratedTags(t *testing.T) {
 			t.Fatalf("unexpected host %q", req.URL.Host)
 		}
 		return jsonResponse(`{"results": [
-			{"trackName": "Some Other Song", "artistName": "Beyoncé", "primaryGenreName": "Pop"},
-			{"trackName": "***Flawless (feat. Chimamanda Ngozi Adichie)", "artistName": "Beyoncé", "primaryGenreName": "R&B/Soul"}
+			{"trackName": "Some Other Song", "artistName": "Beyoncé", "primaryGenreName": "Pop", "trackViewUrl": "https://music.apple.com/us/song/wrong-song/1"},
+			{"trackName": "***Flawless (feat. Chimamanda Ngozi Adichie)", "artistName": "Beyoncé", "primaryGenreName": "R&B/Soul", "trackViewUrl": "https://music.apple.com/us/album/flawless-feat-chimamanda-ngozi-adichie/939775882?i=939775896"}
 		]}`), nil
 	})}
 
@@ -264,10 +264,31 @@ func TestFetchITunesGenreMatchesDecoratedTags(t *testing.T) {
 	if trace == nil || trace.Source != "itunes" || trace.FetchedGenre != got {
 		t.Fatalf("unexpected iTunes genre trace: %+v", trace)
 	}
+	if trace.SongURL != "https://music.apple.com/us/album/flawless-feat-chimamanda-ngozi-adichie/939775882?i=939775896" {
+		t.Fatalf("expected matched iTunes song URL, got %q", trace.SongURL)
+	}
 	if !strings.Contains(trace.Request, "itunes.apple.com/search?") ||
 		!strings.Contains(trace.Request, "entity=song") ||
 		!strings.Contains(trace.Response, `"trackName": "***Flawless (feat. Chimamanda Ngozi Adichie)"`) {
 		t.Fatalf("trace did not capture the iTunes request and candidates: %+v", trace)
+	}
+}
+
+func TestNormalizeITunesSongURLOnlyAllowsAppleStoreLinks(t *testing.T) {
+	if got := normalizeITunesSongURL("http://itunes.apple.com/us/song/example/123"); got != "https://itunes.apple.com/us/song/example/123" {
+		t.Fatalf("expected legacy iTunes URL upgraded to https, got %q", got)
+	}
+	if got := normalizeITunesSongURL("https://music.apple.com/us/album/example/123?i=456"); got != "https://music.apple.com/us/album/example/123?i=456" {
+		t.Fatalf("expected Apple Music URL preserved, got %q", got)
+	}
+	for _, value := range []string{
+		"javascript:alert(1)",
+		"https://music.apple.com.example.com/song/123",
+		"https://user@itunes.apple.com/song/123",
+	} {
+		if got := normalizeITunesSongURL(value); got != "" {
+			t.Fatalf("expected unsafe URL %q rejected, got %q", value, got)
+		}
 	}
 }
 

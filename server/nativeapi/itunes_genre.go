@@ -27,6 +27,7 @@ type itunesTrack struct {
 	TrackName        string `json:"trackName"`
 	ArtistName       string `json:"artistName"`
 	PrimaryGenreName string `json:"primaryGenreName"`
+	TrackViewURL     string `json:"trackViewUrl"`
 }
 
 // fetchITunesGenre looks up the genre for a track. The search term uses the
@@ -93,9 +94,30 @@ func (j *musicBrainzMetadataJob) fetchITunesGenreWithTrace(title, artist string)
 			continue
 		}
 		trace.FetchedGenre = genre
+		trace.SongURL = normalizeITunesSongURL(track.TrackViewURL)
 		return genre, trace
 	}
 	return "", trace
+}
+
+// normalizeITunesSongURL only exposes Apple-owned song pages to the UI. Older
+// Search API responses can contain http links, which are safe to upgrade to
+// https because both supported hosts serve the same canonical store pages.
+func normalizeITunesSongURL(value string) string {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.User != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "itunes.apple.com" && !strings.HasSuffix(host, ".itunes.apple.com") &&
+		host != "music.apple.com" && !strings.HasSuffix(host, ".music.apple.com") {
+		return ""
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return ""
+	}
+	parsed.Scheme = "https"
+	return parsed.String()
 }
 
 // waitITunesSlot spaces iTunes requests out; the API blocks callers that

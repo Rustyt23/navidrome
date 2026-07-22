@@ -8,6 +8,7 @@ import {
   within,
 } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route } from 'react-router-dom'
 import AiToolPage from './AiToolPage'
 
 const { mockHttpClient, mockGetList } = vi.hoisted(() => ({
@@ -84,7 +85,11 @@ const renderPage = (
     return Promise.resolve({ json: {} })
   })
 
-  render(<AiToolPage />)
+  render(
+    <MemoryRouter initialEntries={['/ai-tool']}>
+      <AiToolPage />
+    </MemoryRouter>,
+  )
   fireEvent.click(
     screen.getByRole('checkbox', { name: 'Select all added songs' }),
   )
@@ -136,6 +141,28 @@ describe('AiToolPage AI actions', () => {
 
   afterEach(() => {
     cleanup()
+  })
+
+  it('navigates to the dashboard and playlist tools from the tabs', async () => {
+    const location = { pathname: '/ai-tool' }
+    render(
+      <MemoryRouter initialEntries={['/ai-tool']}>
+        <AiToolPage />
+        <Route
+          path="*"
+          render={({ location: current }) => {
+            location.pathname = current.pathname
+            return null
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'AI Dashboard' }))
+    expect(location.pathname).toBe('/ai-dashboard')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Playlist AI Tool' }))
+    expect(location.pathname).toBe('/playlist-ai-tool')
   })
 
   it('stops an in-progress lyrics fetch', async () => {
@@ -1892,8 +1919,10 @@ describe('AiToolPage AI actions', () => {
                   source: 'itunes',
                   request:
                     'https://itunes.apple.com/search?entity=song&term=Artist+First+song',
+                  songUrl:
+                    'https://music.apple.com/us/album/first-song/123456?i=789012',
                   response:
-                    '{"results":[{"trackName":"First song","artistName":"Artist","primaryGenreName":"Dream Pop"}]}',
+                    '{"results":[{"trackName":"First song","artistName":"Artist","primaryGenreName":"Dream Pop","trackViewUrl":"https://music.apple.com/us/album/first-song/123456?i=789012"}]}',
                   fetchedGenre: 'Dream Pop',
                 },
                 ai: {
@@ -1937,6 +1966,15 @@ describe('AiToolPage AI actions', () => {
       within(itunesDialog).getByText(/primaryGenreName.*Dream Pop/),
     ).toBeInTheDocument()
     expect(itunesDialog).toHaveTextContent('Fetched genre: Dream Pop')
+    const itunesSongLink = within(itunesDialog).getByRole('link', {
+      name: 'Open First song on iTunes',
+    })
+    expect(itunesSongLink).toHaveAttribute(
+      'href',
+      'https://music.apple.com/us/album/first-song/123456?i=789012',
+    )
+    expect(itunesSongLink).toHaveAttribute('target', '_blank')
+    expect(itunesSongLink).toHaveAttribute('rel', 'noopener noreferrer')
     fireEvent.click(within(itunesDialog).getByRole('button', { name: 'Close' }))
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
