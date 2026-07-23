@@ -149,11 +149,20 @@ const useStyles = makeStyles((theme) => {
 const PublicRetailPlayer = () => {
   const classes = useStyles()
   const { deviceSlug } = useParams()
-  const audioRef = useRef(null)
+  // The song currently loaded for playback, and a second element used to
+  // preload the upcoming song so playback never stops until the next one is
+  // ready. wantPlayingRef tracks the user's intent across song swaps.
+  const currentAudioRef = useRef(null)
+  const preloadAudioRef = useRef(null)
+  const wantPlayingRef = useRef(false)
+  const [currentUrl, setCurrentUrl] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
   const [streamError, setStreamError] = useState(false)
   // Public stream info for the current song: { streamUrl, url (artwork), ... }.
   const [streamInfo, setStreamInfo] = useState(null)
+  // True when the current song genuinely isn't in the library (endpoint 404),
+  // as opposed to a transient empty name during a device song change.
+  const [songUnavailable, setSongUnavailable] = useState(false)
 
   const deviceName = useMemo(() => {
     try {
@@ -178,8 +187,9 @@ const PublicRetailPlayer = () => {
   const songName = normalizeValue(nowPlaying?.streamName)
 
   useEffect(() => {
+    // Empty name: a transient gap while the device switches songs. Leave the
+    // current song and its state untouched so playback continues.
     if (!songName) {
-      setStreamInfo(null)
       return undefined
     }
 
@@ -191,11 +201,22 @@ const PublicRetailPlayer = () => {
       ),
       { signal: controller.signal },
     )
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setStreamInfo(data?.artwork || null))
-      .catch((error) => {
-        if (error.name !== 'AbortError') {
+      .then(async (response) => {
+        if (response.ok) {
+          const data = await response.json()
+          setStreamInfo(data?.artwork || null)
+          setSongUnavailable(false)
+        } else if (response.status === 404) {
+          // The song genuinely isn't in the library — mark it so playback stops.
           setStreamInfo(null)
+          setSongUnavailable(true)
+        }
+        // Other statuses (5xx, etc.): treat as transient, keep playing.
+      })
+      .catch((error) => {
+        // Ignore aborts and network blips; keep the current song playing.
+        if (error.name !== 'AbortError') {
+          // no-op
         }
       })
 
@@ -220,37 +241,159 @@ const PublicRetailPlayer = () => {
   )
 
   const isLoading = !liveDevice && isDeviceLoading
-  const isPlayable = Boolean(track.streamUrl) && !streamError
+  const isPlayable = Boolean(currentUrl) && !streamError && !songUnavailable
+
+  // Build an Audio element for a song and wire it to React state. Kept out of
+  // the JSX so we can hold two at once (current + preloading) and hand off
+  // between them without a DOM src swap.
+  const makeAudio = useCallback((streamUrl) => {
+    const audio = new Audio()
+    audio.preload = 'auto'
+    audio.src = streamUrl
+    audio.onplay = () => setIsPlaying(true)
+    audio.onpause = () => setIsPlaying(false)
+    // Natural end: leave wantPlayingRef set so the next song (delivered over the
+    // websocket) auto-plays. The small gap here is expected/acceptable.
+    audio.onended = () => setIsPlaying(false)
+    audio.onerror = () => setStreamError(true)
+    return audio
+  }, [])
+
+  // Detach handlers before clearing the source: assigning an empty src fires an
+  // `error` event, and a live onerror would wrongly flag the *next* song as
+  // unavailable while we're just discarding the old element.
+  const teardownAudio = useCallback((audio) => {
+    if (!audio) {
+      return
+    }
+    audio.onplay = null
+    audio.onpause = null
+    audio.onended = null
+    audio.onerror = null
+    audio.pause()
+    audio.removeAttribute('src')
+    audio.load()
+  }, [])
 
   useEffect(() => {
-    const audio = audioRef.current
+    // The current song genuinely isn't in the library: stop playback right away
+    // and show the unavailable state. This is distinct from a transient empty
+    // name (handled below), which must NOT stop the current song.
+    if (songUnavailable) {
+      teardownAudio(currentAudioRef.current)
+      currentAudioRef.current = null
+      teardownAudio(preloadAudioRef.current)
+      preloadAudioRef.current = null
+      setCurrentUrl('')
+      // teardownAudio detaches onpause, so reset the playing flag ourselves.
+      setIsPlaying(false)
+      return undefined
+    }
+
+    const desired = track.streamUrl
+
+    // No resolvable stream URL yet but the name is non-empty resolving, or a
+    // transient gap between songs (the device empties its active-stream name
+    // during a change). Never stop the current song for this: keep it playing
+    // so churn in the device state can't create silence. Only surface the empty
+    // state when nothing has started playing yet.
+    if (!desired) {
+      if (!currentAudioRef.current) {
+        setCurrentUrl('')
+      }
+      return undefined
+    }
+
+    if (desired === currentUrl) {
+      return undefined
+    }
+
+    const activateNow = (audio) => {
+      const previous = currentAudioRef.current
+      if (previous !== audio) {
+        teardownAudio(previous)
+      }
+      currentAudioRef.current = audio
+      setCurrentUrl(desired)
+      setStreamError(false)
+      if (wantPlayingRef.current) {
+        audio.play().catch(() => {})
+      }
+    }
+
+    const current = currentAudioRef.current
+    const isActive = current && !current.paused && !current.ended
+
+    // Nothing playing (first load, paused, or the previous song ended): switch
+    // right away — there is no ongoing playback to protect.
+    if (!isActive) {
+      activateNow(makeAudio(desired))
+      return undefined
+    }
+
+    // A song is mid-playback: preload the next one and only hand off once it can
+    // play through, so the current song is never force-stopped into a gap.
+    const next = makeAudio(desired)
+    preloadAudioRef.current = next
+    let swapped = false
+    const swap = () => {
+      if (swapped) {
+        return
+      }
+      swapped = true
+      preloadAudioRef.current = null
+      activateNow(next)
+    }
+    next.addEventListener('canplaythrough', swap, { once: true })
+    // If preloading fails, hand off anyway so a bad preload can't wedge playback.
+    next.addEventListener('error', swap, { once: true })
+    // Safety net: never wait forever for canplaythrough.
+    const timeoutId = window.setTimeout(swap, 10000)
+    next.load()
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      if (!swapped) {
+        // Guard so a teardown-triggered error event can't invoke swap().
+        swapped = true
+        teardownAudio(next)
+        if (preloadAudioRef.current === next) {
+          preloadAudioRef.current = null
+        }
+      }
+    }
+  }, [songUnavailable, track.streamUrl, currentUrl, makeAudio, teardownAudio])
+
+  // Tear down audio elements on unmount.
+  useEffect(
+    () => () => {
+      ;[currentAudioRef, preloadAudioRef].forEach((ref) => {
+        teardownAudio(ref.current)
+        ref.current = null
+      })
+    },
+    [teardownAudio],
+  )
+
+  const togglePlayback = useCallback(async () => {
+    const audio = currentAudioRef.current
     if (!audio) {
       return
     }
 
-    audio.pause()
-    setIsPlaying(false)
-  }, [track.streamUrl])
-
-  const togglePlayback = useCallback(async () => {
-    const audio = audioRef.current
-    if (!audio || !isPlayable) {
-      return
-    }
-
     if (audio.paused) {
+      wantPlayingRef.current = true
       try {
         await audio.play()
-        setIsPlaying(true)
       } catch (error) {
         setStreamError(true)
       }
       return
     }
 
+    wantPlayingRef.current = false
     audio.pause()
-    setIsPlaying(false)
-  }, [isPlayable])
+  }, [])
 
   return (
     <main className={classes.root}>
@@ -308,14 +451,6 @@ const PublicRetailPlayer = () => {
               This song is not available in Musicmatters.
             </Typography>
           ) : null}
-          <audio
-            ref={audioRef}
-            src={track.streamUrl || undefined}
-            onPause={() => setIsPlaying(false)}
-            onPlay={() => setIsPlaying(true)}
-            onEnded={() => setIsPlaying(false)}
-            onError={() => setStreamError(true)}
-          />
         </section>
       )}
     </main>
