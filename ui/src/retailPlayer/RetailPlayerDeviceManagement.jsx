@@ -34,6 +34,8 @@ import FolderIcon from '@material-ui/icons/Folder'
 import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import SearchIcon from '@material-ui/icons/Search'
 import DeleteOutlineIcon from '@material-ui/icons/DeleteOutline'
+import PlayArrowIcon from '@material-ui/icons/PlayArrow'
+import { baseUrl } from '../utils'
 import SyncIcon from '@material-ui/icons/Sync'
 import Breadcrumbs from '@material-ui/core/Breadcrumbs'
 import Link from '@material-ui/core/Link'
@@ -79,16 +81,17 @@ const buildRetailPlayerFolderSearch = (search, folderId) => {
 
 const useStyles = makeStyles((theme) => {
   const dndStyles = buildRetailPlayerDnDStyles(theme)
+  // Trailing 64px/56px column is the Play button, shown in every session.
   const desktopColumns =
-    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr)'
+    '64px minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) minmax(160px, 1fr) minmax(96px, 0.8fr) 64px'
   const mobileColumns =
-    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px'
+    '56px minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 1fr) 72px 56px'
   // Read-only grids for guest (unauthenticated) sessions: no select, QR, or
-  // edit columns — only Name, Channel Name, and MAC Address.
+  // edit columns — only Name, Channel Name, MAC Address, and Play.
   const desktopColumnsGuest =
-    'minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr)'
+    'minmax(260px, 2fr) minmax(220px, 1.2fr) minmax(170px, 1fr) 64px'
   const mobileColumnsGuest =
-    'minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr)'
+    'minmax(220px, 2fr) minmax(200px, 1.2fr) minmax(150px, 1fr) 56px'
 
   return {
     root: {
@@ -239,6 +242,17 @@ const useStyles = makeStyles((theme) => {
     },
     headerActions: {
       justifySelf: 'flex-end',
+    },
+    headerPlay: {
+      justifySelf: 'flex-end',
+    },
+    playCell: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+    },
+    playButton: {
+      color: theme.palette.primary.main,
     },
 
     row: {
@@ -689,6 +703,8 @@ const RetailPlayerFolderRow = memo(
             </IconButton>
           </Tooltip>
         </div>
+        {/* Folders have no player; empty cell keeps the Play column aligned. */}
+        <div className={classes.playCell} />
       </div>
     )
   },
@@ -739,6 +755,7 @@ const RetailPlayerDeviceRow = memo(
     isSelected,
     classes,
     onNavigate,
+    onPlay,
     onToggleSelection,
     onKeyDown,
     onEdit,
@@ -859,6 +876,21 @@ const RetailPlayerDeviceRow = memo(
             </IconButton>
           </Tooltip>
         </div>
+        <div className={classes.playCell}>
+          <Tooltip title={`Open player for ${node.name}`}>
+            <IconButton
+              size="small"
+              className={classes.playButton}
+              onClick={(event) => {
+                event.stopPropagation()
+                onPlay(node)
+              }}
+              aria-label={`Open player for device ${node.name}`}
+            >
+              <PlayArrowIcon style={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </div>
       </div>
     )
   },
@@ -874,6 +906,7 @@ RetailPlayerDeviceRow.propTypes = {
   isSelected: PropTypes.bool.isRequired,
   classes: PropTypes.object.isRequired,
   onNavigate: PropTypes.func.isRequired,
+  onPlay: PropTypes.func.isRequired,
   onToggleSelection: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
@@ -1656,6 +1689,21 @@ const RetailPlayerDeviceManagement = () => {
     [history],
   )
 
+  // Open the standalone player (/player/{slug}) in a new tab so the device list
+  // stays put. /player is a top-level browser-history route, outside this
+  // hash-routed admin app, so it's a real navigation rather than history.push.
+  const handleOpenPlayer = useCallback((device) => {
+    if (!device) {
+      return
+    }
+    const slug = device.slug || device.name || device.id
+    if (!slug) {
+      return
+    }
+    const url = baseUrl(`/player/${encodeURIComponent(slug)}`)
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }, [])
+
   const handleEnterFolder = useCallback(
     (folderId) => {
       const nextFolderId = folderId || null
@@ -1817,6 +1865,7 @@ const RetailPlayerDeviceManagement = () => {
           isSelected={isSelected}
           classes={classes}
           onNavigate={handleNavigateToDevice}
+          onPlay={handleOpenPlayer}
           onToggleSelection={toggleNodeSelection}
           onKeyDown={handleRowKeyDown}
           onEdit={handleEditDevice}
@@ -1991,6 +2040,7 @@ const RetailPlayerDeviceManagement = () => {
           <span>MAC Address</span>
           {!isGuest && <span>QR ID</span>}
           <span className={classes.headerActions}>Edit</span>
+          <span className={classes.headerPlay}>Play</span>
         </div>
         {isLoading ? (
           <div className={classes.loaderState}>

@@ -64,7 +64,8 @@ const normalizeFolderRecord = (folder, existing) => {
 
   const existingFolder = existing || null
   const id = ensureFolderId(folder.id) || existingFolder?.id || uuidv4()
-  const name = normalizeValue(folder.name) || existingFolder?.name || 'New Folder'
+  const name =
+    normalizeValue(folder.name) || existingFolder?.name || 'New Folder'
   const normalizedIsLocked =
     typeof folder.isLocked === 'boolean'
       ? folder.isLocked
@@ -75,7 +76,8 @@ const normalizeFolderRecord = (folder, existing) => {
   let parentId = existingFolder?.parentId || null
   if (Object.prototype.hasOwnProperty.call(folder, 'parentId')) {
     const normalizedParent = ensureFolderId(folder.parentId)
-    parentId = normalizedParent && normalizedParent !== id ? normalizedParent : null
+    parentId =
+      normalizedParent && normalizedParent !== id ? normalizedParent : null
   }
 
   const createdAt = normalizeTimestamp(
@@ -84,7 +86,9 @@ const normalizeFolderRecord = (folder, existing) => {
   )
   const updatedAt = normalizeTimestamp(
     folder.updatedAt,
-    folder.createdAt ? folder.createdAt : existingFolder?.updatedAt || createdAt,
+    folder.createdAt
+      ? folder.createdAt
+      : existingFolder?.updatedAt || createdAt,
   )
 
   return {
@@ -132,12 +136,17 @@ const baseDeviceShape = (device, existing) => {
   const incomingFolderIds = normalizeFolderIds(
     device?.folderIds ?? device?.folderId ?? device?.folders,
   )
-  const folderIds = incomingFolderIds.length ? incomingFolderIds : existingFolderIds
+  const folderIds = incomingFolderIds.length
+    ? incomingFolderIds
+    : existingFolderIds
   const primaryFolderId = folderIds.length ? folderIds[0] : null
 
   const slug =
     normalizedSlug ||
-    (existing?.slug || buildDeviceSlug(device) || normalizedName || device?.id)
+    existing?.slug ||
+    buildDeviceSlug(device) ||
+    normalizedName ||
+    device?.id
 
   return {
     id: existing?.id || device?.id || uuidv4(),
@@ -154,7 +163,9 @@ const baseDeviceShape = (device, existing) => {
     remoteControlId: normalizedRemoteControlId || '',
     isLocked: normalizedIsLocked,
     isVolumeEnabled: normalizedIsVolumeEnabled,
-    ...(typeof normalizedIsOnline === 'boolean' ? { online: normalizedIsOnline } : {}),
+    ...(typeof normalizedIsOnline === 'boolean'
+      ? { online: normalizedIsOnline }
+      : {}),
     folderIds,
     folderId: primaryFolderId,
     source: existing?.source === 'local' ? 'local' : 'remote',
@@ -191,8 +202,12 @@ const reducer = (state, action) => {
         if (!assignment || typeof assignment !== 'object') {
           return
         }
-        const deviceId = normalizeValue(assignment.deviceId || assignment.deviceID)
-        const folderId = ensureFolderId(assignment.folderId || assignment.folderID)
+        const deviceId = normalizeValue(
+          assignment.deviceId || assignment.deviceID,
+        )
+        const folderId = ensureFolderId(
+          assignment.folderId || assignment.folderID,
+        )
         if (!deviceId || !folderId || !folderIdSet.has(folderId)) {
           return
         }
@@ -215,13 +230,16 @@ const reducer = (state, action) => {
         const existing = key ? existingByKey.get(key) : null
         const deviceId = normalizeValue(device?.id || device?.apiId)
         const foldersForDevice = assignmentMap.get(deviceId)
-        const shapedDevice = foldersForDevice && foldersForDevice.length
-          ? { ...device, folderIds: foldersForDevice }
-          : device
+        const shapedDevice =
+          foldersForDevice && foldersForDevice.length
+            ? { ...device, folderIds: foldersForDevice }
+            : device
         return baseDeviceShape(shapedDevice, existing || undefined)
       })
 
-      const localDevices = state.devices.filter((device) => device.source === 'local')
+      const localDevices = state.devices.filter(
+        (device) => device.source === 'local',
+      )
 
       return {
         ...state,
@@ -235,7 +253,8 @@ const reducer = (state, action) => {
       const existingIndex = targetId
         ? state.folders.findIndex((folder) => folder.id === targetId)
         : -1
-      const existingFolder = existingIndex >= 0 ? state.folders[existingIndex] : undefined
+      const existingFolder =
+        existingIndex >= 0 ? state.folders[existingIndex] : undefined
       const normalized = normalizeFolderRecord(action.payload, existingFolder)
       if (!normalized) {
         return state
@@ -289,7 +308,8 @@ const reducer = (state, action) => {
         folderId: primaryFolderId,
         source: 'local',
         remoteControlId: normalizeValue(remoteControlId) || '',
-        attributes: attributes && typeof attributes === 'object' ? { ...attributes } : {},
+        attributes:
+          attributes && typeof attributes === 'object' ? { ...attributes } : {},
       }
       return {
         ...state,
@@ -332,16 +352,14 @@ const reducer = (state, action) => {
           channel: normalizeValue(channel) || device.channel,
           channelName: normalizeValue(channelName) || device.channelName,
           channelList: normalizeValue(channelList) || device.channelList,
-          organization:
-            normalizeValue(organization) || device.organization,
+          organization: normalizeValue(organization) || device.organization,
           folderIds: nextFolderIds,
           folderId: primaryFolderId,
           remoteControlId:
             remoteControlId !== undefined
               ? normalizeValue(remoteControlId)
               : device.remoteControlId,
-          isLocked:
-            typeof isLocked === 'boolean' ? isLocked : device.isLocked,
+          isLocked: typeof isLocked === 'boolean' ? isLocked : device.isLocked,
           isVolumeEnabled:
             typeof isVolumeEnabled === 'boolean'
               ? isVolumeEnabled
@@ -417,7 +435,8 @@ const reducer = (state, action) => {
       return { ...state, devices: nextDevices, lastUpdated: Date.now() }
     }
     case 'DELETE_NODES': {
-      const { folderIds: rawFolderIds, deviceIds: rawDeviceIds } = action.payload || {}
+      const { folderIds: rawFolderIds, deviceIds: rawDeviceIds } =
+        action.payload || {}
       const folderIdSet = new Set(
         Array.isArray(rawFolderIds)
           ? rawFolderIds.map(ensureFolderId).filter(Boolean)
@@ -473,7 +492,10 @@ const reducer = (state, action) => {
       const nextDevices = state.devices
         .filter((device) => !deviceIdSet.has(device.id))
         .map((device) => {
-          if (!Array.isArray(device.folderIds) || device.folderIds.length === 0) {
+          if (
+            !Array.isArray(device.folderIds) ||
+            device.folderIds.length === 0
+          ) {
             return device
           }
           const filteredFolderIds = device.folderIds.filter(
@@ -550,14 +572,12 @@ const buildTree = (folders, devices) => {
   devices.forEach(attachDevice)
 
   const sortNodes = (nodes) =>
-    nodes
-      .slice()
-      .sort((a, b) => {
-        if (a.type === b.type) {
-          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-        }
-        return a.type === 'folder' ? -1 : 1
-      })
+    nodes.slice().sort((a, b) => {
+      if (a.type === b.type) {
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      }
+      return a.type === 'folder' ? -1 : 1
+    })
 
   const normalizeTree = (nodes) =>
     sortNodes(nodes).map((node) => {
@@ -575,6 +595,13 @@ const buildTree = (folders, devices) => {
 
 const RetailPlayerDeviceStoreProvider = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState)
+  // The device store powers the management list and sidebar menu, neither of
+  // which renders on the standalone player page (/player/{device}). Skip the
+  // full device-list fetch there — that page only needs its single device,
+  // which useRetailPlayerDeviceStatus resolves via /rc.
+  const isStandalonePlayerRoute =
+    typeof window !== 'undefined' &&
+    /^\/player\//.test(window.location.pathname)
   const {
     devices: remoteDevices,
     folders: remoteFolders,
@@ -582,7 +609,7 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
     error,
     isLoading,
     isApiEnabled,
-  } = useRetailPlayerDevices()
+  } = useRetailPlayerDevices({ enabled: !isStandalonePlayerRoute })
 
   useEffect(() => {
     dispatch({ type: 'SET_LOADING', payload: isLoading })
@@ -728,7 +755,8 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         return basePayload
       }
 
-      const deviceId = typeof basePayload.id === 'string' ? basePayload.id : null
+      const deviceId =
+        typeof basePayload.id === 'string' ? basePayload.id : null
       if (!deviceId) {
         return basePayload
       }
@@ -763,7 +791,10 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
         if (normalizedRemoteControlId !== undefined) {
           dispatch({
             type: 'UPDATE_DEVICE',
-            payload: { id: deviceId, remoteControlId: normalizedRemoteControlId },
+            payload: {
+              id: deviceId,
+              remoteControlId: normalizedRemoteControlId,
+            },
           })
         }
       }
@@ -853,7 +884,8 @@ const RetailPlayerDeviceStoreProvider = ({ children }) => {
   const assignDeviceToFolder = useCallback(
     async (payload) => {
       const basePayload = payload && typeof payload === 'object' ? payload : {}
-      const deviceId = typeof basePayload.id === 'string' ? basePayload.id : null
+      const deviceId =
+        typeof basePayload.id === 'string' ? basePayload.id : null
       if (!deviceId) {
         return []
       }

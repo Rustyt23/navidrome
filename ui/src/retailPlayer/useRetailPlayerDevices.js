@@ -92,7 +92,7 @@ const fetchRetailPlayerDevices = async (signal, deviceName, publicFolder) => {
   return { devices, folders, deviceFolders, enabled: true }
 }
 
-const useRetailPlayerDevices = ({ deviceName = '' } = {}) => {
+const useRetailPlayerDevices = ({ deviceName = '', enabled = true } = {}) => {
   const [devices, setDevices] = useState(() => {
     if (config.retailPlayerDevicesEnabled) {
       return []
@@ -124,6 +124,9 @@ const useRetailPlayerDevices = ({ deviceName = '' } = {}) => {
   }, [])
 
   useEffect(() => {
+    if (!enabled) {
+      return undefined
+    }
     const url = buildDevicesUrl(deviceName, publicFolder)
     if (!url) {
       setIsApiEnabled(false)
@@ -166,7 +169,7 @@ const useRetailPlayerDevices = ({ deviceName = '' } = {}) => {
     return () => {
       abortController.abort()
     }
-  }, [deviceName, publicFolder])
+  }, [deviceName, publicFolder, enabled])
 
   return {
     devices,
