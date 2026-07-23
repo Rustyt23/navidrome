@@ -6,6 +6,7 @@ import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import { useParams } from 'react-router-dom'
 import { baseUrl } from '../utils'
 import { normalizeValue } from './deviceUtils'
+import useRetailPlayerDeviceStatus from './useRetailPlayerDeviceStatus'
 
 const isLoopbackHost = (hostname) => {
   const normalized = hostname.toLowerCase()
@@ -33,48 +34,14 @@ const resolvePublicUrl = (value) => {
   }
 }
 
-const getCurrentTrack = (payload) => {
-  const status =
-    payload?.status && typeof payload.status === 'object' ? payload.status : {}
-  const metadata = Array.isArray(payload?.streamMetadata)
-    ? payload.streamMetadata
-    : []
-  const activeResource = normalizeValue(status.activeResource).toLowerCase()
-  const activeStreamName = normalizeValue(status.activeStreamName)
-  const streamName = normalizeValue(
-    status.activeStreamName || status.activeStream,
-  )
-  const currentMetadata =
-    metadata.find((item) => {
-      const itemResource = normalizeValue(item?.activeResource).toLowerCase()
-      const itemChannel = normalizeValue(item?.channelName)
-      const itemFilename = normalizeValue(item?.filename)
-
-      return (
-        (activeResource && itemResource === activeResource) ||
-        (activeStreamName && itemChannel === activeStreamName) ||
-        (streamName && itemFilename === streamName)
-      )
-    }) ||
-    metadata.find((item) => item?.metadata?.title || item?.metadata?.artist)
-  const details = currentMetadata?.metadata || {}
-  const streamLabel = streamName.replace(/\\/g, '/').split('/').pop() || ''
-  const title =
-    normalizeValue(details.trackTitle || details.title) ||
-    normalizeValue(status.trackTitle || status.streamTitle) ||
-    streamLabel.replace(/\.[^./\\]+$/, '') ||
-    'Now Playing'
-  const artist =
-    normalizeValue(details.trackArtist || details.artist) ||
-    normalizeValue(status.trackArtist || status.artist)
-
-  return {
-    title,
-    artist,
-    artworkUrl: resolvePublicUrl(payload?.artwork?.url),
-    streamUrl: resolvePublicUrl(payload?.artwork?.streamUrl),
-  }
-}
+// The websocket delivers the active song name as a basename (possibly a path);
+// reduce it to a display label as a fallback when metadata has no title.
+const streamNameLabel = (songName) =>
+  normalizeValue(songName)
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop()
+    .replace(/\.[^./\\]+$/, '')
 
 const useStyles = makeStyles((theme) => {
   const accent =
@@ -183,10 +150,10 @@ const PublicRetailPlayer = () => {
   const classes = useStyles()
   const { deviceSlug } = useParams()
   const audioRef = useRef(null)
-  const [payload, setPayload] = useState(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [isPlaying, setIsPlaying] = useState(false)
   const [streamError, setStreamError] = useState(false)
+  // Public stream info for the current song: { streamUrl, url (artwork), ... }.
+  const [streamInfo, setStreamInfo] = useState(null)
 
   const deviceName = useMemo(() => {
     try {
@@ -196,53 +163,63 @@ const PublicRetailPlayer = () => {
     }
   }, [deviceSlug])
 
-  const loadStatus = useCallback(
-    async (signal) => {
-      if (!deviceName) {
-        return
-      }
+  // Reuse the retail-player device hook the dashboard uses. It owns the
+  // remote-control websocket (device lookup, remoteControlId, subscription,
+  // realtime merge), so `device.nowPlaying` updates the instant the device
+  // changes song — no polling, no /status, no code duplicated here.
+  const { device: liveDevice, isLoading: isDeviceLoading } =
+    useRetailPlayerDeviceStatus(deviceSlug)
+  const nowPlaying = liveDevice?.nowPlaying
 
-      try {
-        const response = await fetch(
-          baseUrl(
-            `/api/retailplayer/devices/${encodeURIComponent(deviceName)}/status`,
-          ),
-          { signal },
-        )
-        if (!response.ok) {
-          throw new Error(`Unable to load player status (${response.status})`)
-        }
-        setPayload(await response.json())
-        setStreamError(false)
-      } catch (error) {
-        if (error.name !== 'AbortError') {
-          setPayload(null)
-        }
-      } finally {
-        if (!signal.aborted) {
-          setIsLoading(false)
-        }
-      }
-    },
-    [deviceName],
-  )
+  // The websocket's activeStreamName is the song basename (e.g.
+  // "Ituana - Tape Loop.mp3"). An anonymous player can't mint a stream URL
+  // itself, so hand that name to the public stream-url endpoint, which searches
+  // the library and returns a signed /share URL the <audio> element can play.
+  const songName = normalizeValue(nowPlaying?.streamName)
 
   useEffect(() => {
+    if (!songName) {
+      setStreamInfo(null)
+      return undefined
+    }
+
     const controller = new AbortController()
-    setIsLoading(true)
-    loadStatus(controller.signal)
-    const intervalId = window.setInterval(
-      () => loadStatus(controller.signal),
-      10000,
+    setStreamError(false)
+    fetch(
+      baseUrl(
+        `/api/retailplayer/stream-url?song=${encodeURIComponent(songName)}`,
+      ),
+      { signal: controller.signal },
     )
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setStreamInfo(data?.artwork || null))
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          setStreamInfo(null)
+        }
+      })
 
     return () => {
       controller.abort()
-      window.clearInterval(intervalId)
     }
-  }, [loadStatus])
+  }, [songName])
 
-  const track = useMemo(() => getCurrentTrack(payload), [payload])
+  const track = useMemo(
+    () => ({
+      title:
+        normalizeValue(nowPlaying?.title) ||
+        streamNameLabel(songName) ||
+        'Now Playing',
+      artist: normalizeValue(nowPlaying?.artist),
+      artworkUrl:
+        normalizeValue(nowPlaying?.artworkUrl) ||
+        resolvePublicUrl(streamInfo?.url),
+      streamUrl: resolvePublicUrl(streamInfo?.streamUrl),
+    }),
+    [nowPlaying, songName, streamInfo],
+  )
+
+  const isLoading = !liveDevice && isDeviceLoading
   const isPlayable = Boolean(track.streamUrl) && !streamError
 
   useEffect(() => {
@@ -284,7 +261,7 @@ const PublicRetailPlayer = () => {
           className={classes.headerTitle}
           noWrap
         >
-          {payload?.device?.name || deviceName || 'Retail Player'}
+          {normalizeValue(liveDevice?.name) || deviceName || 'Retail Player'}
         </Typography>
       </header>
 

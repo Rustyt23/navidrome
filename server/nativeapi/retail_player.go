@@ -365,7 +365,38 @@ func (n *Router) addRetailPlayerPublicRoutes(r chi.Router) {
 		r.Post("/devices/{deviceID}/channel/toggle", n.handleRetailPlayerDeviceToggleChannel())
 		r.Post("/devices/{deviceID}/dislike", n.handleRetailPlayerDeviceDislike())
 		r.Post("/rc", n.handleRetailPlayerDeviceByName())
+		r.Get("/stream-url", n.handleRetailPlayerSongStreamURL())
 	})
+}
+
+// handleRetailPlayerSongStreamURL resolves a song name (the device's active
+// stream name, delivered to the player over the remote-control websocket) to a
+// public stream URL. This lets the anonymous /player page play the current song
+// without calling /status: the websocket already knows what is playing, and
+// this endpoint just mints the token the browser needs.
+func (n *Router) handleRetailPlayerSongStreamURL() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		if !conf.Server.RetailPlayer.Enabled {
+			http.Error(w, "Retail player integration disabled", http.StatusNotFound)
+			return
+		}
+
+		songName := strings.TrimSpace(r.URL.Query().Get("song"))
+		if songName == "" {
+			http.Error(w, "song query parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		artwork := n.resolveRetailPlayerSongStream(ctx, r, songName)
+		if artwork == nil {
+			http.Error(w, "Song not found", http.StatusNotFound)
+			return
+		}
+
+		writeRetailPlayerJSON(ctx, w, http.StatusOK, map[string]any{"artwork": artwork})
+	}
 }
 
 func (n *Router) addRetailPlayerPrivateRoutes(r chi.Router) {
@@ -3443,33 +3474,36 @@ func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.
 	if streamName == "" {
 		streamName = normalizeStatusString(payload.Status, "activeStream")
 	}
-	if streamName == "" {
-		return
-	}
 
-	cleaned := strings.ReplaceAll(streamName, "\\", "/")
-	baseName := utils.BaseName(cleaned)
-	if baseName == "" {
-		baseName = strings.TrimSpace(streamName)
+	if artwork := n.resolveRetailPlayerSongStream(ctx, r, streamName); artwork != nil {
+		payload.Artwork = artwork
 	}
+}
+
+// resolveRetailPlayerSongStream matches a device's active song name to a local
+// media file and returns a public artwork + stream URL for it (nil when not
+// found). songName may be a bare basename, a full path, or empty. It is shared
+// by the /status endpoint and the public stream-url endpoint the player uses,
+// so both resolve songs identically.
+func (n *Router) resolveRetailPlayerSongStream(ctx context.Context, r *http.Request, songName string) *retailPlayerStatusArtwork {
+	baseName := retailPlayerSongBaseName(songName)
 	if baseName == "" {
-		return
+		return nil
 	}
 
 	repo := n.ds.MediaFile(ctx)
 	if repo == nil {
-		return
+		return nil
 	}
 
-	queries := buildStreamSearchQueries(baseName)
-	for _, query := range queries {
+	for _, query := range buildStreamSearchQueries(baseName) {
 		if query == "" {
 			continue
 		}
 
 		files, err := repo.Search(query, model.QueryOptions{Max: 5})
 		if err != nil {
-			log.Debug(ctx, "Retail player artwork search failed", "query", query, "err", err)
+			log.Debug(ctx, "Retail player song search failed", "query", query, "err", err)
 			continue
 		}
 		if len(files) == 0 {
@@ -3482,11 +3516,6 @@ func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.
 		}
 
 		artID := matched.CoverArtID()
-		coverArtID := artID.String()
-		if coverArtID == "" {
-			continue
-		}
-
 		artworkURL := publicurl.ImageURL(r, artID, 300)
 		if artworkURL != "" {
 			if strings.Contains(artworkURL, "?") {
@@ -3502,18 +3531,39 @@ func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.
 		})
 		if err != nil {
 			log.Error(ctx, "Unable to create retail player public stream URL", "mediaFileId", matched.ID, "err", err)
-			return
+			return nil
 		}
 		streamURL := publicurl.PublicURL(r, path.Join(consts.URLPathPublic, "s", streamToken), nil)
 
-		payload.Artwork = &retailPlayerStatusArtwork{
+		log.Debug(ctx, "Retail player song resolved to stream", "songName", songName, "baseName", baseName,
+			"mediaFileId", matched.ID, "title", matched.Title, "artist", matched.Artist, "absolutePath", matched.AbsolutePath())
+
+		return &retailPlayerStatusArtwork{
 			MediaFileID: matched.ID,
-			ArtworkID:   coverArtID,
+			ArtworkID:   artID.String(),
 			URL:         artworkURL,
 			StreamURL:   streamURL,
 		}
-		return
 	}
+
+	log.Debug(ctx, "Retail player song NOT found for stream", "songName", songName, "baseName", baseName)
+	return nil
+}
+
+// retailPlayerSongBaseName reduces an active stream value (basename, full path,
+// or backslash path) to the name used for library search. Returns "" for empty
+// input. Http(s) stream URLs collapse to their last path segment, which is a
+// device name, not a song - callers should expect no match in that case.
+func retailPlayerSongBaseName(songName string) string {
+	cleaned := strings.ReplaceAll(strings.TrimSpace(songName), "\\", "/")
+	if cleaned == "" {
+		return ""
+	}
+	baseName := utils.BaseName(cleaned)
+	if baseName == "" {
+		baseName = cleaned
+	}
+	return baseName
 }
 
 func normalizeStatusString(status map[string]any, key string) string {
