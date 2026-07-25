@@ -1689,17 +1689,29 @@ func (n *Router) handleRetailPlayerDeviceStatus() http.HandlerFunc {
 // single gapless stream in browsers and VLC (mixed sample rates/channels make
 // players stutter or stop at track boundaries).
 const (
-	retailPlayerStreamFormat       = "mp3"
-	retailPlayerStreamBitRate      = 128
-	retailPlayerStreamSampleRate   = 44100
-	retailPlayerStreamChannels     = 2
-	retailPlayerStreamPollInterval = 4 * time.Second
+	// Uniform output profile. Sample rate and channels MUST be forced: this
+	// stream concatenates songs into one continuous MP3 body, and the library
+	// mixes 44.1kHz and 48kHz sources. Without normalising, the frames either
+	// side of a song change form an invalid sequence and decoders fail with
+	// "Header missing" at the boundary.
+	//
+	// This is deliberately NOT the same request /player makes through its
+	// /share/s/ tokens (those carry only format+bitrate, so they cannot ask for
+	// a sample rate). The two therefore keep separate transcoding-cache entries
+	// — the cost of a stream that survives track boundaries.
+	retailPlayerStreamFormat     = "mp3"
+	retailPlayerStreamBitRate    = 128
+	retailPlayerStreamSampleRate = 44100
+	retailPlayerStreamChannels   = 2
 
-	// Output is paced to the audio's own bitrate so the listener never runs far
-	// ahead of the device. Without this the whole song is pushed into the
-	// client's buffer within seconds, and a song change on the device is not
-	// heard until minutes of buffered audio have played out.
-	retailPlayerStreamBytesPerSecond = retailPlayerStreamBitRate * 1000 / 8
+	// How long to wait for the device's first song to arrive over the socket
+	// before giving up on the stream.
+	retailPlayerStreamReadyTimeout = 15 * time.Second
+	// Safety re-check when idle. This only re-reads the tracker's cached song
+	// name (no network call); it exists so a missed socket frame can't wedge a
+	// listener forever.
+	retailPlayerStreamIdleRecheck = 15 * time.Second
+
 	// How far ahead of real time the client is allowed to buffer. Enough for
 	// playback to start instantly and absorb jitter, small enough that a song
 	// change is heard quickly.
@@ -1757,6 +1769,27 @@ func (n *Router) handleRetailPlayerMusicStream() http.HandlerFunc {
 			return
 		}
 
+		// The in-memory device cache is refreshed from the vendor API, which does
+		// not carry our locally-assigned remote-control ids, so a cached device
+		// can be missing one. Recover it from the stored mapping.
+		if strings.TrimSpace(device.RemoteControlID) == "" {
+			device.RemoteControlID = n.storedRetailPlayerRemoteControlID(ctx, resolvedID)
+		}
+
+		// Follow the device over its remote-control websocket: song changes are
+		// pushed, so no status polling. Devices sharing a remoteControlId share
+		// one socket. Devices without one fall back to polling.
+		var source retailPlayerSongSource
+		if sub := n.songTracker.Subscribe(device); sub != nil {
+			source = sub
+		} else {
+			log.Info(ctx, "Retail player music stream: no remote control id, falling back to status polling",
+				"device", device.Name, "resolvedID", resolvedID,
+				"hint", "run the QR ID sync to enable push tracking for this device")
+			source = newRetailPlayerPollingSongSource(resolvedID)
+		}
+		defer source.Close()
+
 		// From here on this is a live, open-ended stream: commit to 200, disable
 		// range requests, and never send a Content-Length.
 		w.Header().Set("Content-Type", "audio/mpeg")
@@ -1778,42 +1811,48 @@ func (n *Router) handleRetailPlayerMusicStream() http.HandlerFunc {
 
 		log.Info(ctx, "Retail player music stream started", "identifier", deviceIdentifier, "resolvedID", resolvedID, "device", device.Name)
 
+		// Wait for the socket's first frame so we know what is playing. After
+		// this the loop is entirely push-driven — no status polling.
+		source.WaitReady(ctx, retailPlayerStreamReadyTimeout)
+
+		// Pacing state lives for the whole stream, not per song. Resetting it on
+		// every song change handed the client a fresh prebuffer each time, and
+		// that lead accumulated: after enough songs the listener was minutes
+		// behind the device.
+		var pacer mp3FramePacer
+		streamStart := time.Now()
+
 		lastMediaFileID := ""
 		for {
 			if ctx.Err() != nil {
 				return
 			}
 
-			mf, err := n.resolveRetailPlayerCurrentMediaFile(ctx, r, resolvedID)
-			if err != nil {
-				if errors.Is(err, errRetailPlayerDeviceNotFound) {
-					log.Info(ctx, "Retail player music stream: device disappeared", "resolvedID", resolvedID)
-					return
-				}
-				// Transient remote error: keep the connection open and retry.
-				log.Debug(ctx, "Retail player music stream: unable to resolve current song", "resolvedID", resolvedID, "err", err)
-				if !sleepOrDone(ctx, retailPlayerStreamPollInterval) {
-					return
-				}
-				continue
+			songName := source.CurrentSong()
+			var mf *model.MediaFile
+			if songName != "" {
+				mf = n.findRetailPlayerMediaFileByName(ctx, songName)
 			}
 
-			// Nothing new to play yet (device idle, unmatched song, or still on
-			// the track we just streamed): wait for it to advance.
+			// Nothing new to play yet (device idle, song not in the library, or
+			// still the track we just streamed): sleep until the socket says the
+			// device moved on.
 			if mf == nil || mf.ID == lastMediaFileID {
-				if !sleepOrDone(ctx, retailPlayerStreamPollInterval) {
+				select {
+				case <-ctx.Done():
 					return
+				case <-source.Changes():
+				case <-time.After(retailPlayerStreamIdleRecheck):
 				}
 				continue
 			}
 
-			// Watch for the device switching songs while this one streams, so
-			// playback can cut over instead of finishing the current track.
-			songCtx, stopWatch := context.WithCancel(ctx)
-			changed := n.watchRetailPlayerSongChange(songCtx, r, resolvedID, mf.ID)
-			err = n.writeRetailPlayerSong(songCtx, w, flusher, mf, changed)
-			stopWatch()
-			if err != nil {
+			// Clear any stale signal so the song we are about to start isn't cut
+			// off by a change that has already been accounted for.
+			source.Drain()
+			log.Debug(ctx, "Retail player music stream: switching to song", "songName", songName,
+				"mediaFileId", mf.ID, "title", mf.Title)
+			if err := n.writeRetailPlayerSong(ctx, w, flusher, mf, source.Changes(), &pacer, streamStart); err != nil {
 				log.Debug(ctx, "Retail player music stream ended", "resolvedID", resolvedID, "mediaFileId", mf.ID, "err", err)
 				return
 			}
@@ -1822,35 +1861,37 @@ func (n *Router) handleRetailPlayerMusicStream() http.HandlerFunc {
 	}
 }
 
-// resolveRetailPlayerCurrentMediaFile fetches the device's live status and maps
-// the active stream name back to a local media file, using the same matching
-// heuristics as the status/artwork endpoint.
-func (n *Router) resolveRetailPlayerCurrentMediaFile(ctx context.Context, r *http.Request, resolvedID string) (*model.MediaFile, error) {
-	status, err := n.fetchRetailPlayerDeviceStatus(ctx, r, resolvedID)
-	if err != nil {
-		return nil, err
+// storedRetailPlayerRemoteControlID reads a device's remote-control id from the
+// persisted mapping. The device cache is refreshed from the vendor API, which
+// does not return locally-assigned ids, so the cached copy is often missing it.
+func (n *Router) storedRetailPlayerRemoteControlID(ctx context.Context, deviceID string) string {
+	trimmed := strings.TrimSpace(deviceID)
+	if trimmed == "" || n.ds == nil {
+		return ""
 	}
+	repo := n.ds.RetailPlayerDeviceMapping(ctx)
+	if repo == nil {
+		return ""
+	}
+	mapping, err := repo.FindByIdentifier(ctx, trimmed)
+	if err != nil || mapping == nil {
+		return ""
+	}
+	return strings.TrimSpace(mapping.RemoteCtrlID)
+}
 
-	streamName := normalizeStatusString(status.Status, "activeStreamName")
-	if streamName == "" {
-		streamName = normalizeStatusString(status.Status, "activeStream")
-	}
-	if streamName == "" {
-		return nil, nil
-	}
-
-	cleaned := strings.ReplaceAll(streamName, "\\", "/")
-	baseName := utils.BaseName(cleaned)
+// findRetailPlayerMediaFileByName maps a device's active song name to a local
+// media file. Shared by the /music stream and the public stream-url endpoint so
+// both resolve songs identically.
+func (n *Router) findRetailPlayerMediaFileByName(ctx context.Context, songName string) *model.MediaFile {
+	baseName := retailPlayerSongBaseName(songName)
 	if baseName == "" {
-		baseName = strings.TrimSpace(streamName)
-	}
-	if baseName == "" {
-		return nil, nil
+		return nil
 	}
 
 	repo := n.ds.MediaFile(ctx)
 	if repo == nil {
-		return nil, nil
+		return nil
 	}
 
 	for _, query := range buildStreamSearchQueries(baseName) {
@@ -1859,18 +1900,19 @@ func (n *Router) resolveRetailPlayerCurrentMediaFile(ctx context.Context, r *htt
 		}
 		files, err := repo.Search(query, model.QueryOptions{Max: 5})
 		if err != nil {
-			log.Debug(ctx, "Retail player music stream search failed", "query", query, "err", err)
+			log.Debug(ctx, "Retail player song search failed", "query", query, "err", err)
 			continue
 		}
 		if len(files) == 0 {
 			continue
 		}
 		if matched := selectBestMediaFileMatch(baseName, files); matched != nil {
-			return matched, nil
+			return matched
 		}
 	}
 
-	return nil, nil
+	log.Debug(ctx, "Retail player song NOT found in library", "songName", songName, "baseName", baseName)
+	return nil
 }
 
 // writeRetailPlayerSong transcodes a single song to the uniform MP3 profile and
@@ -1879,7 +1921,8 @@ func (n *Router) resolveRetailPlayerCurrentMediaFile(ctx context.Context, r *htt
 // `changed` fires, so a song change on the device cuts over mid-track. Returns
 // an error only when the write side fails (client disconnected) so the caller
 // stops the loop.
-func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher http.Flusher, mf *model.MediaFile, changed <-chan struct{}) error {
+func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher http.Flusher, mf *model.MediaFile, changed <-chan struct{}, pacer *mp3FramePacer, streamStart time.Time) error {
+	openedAt := time.Now()
 	s, err := n.streamer.NewStream(ctx, mf, stream.Request{
 		Format:     retailPlayerStreamFormat,
 		BitRate:    retailPlayerStreamBitRate,
@@ -1898,11 +1941,9 @@ func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher
 		}
 	}()
 
-	log.Info(ctx, "Retail player music stream: now playing", "mediaFileId", mf.ID, "title", mf.Title, "artist", mf.Artist)
+	log.Info(ctx, "Retail player music stream: now playing", "mediaFileId", mf.ID, "title", mf.Title, "artist", mf.Artist, "transcodeSetupMs", time.Since(openedAt).Milliseconds())
 
 	buf := make([]byte, 32*1024)
-	start := time.Now()
-	var written int64
 
 	for {
 		if ctx.Err() != nil {
@@ -1927,13 +1968,23 @@ func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher
 			if flusher != nil {
 				flusher.Flush()
 			}
-			written += int64(nr)
-
-			// Hold the client no more than prebuffer ahead of real time.
-			ahead := time.Duration(written*int64(time.Second)/retailPlayerStreamBytesPerSecond) - time.Since(start)
-			if ahead > retailPlayerStreamPrebuffer {
-				if !sleepOrDone(ctx, ahead-retailPlayerStreamPrebuffer) {
+			// Hold the client no more than prebuffer ahead of real time. This
+			// sleep is the bulk of a song's wall-clock time, so it must stay
+			// interruptible: waiting it out before re-checking `changed` would
+			// add up to a full chunk of latency to every song switch.
+			ahead := pacer.Consume(buf[:nr]) - time.Since(streamStart)
+			if delay := ahead - retailPlayerStreamPrebuffer; delay > 0 {
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
 					return ctx.Err()
+				case <-changed:
+					timer.Stop()
+					log.Debug(ctx, "Retail player music stream: device changed song mid-pace, cutting over",
+						"mediaFileId", mf.ID, "title", mf.Title)
+					return nil
+				case <-timer.C:
 				}
 			}
 		}
@@ -1947,30 +1998,6 @@ func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher
 			return nil
 		}
 	}
-}
-
-// watchRetailPlayerSongChange polls the device while a song is streaming and
-// closes the returned channel as soon as the device is playing something else.
-// Polling runs in its own goroutine so a slow remote API never stalls audio
-// writes. The caller must cancel ctx once the song is done.
-func (n *Router) watchRetailPlayerSongChange(ctx context.Context, r *http.Request, resolvedID, currentID string) <-chan struct{} {
-	changed := make(chan struct{})
-	go func() {
-		defer close(changed)
-		for {
-			if !sleepOrDone(ctx, retailPlayerStreamPollInterval) {
-				return
-			}
-			mf, err := n.resolveRetailPlayerCurrentMediaFile(ctx, r, resolvedID)
-			if err != nil || mf == nil {
-				continue
-			}
-			if mf.ID != currentID {
-				return
-			}
-		}
-	}()
-	return changed
 }
 
 // sleepOrDone waits for d or until the context is cancelled. It returns false if
@@ -3465,6 +3492,60 @@ func (n *Router) fetchRetailPlayerDeviceStatus(ctx context.Context, r *http.Requ
 	return payload, nil
 }
 
+// fetchRetailPlayerDeviceStatusRaw fetches device status without resolving
+// artwork or minting stream tokens. Used by the polling song source, which only
+// needs the active song name.
+func fetchRetailPlayerDeviceStatusRaw(ctx context.Context, deviceID string) (retailPlayerDeviceStatusResponse, error) {
+	cfg := conf.Server.RetailPlayer
+	if cfg.BaseURL == "" || cfg.OrgID == "" {
+		return retailPlayerDeviceStatusResponse{}, errors.New("retail player API not configured")
+	}
+
+	trimmedID := strings.TrimSpace(deviceID)
+	if trimmedID == "" {
+		return retailPlayerDeviceStatusResponse{}, errors.New("retail player device id is empty")
+	}
+
+	req, err := buildRetailPlayerRequest(ctx, retailPlayerConfig{
+		BaseURL:           cfg.BaseURL,
+		OrgID:             cfg.OrgID,
+		APIKey:            cfg.APIKey,
+		APIKeyHeader:      cfg.APIKeyHeader,
+		AdditionalHeaders: cfg.AdditionalHeaders,
+	}, trimmedID, "status")
+	if err != nil {
+		return retailPlayerDeviceStatusResponse{}, err
+	}
+
+	resp, err := retailPlayerHTTPClient.Do(req)
+	if err != nil {
+		return retailPlayerDeviceStatusResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return retailPlayerDeviceStatusResponse{}, errRetailPlayerDeviceNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return retailPlayerDeviceStatusResponse{}, fmt.Errorf("retail player API request failed with status %d", resp.StatusCode)
+	}
+
+	var payload retailPlayerDeviceStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return retailPlayerDeviceStatusResponse{}, err
+	}
+	return payload, nil
+}
+
+// retailPlayerStatusSongName pulls the active song name out of a status payload.
+func retailPlayerStatusSongName(payload retailPlayerDeviceStatusResponse) string {
+	name := normalizeStatusString(payload.Status, "activeStreamName")
+	if name == "" {
+		name = normalizeStatusString(payload.Status, "activeStream")
+	}
+	return name
+}
+
 func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.Request, payload *retailPlayerDeviceStatusResponse) {
 	if payload == nil {
 		return
@@ -3486,68 +3567,40 @@ func (n *Router) populateRetailPlayerStatusArtwork(ctx context.Context, r *http.
 // by the /status endpoint and the public stream-url endpoint the player uses,
 // so both resolve songs identically.
 func (n *Router) resolveRetailPlayerSongStream(ctx context.Context, r *http.Request, songName string) *retailPlayerStatusArtwork {
-	baseName := retailPlayerSongBaseName(songName)
-	if baseName == "" {
+	matched := n.findRetailPlayerMediaFileByName(ctx, songName)
+	if matched == nil {
 		return nil
 	}
 
-	repo := n.ds.MediaFile(ctx)
-	if repo == nil {
+	artID := matched.CoverArtID()
+	artworkURL := publicurl.ImageURL(r, artID, 300)
+	if artworkURL != "" {
+		if strings.Contains(artworkURL, "?") {
+			artworkURL += "&square=true"
+		} else {
+			artworkURL += "?square=true"
+		}
+	}
+
+	// Same claims the /music stream transcodes with, so both share cache entries.
+	streamToken, err := auth.CreatePublicToken(auth.Claims{
+		ID:      matched.ID,
+		Format:  retailPlayerStreamFormat,
+		BitRate: retailPlayerStreamBitRate,
+	})
+	if err != nil {
+		log.Error(ctx, "Unable to create retail player public stream URL", "mediaFileId", matched.ID, "err", err)
 		return nil
 	}
+	streamURL := publicurl.PublicURL(r, path.Join(consts.URLPathPublic, "s", streamToken), nil)
 
-	for _, query := range buildStreamSearchQueries(baseName) {
-		if query == "" {
-			continue
-		}
 
-		files, err := repo.Search(query, model.QueryOptions{Max: 5})
-		if err != nil {
-			log.Debug(ctx, "Retail player song search failed", "query", query, "err", err)
-			continue
-		}
-		if len(files) == 0 {
-			continue
-		}
-
-		matched := selectBestMediaFileMatch(baseName, files)
-		if matched == nil {
-			continue
-		}
-
-		artID := matched.CoverArtID()
-		artworkURL := publicurl.ImageURL(r, artID, 300)
-		if artworkURL != "" {
-			if strings.Contains(artworkURL, "?") {
-				artworkURL += "&square=true"
-			} else {
-				artworkURL += "?square=true"
-			}
-		}
-		streamToken, err := auth.CreatePublicToken(auth.Claims{
-			ID:      matched.ID,
-			Format:  "mp3",
-			BitRate: 128,
-		})
-		if err != nil {
-			log.Error(ctx, "Unable to create retail player public stream URL", "mediaFileId", matched.ID, "err", err)
-			return nil
-		}
-		streamURL := publicurl.PublicURL(r, path.Join(consts.URLPathPublic, "s", streamToken), nil)
-
-		log.Debug(ctx, "Retail player song resolved to stream", "songName", songName, "baseName", baseName,
-			"mediaFileId", matched.ID, "title", matched.Title, "artist", matched.Artist, "absolutePath", matched.AbsolutePath())
-
-		return &retailPlayerStatusArtwork{
-			MediaFileID: matched.ID,
-			ArtworkID:   artID.String(),
-			URL:         artworkURL,
-			StreamURL:   streamURL,
-		}
+	return &retailPlayerStatusArtwork{
+		MediaFileID: matched.ID,
+		ArtworkID:   artID.String(),
+		URL:         artworkURL,
+		StreamURL:   streamURL,
 	}
-
-	log.Debug(ctx, "Retail player song NOT found for stream", "songName", songName, "baseName", baseName)
-	return nil
 }
 
 // retailPlayerSongBaseName reduces an active stream value (basename, full path,

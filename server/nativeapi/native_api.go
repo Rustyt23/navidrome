@@ -75,6 +75,7 @@ type Router struct {
 	pluginManager          PluginManager
 	imgUpload              core.ImageUploadService
 	devices                *retailPlayerDeviceResolver
+	songTracker            *retailPlayerSongTracker
 	metadataJob            *musicBrainzMetadataJob
 	spotifyJob             *spotifyMetadataJob
 	retailPlayerRefreshing atomic.Bool
@@ -93,6 +94,7 @@ func New(ds model.DataStore, streamer stream.MediaStreamer, share core.Share, pl
 		pluginManager: pluginManager,
 		imgUpload:     imgUpload,
 		devices:       newRetailPlayerDeviceResolver(),
+		songTracker:   newRetailPlayerSongTracker(),
 		metadataJob:   newMusicBrainzMetadataJob(),
 		spotifyJob:    newSpotifyMetadataJob(),
 	}
@@ -135,14 +137,10 @@ func (n *Router) preloadRetailPlayerDeviceMappings() {
 			continue
 		}
 
-		devices = append(devices, retailPlayerDevice{
-			ID:           id,
-			Name:         strings.TrimSpace(mapping.DeviceName),
-			Channel:      strings.TrimSpace(mapping.Channel),
-			ChannelList:  strings.TrimSpace(mapping.ChannelList),
-			Organization: strings.TrimSpace(mapping.Organization),
-			TimeZone:     strings.TrimSpace(mapping.TimeZone),
-		})
+		// Use the shared mapper rather than hand-picking fields: this cache is
+		// what resolveRetailPlayerDevice serves, and dropping remoteControlId
+		// here left cached devices untrackable over the remote-control socket.
+		devices = append(devices, mapRetailPlayerMappingToDevice(mapping))
 	}
 
 	n.devices.RememberDevices(devices)

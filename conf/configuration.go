@@ -287,23 +287,27 @@ type retailPlayerOptions struct {
 	RemoteControlBaseURL      string
 	RemoteControlAPIKey       string
 	RemoteControlAPIKeyHeader string
-	QRLoginURL                string
-	QRBaseURL                 string
-	QRTenant                  string
-	QRUsername                string
-	QRPassword                string
-	QRPlatform                string
-	QRPageSize                int
-	QRPage                    int
-	PageSize                  int
-	Page                      int
-	Filters                   string
-	OrderBy                   string
-	OrderDirection            string
-	Search                    string
-	Fields                    []string                        `json:",omitempty"`
-	AdditionalHeaders         map[string]string               `json:",omitempty"`
-	Notifications             retailPlayerNotificationOptions `json:",omitempty"`
+	// RemoteControlSocketURL is the websocket endpoint that pushes device-diff
+	// events (song changes). The device's remoteControlId is appended as a path
+	// segment. Empty disables push tracking for the /music stream.
+	RemoteControlSocketURL string
+	QRLoginURL             string
+	QRBaseURL              string
+	QRTenant               string
+	QRUsername             string
+	QRPassword             string
+	QRPlatform             string
+	QRPageSize             int
+	QRPage                 int
+	PageSize               int
+	Page                   int
+	Filters                string
+	OrderBy                string
+	OrderDirection         string
+	Search                 string
+	Fields                 []string                        `json:",omitempty"`
+	AdditionalHeaders      map[string]string               `json:",omitempty"`
+	Notifications          retailPlayerNotificationOptions `json:",omitempty"`
 }
 
 type httpHeaderOptions struct {
@@ -983,6 +987,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.orgid", "")
 	viper.SetDefault("retailplayer.apikey", "")
 	viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
+	viper.SetDefault("retailplayer.remotecontrolsocketurl", "wss://rc.jareddietch.com/remote-control")
 	viper.SetDefault("retailplayer.qrloginurl", "")
 	viper.SetDefault("retailplayer.qrbaseurl", "")
 	viper.SetDefault("retailplayer.qrtenant", "")
