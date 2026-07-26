@@ -61,18 +61,21 @@ type PlaylistExplicitRisk struct {
 }
 
 type PlaylistReplacementSong struct {
-	SongID    string  `json:"songId"`
-	Title     string  `json:"title"`
-	Artist    string  `json:"artist"`
-	Album     string  `json:"album"`
-	Genre     string  `json:"genre"`
-	Year      int     `json:"year"`
-	Explicit  bool    `json:"explicit"`
-	BPM       int     `json:"bpm"`
-	LUFS      float64 `json:"lufs"`
-	Duration  float64 `json:"duration"`
-	PlayCount int64   `json:"playCount"`
-	Score     float64 `json:"score"`
+	SongID string `json:"songId"`
+	Title  string `json:"title"`
+	Artist string `json:"artist"`
+	Album  string `json:"album"`
+	Genre  string `json:"genre"`
+	Year   int    `json:"year"`
+	// ExplicitStatus is the tri-state; Explicit alone cannot distinguish a
+	// verified-clean song from an unclassified one.
+	ExplicitStatus string  `json:"explicitStatus"`
+	Explicit       bool    `json:"explicit"`
+	BPM            int     `json:"bpm"`
+	LUFS           float64 `json:"lufs"`
+	Duration       float64 `json:"duration"`
+	PlayCount      int64   `json:"playCount"`
+	Score          float64 `json:"score"`
 }
 
 type PlaylistReplacementSuggestion struct {
@@ -513,7 +516,10 @@ func suggestPlaylistReplacements(
 		options := make([]PlaylistReplacementSong, 0, 3)
 		seen := map[string]struct{}{}
 		for _, result := range results {
-			if result.Explicit || result.SongID == song.ID {
+			// Only a song verified clean may replace an explicit one. An
+			// unclassified song is not a safe substitute, and the filter above
+			// is belt-and-braces in case a caller passes no explicit filter.
+			if result.ExplicitStatus != ExplicitStatusClean || result.SongID == song.ID {
 				continue
 			}
 			if _, exists := inPlaylist[result.SongID]; exists {
@@ -526,7 +532,8 @@ func suggestPlaylistReplacements(
 			options = append(options, PlaylistReplacementSong{
 				SongID: result.SongID, Title: result.Title, Artist: result.Artist,
 				Album: result.Album, Genre: result.Genre, Year: result.Year, Explicit: result.Explicit,
-				BPM: result.BPM, LUFS: result.LUFS, Duration: result.Duration,
+				ExplicitStatus: result.ExplicitStatus,
+				BPM:            result.BPM, LUFS: result.LUFS, Duration: result.Duration,
 				PlayCount: result.PlayCount, Score: result.Score,
 			})
 			if len(options) == 3 {

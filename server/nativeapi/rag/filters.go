@@ -36,6 +36,46 @@ type SearchFilters struct {
 // lyric sheet cannot be used as an exact-match condition.
 const maxLyricsContainsRunes = 200
 
+// The tri-state a song's explicit rating can be in. "unknown" is a real state,
+// not a synonym for clean: it means nobody has classified the song yet, so it
+// must be excluded from clean-only results rather than assumed safe.
+const (
+	ExplicitStatusExplicit = "explicit"
+	ExplicitStatusClean    = "clean"
+	ExplicitStatusUnknown  = "unknown"
+)
+
+// NormalizeExplicitStatus maps the stored single-letter status, the spelled-out
+// form, and anything unrecognized onto the tri-state. An empty or unrecognized
+// value is "unknown" so a missing rating can never read as clean.
+func NormalizeExplicitStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "e", ExplicitStatusExplicit:
+		return ExplicitStatusExplicit
+	case "c", ExplicitStatusClean:
+		return ExplicitStatusClean
+	default:
+		return ExplicitStatusUnknown
+	}
+}
+
+// ExplicitStatusFilterValue converts a requested filter into the payload value
+// to match, or "" when no explicit filter was requested. Only the two decided
+// states are filterable; asking for "unknown" is supported so operators can
+// audit what still needs classifying.
+func ExplicitStatusFilterValue(filter string) string {
+	switch strings.ToLower(strings.TrimSpace(filter)) {
+	case ExplicitStatusClean:
+		return ExplicitStatusClean
+	case ExplicitStatusExplicit:
+		return ExplicitStatusExplicit
+	case ExplicitStatusUnknown:
+		return ExplicitStatusUnknown
+	default:
+		return ""
+	}
+}
+
 // NormalizeSearchFilters trims string values and validates bounded ranges.
 func NormalizeSearchFilters(filters SearchFilters) (SearchFilters, error) {
 	filters.Explicit = strings.ToLower(strings.TrimSpace(filters.Explicit))
@@ -45,8 +85,8 @@ func NormalizeSearchFilters(filters SearchFilters) (SearchFilters, error) {
 	if len([]rune(filters.LyricsContains)) > maxLyricsContainsRunes {
 		return SearchFilters{}, fmt.Errorf("lyricsContains must not exceed %d characters", maxLyricsContainsRunes)
 	}
-	if filters.Explicit != "" && filters.Explicit != "clean" && filters.Explicit != "explicit" {
-		return SearchFilters{}, fmt.Errorf("explicit must be clean or explicit")
+	if filters.Explicit != "" && ExplicitStatusFilterValue(filters.Explicit) == "" {
+		return SearchFilters{}, fmt.Errorf("explicit must be clean, explicit, or unknown")
 	}
 	if filters.YearMin != nil && filters.YearMax != nil && *filters.YearMin > *filters.YearMax {
 		return SearchFilters{}, fmt.Errorf("yearMin must not exceed yearMax")
@@ -90,10 +130,13 @@ func BuildQdrantFilter(filters SearchFilters) map[string]any {
 		must = append(must, map[string]any{"key": key, "range": rangeValue})
 	}
 
-	if filters.Explicit == "clean" {
-		addMatch("explicit", false)
-	} else if filters.Explicit == "explicit" {
-		addMatch("explicit", true)
+	// Matched against the tri-state explicitStatus payload, never the legacy
+	// boolean: `explicit` is false for both a verified-clean song and one that
+	// was never classified, so filtering on it silently admitted unrated songs
+	// into clean-only results such as retail-safe picks. A song whose status is
+	// unknown now matches neither "clean" nor "explicit".
+	if status := ExplicitStatusFilterValue(filters.Explicit); status != "" {
+		addMatch("explicitStatus", status)
 	}
 	if filters.Genre != "" {
 		addMatch("genres", filters.Genre)

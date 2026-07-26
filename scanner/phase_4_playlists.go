@@ -158,7 +158,13 @@ func (p *phasePlaylists) processPlaylistsInFolder(folder *model.Folder) (*model.
 		}
 		seen[filepath.Clean(absPath)] = struct{}{}
 		if existingPls, ok := existingByPath[filepath.Clean(absPath)]; ok {
-			if !info.ModTime().After(existingPls.UpdatedAt) {
+			// Re-import unchanged playlists whenever the library changed (or this
+			// is a full scan). A playlist entry that was unresolved during an
+			// earlier scan may now resolve to a newly indexed media file even
+			// though the playlist file itself was not modified.
+			if !p.scanState.fullScan &&
+				!p.scanState.changesDetected.Load() &&
+				!info.ModTime().After(existingPls.UpdatedAt) {
 				log.Trace(p.ctx, "Scanner: Playlist unchanged, skipping", "name", existingPls.Name, "path", existingPls.Path)
 				continue
 			}
@@ -180,7 +186,9 @@ func (p *phasePlaylists) processPlaylistsInFolder(folder *model.Folder) (*model.
 		if _, ok := seen[filepath.Clean(pls.Path)]; ok {
 			continue
 		}
-		if err := playlistRepo.Delete(pls.ID); err != nil {
+		// Use the service so side effects such as clearing missing-track
+		// notifications happen when a playlist file is renamed or removed.
+		if err := p.pls.Delete(p.ctx, pls.ID); err != nil {
 			log.Error(p.ctx, "Scanner: Error removing missing playlist", "playlist", pls.Name, "path", pls.Path, err)
 			p.scanState.sendWarning(err.Error())
 			continue

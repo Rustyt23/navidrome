@@ -144,10 +144,27 @@ type aiFetchMetadataResponse struct {
 	Songs []aiFetchMetadataSong `json:"songs"`
 }
 
+// aiClearMetadataSong selects which persisted fields to clear for one song.
 type aiClearMetadataSong struct {
-	ID    string `json:"id"`
-	Album bool   `json:"album"`
-	Year  bool   `json:"year"`
+	ID              string `json:"id"`
+	Album           bool   `json:"album"`
+	Year            bool   `json:"year"`
+	Explicit        bool   `json:"explicit"`
+	AIGenre         bool   `json:"aiGenre"`
+	AISubgenre      bool   `json:"aiSubgenre"`
+	SpotifyGenre    bool   `json:"spotifyGenre"`
+	ITunesGenre     bool   `json:"musicBrainzGenre"`
+	GenreConfidence bool   `json:"genreConfidence"`
+}
+
+func (s aiClearMetadataSong) genreFields() model.AIGenreFields {
+	return model.AIGenreFields{
+		AiGenre:         s.AIGenre,
+		AiSubgenre:      s.AISubgenre,
+		SpotifyGenre:    s.SpotifyGenre,
+		ITunesGenre:     s.ITunesGenre,
+		GenreConfidence: s.GenreConfidence,
+	}
 }
 
 type aiClearMetadataRequest struct {
@@ -921,8 +938,8 @@ func (n *Router) addAIChatRoute(r chi.Router) {
 		if n.metadataJob != nil {
 			// The AI tool page only fetches genre, so only the iTunes genre
 			// lookup runs — no MusicBrainz album/year search or cover checks.
-			verify = func(_ context.Context, title, artist string) (metadataResult, error) {
-				genre, trace := n.metadataJob.fetchITunesGenreWithTrace(title, artist)
+			verify = func(_ context.Context, q itunesTrackQuery) (metadataResult, error) {
+				genre, trace := n.metadataJob.fetchITunesGenreWithTrace(q)
 				return metadataResult{Genre: genre, GenreTrace: trace}, nil
 			}
 		}
@@ -2376,7 +2393,7 @@ func containsNonLetter(value string) bool {
 // metadataVerifier looks up an authoritative genre for a track (the iTunes
 // Search API). It returns an empty result and no error when there is no
 // confident match.
-type metadataVerifier func(ctx context.Context, title, artist string) (metadataResult, error)
+type metadataVerifier func(ctx context.Context, q itunesTrackQuery) (metadataResult, error)
 
 // spotifyLookupFunc looks up Spotify metadata (artist genres) for a track.
 type spotifyLookupFunc func(ctx context.Context, mf model.MediaFile) (spotifyLookupResult, error)
@@ -2472,7 +2489,7 @@ func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, prov
 		// 2. iTunes — editorial per-track genre.
 		var mb metadataResult
 		if verify != nil {
-			if r, mbErr := verify(ctx, mf.Title, mf.Artist); mbErr == nil {
+			if r, mbErr := verify(ctx, itunesTrackQueryFor(*mf)); mbErr == nil {
 				mb = r
 			} else {
 				log.Debug(ctx, "iTunes genre lookup unavailable", "songId", songID, "err", mbErr)
@@ -2510,11 +2527,48 @@ func fetchSongMetadata(ctx context.Context, repo model.MediaFileRepository, prov
 			result.GenreDeveloperTrace = genreTrace
 		}
 
+		// Persist what was fetched. Only sources that actually returned a value
+		// are written, so a run where one source was down cannot erase a genre
+		// an earlier run stored. Without this the genres live in browser
+		// storage alone and are lost whenever the user clears site data, even
+		// though the album, year and explicit status fetched alongside them
+		// survive.
+		if meta := fetchedGenreMetadata(result); !meta.IsEmpty() {
+			if err := repo.UpdateAIGenreMetadata(songID, meta); err != nil {
+				log.Warn(ctx, "Could not persist fetched genre metadata", "songId", songID, err)
+			}
+		}
+
 		result.ConfidenceBreakdown = breakdown
 		results = append(results, result)
 	}
 
 	return results, nil
+}
+
+// fetchedGenreMetadata maps one song's fetch result onto a partial update.
+// A source that returned nothing is left nil so it keeps whatever an earlier
+// run stored; confidence is only written when at least one genre came back,
+// since a score computed from three empty sources is meaningless.
+func fetchedGenreMetadata(result aiFetchMetadataSong) model.AIGenreMetadata {
+	meta := model.AIGenreMetadata{}
+	if result.AIGenre != "" {
+		meta.AiGenre = &result.AIGenre
+	}
+	if result.AISubgenre != "" {
+		meta.AiSubgenre = &result.AISubgenre
+	}
+	if result.SpotifyGenre != "" {
+		meta.SpotifyGenre = &result.SpotifyGenre
+	}
+	if result.MusicBrainzGenre != "" {
+		meta.ITunesGenre = &result.MusicBrainzGenre
+	}
+	if !meta.IsEmpty() {
+		confidence := result.GenreConfidence
+		meta.GenreConfidence = &confidence
+	}
+	return meta
 }
 
 func yearAsString(year int) string {
@@ -2624,8 +2678,13 @@ func clearAIMetadata(repo model.MediaFileRepository, songs []aiClearMetadataSong
 			continue
 		}
 		seen[songID] = struct{}{}
-		if err := repo.ClearAIMetadata(songID, song.Album, song.Year); err != nil {
+		if err := repo.ClearAIMetadata(songID, song.Album, song.Year, song.Explicit); err != nil {
 			return cleared, err
+		}
+		if fields := song.genreFields(); fields.Any() {
+			if err := repo.ClearAIGenreMetadata(songID, fields); err != nil {
+				return cleared, err
+			}
 		}
 		cleared = append(cleared, songID)
 	}

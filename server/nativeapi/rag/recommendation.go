@@ -22,6 +22,7 @@ const (
 )
 
 const DefaultRecommendationLimit = 20
+const RecommendationRulesetVersion = "playlist-recommendation-v1"
 
 func IsSupportedRecommendationType(value RecommendationType) bool {
 	switch value {
@@ -34,10 +35,12 @@ func IsSupportedRecommendationType(value RecommendationType) bool {
 }
 
 type RecommendationInput struct {
-	Type     RecommendationType
-	Limit    int
-	Song     *model.MediaFile
-	Playlist *model.Playlist
+	Type                       RecommendationType
+	Limit                      int
+	Song                       *model.MediaFile
+	Playlist                   *model.Playlist
+	ExcludedSongIDs            map[string]struct{}
+	ExcludedRecommendationKeys map[string]struct{}
 }
 
 type RecommendationResult struct {
@@ -50,16 +53,45 @@ type RecommendationResult struct {
 	Explicit  bool    `json:"explicit"`
 	BPM       int     `json:"bpm"`
 	LUFS      float64 `json:"lufs"`
+	Duration  float64 `json:"duration"`
 	PlayCount int64   `json:"playCount"`
 	Score     float64 `json:"score"`
 	Reason    string  `json:"reason"`
+	// ExplicitStatus is the tri-state; the UI must render from this rather than
+	// from Explicit, which reports an unclassified song as not explicit.
+	ExplicitStatus string `json:"explicitStatus"`
+	// Replacement results carry the original as structured data. The client
+	// must never have to infer which song to replace by parsing Reason.
+	OriginalSongID string               `json:"originalSongId,omitempty"`
+	OriginalTitle  string               `json:"originalTitle,omitempty"`
+	OriginalArtist string               `json:"originalArtist,omitempty"`
+	ExpectedEffect RecommendationEffect `json:"expectedEffect"`
+}
+
+// RecommendationEffect is a compact before/after forecast for the dimensions
+// a playlist manager needs to review before accepting an operation.
+type RecommendationEffect struct {
+	DurationDelta    float64 `json:"durationDelta"`
+	Duration         string  `json:"duration"`
+	ExplicitSafety   string  `json:"explicitSafety"`
+	BPM              string  `json:"bpm"`
+	LUFS             string  `json:"lufs"`
+	GenreBalance     string  `json:"genreBalance"`
+	ArtistRepetition string  `json:"artistRepetition"`
 }
 
 type RecommendationResponse struct {
-	Type    RecommendationType     `json:"type"`
-	Summary string                 `json:"summary"`
-	Results []RecommendationResult `json:"results"`
-	Count   int                    `json:"count"`
+	Type       RecommendationType       `json:"type"`
+	Summary    string                   `json:"summary"`
+	Results    []RecommendationResult   `json:"results"`
+	Count      int                      `json:"count"`
+	Provenance RecommendationProvenance `json:"provenance"`
+}
+
+type RecommendationProvenance struct {
+	AIModelVersion string `json:"aiModelVersion,omitempty"`
+	AIIndexVersion string `json:"aiIndexVersion,omitempty"`
+	RulesetVersion string `json:"rulesetVersion,omitempty"`
 }
 
 // Recommend returns read-only song suggestions over the existing hybrid RAG
@@ -96,9 +128,30 @@ func Recommend(ctx context.Context, input RecommendationInput, search Replacemen
 	if err != nil {
 		return response, err
 	}
+	if len(input.ExcludedSongIDs) > 0 || len(input.ExcludedRecommendationKeys) > 0 {
+		filtered := response.Results[:0]
+		for _, result := range response.Results {
+			if _, blocked := input.ExcludedSongIDs[result.SongID]; blocked {
+				continue
+			}
+			if _, ignored := input.ExcludedRecommendationKeys[RecommendationExclusionKey(result.SongID, result.OriginalSongID)]; ignored {
+				continue
+			}
+			filtered = append(filtered, result)
+		}
+		response.Results = filtered
+	}
+	decorateRecommendationEffects(response.Results, input.Playlist)
 	response.Results = selectDiverseRecommendations(response.Results, input.Limit)
 	response.Count = len(response.Results)
 	return response, nil
+}
+
+// RecommendationExclusionKey identifies one recommendation row. Replacement
+// candidates include the original ID so ignoring "Safe replaces A" does not
+// accidentally hide a separate "Safe replaces B" suggestion.
+func RecommendationExclusionKey(songID, originalSongID string) string {
+	return songID + "\x00" + originalSongID
 }
 
 func recommendSimilarSongs(ctx context.Context, input RecommendationInput, search ReplacementSearchFunc) (string, []RecommendationResult, error) {
@@ -208,18 +261,16 @@ func recommendPlaylistReplacements(ctx context.Context, input RecommendationInpu
 	}
 	analysis := AnalyzePlaylist(ctx, input.Playlist, search)
 	items := make([]RecommendationResult, 0)
-	seen := map[string]struct{}{}
 	for _, replacement := range analysis.SuggestedReplacements {
 		for _, song := range replacement.Suggestions {
-			if _, exists := seen[song.SongID]; exists {
-				continue
-			}
-			seen[song.SongID] = struct{}{}
 			items = append(items, RecommendationResult{
 				SongID: song.SongID, Title: song.Title, Artist: song.Artist, Album: song.Album,
 				Genre: song.Genre, Year: song.Year, Explicit: song.Explicit, BPM: song.BPM,
-				LUFS: song.LUFS, PlayCount: song.PlayCount, Score: song.Score,
-				Reason: fmt.Sprintf("Suggested for %s: %s", replacement.ForSong.Title, strings.Join(replacement.Reasons, "; ")),
+				ExplicitStatus: NormalizeExplicitStatus(song.ExplicitStatus),
+				LUFS:           song.LUFS, Duration: song.Duration, PlayCount: song.PlayCount, Score: song.Score,
+				Reason:         fmt.Sprintf("Suggested for %s: %s", replacement.ForSong.Title, strings.Join(replacement.Reasons, "; ")),
+				OriginalSongID: replacement.ForSong.SongID, OriginalTitle: replacement.ForSong.Title,
+				OriginalArtist: replacement.ForSong.Artist,
 			})
 		}
 	}
@@ -260,10 +311,168 @@ func mapSearchResults(results []SongSearchResult, reason func(SongSearchResult) 
 		items = append(items, RecommendationResult{
 			SongID: result.SongID, Title: result.Title, Artist: result.Artist, Album: result.Album,
 			Genre: result.Genre, Year: result.Year, Explicit: result.Explicit, BPM: result.BPM,
-			LUFS: result.LUFS, PlayCount: result.PlayCount, Score: result.Score, Reason: reason(result),
+			ExplicitStatus: NormalizeExplicitStatus(result.ExplicitStatus),
+			LUFS:           result.LUFS, Duration: result.Duration, PlayCount: result.PlayCount,
+			Score: result.Score, Reason: reason(result),
 		})
 	}
 	return items
+}
+
+func decorateRecommendationEffects(results []RecommendationResult, playlist *model.Playlist) {
+	tracks := model.MediaFiles{}
+	if playlist != nil {
+		tracks = playlist.MediaFiles()
+	}
+	genres := map[string]int{}
+	artists := map[string]int{}
+	byID := map[string]model.MediaFile{}
+	for _, track := range tracks {
+		byID[track.ID] = track
+		if genre := preferredSongGenre(track); genre != "" {
+			genres[strings.ToLower(genre)]++
+		}
+		if artist := strings.TrimSpace(track.Artist); artist != "" {
+			artists[strings.ToLower(artist)]++
+		}
+	}
+
+	for i := range results {
+		result := &results[i]
+		var original *model.MediaFile
+		if track, ok := byID[result.OriginalSongID]; ok {
+			copy := track
+			original = &copy
+			if result.OriginalTitle == "" {
+				result.OriginalTitle = track.Title
+				result.OriginalArtist = track.Artist
+			}
+		}
+
+		effect := RecommendationEffect{
+			DurationDelta:    result.Duration,
+			Duration:         durationEffect(result.Duration, 0, false),
+			ExplicitSafety:   recommendationSafetyEffect("", result.ExplicitStatus),
+			BPM:              numericAdditionEffect(result.BPM, "BPM"),
+			LUFS:             floatAdditionEffect(result.LUFS, "LUFS"),
+			GenreBalance:     countEffect("genre", result.Genre, genres),
+			ArtistRepetition: countEffect("artist", result.Artist, artists),
+		}
+		if original != nil {
+			effect.DurationDelta -= float64(original.Duration)
+			effect.Duration = durationEffect(result.Duration, float64(original.Duration), true)
+			effect.ExplicitSafety = recommendationSafetyEffect(
+				NormalizeExplicitStatus(original.ExplicitStatus),
+				result.ExplicitStatus,
+			)
+			effect.BPM = numericReplacementEffect(original.BPM, result.BPM, "BPM")
+			originalLUFS, originalHasLUFS := songLUFSValue(*original)
+			effect.LUFS = floatReplacementEffect(originalLUFS, originalHasLUFS, result.LUFS, "LUFS")
+			oldGenre := preferredSongGenre(*original)
+			if strings.EqualFold(oldGenre, result.Genre) {
+				effect.GenreBalance = fmt.Sprintf("Keeps %s genre balance", fallbackLabel(result.Genre))
+			} else {
+				effect.GenreBalance = fmt.Sprintf("%s → %s", fallbackLabel(oldGenre), fallbackLabel(result.Genre))
+			}
+			before := artists[strings.ToLower(strings.TrimSpace(result.Artist))]
+			after := before + 1
+			if strings.EqualFold(original.Artist, result.Artist) {
+				after = before
+			}
+			effect.ArtistRepetition = fmt.Sprintf("%s appearances %d → %d", fallbackLabel(result.Artist), before, after)
+		}
+		result.ExpectedEffect = effect
+	}
+}
+
+func durationEffect(after, before float64, replacing bool) string {
+	if after <= 0 || (replacing && before <= 0) {
+		return "Unknown"
+	}
+	delta := after
+	if replacing {
+		delta -= before
+	}
+	if delta == 0 {
+		return "No duration change"
+	}
+	sign := "+"
+	if delta < 0 {
+		sign = "-"
+		delta = -delta
+	}
+	seconds := int(delta + 0.5)
+	return fmt.Sprintf("%s%d:%02d", sign, seconds/60, seconds%60)
+}
+
+func recommendationSafetyEffect(before, after string) string {
+	after = NormalizeExplicitStatus(after)
+	if before != "" {
+		return fmt.Sprintf("%s → %s", titleExplicitStatus(before), titleExplicitStatus(after))
+	}
+	switch after {
+	case ExplicitStatusClean:
+		return "Verified clean"
+	case ExplicitStatusExplicit:
+		return "Adds explicit-content risk"
+	default:
+		return "Unknown — review required"
+	}
+}
+
+func titleExplicitStatus(value string) string {
+	switch NormalizeExplicitStatus(value) {
+	case ExplicitStatusClean:
+		return "Clean"
+	case ExplicitStatusExplicit:
+		return "Explicit"
+	default:
+		return "Unknown"
+	}
+}
+
+func numericAdditionEffect(value int, unit string) string {
+	if value <= 0 {
+		return "Unknown"
+	}
+	return fmt.Sprintf("Adds %d %s track", value, unit)
+}
+
+func floatAdditionEffect(value float64, unit string) string {
+	if value == 0 {
+		return "Unknown"
+	}
+	return fmt.Sprintf("Adds %.1f %s track", value, unit)
+}
+
+func numericReplacementEffect(before, after int, unit string) string {
+	if before <= 0 || after <= 0 {
+		return "Unknown"
+	}
+	return fmt.Sprintf("%d → %d %s (%+d)", before, after, unit, after-before)
+}
+
+func floatReplacementEffect(before float64, beforeKnown bool, after float64, unit string) string {
+	if !beforeKnown || after == 0 {
+		return "Unknown"
+	}
+	return fmt.Sprintf("%.1f → %.1f %s (%+.1f)", before, after, unit, after-before)
+}
+
+func countEffect(kind, name string, counts map[string]int) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Sprintf("Unknown %s", kind)
+	}
+	before := counts[strings.ToLower(name)]
+	return fmt.Sprintf("%s tracks %d → %d", name, before, before+1)
+}
+
+func fallbackLabel(value string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	return "Unknown"
 }
 
 func expandedLimit(limit int) int {

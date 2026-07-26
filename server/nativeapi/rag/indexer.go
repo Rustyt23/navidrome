@@ -640,15 +640,12 @@ func cleanTagValues(values []string) []string {
 	return clean
 }
 
+// explicitStatusPayload is the tri-state written to Qdrant and the only field
+// explicit filtering matches on. The sibling `explicit` boolean is retained for
+// display compatibility but must not be filtered against: it cannot distinguish
+// a verified-clean song from an unclassified one.
 func explicitStatusPayload(status string) string {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "e", "explicit":
-		return "explicit"
-	case "c", "clean":
-		return "clean"
-	default:
-		return "unknown"
-	}
+	return NormalizeExplicitStatus(status)
 }
 
 func optionalTime(value *time.Time) any {

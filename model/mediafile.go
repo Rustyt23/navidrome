@@ -37,64 +37,73 @@ type MediaFile struct {
 	Artist        string `structs:"artist" json:"artist"`
 	AlbumArtistID string `structs:"album_artist_id" json:"albumArtistId"` // Deprecated: Use Participants instead
 	// AlbumArtist is the display name used for the album artist.
-	AlbumArtist          string   `structs:"album_artist" json:"albumArtist"`
-	AlbumID              string   `structs:"album_id" json:"albumId" hash:"ignore"`
-	HasCoverArt          bool     `structs:"has_cover_art" json:"hasCoverArt"`
-	ArtworkID            string   `structs:"-" json:"artworkId,omitempty"`
-	ArtworkURL           string   `structs:"-" json:"artworkUrl,omitempty"`
-	CoverArtURL          string   `structs:"-" json:"cover_art_url,omitempty"`
-	CoverPath            string   `structs:"cover_path" json:"coverPath,omitempty"`
-	TrackNumber          int      `structs:"track_number" json:"trackNumber"`
-	DiscNumber           int      `structs:"disc_number" json:"discNumber"`
-	DiscSubtitle         string   `structs:"disc_subtitle" json:"discSubtitle,omitempty"`
-	Year                 int      `structs:"year" json:"year"`
-	Date                 string   `structs:"date" json:"date,omitempty"`
-	OriginalYear         int      `structs:"original_year" json:"originalYear"`
-	OriginalDate         string   `structs:"original_date" json:"originalDate,omitempty"`
-	ReleaseYear          int      `structs:"release_year" json:"releaseYear"`
-	ReleaseDate          string   `structs:"release_date" json:"releaseDate,omitempty"`
-	Size                 int64    `structs:"size" json:"size"`
-	Suffix               string   `structs:"suffix" json:"suffix"`
-	Duration             float32  `structs:"duration" json:"duration"`
-	BitRate              int      `structs:"bit_rate" json:"bitRate"`
-	SampleRate           int      `structs:"sample_rate" json:"sampleRate"`
-	BitDepth             int      `structs:"bit_depth" json:"bitDepth"`
-	Channels             int      `structs:"channels" json:"channels"`
-	Codec                string   `structs:"codec" json:"codec"`
-	ProbeData            string   `structs:"probe_data" json:"-" hash:"ignore"`
-	Genre                string   `structs:"genre" json:"genre"`
-	Genres               Genres   `structs:"-" json:"genres,omitempty"`
-	SortTitle            string   `structs:"sort_title" json:"sortTitle,omitempty"`
-	SortAlbumName        string   `structs:"sort_album_name" json:"sortAlbumName,omitempty"`
-	SortArtistName       string   `structs:"sort_artist_name" json:"sortArtistName,omitempty"`            // Deprecated: Use Participants instead
-	SortAlbumArtistName  string   `structs:"sort_album_artist_name" json:"sortAlbumArtistName,omitempty"` // Deprecated: Use Participants instead
-	OrderTitle           string   `structs:"order_title" json:"orderTitle,omitempty"`
-	OrderAlbumName       string   `structs:"order_album_name" json:"orderAlbumName"`
-	OrderArtistName      string   `structs:"order_artist_name" json:"orderArtistName"`            // Deprecated: Use Participants instead
-	OrderAlbumArtistName string   `structs:"order_album_artist_name" json:"orderAlbumArtistName"` // Deprecated: Use Participants instead
-	Compilation          bool     `structs:"compilation" json:"compilation"`
-	Comment              string   `structs:"comment" json:"comment,omitempty"`
-	Lyrics               string   `structs:"lyrics" json:"lyrics"`
-	BPM                  int      `structs:"bpm" json:"bpm,omitempty"`
-	ExplicitStatus       string   `structs:"explicit_status" json:"explicitStatus"`
-	CatalogNum           string   `structs:"catalog_num" json:"catalogNum,omitempty"`
-	MbzRecordingID       string   `structs:"mbz_recording_id" json:"mbzRecordingID,omitempty"`
-	MbzReleaseID         string   `structs:"mbz_release_id" json:"mbzReleaseId,omitempty"`
-	MbzReleaseTrackID    string   `structs:"mbz_release_track_id" json:"mbzReleaseTrackId,omitempty"`
-	MbzAlbumID           string   `structs:"mbz_album_id" json:"mbzAlbumId,omitempty"`
-	MbzReleaseGroupID    string   `structs:"mbz_release_group_id" json:"mbzReleaseGroupId,omitempty"`
-	MbzArtistID          string   `structs:"mbz_artist_id" json:"mbzArtistId,omitempty"`            // Deprecated: Use Participants instead
-	MbzAlbumArtistID     string   `structs:"mbz_album_artist_id" json:"mbzAlbumArtistId,omitempty"` // Deprecated: Use Participants instead
-	MbzAlbumType         string   `structs:"mbz_album_type" json:"mbzAlbumType,omitempty"`
-	MbzAlbumComment      string   `structs:"mbz_album_comment" json:"mbzAlbumComment,omitempty"`
-	SpotifyConfidence    float64  `structs:"spotify_confidence" json:"spotifyConfidence,omitempty"`
-	SpotifyMatch         string   `structs:"spotify_match" json:"spotifyMatch,omitempty"`
-	SpotifyArtist        string   `structs:"spotify_artist" json:"spotifyArtist,omitempty"`
-	SpotifyURL           string   `structs:"spotify_url" json:"spotifyUrl,omitempty"`
-	RGAlbumGain          *float64 `structs:"rg_album_gain" json:"rgAlbumGain"`
-	RGAlbumPeak          *float64 `structs:"rg_album_peak" json:"rgAlbumPeak"`
-	RGTrackGain          *float64 `structs:"rg_track_gain" json:"rgTrackGain"`
-	RGTrackPeak          *float64 `structs:"rg_track_peak" json:"rgTrackPeak"`
+	AlbumArtist          string  `structs:"album_artist" json:"albumArtist"`
+	AlbumID              string  `structs:"album_id" json:"albumId" hash:"ignore"`
+	HasCoverArt          bool    `structs:"has_cover_art" json:"hasCoverArt"`
+	ArtworkID            string  `structs:"-" json:"artworkId,omitempty"`
+	ArtworkURL           string  `structs:"-" json:"artworkUrl,omitempty"`
+	CoverArtURL          string  `structs:"-" json:"cover_art_url,omitempty"`
+	CoverPath            string  `structs:"cover_path" json:"coverPath,omitempty"`
+	TrackNumber          int     `structs:"track_number" json:"trackNumber"`
+	DiscNumber           int     `structs:"disc_number" json:"discNumber"`
+	DiscSubtitle         string  `structs:"disc_subtitle" json:"discSubtitle,omitempty"`
+	Year                 int     `structs:"year" json:"year"`
+	Date                 string  `structs:"date" json:"date,omitempty"`
+	OriginalYear         int     `structs:"original_year" json:"originalYear"`
+	OriginalDate         string  `structs:"original_date" json:"originalDate,omitempty"`
+	ReleaseYear          int     `structs:"release_year" json:"releaseYear"`
+	ReleaseDate          string  `structs:"release_date" json:"releaseDate,omitempty"`
+	Size                 int64   `structs:"size" json:"size"`
+	Suffix               string  `structs:"suffix" json:"suffix"`
+	Duration             float32 `structs:"duration" json:"duration"`
+	BitRate              int     `structs:"bit_rate" json:"bitRate"`
+	SampleRate           int     `structs:"sample_rate" json:"sampleRate"`
+	BitDepth             int     `structs:"bit_depth" json:"bitDepth"`
+	Channels             int     `structs:"channels" json:"channels"`
+	Codec                string  `structs:"codec" json:"codec"`
+	ProbeData            string  `structs:"probe_data" json:"-" hash:"ignore"`
+	Genre                string  `structs:"genre" json:"genre"`
+	Genres               Genres  `structs:"-" json:"genres,omitempty"`
+	SortTitle            string  `structs:"sort_title" json:"sortTitle,omitempty"`
+	SortAlbumName        string  `structs:"sort_album_name" json:"sortAlbumName,omitempty"`
+	SortArtistName       string  `structs:"sort_artist_name" json:"sortArtistName,omitempty"`            // Deprecated: Use Participants instead
+	SortAlbumArtistName  string  `structs:"sort_album_artist_name" json:"sortAlbumArtistName,omitempty"` // Deprecated: Use Participants instead
+	OrderTitle           string  `structs:"order_title" json:"orderTitle,omitempty"`
+	OrderAlbumName       string  `structs:"order_album_name" json:"orderAlbumName"`
+	OrderArtistName      string  `structs:"order_artist_name" json:"orderArtistName"`            // Deprecated: Use Participants instead
+	OrderAlbumArtistName string  `structs:"order_album_artist_name" json:"orderAlbumArtistName"` // Deprecated: Use Participants instead
+	Compilation          bool    `structs:"compilation" json:"compilation"`
+	Comment              string  `structs:"comment" json:"comment,omitempty"`
+	Lyrics               string  `structs:"lyrics" json:"lyrics"`
+	BPM                  int     `structs:"bpm" json:"bpm,omitempty"`
+	ExplicitStatus       string  `structs:"explicit_status" json:"explicitStatus"`
+	CatalogNum           string  `structs:"catalog_num" json:"catalogNum,omitempty"`
+	MbzRecordingID       string  `structs:"mbz_recording_id" json:"mbzRecordingID,omitempty"`
+	MbzReleaseID         string  `structs:"mbz_release_id" json:"mbzReleaseId,omitempty"`
+	MbzReleaseTrackID    string  `structs:"mbz_release_track_id" json:"mbzReleaseTrackId,omitempty"`
+	MbzAlbumID           string  `structs:"mbz_album_id" json:"mbzAlbumId,omitempty"`
+	MbzReleaseGroupID    string  `structs:"mbz_release_group_id" json:"mbzReleaseGroupId,omitempty"`
+	MbzArtistID          string  `structs:"mbz_artist_id" json:"mbzArtistId,omitempty"`            // Deprecated: Use Participants instead
+	MbzAlbumArtistID     string  `structs:"mbz_album_artist_id" json:"mbzAlbumArtistId,omitempty"` // Deprecated: Use Participants instead
+	MbzAlbumType         string  `structs:"mbz_album_type" json:"mbzAlbumType,omitempty"`
+	MbzAlbumComment      string  `structs:"mbz_album_comment" json:"mbzAlbumComment,omitempty"`
+	SpotifyConfidence    float64 `structs:"spotify_confidence" json:"spotifyConfidence,omitempty"`
+	SpotifyMatch         string  `structs:"spotify_match" json:"spotifyMatch,omitempty"`
+	SpotifyArtist        string  `structs:"spotify_artist" json:"spotifyArtist,omitempty"`
+	SpotifyURL           string  `structs:"spotify_url" json:"spotifyUrl,omitempty"`
+	// Genres fetched by the AI tool page, kept per source so the page can show
+	// where each value came from and recompute consensus without refetching.
+	// Genre above stays the file's own tag and is never overwritten by these.
+	AiGenre         string `structs:"ai_genre" json:"aiGenre,omitempty"`
+	AiSubgenre      string `structs:"ai_subgenre" json:"aiSubgenre,omitempty"`
+	SpotifyGenre    string `structs:"spotify_genre" json:"spotifyGenre,omitempty"`
+	ITunesGenre     string `structs:"itunes_genre" json:"itunesGenre,omitempty"`
+	GenreConfidence int    `structs:"genre_confidence" json:"genreConfidence,omitempty"`
+
+	RGAlbumGain *float64 `structs:"rg_album_gain" json:"rgAlbumGain"`
+	RGAlbumPeak *float64 `structs:"rg_album_peak" json:"rgAlbumPeak"`
+	RGTrackGain *float64 `structs:"rg_track_gain" json:"rgTrackGain"`
+	RGTrackPeak *float64 `structs:"rg_track_peak" json:"rgTrackPeak"`
 
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track
@@ -431,6 +440,35 @@ func (mfs MediaFiles) ToM3U8(title string, absolutePaths bool) string {
 
 type MediaFileCursor iter.Seq2[MediaFile, error]
 
+// AIGenreMetadata is a partial update of the genres fetched by the AI tool
+// page. A nil field means "this source returned nothing on this run", which
+// must leave any previously stored value intact rather than blanking it.
+type AIGenreMetadata struct {
+	AiGenre         *string
+	AiSubgenre      *string
+	SpotifyGenre    *string
+	ITunesGenre     *string
+	GenreConfidence *int
+}
+
+func (m AIGenreMetadata) IsEmpty() bool {
+	return m.AiGenre == nil && m.AiSubgenre == nil && m.SpotifyGenre == nil &&
+		m.ITunesGenre == nil && m.GenreConfidence == nil
+}
+
+// AIGenreFields selects which fetched genre columns to clear.
+type AIGenreFields struct {
+	AiGenre         bool
+	AiSubgenre      bool
+	SpotifyGenre    bool
+	ITunesGenre     bool
+	GenreConfidence bool
+}
+
+func (f AIGenreFields) Any() bool {
+	return f.AiGenre || f.AiSubgenre || f.SpotifyGenre || f.ITunesGenre || f.GenreConfidence
+}
+
 type MediaFileRepository interface {
 	CountAll(options ...QueryOptions) (int64, error)
 	CountBySuffix(options ...QueryOptions) (map[string]int64, error)
@@ -449,7 +487,9 @@ type MediaFileRepository interface {
 	UpdateComment(ids []string, comment string) error
 	UpdateLoudnessTags(id string, lufs float64) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
-	ClearAIMetadata(id string, album bool, year bool) error
+	ClearAIMetadata(id string, album bool, year bool, explicit bool) error
+	UpdateAIGenreMetadata(id string, meta AIGenreMetadata) error
+	ClearAIGenreMetadata(id string, fields AIGenreFields) error
 	UpdateCoverPath(id string, coverPath string) error
 	UpdateSpotifyMetadata(id string, confidence *float64, match *string, artist *string, spotifyURL *string) error
 	UpdateLyrics(id string, lyrics string) error

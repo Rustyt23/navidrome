@@ -153,6 +153,64 @@ var _ = Describe("phasePlaylists", func() {
 			Expect(repo.deleted).To(BeEmpty())
 		})
 
+		It("reimports unchanged playlists when media changed during the scan", func() {
+			libPath := GinkgoT().TempDir()
+			folder := &model.Folder{LibraryPath: libPath, Path: "path/to", Name: "folder"}
+			Expect(os.MkdirAll(folder.AbsolutePath(), 0755)).To(Succeed())
+
+			file1 := filepath.Join(folder.AbsolutePath(), "playlist1.m3u")
+			Expect(os.WriteFile(file1, []byte{}, 0600)).To(Succeed())
+			info, err := os.Stat(file1)
+			Expect(err).ToNot(HaveOccurred())
+
+			repo := ds.MockedPlaylist.(*playlistRepoMock)
+			repo.playlists = map[string]model.Playlist{
+				filepath.Clean(file1): {
+					ID:        "1",
+					Path:      file1,
+					Name:      "playlist1",
+					Sync:      true,
+					UpdatedAt: info.ModTime(),
+				},
+			}
+			state.changesDetected.Store(true)
+			pls.On("ImportFromFolder", mock.Anything, folder, "playlist1.m3u").
+				Return(&model.Playlist{}, nil)
+
+			_, err = phase.processPlaylistsInFolder(folder)
+			Expect(err).ToNot(HaveOccurred())
+			pls.AssertCalled(GinkgoT(), "ImportFromFolder", mock.Anything, folder, "playlist1.m3u")
+		})
+
+		It("reimports unchanged playlists during a full scan", func() {
+			libPath := GinkgoT().TempDir()
+			folder := &model.Folder{LibraryPath: libPath, Path: "path/to", Name: "folder"}
+			Expect(os.MkdirAll(folder.AbsolutePath(), 0755)).To(Succeed())
+
+			file1 := filepath.Join(folder.AbsolutePath(), "playlist1.m3u")
+			Expect(os.WriteFile(file1, []byte{}, 0600)).To(Succeed())
+			info, err := os.Stat(file1)
+			Expect(err).ToNot(HaveOccurred())
+
+			repo := ds.MockedPlaylist.(*playlistRepoMock)
+			repo.playlists = map[string]model.Playlist{
+				filepath.Clean(file1): {
+					ID:        "1",
+					Path:      file1,
+					Name:      "playlist1",
+					Sync:      true,
+					UpdatedAt: info.ModTime(),
+				},
+			}
+			state.fullScan = true
+			pls.On("ImportFromFolder", mock.Anything, folder, "playlist1.m3u").
+				Return(&model.Playlist{}, nil)
+
+			_, err = phase.processPlaylistsInFolder(folder)
+			Expect(err).ToNot(HaveOccurred())
+			pls.AssertCalled(GinkgoT(), "ImportFromFolder", mock.Anything, folder, "playlist1.m3u")
+		})
+
 		It("removes playlists missing from the folder", func() {
 			libPath := GinkgoT().TempDir()
 			folder := &model.Folder{LibraryPath: libPath, Path: "path/to", Name: "folder"}
@@ -169,9 +227,10 @@ var _ = Describe("phasePlaylists", func() {
 				},
 			}
 
+			pls.On("Delete", mock.Anything, "1").Return(nil)
 			_, err := phase.processPlaylistsInFolder(folder)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repo.deleted).To(ContainElement("1"))
+			pls.AssertCalled(GinkgoT(), "Delete", mock.Anything, "1")
 			Expect(phase.scanState.changesDetected.Load()).To(BeTrue())
 		})
 
@@ -205,6 +264,11 @@ func (p *mockPlaylists) ImportFromFolder(ctx context.Context, folder *model.Fold
 }
 
 func (p *mockPlaylists) Publish(ctx context.Context, playlistID string) error {
+	args := p.Called(ctx, playlistID)
+	return args.Error(0)
+}
+
+func (p *mockPlaylists) Delete(ctx context.Context, playlistID string) error {
 	args := p.Called(ctx, playlistID)
 	return args.Error(0)
 }

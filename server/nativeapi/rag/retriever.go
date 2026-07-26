@@ -22,26 +22,30 @@ type Retriever interface {
 // SongSearchResult is the read-only song metadata returned by Qdrant search
 // and exposed as a source to the test endpoint and AI chat.
 type SongSearchResult struct {
-	SongID       string     `json:"songId"`
-	Title        string     `json:"title"`
-	Artist       string     `json:"artist"`
-	Album        string     `json:"album"`
-	Year         int        `json:"year"`
-	Genre        string     `json:"genre"`
-	Explicit     bool       `json:"explicit"`
-	BPM          int        `json:"bpm"`
-	LUFS         float64    `json:"lufs"`
-	Duration     float64    `json:"duration"`
-	PlayCount    int64      `json:"playCount"`
-	LastPlayedAt *time.Time `json:"lastPlayedAt,omitempty"`
-	HasLyrics    bool       `json:"hasLyrics"`
-	HasGenre     bool       `json:"hasGenre"`
-	HasYear      bool       `json:"hasYear"`
-	HasBPM       bool       `json:"hasBpm"`
-	HasLUFS      bool       `json:"hasLufs"`
-	Score        float64    `json:"score"`
-	LyricSnippet string     `json:"lyricSnippet,omitempty"`
-	LyricsText   string     `json:"-"`
+	SongID   string `json:"songId"`
+	Title    string `json:"title"`
+	Artist   string `json:"artist"`
+	Album    string `json:"album"`
+	Year     int    `json:"year"`
+	Genre    string `json:"genre"`
+	Explicit bool   `json:"explicit"`
+	// ExplicitStatus is the tri-state "explicit" | "clean" | "unknown". Explicit
+	// alone cannot express "never classified", and treating that as clean is
+	// what let unrated songs into retail-safe results.
+	ExplicitStatus string     `json:"explicitStatus"`
+	BPM            int        `json:"bpm"`
+	LUFS           float64    `json:"lufs"`
+	Duration       float64    `json:"duration"`
+	PlayCount      int64      `json:"playCount"`
+	LastPlayedAt   *time.Time `json:"lastPlayedAt,omitempty"`
+	HasLyrics      bool       `json:"hasLyrics"`
+	HasGenre       bool       `json:"hasGenre"`
+	HasYear        bool       `json:"hasYear"`
+	HasBPM         bool       `json:"hasBpm"`
+	HasLUFS        bool       `json:"hasLufs"`
+	Score          float64    `json:"score"`
+	LyricSnippet   string     `json:"lyricSnippet,omitempty"`
+	LyricsText     string     `json:"-"`
 }
 
 // IndexedSong is the song payload stored in Qdrant without its vector.

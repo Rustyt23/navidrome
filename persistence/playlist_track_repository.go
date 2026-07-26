@@ -356,14 +356,7 @@ func (r *playlistTrackRepository) listWithMissing(opt model.QueryOptions, restOp
 		return tracks, nil
 	}
 
-	sortKey := strings.TrimSpace(opt.Sort)
-	defaultSort := strings.TrimSpace(r.sortMappings["id"])
-	if defaultSort == "" {
-		defaultSort = "id"
-	}
-	hasCustomSort := sortKey != "" && !strings.EqualFold(sortKey, defaultSort)
-
-	if hasCustomSort || r.playlist == nil || !r.playlist.Sync || r.playlist.Path == "" {
+	if r.playlist == nil || !r.playlist.Sync || r.playlist.Path == "" {
 		return tracks, nil
 	}
 

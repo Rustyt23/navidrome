@@ -177,7 +177,7 @@ func (m *MockMediaFileRepo) UpdateCoverPath(id string, coverPath string) error {
 	return nil
 }
 
-func (m *MockMediaFileRepo) ClearAIMetadata(id string, album bool, year bool) error {
+func (m *MockMediaFileRepo) ClearAIMetadata(id string, album bool, year bool, explicit bool) error {
 	if m.Err {
 		return errors.New("error")
 	}
@@ -188,9 +188,64 @@ func (m *MockMediaFileRepo) ClearAIMetadata(id string, album bool, year bool) er
 		if year {
 			mf.Year = 0
 		}
+		if explicit {
+			mf.ExplicitStatus = ""
+		}
 		return nil
 	}
 	return model.ErrNotFound
+}
+
+func (m *MockMediaFileRepo) UpdateAIGenreMetadata(id string, meta model.AIGenreMetadata) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	mf, ok := m.Data[id]
+	if !ok {
+		return model.ErrNotFound
+	}
+	if meta.AiGenre != nil {
+		mf.AiGenre = *meta.AiGenre
+	}
+	if meta.AiSubgenre != nil {
+		mf.AiSubgenre = *meta.AiSubgenre
+	}
+	if meta.SpotifyGenre != nil {
+		mf.SpotifyGenre = *meta.SpotifyGenre
+	}
+	if meta.ITunesGenre != nil {
+		mf.ITunesGenre = *meta.ITunesGenre
+	}
+	if meta.GenreConfidence != nil {
+		mf.GenreConfidence = *meta.GenreConfidence
+	}
+	return nil
+}
+
+func (m *MockMediaFileRepo) ClearAIGenreMetadata(id string, fields model.AIGenreFields) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	mf, ok := m.Data[id]
+	if !ok {
+		return model.ErrNotFound
+	}
+	if fields.AiGenre {
+		mf.AiGenre = ""
+	}
+	if fields.AiSubgenre {
+		mf.AiSubgenre = ""
+	}
+	if fields.SpotifyGenre {
+		mf.SpotifyGenre = ""
+	}
+	if fields.ITunesGenre {
+		mf.ITunesGenre = ""
+	}
+	if fields.GenreConfidence || fields.AiGenre || fields.SpotifyGenre || fields.ITunesGenre {
+		mf.GenreConfidence = 0
+	}
+	return nil
 }
 
 func (m *MockMediaFileRepo) UpdateMissingMetadata(id string, album *string, year *int, genre *string, recordingMBID *string, releaseMBID *string) error {

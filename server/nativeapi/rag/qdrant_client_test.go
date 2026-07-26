@@ -445,9 +445,12 @@ func TestQdrantSearchRequestAndResponse(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected one result, got %d", len(results))
 	}
+	// The payload carries no explicitStatus, so the song decodes as unknown
+	// rather than inheriting "clean" from the explicit=false boolean.
 	expected := SongSearchResult{
 		SongID: "song-1", Title: "Bright Song", Artist: "Artist", Album: "Album",
-		Year: 2020, Genre: "Pop", Explicit: false, BPM: 100, LUFS: -12.5, Score: 0.87,
+		Year: 2020, Genre: "Pop", Explicit: false, ExplicitStatus: ExplicitStatusUnknown,
+		BPM: 100, LUFS: -12.5, Score: 0.87,
 	}
 	if results[0] != expected {
 		t.Fatalf("expected %+v, got %+v", expected, results[0])

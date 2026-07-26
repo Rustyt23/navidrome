@@ -127,7 +127,7 @@ func TestRAGExactLyricsSearchUsesQdrantWithoutEmbedding(t *testing.T) {
 			t.Fatal("exact lyric search must not use vector query")
 		default:
 			if strings.HasPrefix(request.URL.Path, "/collections/songs/points/") {
-				_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":2,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
+				_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":3,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
 				return
 			}
 			http.NotFound(w, request)

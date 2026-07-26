@@ -114,12 +114,14 @@ func TestRecommendPlaylistReplacementsUsesAnalysisSuggestions(t *testing.T) {
 		ID: "playlist-1", Name: "Retail Mix",
 		Tracks: model.PlaylistTracks{{MediaFile: model.MediaFile{
 			ID: "risk", Title: "Risky", Artist: "Artist", Genre: "Pop", ExplicitStatus: "e",
+			BPM: 100, Duration: 240, Tags: model.Tags{"lufs": {"-16"}},
 		}}},
 	}
 	search := func(context.Context, string, int, SearchFilters) ([]SongSearchResult, error) {
 		return []SongSearchResult{{
 			SongID: "safe", Title: "Safe", Artist: "Other", Album: "Album", Genre: "Pop",
-			Year: 2024, BPM: 120, LUFS: -12, PlayCount: 4, Score: .9,
+			Year: 2024, ExplicitStatus: ExplicitStatusClean, BPM: 120, LUFS: -12,
+			Duration: 210, PlayCount: 4, Score: .9,
 		}}, nil
 	}
 	response, err := Recommend(context.Background(), RecommendationInput{
@@ -130,6 +132,16 @@ func TestRecommendPlaylistReplacementsUsesAnalysisSuggestions(t *testing.T) {
 	}
 	if response.Count != 1 || response.Results[0].SongID != "safe" || !strings.Contains(response.Results[0].Reason, "Risky") {
 		t.Fatalf("unexpected playlist replacement response: %+v", response)
+	}
+	result := response.Results[0]
+	if result.OriginalSongID != "risk" || result.OriginalTitle != "Risky" {
+		t.Fatalf("replacement must preserve the original song: %+v", result)
+	}
+	if result.ExpectedEffect.DurationDelta != -30 ||
+		result.ExpectedEffect.ExplicitSafety != "Explicit → Clean" ||
+		!strings.Contains(result.ExpectedEffect.BPM, "100 → 120") ||
+		!strings.Contains(result.ExpectedEffect.LUFS, "-16.0 → -12.0") {
+		t.Fatalf("unexpected replacement effects: %+v", result.ExpectedEffect)
 	}
 }
 

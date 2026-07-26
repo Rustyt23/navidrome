@@ -2082,10 +2082,19 @@ describe('AiToolPage AI actions', () => {
     clickMetadataAction('Clear Fetched Metadata')
 
     await waitFor(() => expect(requests).toHaveLength(1))
+    // Fetched genres are stored server-side, so the bulk clear must clear them
+    // there as well as in the browser.
+    const genreFlags = {
+      aiGenre: true,
+      aiSubgenre: true,
+      spotifyGenre: true,
+      musicBrainzGenre: true,
+      genreConfidence: true,
+    }
     expect(requests[0]).toEqual({
       songs: [
-        { id: 'song-1', album: true, year: true },
-        { id: 'song-2', album: false, year: false },
+        { id: 'song-1', album: true, year: true, ...genreFlags },
+        { id: 'song-2', album: false, year: false, ...genreFlags },
       ],
     })
     await waitFor(() => {
@@ -2103,6 +2112,94 @@ describe('AiToolPage AI actions', () => {
         aiGenre: '',
         metadataConfidence: {},
       })
+    })
+  })
+
+  it('clears one genre column from its header without touching the others', async () => {
+    const queuedSongs = songs.map((song) => ({
+      ...song,
+      musicBrainzGenre: 'iTunes Rock',
+      aiGenre: 'AI Rock',
+      spotifyGenre: 'Spotify Rock',
+      genreDeveloperTrace: {
+        itunes: { request: 'itunes request', response: 'itunes response' },
+        ai: { prompt: 'ai prompt', response: 'ai response' },
+      },
+      aiFields: { musicBrainzGenre: true, aiGenre: true, spotifyGenre: true },
+    }))
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify(queuedSongs))
+    const requests = []
+    renderPage('/api/ai/clear-metadata', (_url, options) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({ json: { songIds: ['song-1', 'song-2'] } })
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Clear fetched iTunes Genre' }),
+    )
+    fireEvent.click(
+      within(screen.getByRole('menu')).getByRole('menuitem', {
+        name: 'Clear for 2 selected songs',
+      }),
+    )
+
+    // Fetched genres are stored server-side, so clearing one column must clear
+    // it there too or it returns on the next reconcile.
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0]).toEqual({
+      songs: [
+        { id: 'song-1', musicBrainzGenre: true },
+        { id: 'song-2', musicBrainzGenre: true },
+      ],
+    })
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem('aiToolAddedSongs'))
+      expect(saved[0].musicBrainzGenre).toBe('')
+      expect(saved[0].aiGenre).toBe('AI Rock')
+      expect(saved[0].spotifyGenre).toBe('Spotify Rock')
+      expect(saved[0].genreDeveloperTrace.itunes).toBeUndefined()
+      expect(saved[0].genreDeveloperTrace.ai).toBeDefined()
+      expect(saved[1].musicBrainzGenre).toBe('')
+    })
+  })
+
+  it('clears the persisted explicit column from its header', async () => {
+    const queuedSongs = songs.map((song) => ({
+      ...song,
+      explicitStatus: 'e',
+      explicitReason: 'strong language',
+      aiGenre: 'AI Rock',
+      aiFields: { explicitStatus: true, aiGenre: true },
+    }))
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify(queuedSongs))
+    const requests = []
+    renderPage('/api/ai/clear-metadata', (_url, options) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({ json: { songIds: ['song-1', 'song-2'] } })
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Clear fetched Explicit' }),
+    )
+    fireEvent.click(
+      within(screen.getByRole('menu')).getByRole('menuitem', {
+        name: 'Clear for 2 selected songs',
+      }),
+    )
+
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0]).toEqual({
+      songs: [
+        { id: 'song-1', explicit: true },
+        { id: 'song-2', explicit: true },
+      ],
+    })
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem('aiToolAddedSongs'))
+      expect(saved[0].explicitStatus).toBe('')
+      expect(saved[0].explicitReason).toBe('')
+      expect(saved[0].aiGenre).toBe('AI Rock')
+      expect(saved[1].explicitStatus).toBe('')
     })
   })
 

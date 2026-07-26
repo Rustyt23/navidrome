@@ -422,9 +422,9 @@ func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, ye
 	return err
 }
 
-func (r *mediaFileRepository) ClearAIMetadata(id string, album bool, year bool) error {
+func (r *mediaFileRepository) ClearAIMetadata(id string, album bool, year bool, explicit bool) error {
 	id = strings.TrimSpace(id)
-	if id == "" || (!album && !year) {
+	if id == "" || (!album && !year && !explicit) {
 		return nil
 	}
 
@@ -434,6 +434,12 @@ func (r *mediaFileRepository) ClearAIMetadata(id string, album bool, year bool) 
 	}
 	if year {
 		up = up.Set("year", 0)
+	}
+	// explicit_status is `varchar default '' not null`, so the cleared state is
+	// the empty string. UpdateExplicitStatus cannot be reused here: it treats an
+	// empty status as "nothing to do" and returns without writing.
+	if explicit {
+		up = up.Set("explicit_status", "")
 	}
 	up = up.Set("updated_at", time.Now())
 	_, err := r.executeSQL(up)
@@ -475,6 +481,65 @@ func (r *mediaFileRepository) UpdateSpotifyMetadata(id string, confidence *float
 	}
 	if spotifyURL != nil {
 		up = up.Set("spotify_url", strings.TrimSpace(*spotifyURL))
+	}
+	up = up.Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
+// UpdateAIGenreMetadata persists the genres the AI tool page fetched. Every
+// field is a pointer so a source that returned nothing leaves the stored value
+// alone instead of blanking a genre fetched on an earlier run.
+func (r *mediaFileRepository) UpdateAIGenreMetadata(id string, meta model.AIGenreMetadata) error {
+	id = strings.TrimSpace(id)
+	if id == "" || meta.IsEmpty() {
+		return nil
+	}
+
+	up := Update(r.tableName).Where(Eq{"id": id})
+	if meta.AiGenre != nil {
+		up = up.Set("ai_genre", strings.TrimSpace(*meta.AiGenre))
+	}
+	if meta.AiSubgenre != nil {
+		up = up.Set("ai_subgenre", strings.TrimSpace(*meta.AiSubgenre))
+	}
+	if meta.SpotifyGenre != nil {
+		up = up.Set("spotify_genre", strings.TrimSpace(*meta.SpotifyGenre))
+	}
+	if meta.ITunesGenre != nil {
+		up = up.Set("itunes_genre", strings.TrimSpace(*meta.ITunesGenre))
+	}
+	if meta.GenreConfidence != nil {
+		up = up.Set("genre_confidence", *meta.GenreConfidence)
+	}
+	up = up.Set("updated_at", time.Now())
+	_, err := r.executeSQL(up)
+	return err
+}
+
+// ClearAIGenreMetadata blanks the selected fetched-genre columns. Clearing a
+// source's genre also clears the stored confidence, which was derived from it.
+func (r *mediaFileRepository) ClearAIGenreMetadata(id string, fields model.AIGenreFields) error {
+	id = strings.TrimSpace(id)
+	if id == "" || !fields.Any() {
+		return nil
+	}
+
+	up := Update(r.tableName).Where(Eq{"id": id})
+	if fields.AiGenre {
+		up = up.Set("ai_genre", "")
+	}
+	if fields.AiSubgenre {
+		up = up.Set("ai_subgenre", "")
+	}
+	if fields.SpotifyGenre {
+		up = up.Set("spotify_genre", "")
+	}
+	if fields.ITunesGenre {
+		up = up.Set("itunes_genre", "")
+	}
+	if fields.GenreConfidence || fields.AiGenre || fields.SpotifyGenre || fields.ITunesGenre {
+		up = up.Set("genre_confidence", 0)
 	}
 	up = up.Set("updated_at", time.Now())
 	_, err := r.executeSQL(up)

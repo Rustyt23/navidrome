@@ -6,7 +6,11 @@ import (
 	"strings"
 )
 
-const CurrentIndexSchemaVersion = 2
+// Bumped to 3 when explicit filtering moved from the `explicit` boolean to the
+// tri-state `explicitStatus` payload. Collections written by an older version
+// are reported as drifted so operators reindex; until they do, clean-only
+// searches return nothing rather than silently including unrated songs.
+const CurrentIndexSchemaVersion = 3
 
 const indexMetadataPointID = "_rag:index-metadata"
 

@@ -34,7 +34,7 @@ func TestListQdrantLyricsSearchesStoredWords(t *testing.T) {
 			_, _ = w.Write([]byte(`{"result":{"points":[{"payload":{"songId":"song-1","title":"Vikash Song","artist":"Artist","hasLyrics":true,"lyricsText":"hello vikash"}}]},"status":"ok"}`))
 		default:
 			if strings.HasPrefix(request.URL.Path, "/collections/songs/points/") {
-				_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":2,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
+				_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":3,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
 				return
 			}
 			http.NotFound(w, request)

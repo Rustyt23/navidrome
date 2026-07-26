@@ -259,6 +259,27 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			Expect(tracks[2].Title).To(Equal("Radioactivity"))
 		})
 
+		It("includes missing entries with an explicit sort", func() {
+			file, err := os.OpenFile(playlist.Path, os.O_APPEND|os.O_WRONLY, 0o600)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = file.WriteString("\nMissing Artist - Missing Song.mp3\n")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(file.Close()).To(Succeed())
+
+			repo := playlistRepo.Tracks(playlist.ID, true)
+			result, err := repo.ReadAll(rest.QueryOptions{Sort: "title", Order: "ASC"})
+			Expect(err).ToNot(HaveOccurred())
+
+			tracks, ok := result.(model.PlaylistTracks)
+			Expect(ok).To(BeTrue())
+			Expect(tracks).To(HaveLen(4))
+			Expect(tracks[0].Title).To(Equal("A Day In A Life"))
+			Expect(tracks[1].Title).To(Equal("Antenna"))
+			Expect(tracks[2].Title).To(Equal("Radioactivity"))
+			Expect(tracks[3].Missing).To(BeTrue())
+			Expect(tracks[3].Path).To(Equal("Missing Artist - Missing Song.mp3"))
+		})
+
 		It("sorts by createdAt using media file timestamps", func() {
 			updates := []struct {
 				id        string

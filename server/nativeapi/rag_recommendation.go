@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/navidrome/navidrome/model"
@@ -17,11 +18,13 @@ type ragRecommendationRequest struct {
 	Type       rag.RecommendationType `json:"type"`
 	SongID     string                 `json:"songId,omitempty"`
 	PlaylistID string                 `json:"playlistId,omitempty"`
+	DraftID    string                 `json:"draftId,omitempty"`
 	Limit      int                    `json:"limit"`
 }
 
 type recommendationSongLoader func(context.Context, string) (*model.MediaFile, error)
 type recommendationPlaylistLoader func(context.Context, string) (*model.Playlist, error)
+type recommendationDecisionLoader func(context.Context, string, string) (model.PlaylistRecommendationDecisions, error)
 
 func (n *Router) handleRAGRecommendation(w http.ResponseWriter, request *http.Request) {
 	if n.ds == nil {
@@ -38,6 +41,9 @@ func (n *Router) handleRAGRecommendation(w http.ResponseWriter, request *http.Re
 			return n.ds.Playlist(ctx).GetWithTracks(playlistID, false, false)
 		},
 		searchRAG,
+		func(ctx context.Context, playlistID, draftID string) (model.PlaylistRecommendationDecisions, error) {
+			return n.ds.PlaylistDraft(ctx).GetRecommendationDecisions(playlistID, draftID)
+		},
 	)
 }
 
@@ -47,6 +53,7 @@ func serveRAGRecommendation(
 	loadSong recommendationSongLoader,
 	loadPlaylist recommendationPlaylistLoader,
 	search rag.ReplacementSearchFunc,
+	loadDecisions ...recommendationDecisionLoader,
 ) {
 	payload, err := decodeRAGRecommendationRequest(request.Body)
 	if err != nil {
@@ -58,7 +65,7 @@ func serveRAGRecommendation(
 	if payload.Type == rag.RecommendationSimilarSongs {
 		input.Song, err = loadSong(request.Context(), payload.SongID)
 	}
-	if err == nil && (payload.Type == rag.RecommendationPlaylistExpansion || payload.Type == rag.RecommendationPlaylistReplacements) {
+	if err == nil && payload.PlaylistID != "" {
 		input.Playlist, err = loadPlaylist(request.Context(), payload.PlaylistID)
 	}
 	if err != nil {
@@ -69,11 +76,37 @@ func serveRAGRecommendation(
 		writeRAGRecommendationError(w, status, err.Error())
 		return
 	}
+	if len(loadDecisions) > 0 && payload.PlaylistID != "" {
+		decisions, loadErr := loadDecisions[0](request.Context(), payload.PlaylistID, payload.DraftID)
+		if loadErr != nil {
+			writeRAGRecommendationError(w, http.StatusInternalServerError, loadErr.Error())
+			return
+		}
+		input.ExcludedSongIDs = map[string]struct{}{}
+		input.ExcludedRecommendationKeys = map[string]struct{}{}
+		for _, decision := range decisions {
+			if decision.Decision == model.RecommendationDecisionBlocked {
+				input.ExcludedSongIDs[decision.SongID] = struct{}{}
+			}
+			if decision.Decision == model.RecommendationDecisionIgnored &&
+				decision.DraftID == payload.DraftID &&
+				(decision.RecommendationType == "" || decision.RecommendationType == string(payload.Type)) {
+				key := rag.RecommendationExclusionKey(decision.SongID, decision.OriginalSongID)
+				input.ExcludedRecommendationKeys[key] = struct{}{}
+			}
+		}
+	}
 
 	response, err := rag.Recommend(request.Context(), input, search)
 	if err != nil {
 		writeRAGRecommendationError(w, http.StatusServiceUnavailable, err.Error())
 		return
+	}
+	_, modelVersion, _ := ragEmbeddingStatus()
+	response.Provenance = rag.RecommendationProvenance{
+		AIModelVersion: modelVersion,
+		AIIndexVersion: strconv.Itoa(rag.CurrentIndexSchemaVersion),
+		RulesetVersion: rag.RecommendationRulesetVersion,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
@@ -89,6 +122,7 @@ func decodeRAGRecommendationRequest(reader io.Reader) (ragRecommendationRequest,
 	payload.Type = rag.RecommendationType(strings.TrimSpace(string(payload.Type)))
 	payload.SongID = strings.TrimSpace(payload.SongID)
 	payload.PlaylistID = strings.TrimSpace(payload.PlaylistID)
+	payload.DraftID = strings.TrimSpace(payload.DraftID)
 	if !rag.IsSupportedRecommendationType(payload.Type) {
 		return ragRecommendationRequest{}, fmt.Errorf("unsupported recommendation type %q", payload.Type)
 	}

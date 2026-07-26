@@ -220,7 +220,7 @@ func (j *musicBrainzMetadataJob) run(ds model.DataStore, songIDs []string) {
 		}
 		j.setFetching(c.flags, 1)
 
-		metadata, fetchErr := j.fetchMetadata(c.mf.Title, c.mf.Artist)
+		metadata, fetchErr := j.fetchMetadata(itunesTrackQueryFor(c.mf))
 		if fetchErr != nil {
 			failed++
 			log.Warn(ctx, "Could not fetch metadata from MusicBrainz", "songId", c.mf.ID, "title", c.mf.Title, "artist", c.mf.Artist, fetchErr)
@@ -697,7 +697,8 @@ func (j *musicBrainzMetadataJob) searchRecordings(title, artist string) ([]mbRec
 	return payload.Recordings, nil
 }
 
-func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataResult, error) {
+func (j *musicBrainzMetadataJob) fetchMetadata(q itunesTrackQuery) (metadataResult, error) {
+	title, artist := q.Title, q.Artist
 	recordings, err := j.searchRecordings(title, artist)
 	if err != nil {
 		return metadataResult{}, err
@@ -728,7 +729,7 @@ func (j *musicBrainzMetadataJob) fetchMetadata(title, artist string) (metadataRe
 	// Genre comes from iTunes, not MusicBrainz: Apple's editorial per-track
 	// genre is reliable, and the lookup works even when no MusicBrainz release
 	// matched, so collaboration tracks still get a genre.
-	result := metadataResult{Genre: j.fetchITunesGenre(title, artist)}
+	result := metadataResult{Genre: j.fetchITunesGenre(q)}
 
 	if len(bestCandidates) == 0 {
 		return result, nil

@@ -70,3 +70,43 @@ func TestRAGRecommendationEndpoint(t *testing.T) {
 		t.Fatalf("unexpected recommendation response: %+v", response)
 	}
 }
+
+func TestRAGRecommendationEndpointFiltersDraftAndPlaylistDecisions(t *testing.T) {
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/ai/rag/recommend",
+		bytes.NewBufferString(`{"type":"underused_songs","playlistId":"playlist-1","draftId":"draft-1","limit":5}`),
+	)
+	recorder := httptest.NewRecorder()
+	serveRAGRecommendation(
+		recorder,
+		request,
+		func(context.Context, string) (*model.MediaFile, error) { return nil, model.ErrNotFound },
+		func(context.Context, string) (*model.Playlist, error) {
+			return &model.Playlist{ID: "playlist-1"}, nil
+		},
+		func(context.Context, string, int, rag.SearchFilters) ([]rag.SongSearchResult, error) {
+			return []rag.SongSearchResult{
+				{SongID: "blocked", Title: "Blocked", Artist: "Artist", Score: .9},
+				{SongID: "ignored", Title: "Ignored", Artist: "Artist 2", Score: .8},
+				{SongID: "visible", Title: "Visible", Artist: "Artist 3", Score: .7},
+			}, nil
+		},
+		func(context.Context, string, string) (model.PlaylistRecommendationDecisions, error) {
+			return model.PlaylistRecommendationDecisions{
+				{SongID: "blocked", Decision: model.RecommendationDecisionBlocked},
+				{SongID: "ignored", DraftID: "draft-1", RecommendationType: "underused_songs", Decision: model.RecommendationDecisionIgnored},
+			}, nil
+		},
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response rag.RecommendationResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Count != 1 || response.Results[0].SongID != "visible" {
+		t.Fatalf("expected only undecided recommendation, got %+v", response.Results)
+	}
+}

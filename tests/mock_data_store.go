@@ -22,6 +22,7 @@ type MockDataStore struct {
 	MockedProperty                  model.PropertyRepository
 	MockedPlayer                    model.PlayerRepository
 	MockedPlaylist                  model.PlaylistRepository
+	MockedPlaylistDraft             model.PlaylistDraftRepository
 	MockedDiscovery                 model.DiscoveryRepository
 	MockedPlaylistFolder            model.PlaylistFolderRepository
 	MockedPlayQueue                 model.PlayQueueRepository
@@ -125,6 +126,16 @@ func (db *MockDataStore) Playlist(ctx context.Context) model.PlaylistRepository 
 	}
 	db.MockedPlaylist = CreateMockPlaylistRepo()
 	return db.MockedPlaylist
+}
+
+func (db *MockDataStore) PlaylistDraft(ctx context.Context) model.PlaylistDraftRepository {
+	if db.MockedPlaylistDraft != nil {
+		return db.MockedPlaylistDraft
+	}
+	if db.RealDS != nil {
+		return db.RealDS.PlaylistDraft(ctx)
+	}
+	return nil
 }
 
 func (db *MockDataStore) Discovery(ctx context.Context) model.DiscoveryRepository {

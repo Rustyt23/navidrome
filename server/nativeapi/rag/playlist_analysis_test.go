@@ -58,8 +58,10 @@ func TestAnalyzePlaylistSuggestsFilteredCleanReplacements(t *testing.T) {
 			t.Fatalf("unexpected replacement query: %q topK=%d", query, topK)
 		}
 		return []SongSearchResult{
-			{SongID: "explicit", Title: "Risk", Explicit: false},
-			{SongID: "replacement", Title: "Safe", Artist: "Other", Genre: "Pop", BPM: 121, LUFS: -12.2, Score: .91},
+			{SongID: "explicit", Title: "Risk", ExplicitStatus: ExplicitStatusClean},
+			{SongID: "replacement", Title: "Safe", Artist: "Other", Genre: "Pop", ExplicitStatus: ExplicitStatusClean, BPM: 121, LUFS: -12.2, Score: .91},
+			// Never classified: not a safe substitute for an explicit song.
+			{SongID: "unrated", Title: "Unrated", Artist: "Third", Genre: "Pop", ExplicitStatus: ExplicitStatusUnknown, BPM: 120, LUFS: -12.1, Score: .95},
 		}, nil
 	}
 

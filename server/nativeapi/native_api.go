@@ -187,6 +187,7 @@ func (api *Router) routes() http.Handler {
 		api.addInsightsRoute(r)
 		api.addRetailPlayerPrivateRoutes(r)
 		api.addAIChatRoute(r)
+		api.addPlaylistDraftRoutes(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
 			api.addRAGAdminRoute(r)

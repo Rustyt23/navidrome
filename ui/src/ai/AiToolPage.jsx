@@ -92,6 +92,88 @@ const AI_TOOL_COLUMNS = [
   { id: 'tokens', label: 'Tokens' },
 ]
 
+// Columns whose values were fetched rather than read from the file's own tags,
+// so clicking the header can clear just that column. `clear` returns the patch
+// applied to one song and `persisted` names the /ai/clear-metadata flag, since
+// every fetched column is stored server-side. The plain `genre` column is
+// deliberately absent from this map — it is the file's own tag, never fetched
+// by this page, and clearing it would destroy library data.
+const withoutGenreTrace = (song, key) => {
+  const trace = song.genreDeveloperTrace
+  if (!trace || !trace[key]) return trace
+  const next = { ...trace }
+  delete next[key]
+  return Object.keys(next).length ? next : undefined
+}
+
+const clearedAiField = (song, ...fields) => ({
+  ...(song.aiFields || {}),
+  ...Object.fromEntries(fields.map((field) => [field, false])),
+})
+
+const CLEARABLE_COLUMNS = {
+  explicit: {
+    label: 'Explicit',
+    persisted: 'explicit',
+    clear: (song) => ({
+      explicitStatus: '',
+      explicitReason: '',
+      explicitConfidence: null,
+      explicitProvider: '',
+      explicitBasis: '',
+      explicitEvidence: [],
+      aiFields: clearedAiField(song, 'explicitStatus'),
+    }),
+  },
+  spotifyGenre: {
+    label: 'Spotify Genre',
+    persisted: 'spotifyGenre',
+    clear: (song) => ({
+      spotifyGenre: '',
+      aiFields: clearedAiField(song, 'spotifyGenre'),
+    }),
+  },
+  musicBrainzGenre: {
+    label: 'iTunes Genre',
+    persisted: 'musicBrainzGenre',
+    clear: (song) => ({
+      musicBrainzGenre: '',
+      genreDeveloperTrace: withoutGenreTrace(song, 'itunes'),
+      aiFields: clearedAiField(song, 'musicBrainzGenre'),
+    }),
+  },
+  aiGenre: {
+    label: 'AI Genre',
+    persisted: 'aiGenre',
+    clear: (song) => ({
+      aiGenre: '',
+      genreDeveloperTrace: withoutGenreTrace(song, 'ai'),
+      aiTokens: null,
+      aiFields: clearedAiField(song, 'aiGenre'),
+    }),
+  },
+  aiSubgenre: {
+    label: 'AI Subgenre',
+    persisted: 'aiSubgenre',
+    clear: (song) => ({
+      aiSubgenre: '',
+      aiFields: clearedAiField(song, 'aiSubgenre'),
+    }),
+  },
+  genreConfidence: {
+    label: 'Genre Confidence',
+    persisted: 'genreConfidence',
+    clear: (song) => {
+      const confidence = { ...(song.metadataConfidence || {}) }
+      delete confidence.genre
+      return {
+        metadataConfidence: confidence,
+        metadataConfidenceBreakdown: undefined,
+      }
+    },
+  },
+}
+
 const CONFIDENCE_COLUMN_IDS = ['genreConfidence']
 const DEFAULT_AI_TOOL_COLUMN_VISIBILITY = Object.fromEntries(
   AI_TOOL_COLUMNS.map((column) => [column.id, true]),
@@ -1220,6 +1302,39 @@ const useStyles = makeStyles((theme) => ({
     minWidth: 96,
     whiteSpace: 'nowrap',
   },
+  clearableHeader: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.25, 0.75),
+    margin: theme.spacing(-0.25, -0.75),
+    color: 'inherit',
+    font: 'inherit',
+    textTransform: 'none',
+    letterSpacing: 'inherit',
+    border: 0,
+    borderRadius: 4,
+    background: 'none',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    '&:hover, &:focus-visible': {
+      background: 'rgba(255, 42, 142, 0.16)',
+      color: '#ff2a8e',
+    },
+    '&:hover $clearableHeaderIcon, &:focus-visible $clearableHeaderIcon': {
+      opacity: 1,
+    },
+  },
+  clearableHeaderIcon: {
+    fontSize: 14,
+    opacity: 0,
+    transition: 'opacity 120ms ease',
+  },
+  clearColumnMenuTitle: {
+    padding: theme.spacing(1.5, 2, 0.75),
+    color: '#c9d1dc',
+    maxWidth: 260,
+  },
   columnMenuTitle: {
     padding: theme.spacing(1.5, 2, 0.75),
     color: '#c9d1dc',
@@ -2009,6 +2124,7 @@ const AiToolPage = () => {
       }
     })
   const [isClearingMetadata, setIsClearingMetadata] = useState(false)
+  const [clearColumnMenu, setClearColumnMenu] = useState(null)
   const [explicitDialogSongs, setExplicitDialogSongs] = useState([])
   const [explicitMenuAnchorEl, setExplicitMenuAnchorEl] = useState(null)
   const [metadataMenuAnchorEl, setMetadataMenuAnchorEl] = useState(null)
@@ -2524,6 +2640,24 @@ const AiToolPage = () => {
 
   const valueClass = (song, field) =>
     isAIValue(song, field) ? classes.valueAI : classes.valueExisting
+
+  // Header for a fetched column: clicking it opens the menu that clears just
+  // that column. A menu rather than an immediate clear, because a stray click
+  // on a header should never destroy fetched data.
+  const renderClearableHeader = (columnId, label) => (
+    <button
+      type="button"
+      className={classes.clearableHeader}
+      title={`Clear fetched ${CLEARABLE_COLUMNS[columnId].label}`}
+      aria-label={`Clear fetched ${CLEARABLE_COLUMNS[columnId].label}`}
+      onClick={(event) =>
+        setClearColumnMenu({ anchorEl: event.currentTarget, columnId })
+      }
+    >
+      {label}
+      <DeleteOutlineIcon className={classes.clearableHeaderIcon} />
+    </button>
+  )
 
   const renderMetadataConfidence = (value, song, field) => {
     const confidence = normalizeMetadataConfidence(value)
@@ -3053,12 +3187,26 @@ const AiToolPage = () => {
           .filter((song) => currentSongs.has(song.id))
           .map((song) => {
             const current = currentSongs.get(song.id)
+            // Locally fetched values win because they are the freshest, but
+            // fall back to what the server stored so genres survive a browser
+            // data wipe instead of silently disappearing. The server calls the
+            // iTunes column itunesGenre; the page still calls it
+            // musicBrainzGenre.
             return {
               ...song,
               ...current,
-              aiGenre: song.aiGenre || '',
-              spotifyGenre: song.spotifyGenre || '',
-              musicBrainzGenre: song.musicBrainzGenre || '',
+              aiGenre: song.aiGenre || current.aiGenre || '',
+              aiSubgenre: song.aiSubgenre || current.aiSubgenre || '',
+              spotifyGenre: song.spotifyGenre || current.spotifyGenre || '',
+              musicBrainzGenre:
+                song.musicBrainzGenre || current.itunesGenre || '',
+              metadataConfidence: {
+                ...(song.metadataConfidence || {}),
+                genre:
+                  song.metadataConfidence?.genre ||
+                  current.genreConfidence ||
+                  0,
+              },
             }
           })
 
@@ -4087,6 +4235,13 @@ const AiToolPage = () => {
             id: song.id,
             album: Boolean(song.aiFields?.album),
             year: Boolean(song.aiFields?.year),
+            // The fetched genres are stored server-side too, so clearing has to
+            // reach the database or they reappear on the next reconcile.
+            aiGenre: true,
+            aiSubgenre: true,
+            spotifyGenre: true,
+            musicBrainzGenre: true,
+            genreConfidence: true,
           })),
         }),
       })
@@ -4123,6 +4278,50 @@ const AiToolPage = () => {
       })
     } catch (err) {
       setToolError(err?.message || 'Could not clear fetched metadata')
+    } finally {
+      setIsClearingMetadata(false)
+    }
+  }
+
+  // Clears one fetched column for a set of songs, leaving every other column
+  // alone. Only the columns marked `persisted` need the server; the genre
+  // columns are never written to the database, so those clear locally.
+  const clearColumnMetadata = async (columnId, songs) => {
+    const column = CLEARABLE_COLUMNS[columnId]
+    if (
+      !column ||
+      !songs.length ||
+      isClearingMetadata ||
+      isFetchingMetadata ||
+      metadataAbortControllerRef.current
+    )
+      return
+
+    setToolError('')
+    setIsClearingMetadata(true)
+    try {
+      let targetIds = new Set(songs.map((song) => song.id))
+      if (column.persisted) {
+        const { json: payload } = await httpClient('/api/ai/clear-metadata', {
+          method: 'POST',
+          body: JSON.stringify({
+            songs: songs.map((song) => ({
+              id: song.id,
+              [column.persisted]: true,
+            })),
+          }),
+        })
+        targetIds = new Set(payload.songIds || [])
+      }
+      setAddedSongs((prev) => {
+        const nextSongs = prev.map((song) =>
+          targetIds.has(song.id) ? { ...song, ...column.clear(song) } : song,
+        )
+        localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
+        return nextSongs
+      })
+    } catch (err) {
+      setToolError(err?.message || `Could not clear ${column.label}`)
     } finally {
       setIsClearingMetadata(false)
     }
@@ -5286,9 +5485,12 @@ const AiToolPage = () => {
                   ) : null}
                   {isColumnVisible('explicit') ? (
                     <TableCell>
-                      {translate('resources.song.fields.explicitStatus', {
-                        _: 'Explicit',
-                      })}
+                      {renderClearableHeader(
+                        'explicit',
+                        translate('resources.song.fields.explicitStatus', {
+                          _: 'Explicit',
+                        }),
+                      )}
                     </TableCell>
                   ) : null}
                   {isColumnVisible('lyrics') ? (
@@ -5309,22 +5511,37 @@ const AiToolPage = () => {
                     </TableCell>
                   ) : null}
                   {isColumnVisible('spotifyGenre') ? (
-                    <TableCell>Spotify Genre</TableCell>
+                    <TableCell>
+                      {renderClearableHeader('spotifyGenre', 'Spotify Genre')}
+                    </TableCell>
                   ) : null}
                   {isColumnVisible('musicBrainzGenre') ? (
-                    <TableCell>iTunes Genre</TableCell>
+                    <TableCell>
+                      {renderClearableHeader(
+                        'musicBrainzGenre',
+                        'iTunes Genre',
+                      )}
+                    </TableCell>
                   ) : null}
                   {isColumnVisible('aiGenre') ? (
                     <TableCell>
-                      {translate('menu.aiTool.aiGenre', { _: 'AI Genre' })}
+                      {renderClearableHeader(
+                        'aiGenre',
+                        translate('menu.aiTool.aiGenre', { _: 'AI Genre' }),
+                      )}
                     </TableCell>
                   ) : null}
                   {isColumnVisible('aiSubgenre') ? (
-                    <TableCell>AI Subgenre</TableCell>
+                    <TableCell>
+                      {renderClearableHeader('aiSubgenre', 'AI Subgenre')}
+                    </TableCell>
                   ) : null}
                   {isColumnVisible('genreConfidence') ? (
                     <TableCell className={classes.confidenceColumn}>
-                      Genre Confidence
+                      {renderClearableHeader(
+                        'genreConfidence',
+                        'Genre Confidence',
+                      )}
                     </TableCell>
                   ) : null}
                   {isColumnVisible('tokens') ? (
@@ -5494,6 +5711,61 @@ const AiToolPage = () => {
             </MenuItem>
           ))}
         </Box>
+      </Menu>
+
+      <Menu
+        anchorEl={clearColumnMenu?.anchorEl}
+        open={Boolean(clearColumnMenu)}
+        onClose={() => setClearColumnMenu(null)}
+      >
+        <Typography
+          className={classes.clearColumnMenuTitle}
+          variant="body2"
+          component="div"
+        >
+          {`Clear fetched ${
+            CLEARABLE_COLUMNS[clearColumnMenu?.columnId]?.label || ''
+          }`}
+          {CLEARABLE_COLUMNS[clearColumnMenu?.columnId]?.persisted ? (
+            <Typography variant="caption" component="div">
+              This is saved on the server and will be cleared there too.
+            </Typography>
+          ) : null}
+        </Typography>
+        <MenuItem
+          className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemDanger}`}
+          disabled={
+            !selectedAddedSongs.length ||
+            isClearingMetadata ||
+            isFetchingMetadata
+          }
+          onClick={() => {
+            const { columnId } = clearColumnMenu
+            setClearColumnMenu(null)
+            void clearColumnMetadata(columnId, selectedAddedSongs)
+          }}
+        >
+          <DeleteOutlineIcon fontSize="small" />
+          {`Clear for ${selectedAddedSongs.length} selected ${
+            selectedAddedSongs.length === 1 ? 'song' : 'songs'
+          }`}
+        </MenuItem>
+        <MenuItem
+          className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemDanger}`}
+          disabled={
+            !addedSongs.length || isClearingMetadata || isFetchingMetadata
+          }
+          onClick={() => {
+            const { columnId } = clearColumnMenu
+            setClearColumnMenu(null)
+            void clearColumnMetadata(columnId, addedSongs)
+          }}
+        >
+          <DeleteOutlineIcon fontSize="small" />
+          {`Clear for all ${addedSongs.length} ${
+            addedSongs.length === 1 ? 'song' : 'songs'
+          }`}
+        </MenuItem>
       </Menu>
 
       <Menu

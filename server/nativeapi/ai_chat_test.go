@@ -121,7 +121,7 @@ func TestRAGStatus(t *testing.T) {
 				_, _ = w.Write([]byte(`{"status":"ok","result":{"points_count":8,"config":{"params":{"vectors":{"size":768}}}}}`))
 			default:
 				if strings.HasPrefix(request.URL.Path, "/collections/test_songs/points/") {
-					_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":2,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
+					_, _ = w.Write([]byte(`{"status":"ok","result":{"payload":{"indexVersion":3,"embeddingModel":"gemini:gemini-embedding-001","dimensions":768}}}`))
 				} else {
 					http.NotFound(w, request)
 				}
@@ -862,7 +862,7 @@ func TestFetchSongMetadataGenreConsensus(t *testing.T) {
 	spotify := func(_ context.Context, _ model.MediaFile) (spotifyLookupResult, error) {
 		return spotifyLookupResult{Genre: "French House", Confidence: 0.95, Found: true}, nil
 	}
-	verify := func(_ context.Context, _, _ string) (metadataResult, error) {
+	verify := func(_ context.Context, _ itunesTrackQuery) (metadataResult, error) {
 		return metadataResult{
 			Genre: "French house",
 			GenreTrace: &genreSourceDeveloperTrace{
@@ -1042,7 +1042,7 @@ func TestFetchSongMetadataKeepsExistingAlbumAndYearAsGenreContext(t *testing.T) 
 	spotify := func(_ context.Context, mf model.MediaFile) (spotifyLookupResult, error) {
 		return spotifyLookupResult{Genre: "Trip Hop", Found: true}, nil
 	}
-	verify := func(_ context.Context, _, _ string) (metadataResult, error) {
+	verify := func(_ context.Context, _ itunesTrackQuery) (metadataResult, error) {
 		return metadataResult{Genre: "Trip Hop"}, nil
 	}
 	provider := &promptRecordingAIChatProvider{

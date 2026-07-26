@@ -97,6 +97,7 @@ const recommendationResponse = {
       genre: 'Pop',
       year: 2024,
       explicit: false,
+      explicitStatus: 'clean',
       bpm: 118,
       lufs: -12.2,
       playCount: 3,
@@ -168,7 +169,7 @@ describe('PlaylistAiToolPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders recommendation controls and read-only results', async () => {
+  it('renders actionable recommendation controls without a selected playlist', async () => {
     mockHttpClient.mockResolvedValueOnce({ json: recommendationResponse })
     render(
       <MemoryRouter initialEntries={['/playlist-ai-tool']}>
@@ -194,9 +195,145 @@ describe('PlaylistAiToolPage', () => {
     expect(within(table).getByText('Hidden Gem')).toBeInTheDocument()
     expect(within(table).getByText('0.910')).toBeInTheDocument()
     expect(within(table).getByText('Clean')).toBeInTheDocument()
+    expect(within(table).getByRole('button', { name: 'Preview' })).toBeEnabled()
+    for (const action of ['Add', 'Replace', 'Remove', 'Ignore', 'Block']) {
+      expect(within(table).getByRole('button', { name: action })).toBeDisabled()
+    }
+  })
+
+  // A song nobody has classified must never be presented as Clean: that is what
+  // let unrated songs pass as retail-safe.
+  it('shows an unclassified song as Unknown rather than Clean', async () => {
+    mockHttpClient.mockImplementation((url) => {
+      if (url === '/api/ai/rag/recommend') {
+        return Promise.resolve({
+          json: {
+            ...recommendationResponse,
+            results: [
+              {
+                ...recommendationResponse.results[0],
+                explicitStatus: 'unknown',
+              },
+            ],
+          },
+        })
+      }
+      return Promise.resolve({ json: {} })
+    })
+    render(
+      <MemoryRouter initialEntries={['/playlist-ai-tool']}>
+        <PlaylistAiToolPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Store Mix')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retail-safe Picks' }))
+
+    const table = await screen.findByRole('table', {
+      name: 'Recommendation results',
+    })
+    expect(within(table).getByText('Unknown')).toBeInTheDocument()
+    expect(within(table).queryByText('Clean')).not.toBeInTheDocument()
+  })
+
+  it('adds an accepted recommendation to the selected draft, never the live playlist', async () => {
+    const draft = {
+      id: 'draft-1',
+      playlistId: playlist.id,
+      name: 'AI working draft',
+      status: 'draft',
+      proposedTrackIds: ['current-1'],
+      changes: [],
+    }
+    mockHttpClient.mockImplementation((url, options) => {
+      if (url.startsWith('/api/playlist-draft?')) {
+        return Promise.resolve({ json: { drafts: [draft] } })
+      }
+      if (url === '/api/playlist-draft/draft-1/diff') {
+        return Promise.resolve({
+          json: {
+            draftId: draft.id,
+            before: [
+              {
+                mediaFileId: 'current-1',
+                title: 'Current Song',
+                artist: 'Artist',
+                position: 0,
+              },
+            ],
+            after: [
+              {
+                mediaFileId: 'current-1',
+                title: 'Current Song',
+                artist: 'Artist',
+                position: 0,
+              },
+            ],
+            added: [],
+            removed: [],
+            moved: [],
+            unchanged: 1,
+          },
+        })
+      }
+      if (url === '/api/ai/rag/recommend') {
+        return Promise.resolve({ json: recommendationResponse })
+      }
+      if (url === '/api/playlist-draft/draft-1/tracks') {
+        return Promise.resolve({
+          json: {
+            ...draft,
+            proposedTrackIds: ['current-1', 'underused-1'],
+          },
+        })
+      }
+      return Promise.resolve({ json: options ? {} : analysis })
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/playlist-ai-tool']}>
+        <PlaylistAiToolPage />
+      </MemoryRouter>,
+    )
+    fireEvent.click(
+      await screen.findByRole('checkbox', { name: 'Select Store Mix' }),
+    )
+    expect(await screen.findByText('AI working draft')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Underused Songs' }))
+    const table = await screen.findByRole('table', {
+      name: 'Recommendation results',
+    })
+    fireEvent.click(within(table).getByRole('button', { name: 'Add' }))
+
+    await waitFor(() =>
+      expect(mockHttpClient).toHaveBeenCalledWith(
+        '/api/playlist-draft/draft-1/tracks',
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            operations: [
+              {
+                kind: 'add',
+                mediaFileId: 'underused-1',
+                reason:
+                  'Underused clean track with 3 plays and complete metadata',
+                source: 'ai',
+                confidence: 91,
+              },
+            ],
+          }),
+        },
+      ),
+    )
     expect(
-      within(table).queryByRole('button', { name: /add|replace|remove/i }),
-    ).not.toBeInTheDocument()
+      mockHttpClient.mock.calls.some(([url]) =>
+        /^\/api\/playlist(?:\/|$)/.test(url),
+      ),
+    ).toBe(false)
+    expect(
+      await screen.findByText(/live playlist was not changed/i),
+    ).toBeInTheDocument()
   })
 
   it('shows the backend reason when recommendations are unavailable', async () => {

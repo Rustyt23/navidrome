@@ -11,12 +11,14 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  MenuItem,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
   Typography,
   makeStyles,
 } from '@material-ui/core'
@@ -25,7 +27,10 @@ import RefreshIcon from '@material-ui/icons/Refresh'
 import { Title, useDataProvider } from 'react-admin'
 import PropTypes from 'prop-types'
 import { httpClient } from '../dataProvider'
+import subsonic from '../subsonic'
 import AiToolNavTabs from './AiToolNavTabs'
+import PlaylistDraftPanel from './PlaylistDraftPanel'
+import PlaylistHistoryPanel from './PlaylistHistoryPanel'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -134,8 +139,20 @@ const useStyles = makeStyles((theme) => ({
     gap: theme.spacing(1),
   },
   recommendationTable: {
-    minWidth: 1150,
+    minWidth: 2100,
     marginTop: theme.spacing(1.5),
+  },
+  recommendationActions: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: theme.spacing(0.5),
+    minWidth: 330,
+  },
+  effect: {
+    minWidth: 260,
+    '& > div': {
+      marginBottom: theme.spacing(0.35),
+    },
   },
 }))
 
@@ -149,6 +166,15 @@ const formatDuration = (value) => {
     : `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
+const formatDurationDelta = (value) => {
+  const seconds = Math.round(Number(value) || 0)
+  if (!seconds) return 'No duration change'
+  return `${seconds > 0 ? '+' : '−'}${formatDuration(Math.abs(seconds))}`
+}
+
+const recommendationKey = (song) =>
+  `${song.songId || ''}:${song.originalSongId || ''}`
+
 const formatDate = (value) => {
   if (!value) return '—'
   const date = new Date(value)
@@ -156,6 +182,22 @@ const formatDate = (value) => {
 }
 
 const count = (value) => (Array.isArray(value) ? value.length : 0)
+
+// Renders the tri-state rating. A song nobody has classified must never read as
+// "Clean": the `explicit` boolean is false for both a verified-clean song and an
+// unrated one, so it is only consulted when the server sent no explicitStatus.
+const formatExplicitStatus = (song) => {
+  switch (String(song?.explicitStatus || '').toLowerCase()) {
+    case 'explicit':
+      return 'Explicit'
+    case 'clean':
+      return 'Clean'
+    case 'unknown':
+      return 'Unknown'
+    default:
+      return song?.explicit ? 'Explicit' : 'Unknown'
+  }
+}
 
 const apiErrorMessage = (error, fallback) =>
   error?.body?.error ||
@@ -369,6 +411,7 @@ const PlaylistAiToolPage = () => {
   const classes = useStyles()
   const dataProvider = useDataProvider()
   const dataProviderRef = useRef(dataProvider)
+  const previewAudioRef = useRef(null)
   const [playlists, setPlaylists] = useState([])
   const [selected, setSelected] = useState([])
   const [analyses, setAnalyses] = useState({})
@@ -383,6 +426,15 @@ const PlaylistAiToolPage = () => {
   const [recommendations, setRecommendations] = useState(null)
   const [recommendationLoading, setRecommendationLoading] = useState('')
   const [recommendationError, setRecommendationError] = useState('')
+  const [draftRefresh, setDraftRefresh] = useState(0)
+  const [historyRefresh, setHistoryRefresh] = useState(0)
+  const [draftError, setDraftError] = useState('')
+  const [activeDraft, setActiveDraft] = useState(null)
+  const [activeDraftDiff, setActiveDraftDiff] = useState(null)
+  const [draftActionBusy, setDraftActionBusy] = useState('')
+  const [draftActionMessage, setDraftActionMessage] = useState('')
+  const [replacementCandidate, setReplacementCandidate] = useState(null)
+  const [replacementOriginalID, setReplacementOriginalID] = useState('')
 
   const loadPlaylists = useCallback(async () => {
     setLoading(true)
@@ -405,6 +457,13 @@ const PlaylistAiToolPage = () => {
     loadPlaylists()
   }, [loadPlaylists])
 
+  useEffect(
+    () => () => {
+      previewAudioRef.current?.pause()
+    },
+    [],
+  )
+
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const selectedPlaylist = useMemo(
     () =>
@@ -413,6 +472,31 @@ const PlaylistAiToolPage = () => {
         : null,
     [playlists, selected],
   )
+
+  useEffect(() => {
+    setActiveDraft(null)
+    setActiveDraftDiff(null)
+    setRecommendations(null)
+    setDraftActionMessage('')
+  }, [selectedPlaylist?.id])
+
+  const handleDraftSelection = useCallback((draft, diff) => {
+    setActiveDraft(draft)
+    setActiveDraftDiff(diff)
+  }, [])
+
+  const handleDraftChanged = useCallback(() => {
+    setHistoryRefresh((token) => token + 1)
+  }, [])
+
+  const handleRollbackCreated = useCallback((draft) => {
+    setActiveDraft(draft)
+    setDraftRefresh((token) => token + 1)
+    setHistoryRefresh((token) => token + 1)
+    setDraftActionMessage(
+      `Rollback draft created from version ${draft?.rollbackVersionNumber}. The live playlist was not changed.`,
+    )
+  }, [])
   const allSelected =
     playlists.length > 0 && selected.length === playlists.length
 
@@ -474,6 +558,162 @@ const PlaylistAiToolPage = () => {
     }
   }
 
+  const draftOperationFor = (kind, song, originalSongId = '') => {
+    const provenance = recommendations?.provenance || {}
+    return {
+      kind,
+      mediaFileId: kind === 'remove' ? originalSongId : song.songId,
+      ...(kind === 'replace' ? { replacedId: originalSongId } : {}),
+      reason: song.reason || '',
+      source: 'ai',
+      confidence: Math.round((Number(song.score) || 0) * 100),
+      ...(provenance.aiModelVersion
+        ? { aiModelVersion: provenance.aiModelVersion }
+        : {}),
+      ...(provenance.aiIndexVersion
+        ? { aiIndexVersion: provenance.aiIndexVersion }
+        : {}),
+      ...(provenance.rulesetVersion
+        ? { rulesetVersion: provenance.rulesetVersion }
+        : {}),
+    }
+  }
+
+  // Accepted recommendations are written only to a server-side draft. If the
+  // selected draft is frozen for review, a new working draft is created from
+  // the current live snapshot rather than changing either frozen or live data.
+  const applyDraftOperation = async (operation, actionLabel) => {
+    if (!selectedPlaylist || draftActionBusy) return
+    setDraftError('')
+    setDraftActionMessage('')
+    setDraftActionBusy(actionLabel)
+    try {
+      const editable = activeDraft?.status === 'draft'
+      const { json } = editable
+        ? await httpClient(
+            `/api/playlist-draft/${encodeURIComponent(activeDraft.id)}/tracks`,
+            {
+              method: 'PUT',
+              body: JSON.stringify({ operations: [operation] }),
+            },
+          )
+        : await httpClient('/api/playlist-draft', {
+            method: 'POST',
+            body: JSON.stringify({
+              playlistId: selectedPlaylist.id,
+              name: `AI recommendations — ${selectedPlaylist.name}`,
+              operations: [operation],
+            }),
+          })
+      setActiveDraft(json || activeDraft)
+      setDraftActionMessage(
+        `${actionLabel} added to ${editable ? 'the selected' : 'a new'} draft. The live playlist was not changed.`,
+      )
+      setDraftRefresh((token) => token + 1)
+    } catch (err) {
+      setDraftError(
+        apiErrorMessage(
+          err,
+          `Could not ${actionLabel.toLowerCase()} in the draft`,
+        ),
+      )
+    } finally {
+      setDraftActionBusy('')
+    }
+  }
+
+  const previewRecommendation = (song) => {
+    const id = song.songId
+    if (!id) return
+    const url = subsonic.streamUrl(id)
+    if (!url) {
+      setDraftError('Preview is unavailable because the music session expired.')
+      return
+    }
+    previewAudioRef.current?.pause()
+    const audio = new Audio(url)
+    previewAudioRef.current = audio
+    audio.play().catch(() => setDraftError(`Could not preview ${song.title}.`))
+  }
+
+  const addRecommendation = (song) =>
+    applyDraftOperation(draftOperationFor('add', song), 'Add')
+
+  const openReplacement = (song) => {
+    setReplacementCandidate(song)
+    setReplacementOriginalID(song.originalSongId || '')
+  }
+
+  const confirmReplacement = async () => {
+    if (!replacementCandidate || !replacementOriginalID) return
+    const candidate = replacementCandidate
+    setReplacementCandidate(null)
+    await applyDraftOperation(
+      draftOperationFor('replace', candidate, replacementOriginalID),
+      'Replace',
+    )
+  }
+
+  const removeRecommendation = (song) => {
+    const targetID =
+      song.originalSongId ||
+      (activeDraftDiff?.after || []).find(
+        (track) => track.mediaFileId === song.songId,
+      )?.mediaFileId
+    if (!targetID) return
+    return applyDraftOperation(
+      draftOperationFor('remove', song, targetID),
+      'Remove',
+    )
+  }
+
+  const saveRecommendationDecision = async (song, decision) => {
+    if (!selectedPlaylist || draftActionBusy) return
+    if (decision === 'ignored' && !activeDraft?.id) {
+      setDraftError(
+        'Select or create a draft before ignoring a recommendation.',
+      )
+      return
+    }
+    setDraftError('')
+    setDraftActionBusy(decision)
+    try {
+      await httpClient('/api/playlist-draft/recommendation-decisions', {
+        method: 'POST',
+        body: JSON.stringify({
+          playlistId: selectedPlaylist.id,
+          ...(decision === 'ignored' ? { draftId: activeDraft.id } : {}),
+          songId: song.songId,
+          originalSongId: song.originalSongId || '',
+          recommendationType: recommendations?.type || '',
+          decision,
+        }),
+      })
+      setRecommendations((current) =>
+        current
+          ? {
+              ...current,
+              results: (current.results || []).filter(
+                (item) => recommendationKey(item) !== recommendationKey(song),
+              ),
+              count: Math.max(0, Number(current.count || 0) - 1),
+            }
+          : current,
+      )
+      setDraftActionMessage(
+        decision === 'blocked'
+          ? `${song.title} is blocked for this playlist.`
+          : `${song.title} is ignored in this draft analysis.`,
+      )
+    } catch (err) {
+      setDraftError(
+        apiErrorMessage(err, `Could not mark this recommendation ${decision}`),
+      )
+    } finally {
+      setDraftActionBusy('')
+    }
+  }
+
   const getRecommendations = async (type) => {
     if (recommendationLoading) return
     const needsPlaylist = [
@@ -494,7 +734,8 @@ const PlaylistAiToolPage = () => {
         method: 'POST',
         body: JSON.stringify({
           type,
-          ...(needsPlaylist ? { playlistId: selectedPlaylist.id } : {}),
+          ...(selectedPlaylist ? { playlistId: selectedPlaylist.id } : {}),
+          ...(activeDraft?.id ? { draftId: activeDraft.id } : {}),
           limit: 20,
         }),
       })
@@ -516,8 +757,9 @@ const PlaylistAiToolPage = () => {
         <Box>
           <Typography variant="h5">Playlist-Ai-Tool</Typography>
           <Typography className={classes.subtitle} variant="body2">
-            Analyze playlist consistency and review replacement suggestions. No
-            playlist changes are applied.
+            Analyze playlist consistency and review replacement suggestions.
+            Only drafts are updated; the live playlist changes only after
+            approval and publishing.
           </Typography>
         </Box>
         <Box className={classes.actions}>
@@ -558,15 +800,42 @@ const PlaylistAiToolPage = () => {
       {indexError ? (
         <Typography className={classes.error}>{indexError}</Typography>
       ) : null}
+      {draftError ? (
+        <Typography className={classes.error}>{draftError}</Typography>
+      ) : null}
+      {draftActionMessage ? (
+        <Typography className={classes.subtitle}>
+          {draftActionMessage}
+        </Typography>
+      ) : null}
+      <PlaylistDraftPanel
+        playlist={selectedPlaylist}
+        refreshToken={draftRefresh}
+        preferredDraftId={activeDraft?.id}
+        onDraftSelection={handleDraftSelection}
+        onDraftChanged={handleDraftChanged}
+      />
+      <PlaylistHistoryPanel
+        playlist={selectedPlaylist}
+        refreshToken={historyRefresh}
+        onRollbackCreated={handleRollbackCreated}
+      />
       <Card className={classes.recommendationPanel} variant="outlined">
         <CardContent>
           <Box className={classes.recommendationHeader}>
             <Box>
               <Typography variant="h6">Recommendations</Typography>
               <Typography variant="body2" color="textSecondary">
-                Select one playlist for replacements or expansion. Suggestions
-                are read-only and are never applied automatically.
+                Review each result, then apply it to the selected draft. These
+                controls never modify the live playlist.
               </Typography>
+              {selectedPlaylist ? (
+                <Typography variant="caption" color="textSecondary">
+                  Working draft:{' '}
+                  {activeDraft?.name ||
+                    'none selected — an accepted action will create one'}
+                </Typography>
+              ) : null}
             </Box>
             {selectedPlaylist ? (
               <Chip
@@ -642,12 +911,14 @@ const PlaylistAiToolPage = () => {
                         'Artist',
                         'Genre',
                         'Year',
-                        'Score',
-                        'Reason',
-                        'Play count',
-                        'Explicit',
+                        'Confidence / score',
+                        'Recommendation reason',
+                        'Original song',
+                        'Safety status',
                         'BPM',
                         'LUFS',
+                        'Expected effect',
+                        'Actions',
                       ].map((label) => (
                         <TableCell key={label}>{label}</TableCell>
                       ))}
@@ -656,7 +927,7 @@ const PlaylistAiToolPage = () => {
                   <TableBody>
                     {recommendations.results?.length ? (
                       recommendations.results.map((song) => (
-                        <TableRow key={song.songId}>
+                        <TableRow key={recommendationKey(song)}>
                           <TableCell>
                             <Typography variant="body2">
                               {song.title}
@@ -674,21 +945,141 @@ const PlaylistAiToolPage = () => {
                           <TableCell className={classes.summary}>
                             {song.reason}
                           </TableCell>
-                          <TableCell>{song.playCount || 0}</TableCell>
                           <TableCell>
-                            {song.explicit ? 'Explicit' : 'Clean'}
+                            {song.originalSongId ? (
+                              <>
+                                <Typography variant="body2">
+                                  {song.originalTitle || song.originalSongId}
+                                </Typography>
+                                <Typography
+                                  variant="caption"
+                                  color="textSecondary"
+                                >
+                                  {song.originalArtist || 'Unknown artist'}
+                                </Typography>
+                              </>
+                            ) : (
+                              '—'
+                            )}
                           </TableCell>
+                          <TableCell>{formatExplicitStatus(song)}</TableCell>
                           <TableCell>{song.bpm || '—'}</TableCell>
                           <TableCell>
                             {Number.isFinite(Number(song.lufs))
                               ? Number(song.lufs).toFixed(1)
                               : '—'}
                           </TableCell>
+                          <TableCell className={classes.effect}>
+                            <Typography variant="caption" component="div">
+                              Duration:{' '}
+                              {song.expectedEffect?.duration ||
+                                formatDurationDelta(
+                                  song.expectedEffect?.durationDelta,
+                                )}
+                            </Typography>
+                            <Typography variant="caption" component="div">
+                              Safety:{' '}
+                              {song.expectedEffect?.explicitSafety || 'Unknown'}
+                            </Typography>
+                            <Typography variant="caption" component="div">
+                              BPM: {song.expectedEffect?.bpm || 'Unknown'}
+                            </Typography>
+                            <Typography variant="caption" component="div">
+                              LUFS: {song.expectedEffect?.lufs || 'Unknown'}
+                            </Typography>
+                            <Typography variant="caption" component="div">
+                              Genre:{' '}
+                              {song.expectedEffect?.genreBalance || 'Unknown'}
+                            </Typography>
+                            <Typography variant="caption" component="div">
+                              Artist repeats:{' '}
+                              {song.expectedEffect?.artistRepetition ||
+                                'Unknown'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Box className={classes.recommendationActions}>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => previewRecommendation(song)}
+                              >
+                                Preview
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                                disabled={
+                                  !selectedPlaylist || Boolean(draftActionBusy)
+                                }
+                                onClick={() => addRecommendation(song)}
+                              >
+                                Add
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                                disabled={
+                                  !selectedPlaylist ||
+                                  Boolean(draftActionBusy) ||
+                                  (!song.originalSongId &&
+                                    !(activeDraftDiff?.after || []).length)
+                                }
+                                onClick={() => openReplacement(song)}
+                              >
+                                Replace
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={
+                                  !selectedPlaylist ||
+                                  Boolean(draftActionBusy) ||
+                                  (!song.originalSongId &&
+                                    !(activeDraftDiff?.after || []).some(
+                                      (track) =>
+                                        track.mediaFileId === song.songId,
+                                    ))
+                                }
+                                onClick={() => removeRecommendation(song)}
+                              >
+                                Remove
+                              </Button>
+                              <Button
+                                size="small"
+                                disabled={
+                                  !selectedPlaylist ||
+                                  !activeDraft?.id ||
+                                  activeDraft?.status !== 'draft' ||
+                                  Boolean(draftActionBusy)
+                                }
+                                onClick={() =>
+                                  saveRecommendationDecision(song, 'ignored')
+                                }
+                              >
+                                Ignore
+                              </Button>
+                              <Button
+                                size="small"
+                                color="secondary"
+                                disabled={
+                                  !selectedPlaylist || Boolean(draftActionBusy)
+                                }
+                                onClick={() =>
+                                  saveRecommendationDecision(song, 'blocked')
+                                }
+                              >
+                                Block
+                              </Button>
+                            </Box>
+                          </TableCell>
                         </TableRow>
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={10} className={classes.empty}>
+                        <TableCell colSpan={12} className={classes.empty}>
                           No matching recommendations found.
                         </TableCell>
                       </TableRow>
@@ -851,6 +1242,66 @@ const PlaylistAiToolPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Dialog
+        open={Boolean(replacementCandidate)}
+        onClose={() => setReplacementCandidate(null)}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="playlist-replacement-title"
+      >
+        <DialogTitle id="playlist-replacement-title">
+          Choose the original song
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" paragraph>
+            Replace a specific track with {replacementCandidate?.title}. This
+            creates a draft operation only; the live playlist is unchanged.
+          </Typography>
+          <TextField
+            select
+            fullWidth
+            variant="outlined"
+            label="Original song to replace"
+            value={replacementOriginalID}
+            onChange={(event) => setReplacementOriginalID(event.target.value)}
+          >
+            {replacementCandidate?.originalSongId &&
+            !(activeDraftDiff?.after || []).some(
+              (track) =>
+                track.mediaFileId === replacementCandidate.originalSongId,
+            ) ? (
+              <MenuItem value={replacementCandidate.originalSongId}>
+                {replacementCandidate.originalTitle ||
+                  replacementCandidate.originalSongId}
+                {replacementCandidate.originalArtist
+                  ? ` — ${replacementCandidate.originalArtist}`
+                  : ''}
+              </MenuItem>
+            ) : null}
+            {(activeDraftDiff?.after || []).map((track) => (
+              <MenuItem
+                key={`${track.mediaFileId}-${track.position}`}
+                value={track.mediaFileId}
+              >
+                {track.title || track.mediaFileId}
+                {track.artist ? ` — ${track.artist}` : ''}
+              </MenuItem>
+            ))}
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReplacementCandidate(null)}>Cancel</Button>
+          <Button
+            color="primary"
+            variant="contained"
+            disabled={!replacementOriginalID || Boolean(draftActionBusy)}
+            onClick={confirmReplacement}
+          >
+            Add replacement to draft
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={Boolean(report)}

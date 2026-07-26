@@ -1,11 +1,9 @@
 package persistence
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/log"

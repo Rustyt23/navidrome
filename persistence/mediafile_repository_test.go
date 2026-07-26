@@ -2,9 +2,9 @@ package persistence
 
 import (
 	"context"
-	"path/filepath"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -854,16 +854,99 @@ var _ = Describe("MediaRepository", func() {
 		})
 	})
 
+	Context("AI genre metadata", func() {
+		// The genre the file itself carries lives in Tags; PostScan derives
+		// MediaFile.Genre from it rather than reading the genre column.
+		newGenreSong := func() model.MediaFile {
+			mf := model.MediaFile{
+				ID: id.NewRandom(), LibraryID: 1, Title: "Song",
+				Tags: model.Tags{model.TagGenre: []string{"Tagged"}},
+			}
+			Expect(mr.Put(&mf)).To(Succeed())
+			DeferCleanup(func() { _ = mr.Delete(mf.ID) })
+			return mf
+		}
+
+		It("stores each source's genre without touching the file's own tag", func() {
+			mf := newGenreSong()
+			aiGenre, subgenre, spotify, itunes, confidence := "Pop", "Electropop", "Dance Pop", "Pop", 100
+			Expect(mr.UpdateAIGenreMetadata(mf.ID, model.AIGenreMetadata{
+				AiGenre: &aiGenre, AiSubgenre: &subgenre, SpotifyGenre: &spotify,
+				ITunesGenre: &itunes, GenreConfidence: &confidence,
+			})).To(Succeed())
+
+			updated, err := mr.Get(mf.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.AiGenre).To(Equal("Pop"))
+			Expect(updated.AiSubgenre).To(Equal("Electropop"))
+			Expect(updated.SpotifyGenre).To(Equal("Dance Pop"))
+			Expect(updated.ITunesGenre).To(Equal("Pop"))
+			Expect(updated.GenreConfidence).To(Equal(100))
+			Expect(updated.Genre).To(Equal("Tagged"))
+		})
+
+		It("leaves stored genres alone when a source returns nothing", func() {
+			mf := newGenreSong()
+			aiGenre, itunes := "Pop", "Rock"
+			Expect(mr.UpdateAIGenreMetadata(mf.ID, model.AIGenreMetadata{
+				AiGenre: &aiGenre, ITunesGenre: &itunes,
+			})).To(Succeed())
+
+			// A later run where only the AI answered must not blank iTunes.
+			nextAI := "Country"
+			Expect(mr.UpdateAIGenreMetadata(mf.ID, model.AIGenreMetadata{AiGenre: &nextAI})).To(Succeed())
+
+			updated, err := mr.Get(mf.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.AiGenre).To(Equal("Country"))
+			Expect(updated.ITunesGenre).To(Equal("Rock"))
+		})
+
+		It("clears only the selected genre columns", func() {
+			mf := newGenreSong()
+			aiGenre, itunes, confidence := "Pop", "Rock", 85
+			Expect(mr.UpdateAIGenreMetadata(mf.ID, model.AIGenreMetadata{
+				AiGenre: &aiGenre, ITunesGenre: &itunes, GenreConfidence: &confidence,
+			})).To(Succeed())
+
+			Expect(mr.ClearAIGenreMetadata(mf.ID, model.AIGenreFields{ITunesGenre: true})).To(Succeed())
+
+			updated, err := mr.Get(mf.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.ITunesGenre).To(BeEmpty())
+			Expect(updated.AiGenre).To(Equal("Pop"))
+			// The score was derived from the cleared source, so it goes too.
+			Expect(updated.GenreConfidence).To(Equal(0))
+		})
+	})
+
 	Context("ClearAIMetadata", func() {
 		It("clears only the requested AI-filled fields", func() {
 			mf := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Title: "Song", Album: "AI Album", Year: 2014}
 			Expect(mr.Put(&mf)).To(Succeed())
 
-			Expect(mr.ClearAIMetadata(mf.ID, true, false)).To(Succeed())
+			Expect(mr.ClearAIMetadata(mf.ID, true, false, false)).To(Succeed())
 
 			updated, err := mr.Get(mf.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updated.Album).To(Equal("[Unknown Album]"))
+			Expect(updated.Year).To(Equal(2014))
+		})
+
+		It("clears the explicit status on its own", func() {
+			mf := model.MediaFile{ID: id.NewRandom(), LibraryID: 1, Title: "Song", Album: "AI Album", Year: 2014}
+			Expect(mr.Put(&mf)).To(Succeed())
+			// The suite shares one database and other specs assert on the total
+			// row count, so this fixture must not outlive the spec.
+			DeferCleanup(func() { _ = mr.Delete(mf.ID) })
+			Expect(mr.UpdateExplicitStatus(mf.ID, "e")).To(Succeed())
+
+			Expect(mr.ClearAIMetadata(mf.ID, false, false, true)).To(Succeed())
+
+			updated, err := mr.Get(mf.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.ExplicitStatus).To(BeEmpty())
+			Expect(updated.Album).To(Equal("AI Album"))
 			Expect(updated.Year).To(Equal(2014))
 		})
 	})
