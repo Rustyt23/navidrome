@@ -70,35 +70,20 @@ func TestParseLoudnessAnalysisRejectsInvalidData(t *testing.T) {
 	}
 }
 
-func TestLoudnormFilter(t *testing.T) {
+func TestLoudnormFilterIsMeasurementOnly(t *testing.T) {
 	target := LoudnessTarget{IntegratedLUFS: -12.6, TruePeak: -1.5, LRA: 11}
-	analysis := &LoudnessAnalysis{InputIntegrated: -10.24, InputTruePeak: -1.75, InputLRA: 7.8, InputThreshold: -20.31, TargetOffset: -2.36}
 
-	got := loudnormFilter(target, analysis, false)
-	want := "loudnorm=I=-12.6:TP=-1.5:LRA=11:measured_I=-10.24:measured_TP=-1.75:measured_LRA=7.8:measured_thresh=-20.31:offset=-2.36:linear=true"
+	got := loudnormFilter(target)
+
+	want := "loudnorm=I=-12.6:TP=-1.5:LRA=11:print_format=json"
 	if got != want {
-		t.Fatalf("filter = %q, want %q", got, want)
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
 func TestAnalyzeLoudnessArgsSelectsAudioOnly(t *testing.T) {
 	got := analyzeLoudnessArgs("song.mp3", "loudnorm=I=-12.6")
 	want := []string{"-nostdin", "-hide_banner", "-i", "song.mp3", "-map", "0:a:0", "-vn", "-af", "loudnorm=I=-12.6", "-f", "null", "-"}
-	assertStringSliceEqual(t, got, want)
-}
-
-func TestNormalizeLoudnessArgsPreservesAttachedArtwork(t *testing.T) {
-	got := normalizeLoudnessArgs("in.mp3", "out.mp3", "loudnorm=I=-12.6")
-	want := []string{
-		"-nostdin", "-hide_banner", "-y", "-i", "in.mp3",
-		"-map", "0:a:0",
-		"-map", "0:v?",
-		"-map_metadata", "0",
-		"-map_chapters", "0",
-		"-c:v", "copy",
-		"-af", "loudnorm=I=-12.6",
-		"out.mp3",
-	}
 	assertStringSliceEqual(t, got, want)
 }
 

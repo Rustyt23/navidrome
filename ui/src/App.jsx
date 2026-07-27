@@ -47,6 +47,8 @@ import SharePlayer from './share/SharePlayer'
 import { HTML5Backend } from 'react-dnd-html5-backend'
 import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
+import lufs from './lufs'
+import lufs2 from './lufs2'
 import PlaylistCreate from './playlist/PlaylistCreate'
 import PlaylistShow from './playlist/PlaylistShow'
 import PlaylistEdit from './playlist/PlaylistEdit'
@@ -163,6 +165,8 @@ const Admin = (props) => {
             options={{ subMenu: 'settings' }}
           />
         ) : null,
+        permissions === 'admin' ? <Resource name="lufs" {...lufs} /> : null,
+        permissions === 'admin' ? <Resource name="lufs2" {...lufs2} /> : null,
         permissions === 'admin' && config.pluginsEnabled ? (
           <Resource
             name="plugin"

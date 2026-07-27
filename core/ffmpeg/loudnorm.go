@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 )
 
+// LoudnessNormalizer measures loudness. Applying a change is a separate,
+// explicitly decided step - see Apply - so that nothing about the transform is
+// left to ffmpeg's own judgement.
 type LoudnessNormalizer interface {
 	AnalyzeLoudness(ctx context.Context, path string, target LoudnessTarget) (*LoudnessAnalysis, error)
-	NormalizeLoudness(ctx context.Context, inputPath, outputPath string, target LoudnessTarget, analysis LoudnessAnalysis) error
 }
 
 func NewLoudnessNormalizer() LoudnessNormalizer {
@@ -48,9 +49,9 @@ func (e *ffmpeg) AnalyzeLoudness(ctx context.Context, path string, target Loudne
 	if err := fileExists(path); err != nil {
 		return nil, err
 	}
-	filter := loudnormFilter(target, nil, true)
+	filter := loudnormFilter(target)
 	args := analyzeLoudnessArgs(path, filter)
-	output, err := exec.CommandContext(ctx, cmdPath, args...).CombinedOutput() // #nosec
+	output, err := runCommand(ctx, unknownDurationTimeout, cmdPath, args...)
 	if err != nil {
 		return nil, fmt.Errorf("analyzing loudness: %w: %s", err, string(output))
 	}
@@ -61,55 +62,16 @@ func (e *ffmpeg) AnalyzeLoudness(ctx context.Context, path string, target Loudne
 	return analysis, nil
 }
 
-func (e *ffmpeg) NormalizeLoudness(ctx context.Context, inputPath, outputPath string, target LoudnessTarget, analysis LoudnessAnalysis) error {
-	cmdPath, err := ffmpegCmd()
-	if err != nil {
-		return err
-	}
-	if err := fileExists(inputPath); err != nil {
-		return err
-	}
-	filter := loudnormFilter(target, &analysis, false)
-	args := normalizeLoudnessArgs(inputPath, outputPath, filter)
-	output, err := exec.CommandContext(ctx, cmdPath, args...).CombinedOutput() // #nosec
-	if err != nil {
-		return fmt.Errorf("normalizing loudness: %w: %s", err, string(output))
-	}
-	return nil
-}
-
 func analyzeLoudnessArgs(path, filter string) []string {
 	return []string{"-nostdin", "-hide_banner", "-i", path, "-map", "0:a:0", "-vn", "-af", filter, "-f", "null", "-"}
 }
 
-func normalizeLoudnessArgs(inputPath, outputPath, filter string) []string {
-	return []string{
-		"-nostdin", "-hide_banner", "-y", "-i", inputPath,
-		"-map", "0:a:0",
-		"-map", "0:v?",
-		"-map_metadata", "0",
-		"-map_chapters", "0",
-		"-c:v", "copy",
-		"-af", filter,
-		outputPath,
-	}
-}
-
-func loudnormFilter(target LoudnessTarget, analysis *LoudnessAnalysis, printJSON bool) string {
-	filter := fmt.Sprintf("loudnorm=I=%s:TP=%s:LRA=%s", formatFloat(target.IntegratedLUFS), formatFloat(target.TruePeak), formatFloat(target.LRA))
-	if analysis != nil {
-		filter += fmt.Sprintf(":measured_I=%s:measured_TP=%s:measured_LRA=%s:measured_thresh=%s:offset=%s:linear=true",
-			formatFloat(analysis.InputIntegrated),
-			formatFloat(analysis.InputTruePeak),
-			formatFloat(analysis.InputLRA),
-			formatFloat(analysis.InputThreshold),
-			formatFloat(analysis.TargetOffset),
-		)
-	}
-	if printJSON {
-		filter += ":print_format=json"
-	}
-	return filter
+// loudnormFilter builds the measurement-only filter. loudnorm is used purely
+// as an analyser: it reports the loudness, true peak and loudness range, and
+// never touches the audio.
+func loudnormFilter(target LoudnessTarget) string {
+	return fmt.Sprintf("loudnorm=I=%s:TP=%s:LRA=%s:print_format=json",
+		formatFloat(target.IntegratedLUFS), formatFloat(target.TruePeak), formatFloat(target.LRA))
 }
 
 func parseLoudnessAnalysis(output []byte) (*LoudnessAnalysis, error) {

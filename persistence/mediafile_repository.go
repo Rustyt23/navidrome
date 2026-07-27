@@ -36,6 +36,121 @@ type dbMediaFile struct {
 	RgAlbumPeak *float64 `structs:"-" json:"-"`
 	RgTrackGain *float64 `structs:"-" json:"-"`
 	RgTrackPeak *float64 `structs:"-" json:"-"`
+	// Joined from media_file_loudness. Aliased with a `loudness_` prefix so the
+	// join can never collide with a media_file column.
+	LoudnessStatus           string     `structs:"-" json:"-"`
+	LoudnessVerdict          string     `structs:"-" json:"-"`
+	LoudnessAction           string     `structs:"-" json:"-"`
+	LoudnessPhase            int        `structs:"-" json:"-"`
+	LoudnessDecision         string     `structs:"-" json:"-"`
+	LoudnessLufsBefore       *float64   `structs:"-" json:"-"`
+	LoudnessLufsAfter        *float64   `structs:"-" json:"-"`
+	LoudnessGainApplied      *float64   `structs:"-" json:"-"`
+	LoudnessTpBefore         *float64   `structs:"-" json:"-"`
+	LoudnessTpAfter          *float64   `structs:"-" json:"-"`
+	LoudnessLraBefore        *float64   `structs:"-" json:"-"`
+	LoudnessLraAfter         *float64   `structs:"-" json:"-"`
+	LoudnessNullResidual     *float64   `structs:"-" json:"-"`
+	LoudnessCodecBefore      string     `structs:"-" json:"-"`
+	LoudnessBitrateBefore    int        `structs:"-" json:"-"`
+	LoudnessSampleRateBefore int        `structs:"-" json:"-"`
+	LoudnessBitDepthBefore   int        `structs:"-" json:"-"`
+	LoudnessChannelsBefore   int        `structs:"-" json:"-"`
+	LoudnessDurationBefore   float64    `structs:"-" json:"-"`
+	LoudnessSizeBefore       int64      `structs:"-" json:"-"`
+	LoudnessArtBefore        bool       `structs:"-" json:"-"`
+	LoudnessArtAfter         bool       `structs:"-" json:"-"`
+	LoudnessHasBackup        bool       `structs:"-" json:"-"`
+	LoudnessError            string     `structs:"-" json:"-"`
+	LoudnessAnalyzedAt       *time.Time `structs:"-" json:"-"`
+}
+
+// loudnessAuditColumns are the media_file_loudness columns joined into media
+// file queries, aliased with a `loudness_` prefix.
+//
+// The join is a LEFT JOIN, so every column is NULL for tracks that have never
+// been analyzed. Columns scanned into non-pointer fields must therefore be
+// coalesced to a zero value; the rest stay nullable on purpose, because "not
+// measured" and "measured as zero" are different things.
+var loudnessAuditColumns = map[string]string{
+	"status":             "''",
+	"verdict":            "''",
+	"action":             "''",
+	"codec_before":       "''",
+	"error":              "''",
+	"decision":           "''",
+	"phase":              "-1",
+	"bitrate_before":     "0",
+	"sample_rate_before": "0",
+	"bit_depth_before":   "0",
+	"channels_before":    "0",
+	"duration_before":    "0",
+	"size_before":        "0",
+	"art_before":         "0",
+	"art_after":          "0",
+	"has_backup":         "0",
+	// Nullable: no default
+	"lufs_before":   "",
+	"lufs_after":    "",
+	"gain_applied":  "",
+	"tp_before":     "",
+	"tp_after":      "",
+	"lra_before":    "",
+	"lra_after":     "",
+	"null_residual": "",
+	"analyzed_at":   "",
+}
+
+func loudnessAuditSelectColumns() []string {
+	cols := make([]string, 0, len(loudnessAuditColumns))
+	for name, zero := range loudnessAuditColumns {
+		if zero == "" {
+			cols = append(cols, fmt.Sprintf("media_file_loudness.%s as loudness_%s", name, name))
+			continue
+		}
+		cols = append(cols, fmt.Sprintf("coalesce(media_file_loudness.%s, %s) as loudness_%s", name, zero, name))
+	}
+	slices.Sort(cols) // stable column order for query caching
+	return cols
+}
+
+// toAudit rebuilds the audit record from the joined columns. Returns nil when
+// the track has never been analyzed (no row in media_file_loudness).
+func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
+	if m.LoudnessAnalyzedAt == nil && m.LoudnessStatus == "" {
+		return nil
+	}
+	audit := &model.LoudnessAudit{
+		MediaFileID:      m.ID,
+		Status:           m.LoudnessStatus,
+		Verdict:          m.LoudnessVerdict,
+		Action:           m.LoudnessAction,
+		Phase:            m.LoudnessPhase,
+		Decision:         m.LoudnessDecision,
+		LufsBefore:       m.LoudnessLufsBefore,
+		LufsAfter:        m.LoudnessLufsAfter,
+		GainApplied:      m.LoudnessGainApplied,
+		TpBefore:         m.LoudnessTpBefore,
+		TpAfter:          m.LoudnessTpAfter,
+		LraBefore:        m.LoudnessLraBefore,
+		LraAfter:         m.LoudnessLraAfter,
+		NullResidual:     m.LoudnessNullResidual,
+		CodecBefore:      m.LoudnessCodecBefore,
+		BitrateBefore:    m.LoudnessBitrateBefore,
+		SampleRateBefore: m.LoudnessSampleRateBefore,
+		BitDepthBefore:   m.LoudnessBitDepthBefore,
+		ChannelsBefore:   m.LoudnessChannelsBefore,
+		DurationBefore:   m.LoudnessDurationBefore,
+		SizeBefore:       m.LoudnessSizeBefore,
+		ArtBefore:        m.LoudnessArtBefore,
+		ArtAfter:         m.LoudnessArtAfter,
+		HasBackup:        m.LoudnessHasBackup,
+		Error:            m.LoudnessError,
+	}
+	if m.LoudnessAnalyzedAt != nil {
+		audit.AnalyzedAt = *m.LoudnessAnalyzedAt
+	}
+	return audit
 }
 
 func (m *dbMediaFile) PostScan() error {
@@ -43,6 +158,7 @@ func (m *dbMediaFile) PostScan() error {
 	m.RGTrackPeak = m.RgTrackPeak
 	m.RGAlbumGain = m.RgAlbumGain
 	m.RGAlbumPeak = m.RgAlbumPeak
+	m.MediaFile.LoudnessAudit = m.toAudit()
 	var err error
 	m.MediaFile.Participants, err = unmarshalParticipants(m.Participants)
 	if err != nil {
@@ -97,6 +213,23 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 		"comment":        "comment",
 		"lufs":           mediaFileLufsSort(),
 		"rated_at":       "rating, rated_at",
+		// Loudness audit (joined from media_file_loudness)
+		"loudness_verdict":   "media_file_loudness.verdict",
+		"loudness_phase":     "media_file_loudness.phase",
+		"loudness_decision":  "media_file_loudness.decision",
+		"loudness_status":    "media_file_loudness.status",
+		"loudness_action":    "media_file_loudness.action",
+		"lufs_before":        "media_file_loudness.lufs_before",
+		"lufs_after":         "media_file_loudness.lufs_after",
+		"gain_applied":       "media_file_loudness.gain_applied",
+		"tp_before":          "media_file_loudness.tp_before",
+		"tp_after":           "media_file_loudness.tp_after",
+		"lra_before":         "media_file_loudness.lra_before",
+		"lra_after":          "media_file_loudness.lra_after",
+		"null_residual":      "media_file_loudness.null_residual",
+		"bitrate_before":     "media_file_loudness.bitrate_before",
+		"sample_rate_before": "media_file_loudness.sample_rate_before",
+		"analyzed_at":        "media_file_loudness.analyzed_at",
 	})
 	return r
 }
@@ -125,6 +258,18 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 			}
 			return And{Eq{"media_file.has_cover_art": false}, Eq{"media_file.cover_path": ""}}
 		},
+		"loudness_verdict": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_loudness.verdict", value)
+		},
+		"loudness_status": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_loudness.status", value)
+		},
+		"loudness_phase": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_loudness.phase", value)
+		},
+		"loudness_decision": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_loudness.decision", value)
+		},
 		"artists_id": artistFilter,
 		"library_id": libraryIdFilter,
 		"path":       containsFilter("media_file.path"),
@@ -146,7 +291,8 @@ func mediaFileRecentlyAddedSort() string {
 }
 
 func (r *mediaFileRepository) CountAll(options ...model.QueryOptions) (int64, error) {
-	query := r.newSelect()
+	query := r.newSelect().
+		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id")
 	query = r.withAnnotation(query, "media_file.id")
 	query = r.applyLibraryFilter(query)
 	return r.count(query, options...)
@@ -193,8 +339,11 @@ func (r *mediaFileRepository) UpdateProbeData(id string, data string) error {
 }
 
 func (r *mediaFileRepository) selectMediaFile(options ...model.QueryOptions) SelectBuilder {
-	sql := r.newSelect(options...).Columns("media_file.*", "library.path as library_path", "library.name as library_name").
-		LeftJoin("library on media_file.library_id = library.id")
+	columns := append([]string{"media_file.*", "library.path as library_path", "library.name as library_name"},
+		loudnessAuditSelectColumns()...)
+	sql := r.newSelect(options...).Columns(columns...).
+		LeftJoin("library on media_file.library_id = library.id").
+		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id")
 	sql = r.withAnnotation(sql, "media_file.id")
 	sql = r.withBookmark(sql, "media_file.id")
 	return r.applyLibraryFilter(sql)

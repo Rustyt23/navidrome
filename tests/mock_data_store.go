@@ -29,6 +29,7 @@ type MockDataStore struct {
 	MockedScrobbleBuffer            model.ScrobbleBufferRepository
 	MockedScrobble                  model.ScrobbleRepository
 	MockedRadio                     model.RadioRepository
+	MockedLoudnessAudit             *MockLoudnessAuditRepo
 	MockedPlugin                    model.PluginRepository
 	MockedRetailPlayerDeviceMapping model.RetailPlayerDeviceMappingRepository
 	MockedRetailPlayerFolder        model.RetailPlayerFolderRepository
@@ -275,6 +276,55 @@ func (db *MockDataStore) Scrobble(ctx context.Context) model.ScrobbleRepository 
 	}
 	db.MockedScrobble = &MockScrobbleRepo{ctx: ctx}
 	return db.MockedScrobble
+}
+
+func (db *MockDataStore) LoudnessAudit(ctx context.Context) model.LoudnessAuditRepository {
+	if db.MockedLoudnessAudit != nil {
+		return db.MockedLoudnessAudit
+	}
+	if db.RealDS != nil {
+		return db.RealDS.LoudnessAudit(ctx)
+	}
+	db.MockedLoudnessAudit = &MockLoudnessAuditRepo{data: map[string]*model.LoudnessAudit{}}
+	return db.MockedLoudnessAudit
+}
+
+// MockLoudnessAuditRepo is an in-memory LoudnessAuditRepository for tests.
+type MockLoudnessAuditRepo struct {
+	data map[string]*model.LoudnessAudit
+}
+
+func (m *MockLoudnessAuditRepo) Put(audit *model.LoudnessAudit) error {
+	if m.data == nil {
+		m.data = map[string]*model.LoudnessAudit{}
+	}
+	m.data[audit.MediaFileID] = audit
+	return nil
+}
+
+func (m *MockLoudnessAuditRepo) SetDecision(mediaFileID, decision string) error {
+	if m.data == nil {
+		m.data = map[string]*model.LoudnessAudit{}
+	}
+	if audit, ok := m.data[mediaFileID]; ok {
+		audit.Decision = decision
+		return nil
+	}
+	m.data[mediaFileID] = &model.LoudnessAudit{MediaFileID: mediaFileID, Decision: decision}
+	return nil
+}
+
+func (m *MockLoudnessAuditRepo) Get(mediaFileID string) (*model.LoudnessAudit, error) {
+	if audit, ok := m.data[mediaFileID]; ok {
+		return audit, nil
+	}
+	return nil, model.ErrNotFound
+}
+
+func (m *MockLoudnessAuditRepo) Clear() (int64, error) {
+	count := int64(len(m.data))
+	m.data = map[string]*model.LoudnessAudit{}
+	return count, nil
 }
 
 func (db *MockDataStore) Radio(ctx context.Context) model.RadioRepository {

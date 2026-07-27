@@ -96,6 +96,11 @@ type MediaFile struct {
 	RGTrackGain          *float64 `structs:"rg_track_gain" json:"rgTrackGain"`
 	RGTrackPeak          *float64 `structs:"rg_track_peak" json:"rgTrackPeak"`
 
+	// LoudnessAudit is the before/after loudness record, joined from
+	// media_file_loudness. Read-only here: it is written by the loudness
+	// analysis/normalization code, never by the scanner.
+	LoudnessAudit *LoudnessAudit `structs:"-" json:"loudnessAudit,omitempty" hash:"ignore"`
+
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track
 

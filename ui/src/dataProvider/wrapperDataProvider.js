@@ -74,6 +74,8 @@ const applyLibraryFilter = (resource, params) => {
   const filteredResources = [
     'album',
     'song',
+    'lufs',
+    'lufs2',
     'artist',
     'playlistTrack',
     'tag',
@@ -116,6 +118,8 @@ const mapResource = (resource, params) => {
     case 'album':
     case 'song':
     case 'covertart':
+    case 'lufs':
+    case 'lufs2':
     case 'artist':
     case 'tag': {
       params.filter = params.filter || {}
@@ -124,7 +128,8 @@ const mapResource = (resource, params) => {
       }
       params = applyLibraryFilter(resource, params)
 
-      if (resource === 'covertart') {
+      // The LUFS page is a different view over the same media files
+      if (resource === 'covertart' || resource === 'lufs' || resource === 'lufs2') {
         return ['song', params]
       }
 

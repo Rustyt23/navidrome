@@ -3594,7 +3594,6 @@ func (n *Router) resolveRetailPlayerSongStream(ctx context.Context, r *http.Requ
 	}
 	streamURL := publicurl.PublicURL(r, path.Join(consts.URLPathPublic, "s", streamToken), nil)
 
-
 	return &retailPlayerStatusArtwork{
 		MediaFileID: matched.ID,
 		ArtworkID:   artID.String(),

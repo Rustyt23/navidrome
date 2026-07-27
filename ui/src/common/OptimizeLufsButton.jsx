@@ -19,7 +19,12 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
-export const OptimizeLufsButton = ({ resource, selectedIds, className }) => {
+export const OptimizeLufsButton = ({
+  resource,
+  selectedIds,
+  className,
+  disabled,
+}) => {
   const classes = useStyles()
   const translate = useTranslate()
   const notify = useNotify()
@@ -76,7 +81,7 @@ export const OptimizeLufsButton = ({ resource, selectedIds, className }) => {
       onClick={handleClick}
       className={clsx(classes.button, className)}
       label={translate('resources.song.actions.optimizeLufs')}
-      disabled={!selectedCount || saving}
+      disabled={!selectedCount || saving || disabled}
     >
       <EqualizerIcon />
     </RaButton>
@@ -89,11 +94,13 @@ OptimizeLufsButton.propTypes = {
     PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   ),
   className: PropTypes.string,
+  disabled: PropTypes.bool,
 }
 
 OptimizeLufsButton.defaultProps = {
   selectedIds: [],
   className: undefined,
+  disabled: false,
 }
 
 export default OptimizeLufsButton

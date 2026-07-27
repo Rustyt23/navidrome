@@ -3,39 +3,47 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/ffmpeg"
-	"github.com/navidrome/navidrome/core/gcsync"
+	"github.com/navidrome/navidrome/core/loudness"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
 
-// libraryLoudnessJob tracks the state of the full-library LUFS processing job
-// (triggered from Personal settings). Only one run at a time.
+// libraryLoudnessJob tracks the state of the full-library LUFS processing job.
+// Only one run at a time. It is started by turning "Optimise all LUFS" on and
+// stopped by turning it off.
 type libraryLoudnessJob struct {
 	running    atomic.Bool
+	stopping   atomic.Bool
+	phase      atomic.Int64
 	startedAt  atomic.Int64
+	total      atomic.Int64
 	processed  atomic.Int64
 	normalized atomic.Int64
 	skipped    atomic.Int64
 	failed     atomic.Int64
+	stopMu     sync.Mutex
+	stop       chan struct{}
 }
 
 var libraryLoudness libraryLoudnessJob
 
 type libraryLoudnessStatus struct {
 	Running    bool   `json:"running"`
+	Stopping   bool   `json:"stopping"`
+	Phase      int    `json:"phase"`
 	StartedAt  string `json:"startedAt,omitempty"`
+	Total      int64  `json:"total"`
 	Processed  int64  `json:"processed"`
 	Normalized int64  `json:"normalized"`
 	Skipped    int64  `json:"skipped"`
@@ -43,30 +51,97 @@ type libraryLoudnessStatus struct {
 	Message    string `json:"message,omitempty"`
 }
 
+// beginLibraryLoudness starts a whole-library run unless one is already going.
+// Returns false when a run was already in progress.
+func (n *Router) beginLibraryLoudness(ctx context.Context, phase int) bool {
+	loudnessAnalyze.stopMu.Lock()
+	libraryLoudness.stopMu.Lock()
+	defer loudnessAnalyze.stopMu.Unlock()
+	defer libraryLoudness.stopMu.Unlock()
+	if loudnessAnalyze.running.Load() || libraryLoudness.running.Load() {
+		return false
+	}
+	libraryLoudness.running.Store(true)
+	libraryLoudness.phase.Store(int64(phase))
+	libraryLoudness.stopping.Store(false)
+	libraryLoudness.stop = make(chan struct{})
+	libraryLoudness.startedAt.Store(time.Now().Unix())
+	libraryLoudness.total.Store(0)
+	libraryLoudness.processed.Store(0)
+	libraryLoudness.normalized.Store(0)
+	libraryLoudness.skipped.Store(0)
+	libraryLoudness.failed.Store(0)
+
+	go n.runLibraryLoudness(context.WithoutCancel(ctx))
+	return true
+}
+
+// stopLibraryLoudness asks a running whole-library run to finish the track it
+// is on and stop. Tracks already rewritten are left as they are.
+func stopLibraryLoudness() {
+	libraryLoudness.stopMu.Lock()
+	defer libraryLoudness.stopMu.Unlock()
+	if !libraryLoudness.running.Load() || libraryLoudness.stopping.Load() {
+		return
+	}
+	libraryLoudness.stopping.Store(true)
+	if libraryLoudness.stop != nil {
+		close(libraryLoudness.stop)
+	}
+}
+
+func libraryLoudnessStopSignal() <-chan struct{} {
+	libraryLoudness.stopMu.Lock()
+	defer libraryLoudness.stopMu.Unlock()
+	return libraryLoudness.stop
+}
+
+func finishLibraryLoudness() {
+	libraryLoudness.stopMu.Lock()
+	libraryLoudness.stop = nil
+	libraryLoudness.stopping.Store(false)
+	libraryLoudness.running.Store(false)
+	libraryLoudness.stopMu.Unlock()
+}
+
+func (n *Router) stopLibraryLoudnessHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !libraryLoudness.running.Load() {
+			_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus("No LUFS optimisation is running"))
+			return
+		}
+		stopLibraryLoudness()
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus("Stopping optimisation after active tracks finish"))
+	}
+}
+
 func (n *Router) startLibraryLoudness() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !conf.Server.Scanner.LoudnessNormalization.Enabled {
+		if !loudness.Enabled(r.Context(), n.ds) {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(libraryLoudnessStatus{Message: "Loudness normalization is disabled in the server configuration"})
+			_ = json.NewEncoder(w).Encode(libraryLoudnessStatus{Message: "Turn on 'Optimise all LUFS' first"})
 			return
 		}
-		if !libraryLoudness.running.CompareAndSwap(false, true) {
+		if !n.beginLibraryLoudness(r.Context(), loudnessPhaseFromRequest(r)) {
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus("LUFS processing is already running"))
 			return
 		}
-		libraryLoudness.startedAt.Store(time.Now().Unix())
-		libraryLoudness.processed.Store(0)
-		libraryLoudness.normalized.Store(0)
-		libraryLoudness.skipped.Store(0)
-		libraryLoudness.failed.Store(0)
-
-		go n.runLibraryLoudness(context.Background())
 
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus("LUFS processing started for the entire library"))
 	}
+}
+
+// loudnessPhaseFromRequest reads ?phase=2, defaulting to the phase 1 run.
+func loudnessPhaseFromRequest(r *http.Request) int {
+	if r.URL.Query().Get("phase") == "2" {
+		return loudness.PhaseReview
+	}
+	return loudness.PhaseGain
 }
 
 func (n *Router) libraryLoudnessStatusHandler() http.HandlerFunc {
@@ -79,6 +154,9 @@ func (n *Router) libraryLoudnessStatusHandler() http.HandlerFunc {
 func currentLibraryLoudnessStatus(msg string) libraryLoudnessStatus {
 	st := libraryLoudnessStatus{
 		Running:    libraryLoudness.running.Load(),
+		Stopping:   libraryLoudness.stopping.Load(),
+		Phase:      int(libraryLoudness.phase.Load()),
+		Total:      libraryLoudness.total.Load(),
 		Processed:  libraryLoudness.processed.Load(),
 		Normalized: libraryLoudness.normalized.Load(),
 		Skipped:    libraryLoudness.skipped.Load(),
@@ -92,95 +170,123 @@ func currentLibraryLoudnessStatus(msg string) libraryLoudnessStatus {
 }
 
 func (n *Router) runLibraryLoudness(ctx context.Context) {
-	defer libraryLoudness.running.Store(false)
+	defer finishLibraryLoudness()
 
+	phase := int(libraryLoudness.phase.Load())
 	options := conf.Server.Scanner.LoudnessNormalization
-	target := ffmpeg.LoudnessTarget{
-		IntegratedLUFS: options.TargetLUFS,
-		TruePeak:       options.TruePeak,
-		LRA:            options.LRA,
-	}
-	tolerance := effectiveManualLoudnessTolerance(options.Tolerance)
-	normalizer := ffmpeg.NewLoudnessNormalizer()
-	repo := n.ds.MediaFile(ctx)
-
-	log.Info(ctx, "LUFS library processing started", "targetLUFS", options.TargetLUFS, "tolerance", tolerance)
+	log.Info(ctx, "LUFS run started", "phase", phase, "targetLUFS", options.TargetLUFS)
 	start := time.Now()
 
-	cursor, err := repo.GetCursor()
+	if total, err := n.countLoudnessTargets(ctx, phase); err != nil {
+		log.Warn(ctx, "LUFS run: could not count tracks, progress will have no total", err)
+	} else {
+		libraryLoudness.total.Store(total)
+		log.Info(ctx, "LUFS run: tracks to process", "total", total, "phase", phase)
+	}
+
+	cursor, err := n.ds.MediaFile(ctx).GetCursor()
 	if err != nil {
-		log.Error(ctx, "LUFS library processing: could not read media files", err)
+		log.Error(ctx, "LUFS run: could not read media files", err)
 		return
 	}
 
+	workers := options.Parallelism
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	work := make(chan model.MediaFile)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			normalizer := ffmpeg.NewLoudnessNormalizer()
+			for mf := range work {
+				res, err := optimizeOneTrack(ctx, n.ds, normalizer, &mf)
+				switch {
+				case err != nil:
+					libraryLoudness.failed.Add(1)
+					log.Warn(ctx, "LUFS run: could not optimise track", "path", mf.Path, err)
+				case res.Changed:
+					libraryLoudness.normalized.Add(1)
+				default:
+					libraryLoudness.skipped.Add(1)
+				}
+				libraryLoudness.processed.Add(1)
+			}
+		}()
+	}
+
+	stop := libraryLoudnessStopSignal()
+dispatch:
 	for mf, err := range cursor {
 		if err != nil {
-			log.Error(ctx, "LUFS library processing aborted: error reading media files", err)
-			return
+			log.Error(ctx, "LUFS run aborted: error reading media files", err)
+			break
 		}
-		processed := libraryLoudness.processed.Add(1)
-		if processed%200 == 0 {
-			log.Info(ctx, "LUFS library processing progress", "processed", processed,
-				"normalized", libraryLoudness.normalized.Load(), "skipped", libraryLoudness.skipped.Load(),
-				"failed", libraryLoudness.failed.Load(), "elapsed", time.Since(start))
+		if libraryLoudness.stopping.Load() {
+			log.Info(ctx, "LUFS run stopped on request", "processed", libraryLoudness.processed.Load())
+			break
 		}
 		if mf.Missing || strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
 			libraryLoudness.skipped.Add(1)
 			continue
 		}
-		// Fast path: stored LUFS tag already within tolerance - no ffmpeg run
-		if lufs, ok := storedLoudness(&mf); ok && math.Abs(lufs-options.TargetLUFS) <= tolerance {
-			libraryLoudness.skipped.Add(1)
+		if !matchesLoudnessPhase(&mf, phase) {
 			continue
 		}
-
-		trackPath := absoluteSelectedMediaPath(mf.LibraryPath, mf.Path)
-		res, err := ffmpeg.NormalizeToBest(ctx, normalizer, trackPath, target, ffmpeg.NormalizeOptions{
-			Tolerance:    tolerance,
-			MaxAttempts:  maxManualLoudnessNormalizeAttempts,
-			Backup:       options.Backup,
-			BackupSuffix: options.BackupSuffix,
-		})
-		if err != nil {
-			libraryLoudness.failed.Add(1)
-			log.Warn(ctx, "LUFS library processing: could not normalize track", "path", trackPath, err)
-			continue
-		}
-		updateSongLoudnessTag(ctx, repo, mf.ID, res.FinalLUFS)
-		if !res.Changed {
-			libraryLoudness.skipped.Add(1)
-			continue
-		}
-		libraryLoudness.normalized.Add(1)
-
-		uploadPath := trackPath
-		if dest, err := copyTrackToSyncMP3Folder(mf.LibraryPath, trackPath); err != nil {
-			log.Warn(ctx, "LUFS library processing: could not copy track to sync folder", "path", trackPath, err)
-		} else if dest != "" {
-			uploadPath = dest
-		}
-		if gcsync.IsEligibleLUFS(res.OldLUFS, res.FinalLUFS, options.TargetLUFS) {
-			gcsync.GetInstance().EnqueueMP3(uploadPath,
-				fmt.Sprintf("LUFS improved: %.2f -> %.2f (target %.2f)", res.OldLUFS, res.FinalLUFS, options.TargetLUFS))
+		select {
+		case <-stop:
+			break dispatch
+		case work <- mf:
 		}
 	}
+	close(work)
+	wg.Wait()
 
-	log.Info(ctx, "LUFS library processing finished", "processed", libraryLoudness.processed.Load(),
+	log.Info(ctx, "LUFS run finished", "phase", phase, "processed", libraryLoudness.processed.Load(),
 		"normalized", libraryLoudness.normalized.Load(), "skipped", libraryLoudness.skipped.Load(),
 		"failed", libraryLoudness.failed.Load(), "elapsed", time.Since(start))
 }
 
-// storedLoudness reads the LUFS value previously written to the media file's
-// tags, if any.
-func storedLoudness(mf *model.MediaFile) (float64, bool) {
-	for _, name := range []string{"loudnorm_final_lufs", "final_lufs", "finallufs", "lufs"} {
-		if values, ok := mf.Tags[model.TagName(name)]; ok && len(values) > 0 {
-			if v, err := strconv.ParseFloat(strings.TrimSpace(values[0]), 64); err == nil {
-				return v, true
-			}
+// countLoudnessTargets counts how many tracks this run will actually touch, so
+// the UI can show "processed of total" rather than an open-ended counter.
+func (n *Router) countLoudnessTargets(ctx context.Context, phase int) (int64, error) {
+	cursor, err := n.ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for mf, err := range cursor {
+		if err != nil {
+			return total, err
+		}
+		if libraryLoudness.stopping.Load() {
+			return total, nil
+		}
+		if mf.Missing || strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
+			continue
+		}
+		if matchesLoudnessPhase(&mf, phase) {
+			total++
 		}
 	}
-	return 0, false
+	return total, nil
+}
+
+// matchesLoudnessPhase decides whether a track belongs to the run in progress.
+//
+// Phase 1 covers everything not yet known to need review - including tracks
+// that have never been analysed, since the engine measures and classifies them
+// itself and simply leaves phase 2 tracks alone. Phase 2 covers only tracks the
+// client has given a decision for.
+func matchesLoudnessPhase(mf *model.MediaFile, phase int) bool {
+	audit := mf.LoudnessAudit
+	if phase == loudness.PhaseReview {
+		return audit != nil && audit.Phase == loudness.PhaseReview &&
+			(audit.Decision == loudness.DecisionLimit || audit.Decision == loudness.DecisionCeiling)
+	}
+	return audit == nil || audit.Phase != loudness.PhaseReview
 }
 
 // copyTrackToSyncMP3Folder copies a LUFS-updated track into SyncFolder/mp3,

@@ -3,21 +3,16 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/ffmpeg"
-	"github.com/navidrome/navidrome/core/gcsync"
+	"github.com/navidrome/navidrome/core/loudness"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/slice"
-)
-
-const (
-	maxManualLoudnessNormalizeAttempts = 3
 )
 
 type songLoudnessPayload struct {
@@ -45,6 +40,88 @@ func (n *Router) addSongLoudnessRoute(r chi.Router) {
 	r.Put("/song/loudness", n.optimizeSongLoudness())
 	r.Post("/song/loudness/library", n.startLibraryLoudness())
 	r.Get("/song/loudness/library", n.libraryLoudnessStatusHandler())
+	r.Get("/song/loudness/settings", n.loudnessSettings())
+	r.Put("/song/loudness/settings", n.updateLoudnessSettings())
+	r.Post("/song/loudness/analyze", n.startLoudnessAnalyze())
+	r.Get("/song/loudness/analyze", n.loudnessAnalyzeStatusHandler())
+	r.Post("/song/loudness/analyze/stop", n.stopLoudnessAnalyzeHandler())
+	r.Delete("/song/loudness/analyze/results", n.clearLoudnessAnalyzeResults())
+	r.Post("/song/loudness/library/stop", n.stopLibraryLoudnessHandler())
+	r.Put("/song/loudness/decision", n.setLoudnessDecision())
+}
+
+// loudnessSettingsResponse describes the current loudness normalization state
+// for the LUFS page. Only Enabled is writable from the UI; the remaining
+// fields come from the configuration and are shown for reference.
+type loudnessSettingsResponse struct {
+	Enabled    bool    `json:"enabled"`
+	TargetLUFS float64 `json:"targetLUFS"`
+	Tolerance  float64 `json:"tolerance"`
+	TruePeak   float64 `json:"truePeak"`
+	LRA        float64 `json:"lra"`
+	Backup     bool    `json:"backup"`
+}
+
+type loudnessSettingsPayload struct {
+	Enabled *bool `json:"enabled"`
+}
+
+func (n *Router) currentLoudnessSettings(ctx context.Context) loudnessSettingsResponse {
+	options := conf.Server.Scanner.LoudnessNormalization
+	return loudnessSettingsResponse{
+		Enabled:    loudness.Enabled(ctx, n.ds),
+		TargetLUFS: options.TargetLUFS,
+		Tolerance:  effectiveManualLoudnessTolerance(options.Tolerance),
+		TruePeak:   options.TruePeak,
+		LRA:        options.LRA,
+		Backup:     options.Backup,
+	}
+}
+
+func (n *Router) loudnessSettings() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(n.currentLoudnessSettings(r.Context())); err != nil {
+			log.Error(r.Context(), "Error sending loudness settings", err)
+		}
+	}
+}
+
+func (n *Router) updateLoudnessSettings() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		var payload loudnessSettingsPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if payload.Enabled == nil {
+			http.Error(w, "enabled is required", http.StatusBadRequest)
+			return
+		}
+		if err := loudness.SetEnabled(ctx, n.ds, *payload.Enabled); err != nil {
+			log.Error(ctx, "Could not save loudness normalization setting", "enabled", *payload.Enabled, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Turning "Optimise all LUFS" on starts a whole-library run; turning it
+		// off stops the run in progress. Optimizing a hand-picked selection is
+		// an explicit action and stays available either way.
+		if *payload.Enabled {
+			started := n.beginLibraryLoudness(ctx, loudness.PhaseGain)
+			log.Info(ctx, "Optimise all LUFS turned on", "startedRun", started)
+		} else {
+			stopLibraryLoudness()
+			log.Info(ctx, "Optimise all LUFS turned off")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(n.currentLoudnessSettings(ctx)); err != nil {
+			log.Error(ctx, "Error sending loudness settings", err)
+		}
+	}
 }
 
 func (n *Router) optimizeSongLoudness() http.HandlerFunc {
@@ -78,78 +155,55 @@ func (n *Router) optimizeSongLoudness() http.HandlerFunc {
 }
 
 func optimizeSelectedSongLoudness(ctx context.Context, ds model.DataStore, ids []string) songLoudnessResponse {
-	options := conf.Server.Scanner.LoudnessNormalization
-	target := ffmpeg.LoudnessTarget{
-		IntegratedLUFS: options.TargetLUFS,
-		TruePeak:       options.TruePeak,
-		LRA:            options.LRA,
-	}
-	tolerance := effectiveManualLoudnessTolerance(options.Tolerance)
-	minLUFS := options.TargetLUFS - tolerance
-	maxLUFS := options.TargetLUFS + tolerance
 	normalizer := ffmpeg.NewLoudnessNormalizer()
 	repo := ds.MediaFile(ctx)
 
 	response := songLoudnessResponse{IDs: ids}
 	for _, id := range ids {
 		result := songLoudnessResult{ID: id}
+		fail := func(msg string) {
+			result.Status = "failed"
+			result.Error = msg
+			response.Failed = append(response.Failed, id)
+			response.Results = append(response.Results, result)
+		}
+
 		mf, err := repo.Get(id)
 		if err != nil {
-			result.Status = "failed"
-			result.Error = err.Error()
-			response.Failed = append(response.Failed, id)
-			response.Results = append(response.Results, result)
+			fail(err.Error())
 			continue
 		}
-		trackPath := absoluteSelectedMediaPath(mf.LibraryPath, mf.Path)
 		if mf.Path == "" || mf.LibraryPath == "" || mf.Missing {
-			result.Status = "failed"
-			result.Error = "song file is missing"
-			response.Failed = append(response.Failed, id)
-			response.Results = append(response.Results, result)
+			fail("song file is missing")
 			continue
 		}
 
-		res, err := ffmpeg.NormalizeToBest(ctx, normalizer, trackPath, target, ffmpeg.NormalizeOptions{
-			Tolerance:    tolerance,
-			MaxAttempts:  maxManualLoudnessNormalizeAttempts,
-			Backup:       options.Backup,
-			BackupSuffix: options.BackupSuffix,
-		})
+		res, err := optimizeOneTrack(ctx, ds, normalizer, mf)
 		if err != nil {
-			result.Status = "failed"
-			result.Error = err.Error()
-			response.Failed = append(response.Failed, id)
-			response.Results = append(response.Results, result)
-			log.Warn(ctx, "Could not optimize selected song loudness", "id", id, "path", trackPath, err)
+			log.Warn(ctx, "Could not optimize selected song loudness", "id", id, err)
+			fail(err.Error())
 			continue
 		}
 		result.Before = &res.OldLUFS
-		result.After = &res.FinalLUFS
+		result.After = &res.NewLUFS
+		result.UpdatedDB = true
 
 		if !res.Changed {
-			// Either already in range, or no attempt improved on the original
-			// (best-result guarantee keeps the file untouched)
 			result.Status = "skipped"
-			if !res.InRange {
-				result.Error = fmt.Sprintf("could not get closer to target than current %.2f LUFS; kept original", res.FinalLUFS)
-				log.Warn(ctx, "Loudness optimization could not improve song, kept original", "id", id, "path", trackPath, "lufs", res.FinalLUFS, "targetLUFS", options.TargetLUFS, "attempts", res.Attempts)
+			switch {
+			case res.Phase == loudness.PhaseReview:
+				result.Error = "not enough headroom: review it on the LUFS 2 page"
+			case res.Rejected != "":
+				result.Error = res.Rejected
 			}
-			result.UpdatedDB = updateSongLoudnessTag(ctx, repo, id, res.FinalLUFS)
 			response.Skipped = append(response.Skipped, id)
 			response.Results = append(response.Results, result)
 			continue
 		}
 
-		log.Info(ctx, "Optimized selected song loudness", "id", id, "path", trackPath, "fromLUFS", res.OldLUFS, "finalLUFS", res.FinalLUFS, "targetLUFS", options.TargetLUFS, "minLUFS", minLUFS, "maxLUFS", maxLUFS, "attempts", res.Attempts, "inRange", res.InRange)
+		log.Info(ctx, "Optimized selected song loudness", "id", id, "fromLUFS", res.OldLUFS,
+			"finalLUFS", res.NewLUFS, "gain", res.GainDB, "phase", res.Phase)
 		result.Status = "normalized"
-		result.UpdatedDB = updateSongLoudnessTag(ctx, repo, id, res.FinalLUFS)
-		// Only overwrite the bucket copy when the new loudness is closer to
-		// the target than the old one
-		if gcsync.IsEligibleLUFS(res.OldLUFS, res.FinalLUFS, options.TargetLUFS) {
-			gcsync.GetInstance().EnqueueMP3(trackPath,
-				fmt.Sprintf("LUFS optimized: %.2f -> %.2f (target %.2f)", res.OldLUFS, res.FinalLUFS, options.TargetLUFS))
-		}
 		response.Normalized = append(response.Normalized, id)
 		response.Results = append(response.Results, result)
 	}

@@ -66,7 +66,7 @@
         }
       },
       "notifications": {
-        "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{skipped} already in range, %{failed} failed."
+        "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{skipped} skipped, %{failed} failed."
       }
     },
     "album": {
@@ -377,6 +377,86 @@
         "removed": "Missing file(s) removed"
       }
     },
+    "lufs": {
+      "name": "LUFS |||| LUFS",
+      "empty": "No Songs",
+      "toggleHelper": "Target %{target} LUFS ± %{tolerance} LU. Turn on to optimise every song in the library; turn off to stop and optimise only the songs you select.",
+      "progress": {
+        "optimising": "Optimising all: %{processed} done, %{normalized} changed",
+        "stopping": "Stopping after current track…",
+        "analysing": "Analysing %{processed}/%{total}"
+      },
+      "integrityOk": "unchanged",
+      "artLost": "The embedded cover art was destroyed by processing",
+      "artLostShort": "art lost",
+      "fields": {
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
+        "suffix": "Format",
+        "bitRate": "Bitrate",
+        "sampleRate": "Sample Rate",
+        "bitDepth": "Bit Depth",
+        "channels": "Channels",
+        "duration": "Duration",
+        "size": "Size",
+        "path": "Path",
+        "loudness_verdict": "Verdict",
+        "loudness_status": "Status",
+        "status": "Status",
+        "verdict": "Verdict",
+        "lufs": "LUFS before → after",
+        "gain": "Applied gain",
+        "truePeak": "True peak before → after",
+        "lra": "LRA before → after",
+        "action": "Mode",
+        "integrity": "Audio integrity",
+        "codec": "Codec before → after",
+        "bitrate": "Bitrate before → after",
+        "art": "Cover art",
+        "durationDiff": "Duration difference",
+        "nullResidual": "Null test residual",
+        "analyzedAt": "Analyzed at",
+        "originalLufs": "Original LUFS"
+      },
+      "status": {
+        "not_analyzed": "Not analyzed",
+        "analyzed": "Analyzed",
+        "processed": "Processed",
+        "failed": "Failed"
+      },
+      "verdict": {
+        "untouched": "Untouched",
+        "safe": "Safe",
+        "dynamics_changed": "Dynamics changed",
+        "reencoded": "Re-encoded",
+        "failed": "Failed"
+      },
+      "action": {
+        "gain": "Gain only",
+        "limited": "Limited",
+        "skipped": "Skipped"
+      },
+      "actions": {
+        "toggle": "Optimise all LUFS",
+        "analyze": "Analyze",
+        "analyzeAll": "Analyze library",
+        "stopAnalysis": "Stop analysis",
+        "stopOptimisation": "Stop optimisation",
+        "clearAnalysis": "Clear analysis",
+        "fetchOriginal": "Fetch Original LUFS"
+      },
+      "clear": {
+        "title": "Clear LUFS analysis data?",
+        "content": "This removes the fetched LUFS audit results and decisions from the table. It does not delete or modify songs or backups."
+      },
+      "notifications": {
+        "enabled": "Optimising LUFS for the entire library",
+        "disabled": "Stopped optimising all - select songs to optimise them individually"
+      },
+      "originalFromBackup": "Measured from the stored original, before any processing",
+      "originalFromFile": "The file has never been rewritten, so this is its original loudness"
+    },
     "library": {
       "name": "Library |||| Libraries",
       "fields": {
@@ -508,6 +588,37 @@
       "placeholders": {
         "configKey": "key",
         "configValue": "value"
+      }
+    },
+    "lufs2": {
+      "name": "LUFS 2 |||| LUFS 2",
+      "empty": "No songs need review",
+      "fields": {
+        "title": "Title",
+        "artist": "Artist",
+        "path": "Path",
+        "current": "Now",
+        "headroom": "Headroom short by",
+        "optionCeiling": "Option A - keep audio intact",
+        "optionLimit": "Option B - hit the target",
+        "suggested": "Suggested",
+        "decision": "Decision",
+        "loudness_decision": "Decision"
+      },
+      "decision": {
+        "pending": "Undecided",
+        "limit": "Limit to target",
+        "gain_ceiling": "Gain to ceiling",
+        "skip": "Leave alone"
+      },
+      "actions": {
+        "limit": "Limit to target",
+        "gain_ceiling": "Gain to ceiling",
+        "skip": "Leave alone",
+        "runPhase2": "Apply decisions"
+      },
+      "notifications": {
+        "decisionSaved": "Decision saved for %{smart_count} song |||| Decision saved for %{smart_count} songs"
       }
     }
   },

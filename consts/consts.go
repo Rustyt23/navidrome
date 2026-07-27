@@ -18,6 +18,10 @@ const (
 	LastScanTypeKey               = "LastScanType"
 	LastScanStartTimeKey          = "LastScanStartTime"
 
+	// LoudnessNormalizationEnabledKey stores the UI-controlled on/off state for
+	// loudness normalization. When unset, the configured value is used.
+	LoudnessNormalizationEnabledKey = "LoudnessNormalizationEnabled"
+
 	UIAuthorizationHeader  = "X-ND-Authorization"
 	UIClientUniqueIDHeader = "X-ND-Client-Unique-Id"
 	JWTSecretKey           = "JWTSecret"
