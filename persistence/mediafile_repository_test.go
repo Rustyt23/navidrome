@@ -2,9 +2,9 @@ package persistence
 
 import (
 	"context"
-	"path/filepath"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -853,7 +853,6 @@ var _ = Describe("MediaRepository", func() {
 			Expect(updated.Genre).To(Equal("Rock"))
 		})
 	})
-
 
 	Describe("FindByPaths", func() {
 		// Test fixtures for Unicode and case-sensitivity tests

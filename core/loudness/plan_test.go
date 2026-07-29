@@ -34,7 +34,7 @@ func TestPlanForClassifiesByHeadroom(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := PlanFor(tc.lufs, tc.truePeak, testTarget, testCeiling, testTolerance)
+			p := PlanFor(tc.lufs, tc.truePeak, testTarget, testCeiling, testTolerance, 320)
 			if p.Phase != tc.wantPhase {
 				t.Fatalf("phase = %d, want %d (predicted peak %.2f)", p.Phase, tc.wantPhase, p.PredictedPeak)
 			}
@@ -45,7 +45,7 @@ func TestPlanForClassifiesByHeadroom(t *testing.T) {
 // A constant gain shifts loudness and true peak by the same amount. The plan's
 // arithmetic must reflect that exactly, because the phase decision rests on it.
 func TestPlanArithmetic(t *testing.T) {
-	p := PlanFor(-18.0, -0.5, testTarget, testCeiling, testTolerance)
+	p := PlanFor(-18.0, -0.5, testTarget, testCeiling, testTolerance, 320)
 
 	if got, want := p.GainToTarget, 5.4; math.Abs(got-want) > 0.001 {
 		t.Errorf("GainToTarget = %.3f, want %.3f", got, want)
@@ -73,7 +73,7 @@ func TestPlanArithmetic(t *testing.T) {
 // lands inside the tolerance window with peaks exactly at the ceiling. This is
 // transparent, so it belongs in phase 1 rather than the review queue.
 func TestPlanHoldsGainBackToTheCeiling(t *testing.T) {
-	p := PlanFor(-11.89, -0.46, testTarget, testCeiling, testTolerance)
+	p := PlanFor(-11.89, -0.46, testTarget, testCeiling, testTolerance, 320)
 
 	if p.Phase != PhaseGain {
 		t.Fatalf("phase = %d, want %d", p.Phase, PhaseGain)
@@ -112,7 +112,7 @@ func TestPlanHoldsGainBackToTheCeiling(t *testing.T) {
 
 // With headroom to spare the gain is not held back at all.
 func TestPlanUsesFullGainWhenHeadroomAllows(t *testing.T) {
-	p := PlanFor(-18.0, -12.0, testTarget, testCeiling, testTolerance)
+	p := PlanFor(-18.0, -12.0, testTarget, testCeiling, testTolerance, 320)
 	if p.Phase != PhaseGain {
 		t.Fatalf("phase = %d, want %d", p.Phase, PhaseGain)
 	}
@@ -125,7 +125,7 @@ func TestPlanUsesFullGainWhenHeadroomAllows(t *testing.T) {
 }
 
 func TestSpecForPhaseGainIsPureGain(t *testing.T) {
-	p := PlanFor(-18.0, -12.0, testTarget, testCeiling, testTolerance)
+	p := PlanFor(-18.0, -12.0, testTarget, testCeiling, testTolerance, 320)
 	spec, expected, ok := SpecFor(p, DecisionPending, &ffmpeg.FileProbe{}, testTarget, testCeiling)
 	if !ok {
 		t.Fatal("expected a transform")
@@ -142,7 +142,7 @@ func TestSpecForPhaseGainIsPureGain(t *testing.T) {
 }
 
 func TestSpecForReviewTrackNeedsADecision(t *testing.T) {
-	p := PlanFor(-18.0, -0.5, testTarget, testCeiling, testTolerance)
+	p := PlanFor(-18.0, -0.5, testTarget, testCeiling, testTolerance, 320)
 
 	if _, _, ok := SpecFor(p, DecisionPending, &ffmpeg.FileProbe{}, testTarget, testCeiling); ok {
 		t.Fatal("a review track must not be touched before the client decides")
@@ -174,10 +174,109 @@ func TestSpecForReviewTrackNeedsADecision(t *testing.T) {
 }
 
 func TestSpecForDoneTrackIsNeverTouched(t *testing.T) {
-	p := PlanFor(-12.6, -3.0, testTarget, testCeiling, testTolerance)
+	p := PlanFor(-12.6, -3.0, testTarget, testCeiling, testTolerance, 320)
 	for _, d := range []string{DecisionPending, DecisionLimit, DecisionCeiling, DecisionSkip} {
 		if _, _, ok := SpecFor(p, d, &ffmpeg.FileProbe{}, testTarget, testCeiling); ok {
 			t.Fatalf("a track already on target must not be rewritten (decision %q)", d)
 		}
+	}
+}
+
+// Rewriting a degraded source costs loudness before any gain is applied, so a
+// plan that ignores it asks for a gain that lands short. On a track whose
+// ceiling leaves no room for the difference, that meant failing on every run
+// for ever.
+func TestPlanCoversWhatRewritingCosts(t *testing.T) {
+	const tol = 0.2
+	// Done for Me: 128k, 0.42 below target, peaks at -1.07.
+	lossy := PlanFor(-13.02, -1.07, testTarget, -0.5, tol, 128)
+	clean := PlanFor(-13.02, -1.07, testTarget, -0.5, tol, 320)
+
+	if lossy.RewriteCost <= 0 {
+		t.Fatal("a 128k source loses loudness on every rewrite; the plan records none")
+	}
+	if clean.RewriteCost != 0 {
+		t.Errorf("320k rewrite cost = %.2f, want 0 - it loses nothing measurable", clean.RewriteCost)
+	}
+	if lossy.SafeGain <= clean.SafeGain {
+		t.Errorf("lossy gain %.2f should exceed the clean one %.2f by the rewrite cost",
+			lossy.SafeGain, clean.SafeGain)
+	}
+	if math.Abs(lossy.SafeLoudness-testTarget) > tol {
+		t.Errorf("lands at %.2f, outside +/-%.1f of the target - the cost was not covered",
+			lossy.SafeLoudness, tol)
+	}
+}
+
+// The fallback ceiling is a last resort in the plan exactly as it is in the
+// optimiser: reached for only when holding to the configured ceiling would miss
+// the target, so no track is planned to spend headroom it does not need.
+func TestPlanPrefersTheConfiguredCeiling(t *testing.T) {
+	// Holding to -1.5 lands at -12.93, inside a 0.5 window, so the plan must
+	// stop there rather than take the full cut and a higher peak.
+	p := PlanFor(-11.89, -0.46, testTarget, testCeiling, testTolerance, 320)
+	if math.Abs(p.SafeGain-p.TransparentGain) > 0.001 {
+		t.Errorf("SafeGain = %.3f, want the configured ceiling's %.3f", p.SafeGain, p.TransparentGain)
+	}
+
+	// The same track under a tight window cannot reach the target at -1.5, so
+	// here the fallback is what makes it reachable at all.
+	tight := PlanFor(-11.89, -0.46, testTarget, testCeiling, 0.2, 320)
+	if tight.SafeGain <= tight.TransparentGain {
+		t.Errorf("SafeGain = %.3f, want more than the configured ceiling allows (%.3f)",
+			tight.SafeGain, tight.TransparentGain)
+	}
+	if math.Abs(tight.SafeLoudness-testTarget) > 0.2 {
+		t.Errorf("lands at %.2f, still outside the window", tight.SafeLoudness)
+	}
+}
+
+// Cuts too small to hear are applied without asking; only a cut deep enough to
+// soften the music is a trade worth stopping for. The review page is for the
+// second kind, and a page of formalities is one nobody reads.
+func TestPlanTrimsQuietlyAndAsksOnlyWhenItWouldBeHeard(t *testing.T) {
+	const tol = 0.2
+	cases := []struct {
+		name      string
+		lufs      float64
+		truePeak  float64
+		wantPhase int
+	}{
+		// All of these need +0.90 dB to reach the target, so the cut the
+		// limiter has to make is (peak + 0.90) - the -0.50 ceiling.
+		{"a cut nobody can hear is just applied", -13.5, 0.4, PhaseTrim},          // 1.80
+		{"still applied just under the audible threshold", -13.5, 1.5, PhaseTrim}, // 2.90
+		{"past the threshold it is the client's call", -13.5, 1.7, PhaseReview},   // 3.10
+		{"a deep cut always asks", -13.5, 6.6, PhaseReview},                       // 8.00
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := PlanFor(tc.lufs, tc.truePeak, testTarget, -0.5, tol, 320)
+			if p.Phase != tc.wantPhase {
+				t.Fatalf("phase = %d, want %d (cut needed %.2f dB)", p.Phase, tc.wantPhase, p.PeakOverBy)
+			}
+		})
+	}
+}
+
+// A trim is the same transform the client would be offered as "limit to
+// target"; the only difference is that nobody was asked.
+func TestSpecForTrimLimitsToTheTarget(t *testing.T) {
+	p := PlanFor(-13.5, 0.4, testTarget, -0.5, 0.2, 320)
+	if p.Phase != PhaseTrim {
+		t.Fatalf("fixture no longer exercises the trim path (phase %d)", p.Phase)
+	}
+	spec, expected, ok := SpecFor(p, DecisionPending, &ffmpeg.FileProbe{}, testTarget, -0.5)
+	if !ok {
+		t.Fatal("a trim must produce a transform without waiting for a decision")
+	}
+	if !spec.LimitTruePeak {
+		t.Error("a trim has to engage the limiter; the level alone cannot get there")
+	}
+	if math.Abs(spec.GainDB-p.GainToTarget) > 0.001 {
+		t.Errorf("gain = %.3f, want the full %.3f", spec.GainDB, p.GainToTarget)
+	}
+	if math.Abs(expected-testTarget) > 0.001 {
+		t.Errorf("expected loudness = %.3f, want the target", expected)
 	}
 }

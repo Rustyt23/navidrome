@@ -66,7 +66,8 @@
         }
       },
       "notifications": {
-        "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{skipped} skipped, %{failed} failed."
+        "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{skipped} skipped, %{failed} failed.",
+        "lufsRestored": "Restore complete: %{restored} restored, %{skipped} had no stored original, %{failed} failed."
       }
     },
     "album": {
@@ -417,25 +418,29 @@
         "durationDiff": "Duration difference",
         "nullResidual": "Null test residual",
         "analyzedAt": "Analyzed at",
-        "originalLufs": "Original LUFS"
+        "originalLufs": "Original LUFS",
+        "report": "Report"
       },
       "status": {
         "not_analyzed": "Not analyzed",
-        "analyzed": "Analyzed",
-        "processed": "Processed",
-        "failed": "Failed"
+        "analyzed": "Measured only",
+        "processed": "Changed",
+        "failed": "Could not process"
       },
       "verdict": {
-        "untouched": "Untouched",
-        "safe": "Safe",
-        "dynamics_changed": "Dynamics changed",
-        "reencoded": "Re-encoded",
-        "failed": "Failed"
+        "untouched": "No change needed",
+        "safe": "Volume only",
+        "dynamics_changed": "Peaks trimmed",
+        "reencoded": "Quality lost",
+        "failed": "Could not process",
+        "left_as_is": "Left as-is"
       },
       "action": {
-        "gain": "Gain only",
-        "limited": "Limited",
-        "skipped": "Skipped"
+        "gain": "Volume only",
+        "limited": "Peaks trimmed",
+        "skipped": "Not opened",
+        "refused": "Left as-is",
+        "trimmed": "Peaks trimmed"
       },
       "actions": {
         "toggle": "Optimise all LUFS",
@@ -444,7 +449,9 @@
         "stopAnalysis": "Stop analysis",
         "stopOptimisation": "Stop optimisation",
         "clearAnalysis": "Clear analysis",
-        "fetchOriginal": "Fetch Original LUFS"
+        "fetchOriginal": "Fetch Original LUFS",
+        "restore": "Restore original",
+        "findOrphanedBackups": "Orphaned backups"
       },
       "clear": {
         "title": "Clear LUFS analysis data?",
@@ -452,10 +459,20 @@
       },
       "notifications": {
         "enabled": "Optimising LUFS for the entire library",
-        "disabled": "Stopped optimising all - select songs to optimise them individually"
+        "disabled": "Stopped optimising all - select songs to optimise them individually",
+        "noOrphanedBackups": "Every stored original still matches a song in the library.",
+        "orphanedBackupsMoved": "Moved %{moved} orphaned backups to %{folder}"
       },
       "originalFromBackup": "Measured from the stored original, before any processing",
-      "originalFromFile": "The file has never been rewritten, so this is its original loudness"
+      "originalFromFile": "The file has never been rewritten, so this is its original loudness",
+      "report": {
+        "levelOnly": "Level only",
+        "issues": "%{smart_count} significant |||| %{smart_count} significant"
+      },
+      "nullClean": "At or below %{floor} dB: what is left after undoing the level change is only re-encoding noise, which is inaudible",
+      "nullAltered": "Above %{floor} dB: more than the level changed - the audio itself was altered",
+      "confirmRestore": "Put the untouched original back for %{smart_count} song |||| Put the untouched originals back for %{smart_count} songs",
+      "confirmOrphanCleanup": "%{count} of %{total} stored originals no longer match any song in the library (%{size}). They will be moved into a dated folder next to the backups, not deleted.\n\n%{list}"
     },
     "library": {
       "name": "Library |||| Libraries",
@@ -591,8 +608,8 @@
       }
     },
     "lufs2": {
-      "name": "LUFS 2 |||| LUFS 2",
-      "empty": "No songs need review",
+      "name": "LUFS Exceptions |||| LUFS Exceptions",
+      "empty": "Nothing needs your attention",
       "fields": {
         "title": "Title",
         "artist": "Artist",
@@ -603,7 +620,8 @@
         "optionLimit": "Option B - hit the target",
         "suggested": "Suggested",
         "decision": "Decision",
-        "loudness_decision": "Decision"
+        "loudness_decision": "Decision",
+        "reason": "Why it is here"
       },
       "decision": {
         "pending": "Undecided",

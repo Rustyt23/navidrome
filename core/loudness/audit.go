@@ -12,15 +12,22 @@ import (
 )
 
 const (
-	// Null-test thresholds: the level below which what is left over after
-	// undoing the gain is just codec noise rather than a change to the audio.
+	// Null-test thresholds: the energy below which what is left over after
+	// undoing the gain is the cost of rewriting the file rather than a change
+	// to the audio.
 	//
-	// The floor depends on the format. Re-encoding a lossy file always adds a
-	// generation of codec noise even when the settings are identical - around
-	// -30 dB for real music at 320 kbps - while a lossless round trip leaves
-	// almost nothing. Reshaped audio sits far above either: dynamic-range
-	// processing measures around -3 dB.
-	nullResidualSafeLossyDB    = -25.0
+	// Calibrated by measurement, not judgement. Rewriting a lossy file adds a
+	// generation of codec noise even at identical settings; across real music
+	// that leftover measures -39 to -47 dB, and pure synthetic tones - which an
+	// encoder reproduces almost exactly - reach -90. Running the same track
+	// through an actual limiter or compressor instead leaves -10 to -15. The
+	// two outcomes are 25 dB apart at their closest, so -30 separates them with
+	// room on both sides.
+	//
+	// A lossless round trip has no codec noise to account for and should null
+	// almost perfectly, so anything above -60 there means the audio itself was
+	// altered.
+	nullResidualSafeLossyDB    = -30.0
 	nullResidualSafeLosslessDB = -60.0
 
 	// pureGainToleranceDB: under a constant gain the true peak moves by exactly
@@ -71,22 +78,33 @@ func Measure(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, path str
 // recorded as the "before" and there is nothing to compare against yet.
 func Audit(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFileID, libraryPath, trackPath string,
 	target ffmpeg.LoudnessTarget, tolerance float64, backupFolder string) *model.LoudnessAudit {
+	return auditWith(ctx, normalizer, mediaFileID, libraryPath, trackPath, nil, target, tolerance, backupFolder)
+}
+
+// auditWith is Audit with the option of reusing a measurement of trackPath the
+// caller already holds. Measuring decodes the entire file, so a caller that has
+// just measured it should not pay for it a second time.
+func auditWith(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFileID, libraryPath, trackPath string,
+	current *Measurement, target ffmpeg.LoudnessTarget, tolerance float64, backupFolder string) *model.LoudnessAudit {
 	audit := &model.LoudnessAudit{MediaFileID: mediaFileID, AnalyzedAt: time.Now()}
 
-	backup := ffmpeg.FindLoudnessBackup(backupFolder, libraryPath, trackPath)
+	backup := ffmpeg.FindLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath)
 	audit.HasBackup = backup != ""
 
-	current, err := Measure(ctx, normalizer, trackPath, target)
-	if err != nil {
-		audit.Status = model.LoudnessStatusFailed
-		audit.Verdict = model.LoudnessVerdictFailed
-		audit.Error = err.Error()
-		return audit
+	if current == nil {
+		measured, err := Measure(ctx, normalizer, trackPath, target)
+		if err != nil {
+			audit.Status = model.LoudnessStatusFailed
+			audit.Verdict = model.LoudnessVerdictFailed
+			audit.Error = err.Error()
+			return audit
+		}
+		current = measured
 	}
 
 	// The phase describes what still needs doing, judged from the file as it
 	// stands now: reachable by a constant gain, or in need of a decision.
-	plan := PlanFor(current.LUFS, current.TruePeak, target.IntegratedLUFS, target.TruePeak, tolerance)
+	plan := PlanFor(current.LUFS, current.TruePeak, target.IntegratedLUFS, target.TruePeak, tolerance, current.Probe.BitRate)
 	audit.Phase = plan.Phase
 
 	if !audit.HasBackup {
@@ -124,8 +142,79 @@ func Audit(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFileI
 		audit.Error = fmt.Sprintf("null test: %v", err)
 	}
 
-	audit.Action = inferAction(original, current, gain)
+	audit.Action = inferAction(audit, original, current, gain)
 	audit.Verdict = verdict(audit, original, current)
+	return audit
+}
+
+// AuditFromOptimize builds the audit record out of the measurements a run has
+// already taken, rather than measuring the same two files over again.
+//
+// A run measures the track before it encodes, and measures the result to verify
+// it. That is exactly the before/after pair an audit records, so calling Audit
+// afterwards decodes both files a second time - the most expensive thing in the
+// pipeline - purely to learn what the run already knows. Only the null test,
+// which compares the stored original against the finished file, still has work
+// to do.
+//
+// The shortcut holds only when this run is what stored the original. An
+// existing backup is never overwritten, so for a track being processed a second
+// time the stored original is older than anything this run measured and the
+// "before" snapshot has to be read from the backup itself.
+func AuditFromOptimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer,
+	mediaFileID, libraryPath, trackPath string, res OptimizeResult,
+	target ffmpeg.LoudnessTarget, tolerance float64, backupFolder string) *model.LoudnessAudit {
+	// Whichever side the run measured last is the file as it now stands on disk.
+	current := res.BeforeSet
+	if res.Changed && res.AfterSet != nil {
+		current = res.AfterSet
+	}
+
+	if !res.Changed || !res.BackupCreated || res.BeforeSet == nil || res.AfterSet == nil {
+		// Either nothing was rewritten, or the stored original predates this
+		// run. Reuse whatever was measured of the file on disk and let the
+		// normal path read the backup if there is one.
+		audit := auditWith(ctx, normalizer, mediaFileID, libraryPath, trackPath, current,
+			target, tolerance, backupFolder)
+		// Why a produced file was thrown away is known only to the run that
+		// threw it away, and cannot be reconstructed afterwards. Without it a
+		// track that refuses to process looks exactly like one nothing was
+		// ever attempted on.
+		if res.Rejected != "" {
+			audit.Error = res.Rejected
+			// Marked so the next run does not rebuild the same rejected file.
+			// Nothing about the track or the settings has changed, so the
+			// outcome would not either; a fresh analysis clears this and the
+			// track is tried again.
+			audit.Action = model.LoudnessActionRefused
+		}
+		return audit
+	}
+
+	before, after := res.BeforeSet, res.AfterSet
+	audit := &model.LoudnessAudit{MediaFileID: mediaFileID, AnalyzedAt: time.Now()}
+
+	backup := ffmpeg.FindLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath)
+	audit.HasBackup = backup != ""
+
+	recordBefore(audit, before)
+	recordAfter(audit, after)
+	audit.Status = model.LoudnessStatusProcessed
+	audit.Phase = PlanFor(after.LUFS, after.TruePeak, target.IntegratedLUFS, target.TruePeak, tolerance, after.Probe.BitRate).Phase
+
+	gain := after.LUFS - before.LUFS
+	audit.GainApplied = &gain
+
+	if backup != "" {
+		if residual, err := ffmpeg.NullResidual(ctx, backup, trackPath, gain); err == nil {
+			audit.NullResidual = &residual
+		} else {
+			audit.Error = fmt.Sprintf("null test: %v", err)
+		}
+	}
+
+	audit.Action = inferAction(audit, before, after, gain)
+	audit.Verdict = verdict(audit, before, after)
 	return audit
 }
 
@@ -152,7 +241,7 @@ func MeasureOriginal(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, 
 	recordBefore(audit, current)
 	audit.Status = model.LoudnessStatusAnalyzed
 
-	plan := PlanFor(current.LUFS, current.TruePeak, target.IntegratedLUFS, target.TruePeak, tolerance)
+	plan := PlanFor(current.LUFS, current.TruePeak, target.IntegratedLUFS, target.TruePeak, tolerance, current.Probe.BitRate)
 	audit.Phase = plan.Phase
 	if plan.Phase == PhaseDone {
 		audit.Verdict = model.LoudnessVerdictUntouched
@@ -182,34 +271,68 @@ func recordAfter(audit *model.LoudnessAudit, m *Measurement) {
 	audit.TpAfter = &tp
 	audit.LraAfter = &lra
 	audit.ArtAfter = m.Probe.HasArt
+	// Same probe as the before snapshot, so the two are directly comparable.
+	audit.CodecAfter = m.Probe.Codec
+	audit.BitrateAfter = m.Probe.BitRate
+	audit.SampleRateAfter = m.Probe.SampleRate
+	audit.BitDepthAfter = m.Probe.BitDepth
+	audit.ChannelsAfter = m.Probe.Channels
+	audit.DurationAfter = m.Probe.Duration
+	audit.SizeAfter = m.Probe.Size
 }
 
 // inferAction works out whether the change was a constant gain or something
-// that reshaped the audio. Under a constant gain the true peak moves by exactly
-// the gain and the loudness range is unchanged; both are mathematical
-// properties, so a meaningful deviation in either means dynamics were touched.
-func inferAction(before, after *Measurement, gain float64) string {
-	expectedTP := before.TruePeak + gain
-	tpDrift := math.Abs(after.TruePeak - expectedTP)
-	lraDrift := math.Abs(after.LRA - before.LRA)
-	if tpDrift <= pureGainToleranceDB && lraDrift <= pureGainToleranceDB {
+// that reshaped the audio.
+//
+// The null test decides wherever it is available. It measures how much of the
+// file changed beyond the level, and the two outcomes are 25 dB apart at their
+// closest - far more separation than any other signal offers.
+//
+// Without one, the peak and the loudness range answer instead, and the peak is
+// read in one direction only. A peak LOWER than the gain predicts means
+// something pushed it down, which is what limiting does. A peak HIGHER than
+// predicted cannot be limiting - a limiter never raises anything - it is the
+// encoder rebuilding the waveform imperfectly, which low-bitrate sources do by
+// up to 0.8 dB. Treating the two alike reported untouched tracks as reshaped.
+func inferAction(audit *model.LoudnessAudit, before, after *Measurement, gain float64) string {
+	if audit.NullResidual != nil {
+		if *audit.NullResidual > NullResidualThreshold(after.Probe.Codec) {
+			return model.LoudnessActionLimited
+		}
 		return model.LoudnessActionGain
 	}
-	return model.LoudnessActionLimited
+
+	if math.Abs(after.LRA-before.LRA) > pureGainToleranceDB {
+		return model.LoudnessActionLimited
+	}
+	if shavedBy := (before.TruePeak + gain) - after.TruePeak; shavedBy > pureGainToleranceDB {
+		return model.LoudnessActionLimited
+	}
+	return model.LoudnessActionGain
 }
 
 // verdict grades the change. Format degradation outranks everything else: once
 // the codec, bitrate, sample rate, bit depth, channel count, duration or cover
 // art changed, the file is no longer the client's original regardless of how
 // well the loudness landed.
+//
+// Below that, "re-encoded" means what it says: the file came back in a worse
+// format than it went in. It is not a place to put a change that could not be
+// explained, which is what it became while the null test reported here directly
+// - a track whose audio was untouched but whose rewrite cost more than expected
+// was labelled as having lost quality, which is a different and worse claim.
 func verdict(audit *model.LoudnessAudit, before, after *Measurement) string {
 	if len(IntegrityIssues(before, after)) > 0 {
 		return model.LoudnessVerdictReencoded
 	}
-	if audit.NullResidual != nil && *audit.NullResidual > NullResidualThreshold(after.Probe.Codec) {
+	// Whether the audio itself was reshaped is settled by inferAction, which
+	// reads the null test where there is one and the peak and range where there
+	// is not.
+	if audit.Action == model.LoudnessActionLimited {
 		return model.LoudnessVerdictDynamicsChanged
 	}
-	if audit.Action == model.LoudnessActionLimited {
+	// A backstop for a track with no null test whose range moved anyway.
+	if math.Abs(after.LRA-before.LRA) > pureGainToleranceDB {
 		return model.LoudnessVerdictDynamicsChanged
 	}
 	return model.LoudnessVerdictSafe

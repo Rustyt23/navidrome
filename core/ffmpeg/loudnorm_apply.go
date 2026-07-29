@@ -38,15 +38,67 @@ type ApplySpec struct {
 }
 
 const (
-	// limiterHeadroomDB: the limiter is aimed slightly below the ceiling
-	// because encoding reconstructs the waveform imperfectly and can nudge
-	// peaks back up. The verify pass measures the real result and lowers this
-	// further if a track still comes out over.
-	limiterHeadroomDB = 0.3
-
 	// maxOversampleRate caps the internal rate used for true-peak limiting.
 	maxOversampleRate = 192000
 )
+
+// RewriteLoudnessCost returns how much integrated loudness a file loses purely
+// from being rewritten at the given bitrate, in dB.
+//
+// Re-encoding a lossy file discards content, so what comes back measures
+// quieter than the level change alone predicts. Measured by rewriting sources
+// at their own bitrate with no gain applied at all, three tracks each:
+//
+//	128k -0.46   192k -0.26   256k 0.00   320k 0.00
+//
+// A plan that ignores this asks for a gain that lands short, and on a track
+// whose ceiling leaves no room for the difference it then fails on every run,
+// for ever. Bitrates between the measured points take the more expensive
+// neighbour's figure, so the estimate is never optimistic.
+func RewriteLoudnessCost(bitRate int) float64 {
+	switch {
+	case bitRate <= 0:
+		// Unknown: assume the source is not degraded, rather than inflate every
+		// gain on a guess.
+		return 0
+	case bitRate <= 160:
+		return 0.46
+	case bitRate <= 224:
+		return 0.26
+	default:
+		return 0
+	}
+}
+
+// limiterHeadroom returns how far below the ceiling the limiter should aim, for
+// a source of the given bitrate in kbps.
+//
+// The limiter shapes the decoded waveform, but what ships is the re-encoded
+// file, and encoding reconstructs the waveform imperfectly - so the true peak
+// springs back up afterwards. How far depends almost entirely on the bitrate.
+// Holding one track at -1.5 dBTP and re-encoding it at a range of bitrates
+// gives, as the finished true peak:
+//
+//	96k -0.77   128k -0.73   160k -0.78   192k -1.11   256k -1.06   320k -1.25
+//
+// a spring-back of roughly 0.75 dB at and below 160k, 0.4 through the middle,
+// and 0.25 at 320k. A single 0.3 dB allowance therefore holds for a
+// high-bitrate file and cannot hold for a low-bitrate one, which comes out over
+// the ceiling no matter how hard the limiter is asked to clamp.
+func limiterHeadroom(bitRate int) float64 {
+	switch {
+	case bitRate <= 0:
+		// Unknown bitrate: assume the source is not degraded rather than shave
+		// a good file harder than it needs.
+		return 0.3
+	case bitRate <= 160:
+		return 1.0
+	case bitRate <= 256:
+		return 0.6
+	default:
+		return 0.3
+	}
+}
 
 // oversampleRate returns the rate the limiter should run at.
 //
@@ -73,7 +125,7 @@ func oversampleRate(sampleRate int) int {
 func (s ApplySpec) filter() string {
 	chain := []string{fmt.Sprintf("volume=%sdB", formatFloat(s.GainDB))}
 	if s.LimitTruePeak {
-		limit := dbToLinear(s.CeilingDB - limiterHeadroomDB)
+		limit := dbToLinear(s.CeilingDB - limiterHeadroom(s.Source.BitRate))
 		limiter := fmt.Sprintf("alimiter=limit=%s:level=disabled:attack=5:release=50",
 			formatFloat(limit))
 

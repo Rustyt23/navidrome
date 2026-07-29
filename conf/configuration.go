@@ -175,7 +175,30 @@ type scannerOptions struct {
 
 // DefaultLoudnessNormalizationTolerance is the fallback tolerance (in LU) used
 // when Scanner.LoudnessNormalization.Tolerance is unset or invalid.
-const DefaultLoudnessNormalizationTolerance = 0.5
+//
+// 0.2 LU is the tightest band worth asking for. Re-encoding lands within about
+// 0.1 LU of where it was aimed, so a narrower target would sit inside the
+// process's own scatter and start rejecting good results; a wider one lets two
+// tracks drift far enough apart to be noticed. At 0.2 the spread stays well
+// below what anyone can hear.
+const DefaultLoudnessNormalizationTolerance = 0.2
+
+// DefaultLoudnessNormalizationTruePeak is the highest true peak a normalized
+// file may reach, in dBTP.
+//
+// This one number decides how much of a library can reach the target without
+// its audio being touched. A constant gain moves loudness and peak together, so
+// a track can only be turned up until its loudest instant meets the ceiling:
+// set the ceiling low and tracks that were within reach have to have their
+// peaks cut instead, set it at 0 and nothing is held back for whatever the file
+// passes through later, where a re-encode can nudge peaks up.
+//
+// -0.5 is where those two stop trading evenly. Measured across a real library,
+// lowering it further moves tracks out of reach several at a time and pushes
+// the required cuts past 2 dB, which is where reducing a peak stops being
+// inaudible; raising it buys back only a track or two and spends the last of
+// the reserve to do it.
+const DefaultLoudnessNormalizationTruePeak = -0.5
 
 type loudnessNormalizationOptions struct {
 	Enabled     bool
@@ -929,9 +952,9 @@ func setViperDefaults() {
 	viper.SetDefault("scanner.scanonstartup", true)
 	viper.SetDefault("scanner.loudnessnormalization.enabled", false)
 	viper.SetDefault("scanner.loudnessnormalization.targetlufs", -12.6)
-	viper.SetDefault("scanner.loudnessnormalization.truepeak", -1.5)
+	viper.SetDefault("scanner.loudnessnormalization.truepeak", DefaultLoudnessNormalizationTruePeak)
 	viper.SetDefault("scanner.loudnessnormalization.lra", 11.0)
-	viper.SetDefault("scanner.loudnessnormalization.tolerance", 0.5)
+	viper.SetDefault("scanner.loudnessnormalization.tolerance", 0.2)
 	viper.SetDefault("scanner.loudnessnormalization.parallelism", runtime.NumCPU())
 	viper.SetDefault("scanner.loudnessnormalization.backup", true)
 	viper.SetDefault("scanner.loudnessnormalization.backupfolder", "")

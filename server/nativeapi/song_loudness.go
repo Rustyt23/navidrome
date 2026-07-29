@@ -38,6 +38,9 @@ type songLoudnessResponse struct {
 
 func (n *Router) addSongLoudnessRoute(r chi.Router) {
 	r.Put("/song/loudness", n.optimizeSongLoudness())
+	r.Post("/song/loudness/restore", n.restoreSongLoudness())
+	r.Get("/song/loudness/backups", n.loudnessBackupReport())
+	r.Post("/song/loudness/backups/cleanup", n.cleanupLoudnessBackups())
 	r.Post("/song/loudness/library", n.startLibraryLoudness())
 	r.Get("/song/loudness/library", n.libraryLoudnessStatusHandler())
 	r.Get("/song/loudness/settings", n.loudnessSettings())
@@ -139,6 +142,21 @@ func (n *Router) optimizeSongLoudness() http.HandlerFunc {
 			http.Error(w, "ids are required", http.StatusBadRequest)
 			return
 		}
+
+		release, busy := claimLoudnessFileWork(&selectionLoudnessRunning)
+		if busy != "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(songLoudnessResponse{
+				IDs: ids, Failed: ids,
+				Results: []songLoudnessResult{{
+					Status: "failed",
+					Error:  busy + " is already running - wait for it to finish",
+				}},
+			})
+			return
+		}
+		defer release()
 
 		response := optimizeSelectedSongLoudness(ctx, n.ds, ids)
 		status := http.StatusOK

@@ -17,6 +17,7 @@ import {
 } from '../common'
 import LufsListActions from './LufsListActions'
 import { AnalyzeLufsButton } from './LufsAnalyzeButton'
+import { RestoreOriginalButton } from './RestoreOriginalButton'
 import { useAnalyzeStatus } from './useAnalyzeStatus'
 import { useLibraryStatus } from './useLibraryStatus'
 import {
@@ -32,6 +33,7 @@ import {
   LraField,
   LufsPairField,
   NullResidualField,
+  ReportField,
   OriginalLufsField,
   SampleRatePairField,
   StatusField,
@@ -39,29 +41,48 @@ import {
   VerdictField,
 } from './LufsFields'
 
+// The verdict and phase dropdowns are always visible rather than hidden behind
+// "Add filter": on a library of this size, narrowing to the songs that were
+// altered - or that still need a decision - is the main thing anyone comes
+// here to do.
 const LufsFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
     <SearchInput source="title" alwaysOn />
     <SelectInput
       source="loudness_verdict"
       label="Verdict"
-      emptyText="-- All --"
+      emptyText="-- Any verdict --"
+      alwaysOn
       choices={[
-        { id: 'safe', name: 'Safe' },
-        { id: 'untouched', name: 'Untouched' },
-        { id: 'dynamics_changed', name: 'Dynamics changed' },
-        { id: 'reencoded', name: 'Re-encoded' },
-        { id: 'failed', name: 'Failed' },
+        { id: 'untouched', name: 'No change needed - already on target' },
+        { id: 'safe', name: 'Volume only - nothing else altered' },
+        { id: 'dynamics_changed', name: 'Peaks trimmed' },
+        { id: 'reencoded', name: 'Quality lost - format degraded' },
+        { id: 'failed', name: 'Could not process' },
+      ]}
+    />
+    <SelectInput
+      source="loudness_phase"
+      label="Still to do"
+      emptyText="-- Any --"
+      alwaysOn
+      // String ids on purpose: a numeric 0 is falsy and can be dropped before
+      // it reaches the query. SQLite compares it to the integer column fine.
+      choices={[
+        { id: '0', name: 'Nothing - in range' },
+        { id: '1', name: 'Volume change - automatic' },
+        { id: '3', name: 'Inaudible peak trim - automatic' },
+        { id: '2', name: 'Needs your decision' },
       ]}
     />
     <SelectInput
       source="loudness_status"
       label="Status"
-      emptyText="-- All --"
+      emptyText="-- Any status --"
       choices={[
-        { id: 'analyzed', name: 'Analyzed' },
-        { id: 'processed', name: 'Processed' },
-        { id: 'failed', name: 'Failed' },
+        { id: 'analyzed', name: 'Measured only - file not changed' },
+        { id: 'processed', name: 'Changed' },
+        { id: 'failed', name: 'Could not process' },
       ]}
     />
   </Filter>
@@ -78,6 +99,7 @@ const LufsBulkActions = (props) => (
     />
     <AnalyzeLufsButton {...props} />
     <OptimizeLufsButton {...props} />
+    <RestoreOriginalButton {...props} />
   </>
 )
 
@@ -85,7 +107,7 @@ const LufsBulkActions = (props) => (
 // leave untouched, shown before -> after alongside the loudness measurements,
 // so a change can be proved rather than assumed.
 const LufsList = (props) => {
-  const [, setSettings] = useState(null)
+  const [settings, setSettings] = useState(null)
   const { status: analyzeStatus, poll } = useAnalyzeStatus()
   const { status: libraryStatus, poll: pollLibrary } = useLibraryStatus()
 
@@ -121,6 +143,14 @@ const LufsList = (props) => {
       lra: <LraField source="lra" label="LRA" sortBy="lra_before" />,
       action: (
         <ActionField source="action" label="Mode" sortBy="loudness_action" />
+      ),
+      report: (
+        <ReportField
+          source="report"
+          label="Report"
+          settings={settings}
+          sortable={false}
+        />
       ),
       integrity: (
         <IntegrityField
@@ -185,7 +215,7 @@ const LufsList = (props) => {
         />
       ),
     }),
-    [],
+    [settings],
   )
 
   const columns = useSelectedFields({
@@ -220,7 +250,7 @@ const LufsList = (props) => {
       }
       filters={<LufsFilter />}
       bulkActionButtons={<LufsBulkActions />}
-      perPage={50}
+      perPage={200}
     >
       <Datagrid rowClick={null}>
         <TextField source="title" sortBy="title" />

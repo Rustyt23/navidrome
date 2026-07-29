@@ -28,6 +28,7 @@ func loudnessRunOptions(mf *model.MediaFile) loudness.OptimizeOptions {
 		Backup:       options.Backup,
 		LibraryPath:  mf.LibraryPath,
 		BackupFolder: options.BackupFolder,
+		MediaFileID:  mf.ID,
 	}
 }
 
@@ -49,8 +50,10 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 		return res, err
 	}
 
-	// Refresh the audit record so the pages reflect what just happened.
-	audit := loudness.Audit(ctx, normalizer, mf.ID, mf.LibraryPath, trackPath,
+	// Refresh the audit record so the pages reflect what just happened. The run
+	// already measured both sides of the change, so the record is built from
+	// those rather than decoding the same files again.
+	audit := loudness.AuditFromOptimize(ctx, normalizer, mf.ID, mf.LibraryPath, trackPath, res,
 		opts.Target, opts.Tolerance, opts.BackupFolder)
 	if err := ds.LoudnessAudit(ctx).Put(audit); err != nil {
 		log.Warn(ctx, "Could not save loudness audit record", "id", mf.ID, err)

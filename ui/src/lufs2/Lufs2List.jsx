@@ -29,6 +29,7 @@ import {
   HeadroomField,
   OptionCeilingField,
   OptionLimitField,
+  ReasonField,
   SuggestionField,
 } from './Lufs2Fields'
 
@@ -109,10 +110,15 @@ const Lufs2Actions = ({ status, onStarted, ...rest }) => {
   )
 }
 
-// Lufs2List is the review queue: every track whose peaks leave too little room
-// to reach the target by turning it up. Each row shows why, and what each
-// available option would actually produce, so the choice is made on numbers
-// rather than guesswork.
+// Lufs2List is the exception list: everything the run could not finish on its
+// own. Two kinds of song end up here. One needs its peaks cut by enough to be
+// audible, which is a trade for the client rather than a formality - cuts too
+// small to hear are applied automatically and never reach this page. The other
+// is a file a run built, judged unfit and declined to ship.
+//
+// Keeping it to exceptions is the point. A page that mostly needs rubber
+// stamping is a page nobody reads, and the songs that genuinely need a person
+// are the ones that get lost in it.
 const Lufs2List = (props) => {
   const [settings, setSettings] = useState(null)
   const { status, poll } = useLibraryStatus()
@@ -135,7 +141,7 @@ const Lufs2List = (props) => {
     <List
       {...props}
       sort={{ field: 'title', order: 'ASC' }}
-      filter={{ loudness_phase: 2 }}
+      filter={{ loudness_exception: true }}
       filters={<Lufs2Filter />}
       actions={<Lufs2Actions status={status} onStarted={handleStarted} />}
       bulkActionButtons={<BulkActions />}
@@ -149,6 +155,12 @@ const Lufs2List = (props) => {
           label="Now"
           settings={settings}
           sortBy="lufs_before"
+        />
+        <ReasonField
+          source="reason"
+          label="Why it is here"
+          settings={settings}
+          sortable={false}
         />
         <HeadroomField
           source="headroom"

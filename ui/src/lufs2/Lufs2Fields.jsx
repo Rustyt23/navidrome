@@ -57,7 +57,7 @@ export const CurrentField = (props) => {
   )
 }
 
-// Option A: reach the target by shaving the peaks.
+// Reach the target by shaving the peaks.
 export const OptionLimitField = (props) => {
   const classes = useStyles()
   const record = useRecordContext(props)
@@ -73,7 +73,9 @@ export const OptionLimitField = (props) => {
   )
 }
 
-// Option B: leave the audio untouched and accept a quieter result.
+// Leave the audio untouched and accept a quieter result. This always lands
+// short of the target - that is what put the track on this page - so it is
+// never shown as a clean outcome.
 export const OptionCeilingField = (props) => {
   const classes = useStyles()
   const record = useRecordContext(props)
@@ -81,7 +83,7 @@ export const OptionCeilingField = (props) => {
   if (!rec) return <span className={classes.muted}>-</span>
   return (
     <span className={classes.nowrap}>
-      <span className={rec.shortfall <= 1 ? classes.ok : classes.warn}>
+      <span className={classes.warn}>
         {`${fmtLufs(rec.loudnessAtCeiling)} LUFS`}
       </span>
       <span className={`${classes.sub} ${classes.muted}`}>
@@ -101,9 +103,47 @@ export const SuggestionField = (props) => {
     rec.suggested === DECISION_CEILING
       ? 'resources.lufs2.decision.gain_ceiling'
       : 'resources.lufs2.decision.limit'
+  // A suggestion without its reason has to be taken on trust, and these are
+  // reviewed a row at a time.
   return (
-    <span className={classes.muted}>
-      {translate(key, { _: rec.suggested })}
+    <Tooltip title={rec.suggestedBecause}>
+      <span className={classes.nowrap}>
+        {translate(key, { _: rec.suggested })}
+        <span className={`${classes.sub} ${classes.muted}`}>
+          {rec.suggestedBecause}
+        </span>
+      </span>
+    </Tooltip>
+  )
+}
+
+// Why this song is on this page at all. Two things land here and they need
+// different answers: one is a trade for the client to weigh, the other is a
+// file nothing automatic can help with.
+export const ReasonField = (props) => {
+  const classes = useStyles()
+  const record = useRecordContext(props)
+  const a = record?.loudnessAudit
+  if (a?.action === 'refused') {
+    return (
+      <Tooltip title={a.error || ''}>
+        <span className={classes.nowrap}>
+          <span className={classes.bad}>Could not be processed</span>
+          <span className={`${classes.sub} ${classes.muted}`}>
+            {a.error || 'the result was not fit to ship'}
+          </span>
+        </span>
+      </Tooltip>
+    )
+  }
+  const rec = recommendationFor(record, props.settings)
+  if (!rec) return <span className={classes.muted}>-</span>
+  return (
+    <span className={classes.nowrap}>
+      <span className={classes.warn}>Needs an audible cut</span>
+      <span className={`${classes.sub} ${classes.muted}`}>
+        {`${fmtDb(rec.peakOverBy)} dB off the peaks - deep enough to hear`}
+      </span>
     </span>
   )
 }
@@ -113,12 +153,16 @@ export const DecisionField = (props) => {
   const translate = useTranslate()
   const record = useRecordContext(props)
   const decision = record?.loudnessAudit?.decision || ''
+  // A run that produced a file and then threw it away records why. Shown here
+  // because this is where anyone looks when a decision was made and nothing
+  // happened.
+  const rejected = record?.loudnessAudit?.error || ''
   const styleFor = {
     [DECISION_LIMIT]: classes.limit,
     [DECISION_CEILING]: classes.ceiling,
     [DECISION_SKIP]: classes.skip,
   }
-  return (
+  const chip = (
     <Chip
       size="small"
       className={`${classes.chip} ${styleFor[decision] || classes.pending}`}
@@ -129,5 +173,14 @@ export const DecisionField = (props) => {
         { _: decision || 'Undecided' },
       )}
     />
+  )
+  if (!rejected) return chip
+  return (
+    <Tooltip title={rejected}>
+      <span>
+        {chip}
+        <span className={`${classes.sub} ${classes.bad}`}>{rejected}</span>
+      </span>
+    </Tooltip>
   )
 }

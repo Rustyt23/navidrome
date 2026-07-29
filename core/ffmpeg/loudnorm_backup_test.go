@@ -45,34 +45,52 @@ func TestLoudnessBackupRootPrefersConfiguredFolder(t *testing.T) {
 	}
 }
 
-func TestLoudnessBackupPathMirrorsLibraryStructure(t *testing.T) {
-	got := LoudnessBackupPath("", "/storage/music", filepath.Join("/storage", "music", "Artist", "Album", "Song.mp3"))
-	want := filepath.Join("/storage", LoudnessBackupFolderName, "Artist", "Album", "Song.mp3")
+func TestLoudnessBackupPathIsKeyedBySongIdentity(t *testing.T) {
+	got := LoudnessBackupPath("", "/storage/music", "ab12cd34",
+		filepath.Join("/storage", "music", "Artist", "Album", "Song.mp3"))
+	want := filepath.Join("/storage", LoudnessBackupFolderName, "ab", "ab12cd34__Song.mp3")
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
-func TestLoudnessBackupPathFallsBackToFilenameOutsideLibrary(t *testing.T) {
-	got := LoudnessBackupPath("/backups", "/storage/music", "/somewhere-else/Song.mp3")
-	want := filepath.Join("/backups", "Song.mp3")
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+// Where a song sits in the library must not decide where its original is kept.
+// While it did, moving or renaming a song orphaned its backup, and a song
+// arriving at a deleted song's path inherited one that was not its own.
+func TestLoudnessBackupPathDoesNotMoveWhenTheSongDoes(t *testing.T) {
+	before := LoudnessBackupPath("/backups", "/music", "ab12cd34", "/music/Old Folder/Song.mp3")
+	after := LoudnessBackupPath("/backups", "/music", "ab12cd34", "/music/New Folder/Song.mp3")
+	if before != after {
+		t.Errorf("moving the song moved its backup:\n  %q\n  %q", before, after)
 	}
 }
 
-func TestBackupOriginalCreatesMirroredCopyOutsideLibrary(t *testing.T) {
+func TestLoudnessBackupPathSeparatesTwoSongsSharingAName(t *testing.T) {
+	a := LoudnessBackupPath("/backups", "/music", "ab12cd34", "/music/Song.mp3")
+	b := LoudnessBackupPath("/backups", "/music", "ef56gh78", "/music/Song.mp3")
+	if a == b {
+		t.Errorf("two songs share the backup slot %q", a)
+	}
+}
+
+func TestLoudnessBackupPathNeedsAnIdentity(t *testing.T) {
+	if got := LoudnessBackupPath("/backups", "/music", "", "/music/Song.mp3"); got != "" {
+		t.Errorf("got %q, want no path without a song id", got)
+	}
+}
+
+func TestBackupOriginalCreatesCopyOutsideLibrary(t *testing.T) {
 	base := t.TempDir()
 	lib := filepath.Join(base, "music")
 	backups := filepath.Join(base, "backups")
 	track := filepath.Join(lib, "Artist", "Album", "Song.mp3")
 	writeFile(t, track, "original")
 
-	if err := BackupOriginal(track, 0o644, lib, backups); err != nil {
+	if err := BackupOriginal(track, 0o644, lib, backups, "song-1"); err != nil {
 		t.Fatal(err)
 	}
 
-	backup := filepath.Join(backups, "Artist", "Album", "Song.mp3")
+	backup := LoudnessBackupPath(backups, lib, "song-1", track)
 	if content := readFile(t, backup); content != "original" {
 		t.Fatalf("backup content = %q", content)
 	}
@@ -92,7 +110,7 @@ func TestBackupOriginalNeverOverwritesAnExistingOriginal(t *testing.T) {
 	writeFile(t, track, "already normalized")
 	writeFile(t, filepath.Join(backups, "Song.mp3"), "the true original")
 
-	if err := BackupOriginal(track, 0o644, lib, backups); err != nil {
+	if err := BackupOriginal(track, 0o644, lib, backups, "song-1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,7 +124,7 @@ func TestBackupOriginalFailsWithNoLocation(t *testing.T) {
 	track := filepath.Join(dir, "Song.mp3")
 	writeFile(t, track, "original")
 
-	if err := BackupOriginal(track, 0o644, "", ""); err == nil {
+	if err := BackupOriginal(track, 0o644, "", "", "song-1"); err == nil {
 		t.Fatal("expected an error when no backup location is configured")
 	}
 }
@@ -118,14 +136,31 @@ func TestFindLoudnessBackup(t *testing.T) {
 	track := filepath.Join(lib, "Song.mp3")
 	writeFile(t, track, "current")
 
-	if got := FindLoudnessBackup(backups, lib, track); got != "" {
+	if got := FindLoudnessBackup(backups, lib, "song-1", track); got != "" {
 		t.Fatalf("expected no backup, got %q", got)
 	}
 
-	backup := filepath.Join(backups, "Song.mp3")
+	backup := LoudnessBackupPath(backups, lib, "song-1", track)
 	writeFile(t, backup, "original")
-	if got := FindLoudnessBackup(backups, lib, track); got != backup {
+	if got := FindLoudnessBackup(backups, lib, "song-1", track); got != backup {
 		t.Fatalf("expected %q, got %q", backup, got)
+	}
+}
+
+// Originals stored before backups were keyed by identity still have to be
+// found, or an upgrade would silently strand every one of them.
+func TestFindLoudnessBackupStillFindsOnesStoredByAnEarlierVersion(t *testing.T) {
+	base := t.TempDir()
+	lib := filepath.Join(base, "music")
+	backups := filepath.Join(base, "backups")
+	track := filepath.Join(lib, "Artist", "Song.mp3")
+	writeFile(t, track, "current")
+
+	legacy := LegacyLoudnessBackupPath(backups, lib, track)
+	writeFile(t, legacy, "original")
+
+	if got := FindLoudnessBackup(backups, lib, "song-1", track); got != legacy {
+		t.Fatalf("expected the legacy backup %q, got %q", legacy, got)
 	}
 }
 
@@ -170,13 +205,13 @@ func TestBackupCopyIsCompleteAndClean(t *testing.T) {
 	track := filepath.Join(lib, "Song.mp3")
 	writeFile(t, track, "the original audio")
 
-	if err := BackupOriginal(track, 0o644, lib, backups); err != nil {
+	if err := BackupOriginal(track, 0o644, lib, backups, "song-1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, filepath.Join(backups, "Song.mp3")); got != "the original audio" {
+	if got := readFile(t, LoudnessBackupPath(backups, lib, "song-1", track)); got != "the original audio" {
 		t.Fatalf("backup content = %q", got)
 	}
-	entries, err := os.ReadDir(backups)
+	entries, err := os.ReadDir(filepath.Dir(LoudnessBackupPath(backups, lib, "song-1", track)))
 	if err != nil {
 		t.Fatal(err)
 	}

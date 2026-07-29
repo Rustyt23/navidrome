@@ -23,6 +23,11 @@ const (
 	LoudnessActionGain    = "gain"    // constant gain only (linear)
 	LoudnessActionLimited = "limited" // gain plus peak limiting / dynamic processing
 	LoudnessActionSkipped = "skipped" // nothing applied
+	// LoudnessActionRefused: a result was produced and thrown away because it
+	// was not good enough to ship. The file is untouched. Recorded so a run does
+	// not keep rebuilding the same rejected file on every pass; a fresh analysis
+	// clears it and the track is tried again.
+	LoudnessActionRefused = "refused"
 )
 
 // LoudnessAudit is the before/after record for one media file. It lives in its
@@ -64,7 +69,19 @@ type LoudnessAudit struct {
 	SizeBefore       int64   `structs:"size_before" json:"sizeBefore"`
 	ArtBefore        bool    `structs:"art_before" json:"artBefore"`
 	ArtAfter         bool    `structs:"art_after" json:"artAfter"`
-	HasBackup        bool    `structs:"has_backup" json:"hasBackup"`
+
+	// The after snapshot is measured with the same probe as the before
+	// snapshot. Reading it from media_file instead would compare against the
+	// scanner's own metadata extractor, which reports a slightly different
+	// duration and would make every rewrite look like it shifted the track.
+	CodecAfter      string  `structs:"codec_after" json:"codecAfter"`
+	BitrateAfter    int     `structs:"bitrate_after" json:"bitrateAfter"`
+	SampleRateAfter int     `structs:"sample_rate_after" json:"sampleRateAfter"`
+	BitDepthAfter   int     `structs:"bit_depth_after" json:"bitDepthAfter"`
+	ChannelsAfter   int     `structs:"channels_after" json:"channelsAfter"`
+	DurationAfter   float64 `structs:"duration_after" json:"durationAfter"`
+	SizeAfter       int64   `structs:"size_after" json:"sizeAfter"`
+	HasBackup       bool    `structs:"has_backup" json:"hasBackup"`
 
 	Error      string    `structs:"error" json:"error,omitempty"`
 	AnalyzedAt time.Time `structs:"analyzed_at" json:"analyzedAt"`

@@ -60,6 +60,13 @@ type dbMediaFile struct {
 	LoudnessSizeBefore       int64      `structs:"-" json:"-"`
 	LoudnessArtBefore        bool       `structs:"-" json:"-"`
 	LoudnessArtAfter         bool       `structs:"-" json:"-"`
+	LoudnessCodecAfter       string     `structs:"-" json:"-"`
+	LoudnessBitrateAfter     int        `structs:"-" json:"-"`
+	LoudnessSampleRateAfter  int        `structs:"-" json:"-"`
+	LoudnessBitDepthAfter    int        `structs:"-" json:"-"`
+	LoudnessChannelsAfter    int        `structs:"-" json:"-"`
+	LoudnessDurationAfter    float64    `structs:"-" json:"-"`
+	LoudnessSizeAfter        int64      `structs:"-" json:"-"`
 	LoudnessHasBackup        bool       `structs:"-" json:"-"`
 	LoudnessError            string     `structs:"-" json:"-"`
 	LoudnessAnalyzedAt       *time.Time `structs:"-" json:"-"`
@@ -88,6 +95,13 @@ var loudnessAuditColumns = map[string]string{
 	"size_before":        "0",
 	"art_before":         "0",
 	"art_after":          "0",
+	"codec_after":        "''",
+	"bitrate_after":      "0",
+	"sample_rate_after":  "0",
+	"bit_depth_after":    "0",
+	"channels_after":     "0",
+	"duration_after":     "0",
+	"size_after":         "0",
 	"has_backup":         "0",
 	// Nullable: no default
 	"lufs_before":   "",
@@ -144,6 +158,13 @@ func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
 		SizeBefore:       m.LoudnessSizeBefore,
 		ArtBefore:        m.LoudnessArtBefore,
 		ArtAfter:         m.LoudnessArtAfter,
+		CodecAfter:       m.LoudnessCodecAfter,
+		BitrateAfter:     m.LoudnessBitrateAfter,
+		SampleRateAfter:  m.LoudnessSampleRateAfter,
+		BitDepthAfter:    m.LoudnessBitDepthAfter,
+		ChannelsAfter:    m.LoudnessChannelsAfter,
+		DurationAfter:    m.LoudnessDurationAfter,
+		SizeAfter:        m.LoudnessSizeAfter,
 		HasBackup:        m.LoudnessHasBackup,
 		Error:            m.LoudnessError,
 	}
@@ -269,6 +290,18 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		},
 		"loudness_decision": func(_ string, value any) Sqlizer {
 			return eqFilter("media_file_loudness.decision", value)
+		},
+		// Everything a person still has to look at. Either reaching the target
+		// needs the peaks cut by enough to be heard - which is the client's
+		// call, not ours - or a run built a file, judged it unfit and kept the
+		// original, and nothing further will happen to it on its own.
+		// Phase 2 is loudness.PhaseReview; the phases live in core/loudness,
+		// which this layer does not import.
+		"loudness_exception": func(_ string, _ any) Sqlizer {
+			return Or{
+				Eq{"media_file_loudness.phase": 2},
+				Eq{"media_file_loudness.action": model.LoudnessActionRefused},
+			}
 		},
 		"artists_id": artistFilter,
 		"library_id": libraryIdFilter,

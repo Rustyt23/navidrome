@@ -6,6 +6,7 @@ import { AnalyzeLufsButton } from './LufsAnalyzeButton'
 import SpeedIcon from '@material-ui/icons/Speed'
 import JobProgress from './JobProgress'
 import { ClearLufsAnalysisButton, StopLufsJobButton } from './LufsJobButtons'
+import { BackupCleanupButton } from './BackupCleanupButton'
 import { ANALYZE_URL } from './useAnalyzeStatus'
 import { LIBRARY_URL } from './useLibraryStatus'
 
@@ -75,6 +76,7 @@ const LufsListActions = ({
       <ClearLufsAnalysisButton
         disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
       />
+      <BackupCleanupButton />
       <ExportButton maxResults={total} />
       <ToggleFieldsMenu resource="lufs" />
     </TopToolbar>

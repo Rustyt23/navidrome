@@ -122,14 +122,24 @@ func probeDuration(ctx context.Context, path string) float64 {
 	return probe.Duration
 }
 
-var astatsPeakRe = regexp.MustCompile(`Peak level dB:\s*(-?\d+(?:\.\d+)?|-?inf)`)
+// "RMS level dB" and not "RMS peak dB" or "RMS trough dB", which astats also
+// prints.
+var astatsRMSRe = regexp.MustCompile(`RMS level dB:\s*(-?\d+(?:\.\d+)?|-?inf)`)
 
 // NullResidual measures how much of the audio changed beyond a level shift.
 //
 // It undoes gainDB on the "after" file, subtracts it from the "before" file and
-// returns the peak level of what remains, in dBFS. A pure gain change leaves
-// only codec noise (around -70 dB); anything that reshaped the audio - dynamic
-// processing, limiting, resampling, a lossy re-encode - leaves far more.
+// returns the level of what remains, in dBFS.
+//
+// The energy of the leftover is what matters, not its single loudest instant.
+// Rewriting a lossy file always disagrees with the original somewhere - most
+// sharply at transients, where the encoder's choices differ - so the peak of
+// the difference is set by one instant and says nothing about how much of the
+// track changed. Measured across real music the two answer completely different
+// questions: gain-only rewrites peak at around -14 dB while their energy sits
+// near -45, and audio that has genuinely been reshaped sits near -10 by energy.
+// By peak the two are indistinguishable; by energy they are 30 dB apart.
+//
 // Returns -inf as -120.
 func NullResidual(ctx context.Context, beforePath, afterPath string, gainDB float64) (float64, error) {
 	cmdPath, err := ffmpegCmd()
@@ -158,9 +168,11 @@ func NullResidual(ctx context.Context, beforePath, afterPath string, gainDB floa
 		return 0, fmt.Errorf("measuring null residual: %w: %s", err, string(output))
 	}
 
-	matches := astatsPeakRe.FindAllStringSubmatch(string(output), -1)
+	// astats reports each channel and then an "Overall" block; the last match is
+	// the overall figure for the merged difference signal.
+	matches := astatsRMSRe.FindAllStringSubmatch(string(output), -1)
 	if len(matches) == 0 {
-		return 0, fmt.Errorf("null residual: peak level not found in ffmpeg output")
+		return 0, fmt.Errorf("null residual: RMS level not found in ffmpeg output")
 	}
 	value := matches[len(matches)-1][1]
 	if value == "-inf" {
@@ -168,7 +180,7 @@ func NullResidual(ctx context.Context, beforePath, afterPath string, gainDB floa
 	}
 	peak, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return 0, fmt.Errorf("null residual: invalid peak level %q: %w", value, err)
+		return 0, fmt.Errorf("null residual: invalid RMS level %q: %w", value, err)
 	}
 	return peak, nil
 }

@@ -3,6 +3,7 @@ import PropTypes from 'prop-types'
 import { useRecordContext, useTranslate } from 'react-admin'
 import { Chip, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
+import { nullFloorFor, reportFor } from './report'
 
 const useStyles = makeStyles((theme) => ({
   chip: {
@@ -11,7 +12,10 @@ const useStyles = makeStyles((theme) => ({
     fontWeight: 600,
   },
   safe: { backgroundColor: '#2e7d32', color: '#fff' },
-  warn: { backgroundColor: '#ed6c02', color: '#fff' },
+  warn: {
+    backgroundColor: '#fdd835',
+    '& .MuiChip-label': { color: '#1565c0 !important' },
+  },
   bad: { backgroundColor: '#c62828', color: '#fff' },
   neutral: { backgroundColor: theme.palette.action.selected },
   pair: { whiteSpace: 'nowrap' },
@@ -62,22 +66,35 @@ const verdictClass = (classes, verdict) => {
   }
 }
 
+// A song the engine opened, worked on and then declined to change has no stored
+// verdict - the verdicts describe changes, and nothing changed. Left blank it
+// reads as an oversight, so it is named here from the reason the run recorded.
+// Derived rather than stored: the run already wrote down why, and inventing a
+// verdict for it would mean a column and a migration to say the same thing.
+const LEFT_AS_IS = 'left_as_is'
+const verdictOf = (a) => {
+  if (a?.verdict) return a.verdict
+  if (a?.action === 'refused') return LEFT_AS_IS
+  return ''
+}
+
 export const VerdictField = (props) => {
   const classes = useStyles()
   const translate = useTranslate()
   const record = useRecordContext(props)
   const a = audit(record)
-  if (!a?.verdict) {
+  const verdict = verdictOf(a)
+  if (!verdict) {
     return <span className={classes.same}>-</span>
   }
-  const label = translate(`resources.lufs.verdict.${a.verdict}`, {
-    _: a.verdict,
+  const label = translate(`resources.lufs.verdict.${verdict}`, {
+    _: verdict,
   })
   const chip = (
     <Chip
       size="small"
       label={label}
-      className={`${classes.chip} ${verdictClass(classes, a.verdict)}`}
+      className={`${classes.chip} ${verdictClass(classes, verdict)}`}
     />
   )
   return a.error ? <Tooltip title={a.error}>{chip}</Tooltip> : chip
@@ -182,28 +199,50 @@ export const LraField = (props) => {
   )
 }
 
+// The pass mark depends on the format, not on a fixed number: re-encoding a
+// lossy file always leaves a floor of codec noise around -25 dB, while a
+// lossless round trip leaves almost nothing. Using one hard-coded threshold
+// for both flagged perfectly clean MP3s as problems.
 export const NullResidualField = (props) => {
   const classes = useStyles()
+  const translate = useTranslate()
   const record = useRecordContext(props)
   const a = audit(record)
   if (!has(a?.nullResidual)) return <span className={classes.same}>-</span>
+
   const v = Number(a.nullResidual)
+  const floor = nullFloorFor(a.codecAfter || a.codecBefore || record?.suffix)
+  const altered = v > floor
+
   return (
-    <span className={v > -40 ? classes.changed : classes.ok}>
-      {`${v.toFixed(1)} dB`}
-    </span>
+    <Tooltip
+      title={translate(
+        altered ? 'resources.lufs.nullAltered' : 'resources.lufs.nullClean',
+        { floor: floor.toFixed(0) },
+      )}
+    >
+      <span className={altered ? classes.changed : classes.ok}>
+        {`${v.toFixed(1)} dB`}
+      </span>
+    </Tooltip>
   )
 }
 
-// Format pairs. "After" is the file as it stands now, which is the media_file
-// record itself; "before" comes from the audit snapshot.
-const formatField = (beforeKey, afterKey, { suffix = '', digits } = {}) => {
+// Format pairs. Both sides come from the audit's own probe so they are directly
+// comparable; the media_file column is only a fallback for records written
+// before the after snapshot existed.
+const formatField = (
+  beforeKey,
+  afterKey,
+  recordKey,
+  { suffix = '', digits } = {},
+) => {
   const Field = (props) => {
     const classes = useStyles()
     const record = useRecordContext(props)
     const a = audit(record)
     const before = a?.[beforeKey]
-    const after = record?.[afterKey]
+    const after = a?.codecAfter ? a?.[afterKey] : record?.[recordKey]
     // Until a file has actually been rewritten there is no "after" to compare
     // against, so show the single current value. Rendering "320k -> 320k" here
     // would read as a conversion that never happened.
@@ -231,30 +270,40 @@ const formatField = (beforeKey, afterKey, { suffix = '', digits } = {}) => {
   return Field
 }
 
-export const CodecPairField = formatField('codecBefore', 'suffix')
-export const BitratePairField = formatField('bitrateBefore', 'bitRate', {
-  suffix: 'k',
-})
-export const SampleRatePairField = formatField('sampleRateBefore', 'sampleRate')
-export const BitDepthPairField = formatField('bitDepthBefore', 'bitDepth')
-export const ChannelsPairField = formatField('channelsBefore', 'channels')
+export const CodecPairField = formatField('codecBefore', 'codecAfter', 'suffix')
+export const BitratePairField = formatField(
+  'bitrateBefore',
+  'bitrateAfter',
+  'bitRate',
+  { suffix: 'k' },
+)
+export const SampleRatePairField = formatField(
+  'sampleRateBefore',
+  'sampleRateAfter',
+  'sampleRate',
+)
+export const BitDepthPairField = formatField(
+  'bitDepthBefore',
+  'bitDepthAfter',
+  'bitDepth',
+)
+export const ChannelsPairField = formatField(
+  'channelsBefore',
+  'channelsAfter',
+  'channels',
+)
 
 export const DurationDiffField = (props) => {
   const classes = useStyles()
   const record = useRecordContext(props)
   const a = audit(record)
-  // Only meaningful once a file has been rewritten. On an untouched track the
-  // two numbers come from different measurements of the same file - ffprobe
-  // here, the scanner's own metadata read there - so any difference is a
-  // rounding artefact, not a change to the song.
-  if (
-    a?.status !== 'processed' ||
-    !a?.durationBefore ||
-    !has(record?.duration)
-  ) {
+  // Both sides must come from the same probe. Comparing against the scanner's
+  // stored duration measures the difference between two measurement methods -
+  // consistently about 0.03s - rather than any change to the song.
+  if (a?.status !== 'processed' || !a?.durationBefore || !a?.durationAfter) {
     return <span className={classes.same}>-</span>
   }
-  const diff = Number(record.duration) - Number(a.durationBefore)
+  const diff = Number(a.durationAfter) - Number(a.durationBefore)
   if (Math.abs(diff) < 0.001) return <span className={classes.ok}>0</span>
   return (
     <span className={Math.abs(diff) > 0.05 ? classes.changed : classes.same}>
@@ -332,4 +381,49 @@ Pair.propTypes = {
   after: PropTypes.any,
   changed: PropTypes.bool,
   suffix: PropTypes.string,
+}
+
+// ReportField says, in one cell, what optimisation actually did to a song -
+// and separates the changes that matter from the ones that do not, so a clean
+// result reads as clean instead of as a wall of numbers to interpret.
+export const ReportField = (props) => {
+  const classes = useStyles()
+  const translate = useTranslate()
+  const record = useRecordContext(props)
+  const report = reportFor(record, props.settings)
+
+  if (!report) {
+    return <span className={classes.same}>-</span>
+  }
+
+  const line = (text, key, cls) => (
+    <div key={key} className={cls}>
+      {text}
+    </div>
+  )
+
+  const detail = (
+    <div>
+      {report.intended && line(`• ${report.intended}`, 'intended')}
+      {report.significant.map((s, i) => line(`⚠ ${s}`, `s${i}`))}
+      {report.minor.map((s, i) => line(`· ${s}`, `m${i}`))}
+      {report.unchanged.length > 0 &&
+        line(`✓ Unchanged: ${report.unchanged.join(', ')}`, 'unchanged')}
+    </div>
+  )
+
+  const summary = report.clean
+    ? translate('resources.lufs.report.levelOnly', { _: 'Level only' })
+    : translate('resources.lufs.report.issues', {
+        smart_count: report.significant.length,
+        _: `${report.significant.length} significant`,
+      })
+
+  return (
+    <Tooltip title={detail}>
+      <span className={report.clean ? classes.ok : classes.changed}>
+        {report.clean ? `✓ ${summary}` : `⚠ ${summary}`}
+      </span>
+    </Tooltip>
+  )
 }

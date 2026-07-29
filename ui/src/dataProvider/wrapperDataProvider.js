@@ -40,6 +40,23 @@ const optimizeSongLoudness = async (ids) => {
   return { data: response?.json || {} }
 }
 
+const restoreSongLoudness = async (ids) => {
+  const payload = {
+    ids: ids || [],
+  }
+
+  const response = await httpClient(`${REST_URL}/song/loudness/restore`, {
+    method: 'POST',
+    headers: new Headers({
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }),
+    body: JSON.stringify(payload),
+  })
+
+  return { data: response?.json || {} }
+}
+
 const isAdmin = () => {
   const role = localStorage.getItem('role')
   return role === 'admin'
@@ -124,6 +141,14 @@ const mapResource = (resource, params) => {
     case 'tag': {
       params.filter = params.filter || {}
       if (!isAdmin()) {
+        params.filter.missing = false
+      }
+      // A song whose file is gone cannot be analysed, optimised or restored, so
+      // the LUFS pages never list one - not even for an admin, who is shown
+      // missing songs elsewhere deliberately. Listing them here inflates every
+      // count on the page and makes "select all" queue work that can only fail.
+      // The runs already skip them; this makes the page agree.
+      if (resource === 'lufs' || resource === 'lufs2') {
         params.filter.missing = false
       }
       params = applyLibraryFilter(resource, params)
@@ -321,6 +346,7 @@ const wrapperDataProvider = {
     }))
   },
   optimizeSongLoudness,
+  restoreSongLoudness,
 
   setPlaylistFolder: ({ playlistId, targetFolderId, sourceParentId }) => {
     return httpClient(`${REST_URL}/playlist/${playlistId}/folder`, {

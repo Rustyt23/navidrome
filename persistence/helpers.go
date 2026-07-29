@@ -2,11 +2,11 @@ package persistence
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
-	"errors"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/fatih/structs"
@@ -95,8 +95,8 @@ func mapSortOrder(tableName, order string) string {
 var ErrInvalidRequest = errors.New("Invalid Request")
 
 func rejectEmptyOptionalID(id *string) error {
-    if id != nil && *id == "" {
-        return ErrInvalidRequest
-    }
-    return nil
+	if id != nil && *id == "" {
+		return ErrInvalidRequest
+	}
+	return nil
 }

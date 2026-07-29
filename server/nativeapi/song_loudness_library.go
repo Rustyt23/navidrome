@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/core/loudness"
@@ -58,7 +59,9 @@ func (n *Router) beginLibraryLoudness(ctx context.Context, phase int) bool {
 	libraryLoudness.stopMu.Lock()
 	defer loudnessAnalyze.stopMu.Unlock()
 	defer libraryLoudness.stopMu.Unlock()
-	if loudnessAnalyze.running.Load() || libraryLoudness.running.Load() {
+	// Analysis reads files but writes the same records; the other two rewrite
+	// the files themselves. Any of them running means this run must wait.
+	if loudnessAnalyze.running.Load() || loudnessFileWorkBusy() != "" {
 		return false
 	}
 	libraryLoudness.running.Store(true)
@@ -184,7 +187,7 @@ func (n *Router) runLibraryLoudness(ctx context.Context) {
 		log.Info(ctx, "LUFS run: tracks to process", "total", total, "phase", phase)
 	}
 
-	cursor, err := n.ds.MediaFile(ctx).GetCursor()
+	cursor, err := n.ds.MediaFile(ctx).GetCursor(model.QueryOptions{Filters: loudnessRunFilter(phase)})
 	if err != nil {
 		log.Error(ctx, "LUFS run: could not read media files", err)
 		return
@@ -228,11 +231,8 @@ dispatch:
 			log.Info(ctx, "LUFS run stopped on request", "processed", libraryLoudness.processed.Load())
 			break
 		}
-		if mf.Missing || strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
+		if strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
 			libraryLoudness.skipped.Add(1)
-			continue
-		}
-		if !matchesLoudnessPhase(&mf, phase) {
 			continue
 		}
 		select {
@@ -250,43 +250,55 @@ dispatch:
 }
 
 // countLoudnessTargets counts how many tracks this run will actually touch, so
-// the UI can show "processed of total" rather than an open-ended counter.
+// the UI can show "processed of total" rather than an open-ended counter. It
+// asks the database rather than walking every row, and so applies the same
+// filter the run itself does.
 func (n *Router) countLoudnessTargets(ctx context.Context, phase int) (int64, error) {
-	cursor, err := n.ds.MediaFile(ctx).GetCursor()
-	if err != nil {
-		return 0, err
-	}
-	var total int64
-	for mf, err := range cursor {
-		if err != nil {
-			return total, err
-		}
-		if libraryLoudness.stopping.Load() {
-			return total, nil
-		}
-		if mf.Missing || strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
-			continue
-		}
-		if matchesLoudnessPhase(&mf, phase) {
-			total++
-		}
-	}
-	return total, nil
+	return n.ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: loudnessRunFilter(phase)})
 }
 
-// matchesLoudnessPhase decides whether a track belongs to the run in progress.
+// loudnessRunFilter narrows a run to the tracks it will actually touch.
 //
-// Phase 1 covers everything not yet known to need review - including tracks
-// that have never been analysed, since the engine measures and classifies them
-// itself and simply leaves phase 2 tracks alone. Phase 2 covers only tracks the
-// client has given a decision for.
-func matchesLoudnessPhase(mf *model.MediaFile, phase int) bool {
-	audit := mf.LoudnessAudit
+// The selection belongs in the query rather than in Go because the alternative
+// is to hand every track to the engine and let it find out: the engine's first
+// act is a full loudness measurement, which decodes the whole file. On a large
+// library that means re-measuring everything already finished on every run -
+// the most expensive thing the pipeline does, spent to rediscover something
+// already recorded. It also means an interrupted run resumes where it stopped
+// instead of starting over.
+//
+// Phase 1 covers everything not yet known to need review, including tracks
+// never analysed - the engine measures and classifies those itself. It leaves
+// out tracks already measured as on target (phase 0). That verdict is only as
+// current as the last analysis: neither a change of tolerance nor a file
+// replaced on disk updates it, so re-run Analyze after either. Phase 2 covers
+// only tracks the client has given a decision for.
+func loudnessRunFilter(phase int) squirrel.Sqlizer {
+	notMissing := squirrel.Eq{"media_file.missing": false}
 	if phase == loudness.PhaseReview {
-		return audit != nil && audit.Phase == loudness.PhaseReview &&
-			(audit.Decision == loudness.DecisionLimit || audit.Decision == loudness.DecisionCeiling)
+		return squirrel.And{
+			notMissing,
+			squirrel.Eq{"media_file_loudness.phase": loudness.PhaseReview},
+			squirrel.Eq{"media_file_loudness.decision": []string{
+				loudness.DecisionLimit, loudness.DecisionCeiling,
+			}},
+		}
 	}
-	return audit == nil || audit.Phase != loudness.PhaseReview
+	// A track with no audit row at all joins as NULL, which no comparison
+	// matches, so the absent case is spelled out with the same "never planned"
+	// value the column defaults to.
+	return squirrel.And{
+		notMissing,
+		squirrel.Expr("coalesce(media_file_loudness.phase, ?) <> ?",
+			loudness.PhaseUnplanned, loudness.PhaseReview),
+		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and media_file_loudness.lufs_before is not null)",
+			loudness.PhaseUnplanned, loudness.PhaseDone),
+		// A track whose last attempt was built and then rejected is left out.
+		// Nothing about it or the settings has changed since, so rebuilding the
+		// same file would reach the same refusal - on every run, for ever.
+		// Re-analysing clears the mark and the track is tried again.
+		squirrel.Expr("coalesce(media_file_loudness.action, '') <> ?", model.LoudnessActionRefused),
+	}
 }
 
 // copyTrackToSyncMP3Folder copies a LUFS-updated track into SyncFolder/mp3,
