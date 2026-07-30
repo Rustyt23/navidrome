@@ -202,13 +202,13 @@ describe('LibrarySelector', () => {
       expect(screen.getByText('All Libraries (3)')).toBeInTheDocument()
     })
 
-    it('should render the chip with "None" when no libraries are selected', () => {
+    it('should render the implicit empty marker as all libraries', () => {
       renderLibrarySelector({
         userLibraries: mockLibraries,
         selectedLibraries: [],
       })
 
-      expect(screen.getByText('None (0 of 3)')).toBeInTheDocument()
+      expect(screen.getByText('All Libraries (3)')).toBeInTheDocument()
     })
 
     it('should show expand less icon when dropdown is open', async () => {
@@ -273,7 +273,7 @@ describe('LibrarySelector', () => {
         expect(masterCheckbox.indeterminate).toBe(false)
       })
 
-      it('should be unchecked when no libraries are selected', async () => {
+      it('should be checked for the implicit all-libraries marker', async () => {
         const user = userEvent.setup()
         renderLibrarySelector({
           userLibraries: mockLibraries,
@@ -285,8 +285,9 @@ describe('LibrarySelector', () => {
 
         const checkboxes = screen.getAllByRole('checkbox')
         const masterCheckbox = checkboxes[0]
-        expect(masterCheckbox.checked).toBe(false)
+        expect(masterCheckbox.checked).toBe(true)
         expect(masterCheckbox.indeterminate).toBe(false)
+        expect(masterCheckbox).toBeDisabled()
       })
 
       it('should be indeterminate when some libraries are selected', async () => {
@@ -305,7 +306,7 @@ describe('LibrarySelector', () => {
         expect(masterCheckbox.indeterminate).toBe(true)
       })
 
-      it('should select all libraries when clicked and none are selected', async () => {
+      it('should keep the implicit all-libraries marker read-only', async () => {
         const user = userEvent.setup()
         renderLibrarySelector({
           userLibraries: mockLibraries,
@@ -324,13 +325,10 @@ describe('LibrarySelector', () => {
         // Use fireEvent.click to trigger the onChange event
         fireEvent.click(masterCheckbox)
 
-        expect(mockDispatch).toHaveBeenCalledWith({
-          type: 'SET_SELECTED_LIBRARIES',
-          data: ['1', '2', '3'],
-        })
+        expect(mockDispatch).not.toHaveBeenCalled()
       })
 
-      it('should deselect all libraries when clicked and all are selected', async () => {
+      it('should keep an explicit all-libraries selection read-only', async () => {
         const user = userEvent.setup()
         renderLibrarySelector({
           userLibraries: mockLibraries,
@@ -348,10 +346,7 @@ describe('LibrarySelector', () => {
 
         fireEvent.click(masterCheckbox)
 
-        expect(mockDispatch).toHaveBeenCalledWith({
-          type: 'SET_SELECTED_LIBRARIES',
-          data: [],
-        })
+        expect(mockDispatch).not.toHaveBeenCalled()
       })
 
       it('should select all libraries when clicked and some are selected', async () => {

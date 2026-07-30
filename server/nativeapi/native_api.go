@@ -200,6 +200,7 @@ func (api *Router) routes() http.Handler {
 			api.addUserLibraryRoute(r)
 			api.addSyncRoute(r)
 			api.addSongLoudnessRoute(r)
+			api.addSongSilenceTrimRoute(r)
 			api.addMusicBrainzMetadataRoute(r)
 			api.addGCSyncRoute(r)
 			api.addPluginRoute(r)

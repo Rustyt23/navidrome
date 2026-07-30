@@ -65,7 +65,13 @@ var _ = Describe("loudness file-work guard", func() {
 	reset := func() {
 		selectionLoudnessRunning.Store(false)
 		restoreLoudnessRunning.Store(false)
+		loudnessAnalyze.running.Store(false)
 		libraryLoudness.running.Store(false)
+		silenceAnalyzeRunning.Store(false)
+		silenceApplyRunning.Store(false)
+		silenceRestoreRunning.Store(false)
+		silenceDecisionRunning.Store(false)
+		silenceClearRunning.Store(false)
 	}
 	BeforeEach(reset)
 	AfterEach(reset)
@@ -80,7 +86,7 @@ var _ = Describe("loudness file-work guard", func() {
 		Expect(release).ToNot(BeNil())
 
 		_, busy = claimLoudnessFileWork(&selectionLoudnessRunning)
-		Expect(busy).To(Equal("a restore"))
+		Expect(busy).To(Equal("a LUFS restore"))
 
 		release()
 		release2, busy := claimLoudnessFileWork(&selectionLoudnessRunning)

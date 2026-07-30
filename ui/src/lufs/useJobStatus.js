@@ -54,11 +54,14 @@ export const useJobStatus = (url) => {
       const tick = () => {
         poll().then((json) => {
           attempts += 1
-          if ((json && !json.running) || attempts >= WATCH_ATTEMPTS) {
+          if (json && !json.running) {
             onSettled?.(json)
             return
           }
-          setTimeout(tick, WATCH_INTERVAL_MS)
+          setTimeout(
+            tick,
+            attempts < WATCH_ATTEMPTS ? WATCH_INTERVAL_MS : IDLE_INTERVAL_MS,
+          )
         })
       }
       setTimeout(tick, WATCH_INTERVAL_MS)

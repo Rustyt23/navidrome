@@ -30,6 +30,7 @@ type MockDataStore struct {
 	MockedScrobble                  model.ScrobbleRepository
 	MockedRadio                     model.RadioRepository
 	MockedLoudnessAudit             *MockLoudnessAuditRepo
+	MockedSilenceTrimAudit          *MockSilenceTrimAuditRepo
 	MockedPlugin                    model.PluginRepository
 	MockedRetailPlayerDeviceMapping model.RetailPlayerDeviceMappingRepository
 	MockedRetailPlayerFolder        model.RetailPlayerFolderRepository
@@ -287,6 +288,69 @@ func (db *MockDataStore) LoudnessAudit(ctx context.Context) model.LoudnessAuditR
 	}
 	db.MockedLoudnessAudit = &MockLoudnessAuditRepo{data: map[string]*model.LoudnessAudit{}}
 	return db.MockedLoudnessAudit
+}
+
+func (db *MockDataStore) SilenceTrimAudit(ctx context.Context) model.SilenceTrimAuditRepository {
+	if db.MockedSilenceTrimAudit != nil {
+		return db.MockedSilenceTrimAudit
+	}
+	if db.RealDS != nil {
+		return db.RealDS.SilenceTrimAudit(ctx)
+	}
+	db.MockedSilenceTrimAudit = &MockSilenceTrimAuditRepo{data: map[string]*model.SilenceTrimAudit{}}
+	return db.MockedSilenceTrimAudit
+}
+
+type MockSilenceTrimAuditRepo struct {
+	mu   sync.RWMutex
+	data map[string]*model.SilenceTrimAudit
+}
+
+func (m *MockSilenceTrimAuditRepo) Put(audit *model.SilenceTrimAudit) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.data == nil {
+		m.data = map[string]*model.SilenceTrimAudit{}
+	}
+	copy := *audit
+	m.data[audit.MediaFileID] = &copy
+	return nil
+}
+
+func (m *MockSilenceTrimAuditRepo) Get(mediaFileID string) (*model.SilenceTrimAudit, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	audit, ok := m.data[mediaFileID]
+	if !ok {
+		return nil, model.ErrNotFound
+	}
+	copy := *audit
+	return &copy, nil
+}
+
+func (m *MockSilenceTrimAuditRepo) SetDecision(mediaFileID, decision string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	audit, ok := m.data[mediaFileID]
+	if !ok {
+		audit = &model.SilenceTrimAudit{MediaFileID: mediaFileID}
+		m.data[mediaFileID] = audit
+	}
+	audit.Decision = decision
+	return nil
+}
+
+func (m *MockSilenceTrimAuditRepo) Clear() (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var count int64
+	for id, audit := range m.data {
+		if audit == nil || !audit.HasBackup {
+			delete(m.data, id)
+			count++
+		}
+	}
+	return count, nil
 }
 
 // MockLoudnessAuditRepo is an in-memory LoudnessAuditRepository for tests.

@@ -162,6 +162,11 @@ func buildBackupReport(ctx context.Context, ds model.DataStore) (backupReport, e
 		}
 		name := d.Name()
 		if d.IsDir() {
+			// Silence-trim originals are a separate restore namespace. They
+			// must never be classified or moved by LUFS backup cleanup.
+			if path != report.Root && name == ffmpeg.SilenceTrimBackupFolderName {
+				return filepath.SkipDir
+			}
 			// Skip the folders orphans were moved into, and anything hidden.
 			if path != report.Root && strings.HasPrefix(name, ".") {
 				return filepath.SkipDir

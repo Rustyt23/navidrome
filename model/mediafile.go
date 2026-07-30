@@ -101,6 +101,12 @@ type MediaFile struct {
 	// analysis/normalization code, never by the scanner.
 	LoudnessAudit *LoudnessAudit `structs:"-" json:"loudnessAudit,omitempty" hash:"ignore"`
 
+	// SilenceTrimAudit is the independent edge-silence proposal/audit. It is
+	// never inferred from LUFS state because trimming intentionally changes
+	// duration while loudness processing is required not to.
+	SilenceTrimAudit *SilenceTrimAudit `structs:"-" json:"silenceTrimAudit,omitempty" hash:"ignore"`
+	HasAnyBookmark   bool              `structs:"-" json:"-" hash:"ignore"`
+
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track
 
@@ -453,6 +459,7 @@ type MediaFileRepository interface {
 	FindByPaths(paths []string) (MediaFiles, error)
 	UpdateComment(ids []string, comment string) error
 	UpdateLoudnessTags(id string, lufs float64) error
+	UpdateFileSizeAndDuration(id string, size int64, duration float64) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
 	UpdateCoverPath(id string, coverPath string) error
 	UpdateSpotifyMetadata(id string, confidence *float64, match *string, artist *string, spotifyURL *string) error

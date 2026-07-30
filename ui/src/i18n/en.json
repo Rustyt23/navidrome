@@ -650,6 +650,43 @@
         "runFinished": "Decisions applied: %{changed} changed, %{skipped} skipped, %{failed} failed",
         "rechecked": "Checked again: %{changed} fixed, %{skipped} still stuck, %{failed} failed"
       }
+    },
+    "silencetrim": {
+      "name": "Silence Trimming |||| Silence Trimming",
+      "empty": "No songs available",
+      "fields": {
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
+        "format": "Format",
+        "suffix": "Format",
+        "bitrate": "Bitrate",
+        "bitRate": "Bitrate",
+        "sampleRate": "Sample rate",
+        "bitDepth": "Bit depth",
+        "channels": "Channels",
+        "duration": "Current duration",
+        "status": "Status",
+        "safety": "Safety",
+        "leading": "Blank at start",
+        "trailing": "Blank at end",
+        "startTrim": "Proposed start cut",
+        "endTrim": "Proposed end cut",
+        "padding": "Blank retained",
+        "method": "Quality-safe method",
+        "expectedDuration": "After / expected",
+        "integrity": "Integrity proof",
+        "decision": "Decision",
+        "reason": "Why / protection",
+        "backup": "Pre-trim backup",
+        "analyzedAt": "Analyzed",
+        "appliedAt": "Applied",
+        "path": "Path",
+        "silence_trim_status": "Status",
+        "silence_trim_classification": "Safety",
+        "silence_trim_decision": "Decision",
+        "silence_trim_removable": "Has edge blank"
+      }
     }
   },
   "ra": {

@@ -200,3 +200,9 @@ func copyFileWithMode(src, dst string, mode os.FileMode) error {
 	completed = true
 	return nil
 }
+
+// CopyFileAtomic exposes the crash-safe copy primitive for workflows that need
+// a temporary rollback snapshot before replacing a library file.
+func CopyFileAtomic(src, dst string, mode os.FileMode) error {
+	return copyFileWithMode(src, dst, mode)
+}

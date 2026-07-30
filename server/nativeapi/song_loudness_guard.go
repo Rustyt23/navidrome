@@ -23,18 +23,35 @@ var (
 	loudnessFileWorkMu       sync.Mutex
 	selectionLoudnessRunning atomic.Bool
 	restoreLoudnessRunning   atomic.Bool
+	silenceAnalyzeRunning    atomic.Bool
+	silenceApplyRunning      atomic.Bool
+	silenceRestoreRunning    atomic.Bool
+	silenceDecisionRunning   atomic.Bool
+	silenceClearRunning      atomic.Bool
 )
 
 // loudnessFileWorkInProgress names the operation currently rewriting library
 // files, or "" when none is. Callers must hold loudnessFileWorkMu.
 func loudnessFileWorkInProgress() string {
 	switch {
+	case loudnessAnalyze.running.Load():
+		return "a LUFS analysis"
 	case libraryLoudness.running.Load():
 		return "a whole-library LUFS run"
 	case selectionLoudnessRunning.Load():
 		return "an optimisation of selected songs"
 	case restoreLoudnessRunning.Load():
-		return "a restore"
+		return "a LUFS restore"
+	case silenceAnalyzeRunning.Load():
+		return "a start/end silence analysis"
+	case silenceApplyRunning.Load():
+		return "a start/end silence trim"
+	case silenceRestoreRunning.Load():
+		return "a start/end silence restore"
+	case silenceDecisionRunning.Load():
+		return "a start/end silence decision update"
+	case silenceClearRunning.Load():
+		return "a start/end silence analysis cleanup"
 	}
 	return ""
 }
@@ -49,7 +66,11 @@ func claimLoudnessFileWork(flag *atomic.Bool) (release func(), busy string) {
 		return nil, busy
 	}
 	flag.Store(true)
-	return func() { flag.Store(false) }, ""
+	return func() {
+		loudnessFileWorkMu.Lock()
+		flag.Store(false)
+		loudnessFileWorkMu.Unlock()
+	}, ""
 }
 
 // loudnessFileWorkBusy reports what is rewriting files, for callers that manage

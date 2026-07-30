@@ -11,6 +11,7 @@ import (
 	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/core/loudness"
+	"github.com/navidrome/navidrome/core/silencetrim"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
@@ -39,6 +40,11 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 	mf *model.MediaFile) (loudness.OptimizeResult, error) {
 	trackPath := absoluteSelectedMediaPath(mf.LibraryPath, mf.Path)
 	opts := loudnessRunOptions(mf)
+	if silenceTrimBlocksLoudness(mf, trackPath, opts.BackupFolder) {
+		return loudness.OptimizeResult{}, fmt.Errorf(
+			"restore the active start/end silence trim before LUFS processing",
+		)
+	}
 
 	decision := loudness.DecisionPending
 	if audit, err := ds.LoudnessAudit(ctx).Get(mf.ID); err == nil && audit != nil {
@@ -75,6 +81,40 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 		}
 	}
 	return res, nil
+}
+
+// The durable generation record closes the short interval where the verified
+// trimmed file is already installed but its database audit has not yet been
+// committed. LUFS must respect either proof, otherwise it could rewrite the
+// result and make its exact pre-trim restore ambiguous.
+func silenceTrimBlocksLoudness(
+	mf *model.MediaFile,
+	trackPath string,
+	backupFolder string,
+) bool {
+	if silencetrim.ResultFileUnchanged(mf.SilenceTrimAudit, trackPath) {
+		return true
+	}
+	_, state, err := silencetrim.ReconcileGeneration(
+		trackPath,
+		mf.LibraryPath,
+		backupFolder,
+		mf.ID,
+	)
+	if state == silencetrim.GenerationStateResult {
+		return true
+	}
+	if err != nil {
+		// Fail closed during the journal-before-database window. An explicit
+		// inactive audit (verified backup, no result generation) proves a prior
+		// trim was restored and allows a later LUFS rewrite.
+		return !silencetrim.CanIgnoreGenerationError(
+			err,
+			mf.SilenceTrimAudit,
+			trackPath,
+		)
+	}
+	return false
 }
 
 type loudnessDecisionPayload struct {

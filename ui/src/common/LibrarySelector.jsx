@@ -130,36 +130,43 @@ const LibrarySelector = () => {
   }
 
   const handleLibraryToggle = (libraryId) => {
-    const newSelection = selectedLibraries.includes(libraryId)
-      ? selectedLibraries.filter((id) => id !== libraryId)
-      : [...selectedLibraries, libraryId]
+    const effectiveSelection =
+      selectedLibraries.length === 0
+        ? userLibraries.map((library) => library.id)
+        : selectedLibraries
+    const newSelection = effectiveSelection.includes(libraryId)
+      ? effectiveSelection.filter((id) => id !== libraryId)
+      : [...effectiveSelection, libraryId]
 
-    dispatch(setSelectedLibraries(newSelection))
+    // Empty is the app-wide marker for "all accessible libraries". Do not
+    // turn the last uncheck into an accidental select-all.
+    if (newSelection.length > 0) {
+      dispatch(setSelectedLibraries(newSelection))
+    }
   }
 
   const handleMasterCheckboxChange = () => {
-    if (isAllSelected) {
-      dispatch(setSelectedLibraries([]))
-    } else {
+    if (!isAllSelected) {
       const allIds = userLibraries.map((lib) => lib.id)
       dispatch(setSelectedLibraries(allIds))
     }
   }
 
-  const selectedCount = selectedLibraries.length
+  const effectiveSelection =
+    selectedLibraries.length === 0
+      ? userLibraries.map((library) => library.id)
+      : selectedLibraries
+  const selectedCount = effectiveSelection.length
   const totalCount = userLibraries.length
   const isAllSelected = selectedCount === totalCount
-  const isNoneSelected = selectedCount === 0
   const isIndeterminate = selectedCount > 0 && selectedCount < totalCount
 
-  const displayText = isNoneSelected
-    ? translate('menu.librarySelector.none') + ` (0 of ${totalCount})`
-    : isAllSelected
-      ? translate('menu.librarySelector.allLibraries', { count: totalCount })
-      : translate('menu.librarySelector.multipleLibraries', {
-          selected: selectedCount,
-          total: totalCount,
-        })
+  const displayText = isAllSelected
+    ? translate('menu.librarySelector.allLibraries', { count: totalCount })
+    : translate('menu.librarySelector.multipleLibraries', {
+        selected: selectedCount,
+        total: totalCount,
+      })
 
   return (
     <Box className={classes.root}>
@@ -186,6 +193,7 @@ const LibrarySelector = () => {
                 checked={isAllSelected}
                 indeterminate={isIndeterminate}
                 onChange={handleMasterCheckboxChange}
+                disabled={isAllSelected}
                 size="small"
                 className={classes.masterCheckbox}
               />
@@ -201,7 +209,11 @@ const LibrarySelector = () => {
                     key={library.id}
                     control={
                       <Checkbox
-                        checked={selectedLibraries.includes(library.id)}
+                        checked={effectiveSelection.includes(library.id)}
+                        disabled={
+                          effectiveSelection.length === 1 &&
+                          effectiveSelection.includes(library.id)
+                        }
                         onChange={() => handleLibraryToggle(library.id)}
                         size="small"
                       />

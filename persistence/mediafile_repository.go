@@ -70,6 +70,57 @@ type dbMediaFile struct {
 	LoudnessHasBackup        bool       `structs:"-" json:"-"`
 	LoudnessError            string     `structs:"-" json:"-"`
 	LoudnessAnalyzedAt       *time.Time `structs:"-" json:"-"`
+
+	// Joined from media_file_silence_trim. The prefix keeps these independent
+	// from both media_file and the LUFS audit.
+	SilenceStatus                 string     `structs:"-" json:"-"`
+	SilenceClassification         string     `structs:"-" json:"-"`
+	SilenceDecision               string     `structs:"-" json:"-"`
+	SilenceReason                 string     `structs:"-" json:"-"`
+	SilenceLeadingKind            string     `structs:"-" json:"-"`
+	SilenceTrailingKind           string     `structs:"-" json:"-"`
+	SilenceLeadingSilence         float64    `structs:"-" json:"-"`
+	SilenceTrailingSilence        float64    `structs:"-" json:"-"`
+	SilenceLeadingSamples         int64      `structs:"-" json:"-"`
+	SilenceTrailingSamples        int64      `structs:"-" json:"-"`
+	SilenceProposedStartTrim      float64    `structs:"-" json:"-"`
+	SilenceProposedEndTrim        float64    `structs:"-" json:"-"`
+	SilenceProposedStartSamples   int64      `structs:"-" json:"-"`
+	SilenceProposedEndSamples     int64      `structs:"-" json:"-"`
+	SilenceAppliedStartTrim       float64    `structs:"-" json:"-"`
+	SilenceAppliedEndTrim         float64    `structs:"-" json:"-"`
+	SilenceAppliedStartSamples    int64      `structs:"-" json:"-"`
+	SilenceAppliedEndSamples      int64      `structs:"-" json:"-"`
+	SilenceRetainedPadding        float64    `structs:"-" json:"-"`
+	SilenceRetainedPaddingSamples int64      `structs:"-" json:"-"`
+	SilenceMethod                 string     `structs:"-" json:"-"`
+	SilenceIntegrity              string     `structs:"-" json:"-"`
+	SilenceCodecBefore            string     `structs:"-" json:"-"`
+	SilenceCodecAfter             string     `structs:"-" json:"-"`
+	SilenceBitrateBefore          int        `structs:"-" json:"-"`
+	SilenceBitrateAfter           int        `structs:"-" json:"-"`
+	SilenceSampleRateBefore       int        `structs:"-" json:"-"`
+	SilenceSampleRateAfter        int        `structs:"-" json:"-"`
+	SilenceBitDepthBefore         int        `structs:"-" json:"-"`
+	SilenceBitDepthAfter          int        `structs:"-" json:"-"`
+	SilenceChannelsBefore         int        `structs:"-" json:"-"`
+	SilenceChannelsAfter          int        `structs:"-" json:"-"`
+	SilenceDurationBefore         float64    `structs:"-" json:"-"`
+	SilenceDurationAfter          float64    `structs:"-" json:"-"`
+	SilenceSizeBefore             int64      `structs:"-" json:"-"`
+	SilenceSizeAfter              int64      `structs:"-" json:"-"`
+	SilenceArtBefore              bool       `structs:"-" json:"-"`
+	SilenceArtAfter               bool       `structs:"-" json:"-"`
+	SilenceHasBackup              bool       `structs:"-" json:"-"`
+	SilenceBackupSHA256           string     `structs:"-" json:"-"`
+	SilenceSourceSHA256           string     `structs:"-" json:"-"`
+	SilenceResultSHA256           string     `structs:"-" json:"-"`
+	SilenceError                  string     `structs:"-" json:"-"`
+	SilenceSourceModifiedAt       *time.Time `structs:"-" json:"-"`
+	SilenceResultModifiedAt       *time.Time `structs:"-" json:"-"`
+	SilenceAnalyzedAt             *time.Time `structs:"-" json:"-"`
+	SilenceAppliedAt              *time.Time `structs:"-" json:"-"`
+	HasAnyBookmark                bool       `structs:"-" json:"-"`
 }
 
 // loudnessAuditColumns are the media_file_loudness columns joined into media
@@ -128,6 +179,78 @@ func loudnessAuditSelectColumns() []string {
 	return cols
 }
 
+var silenceTrimAuditColumns = map[string]string{
+	"status":                   "''",
+	"classification":           "''",
+	"decision":                 "''",
+	"reason":                   "''",
+	"leading_kind":             "''",
+	"trailing_kind":            "''",
+	"leading_silence":          "0",
+	"trailing_silence":         "0",
+	"leading_samples":          "0",
+	"trailing_samples":         "0",
+	"proposed_start_trim":      "0",
+	"proposed_end_trim":        "0",
+	"proposed_start_samples":   "0",
+	"proposed_end_samples":     "0",
+	"applied_start_trim":       "0",
+	"applied_end_trim":         "0",
+	"applied_start_samples":    "0",
+	"applied_end_samples":      "0",
+	"retained_padding":         "0",
+	"retained_padding_samples": "0",
+	"method":                   "''",
+	"integrity":                "''",
+	"codec_before":             "''",
+	"codec_after":              "''",
+	"bitrate_before":           "0",
+	"bitrate_after":            "0",
+	"sample_rate_before":       "0",
+	"sample_rate_after":        "0",
+	"bit_depth_before":         "0",
+	"bit_depth_after":          "0",
+	"channels_before":          "0",
+	"channels_after":           "0",
+	"duration_before":          "0",
+	"duration_after":           "0",
+	"size_before":              "0",
+	"size_after":               "0",
+	"art_before":               "0",
+	"art_after":                "0",
+	"has_backup":               "0",
+	"backup_sha256":            "''",
+	"source_sha256":            "''",
+	"result_sha256":            "''",
+	"error":                    "''",
+	"source_modified_at":       "",
+	"result_modified_at":       "",
+	"analyzed_at":              "",
+	"applied_at":               "",
+}
+
+func silenceTrimAuditSelectColumns() []string {
+	cols := make([]string, 0, len(silenceTrimAuditColumns))
+	for name, zero := range silenceTrimAuditColumns {
+		if zero == "" {
+			cols = append(cols, fmt.Sprintf(
+				"media_file_silence_trim.%s as silence_%s",
+				name,
+				name,
+			))
+			continue
+		}
+		cols = append(cols, fmt.Sprintf(
+			"coalesce(media_file_silence_trim.%s, %s) as silence_%s",
+			name,
+			zero,
+			name,
+		))
+	}
+	slices.Sort(cols)
+	return cols
+}
+
 // toAudit rebuilds the audit record from the joined columns. Returns nil when
 // the track has never been analyzed (no row in media_file_loudness).
 func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
@@ -174,12 +297,73 @@ func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
 	return audit
 }
 
+func (m *dbMediaFile) toSilenceTrimAudit() *model.SilenceTrimAudit {
+	if m.SilenceAnalyzedAt == nil && m.SilenceStatus == "" && m.SilenceDecision == "" {
+		return nil
+	}
+	audit := &model.SilenceTrimAudit{
+		MediaFileID:            m.ID,
+		Status:                 m.SilenceStatus,
+		Classification:         m.SilenceClassification,
+		Decision:               m.SilenceDecision,
+		Reason:                 m.SilenceReason,
+		LeadingKind:            m.SilenceLeadingKind,
+		TrailingKind:           m.SilenceTrailingKind,
+		LeadingSilence:         m.SilenceLeadingSilence,
+		TrailingSilence:        m.SilenceTrailingSilence,
+		LeadingSamples:         m.SilenceLeadingSamples,
+		TrailingSamples:        m.SilenceTrailingSamples,
+		ProposedStartTrim:      m.SilenceProposedStartTrim,
+		ProposedEndTrim:        m.SilenceProposedEndTrim,
+		ProposedStartSamples:   m.SilenceProposedStartSamples,
+		ProposedEndSamples:     m.SilenceProposedEndSamples,
+		AppliedStartTrim:       m.SilenceAppliedStartTrim,
+		AppliedEndTrim:         m.SilenceAppliedEndTrim,
+		AppliedStartSamples:    m.SilenceAppliedStartSamples,
+		AppliedEndSamples:      m.SilenceAppliedEndSamples,
+		RetainedPadding:        m.SilenceRetainedPadding,
+		RetainedPaddingSamples: m.SilenceRetainedPaddingSamples,
+		Method:                 m.SilenceMethod,
+		Integrity:              m.SilenceIntegrity,
+		CodecBefore:            m.SilenceCodecBefore,
+		CodecAfter:             m.SilenceCodecAfter,
+		BitrateBefore:          m.SilenceBitrateBefore,
+		BitrateAfter:           m.SilenceBitrateAfter,
+		SampleRateBefore:       m.SilenceSampleRateBefore,
+		SampleRateAfter:        m.SilenceSampleRateAfter,
+		BitDepthBefore:         m.SilenceBitDepthBefore,
+		BitDepthAfter:          m.SilenceBitDepthAfter,
+		ChannelsBefore:         m.SilenceChannelsBefore,
+		ChannelsAfter:          m.SilenceChannelsAfter,
+		DurationBefore:         m.SilenceDurationBefore,
+		DurationAfter:          m.SilenceDurationAfter,
+		SizeBefore:             m.SilenceSizeBefore,
+		SizeAfter:              m.SilenceSizeAfter,
+		ArtBefore:              m.SilenceArtBefore,
+		ArtAfter:               m.SilenceArtAfter,
+		HasBackup:              m.SilenceHasBackup,
+		BackupSHA256:           m.SilenceBackupSHA256,
+		SourceSHA256:           m.SilenceSourceSHA256,
+		ResultSHA256:           m.SilenceResultSHA256,
+		Error:                  m.SilenceError,
+		SourceModifiedAt:       m.SilenceSourceModifiedAt,
+		ResultModifiedAt:       m.SilenceResultModifiedAt,
+		AppliedAt:              m.SilenceAppliedAt,
+	}
+	if m.SilenceAnalyzedAt != nil {
+		audit.AnalyzedAt = *m.SilenceAnalyzedAt
+	}
+	return audit
+}
+
 func (m *dbMediaFile) PostScan() error {
 	m.RGTrackGain = m.RgTrackGain
 	m.RGTrackPeak = m.RgTrackPeak
 	m.RGAlbumGain = m.RgAlbumGain
 	m.RGAlbumPeak = m.RgAlbumPeak
 	m.MediaFile.LoudnessAudit = m.toAudit()
+	m.MediaFile.SilenceTrimAudit = m.toSilenceTrimAudit()
+	m.MediaFile.HasAnyBookmark = m.HasAnyBookmark
 	var err error
 	m.MediaFile.Participants, err = unmarshalParticipants(m.Participants)
 	if err != nil {
@@ -251,6 +435,14 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 		"bitrate_before":     "media_file_loudness.bitrate_before",
 		"sample_rate_before": "media_file_loudness.sample_rate_before",
 		"analyzed_at":        "media_file_loudness.analyzed_at",
+		// Silence-trim audit (joined independently from LUFS)
+		"silence_trim_status":         "media_file_silence_trim.status",
+		"silence_trim_classification": "media_file_silence_trim.classification",
+		"silence_trim_decision":       "media_file_silence_trim.decision",
+		"silence_trim_method":         "media_file_silence_trim.method",
+		"silence_trim_leading":        "media_file_silence_trim.leading_silence",
+		"silence_trim_trailing":       "media_file_silence_trim.trailing_silence",
+		"silence_trim_analyzed_at":    "media_file_silence_trim.analyzed_at",
 	})
 	return r
 }
@@ -313,6 +505,27 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		},
 		"loudness_decision": func(_ string, value any) Sqlizer {
 			return eqFilter("media_file_loudness.decision", value)
+		},
+		"silence_trim_status": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_silence_trim.status", value)
+		},
+		"silence_trim_classification": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_silence_trim.classification", value)
+		},
+		"silence_trim_decision": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_silence_trim.decision", value)
+		},
+		"silence_trim_removable": func(_ string, value any) Sqlizer {
+			if isTrue(value) {
+				return Or{
+					Gt{"media_file_silence_trim.proposed_start_samples": 0},
+					Gt{"media_file_silence_trim.proposed_end_samples": 0},
+				}
+			}
+			return And{
+				Eq{"media_file_silence_trim.proposed_start_samples": 0},
+				Eq{"media_file_silence_trim.proposed_end_samples": 0},
+			}
 		},
 		// Every song whose handling was not routine, and it stays here once it
 		// qualifies rather than dropping off the moment it is dealt with. The
@@ -382,7 +595,8 @@ func mediaFileRecentlyAddedSort() string {
 
 func (r *mediaFileRepository) CountAll(options ...model.QueryOptions) (int64, error) {
 	query := r.newSelect().
-		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id")
+		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id").
+		LeftJoin("media_file_silence_trim on media_file_silence_trim.media_file_id = media_file.id")
 	query = r.withAnnotation(query, "media_file.id")
 	query = r.applyLibraryFilter(query)
 	return r.count(query, options...)
@@ -431,9 +645,15 @@ func (r *mediaFileRepository) UpdateProbeData(id string, data string) error {
 func (r *mediaFileRepository) selectMediaFile(options ...model.QueryOptions) SelectBuilder {
 	columns := append([]string{"media_file.*", "library.path as library_path", "library.name as library_name"},
 		loudnessAuditSelectColumns()...)
+	columns = append(columns, silenceTrimAuditSelectColumns()...)
+	columns = append(
+		columns,
+		"exists(select 1 from bookmark where bookmark.item_type = 'media_file' and bookmark.item_id = media_file.id and bookmark.position > 0) as has_any_bookmark",
+	)
 	sql := r.newSelect(options...).Columns(columns...).
 		LeftJoin("library on media_file.library_id = library.id").
-		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id")
+		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id").
+		LeftJoin("media_file_silence_trim on media_file_silence_trim.media_file_id = media_file.id")
 	sql = r.withAnnotation(sql, "media_file.id")
 	sql = r.withBookmark(sql, "media_file.id")
 	return r.applyLibraryFilter(sql)
@@ -630,6 +850,23 @@ func (r *mediaFileRepository) UpdateLoudnessTags(id string, lufs float64) error 
 		Set("updated_at", time.Now()).
 		Where(Eq{"id": id})
 	_, err = r.executeSQL(upd)
+	return err
+}
+
+// UpdateFileSizeAndDuration keeps playback/list metadata in step immediately
+// after an intentional edge trim. A later library scan will independently
+// verify the same values from the file.
+func (r *mediaFileRepository) UpdateFileSizeAndDuration(id string, size int64, duration float64) error {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	_, err := r.executeSQL(
+		Update(r.tableName).
+			Set("size", size).
+			Set("duration", duration).
+			Set("updated_at", time.Now()).
+			Where(Eq{"id": id}),
+	)
 	return err
 }
 

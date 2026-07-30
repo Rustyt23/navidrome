@@ -111,6 +111,14 @@ func restoreSelectedSongs(ctx context.Context, ds model.DataStore, ids []string)
 			continue
 		}
 		trackPath := absoluteSelectedMediaPath(mf.LibraryPath, mf.Path)
+		if silenceTrimBlocksLoudness(mf, trackPath, options.BackupFolder) {
+			record(
+				&response.Failed,
+				"failed",
+				"restore the active start/end silence trim before restoring LUFS",
+			)
+			continue
+		}
 
 		// Reported as skipped rather than failed: a song that was never
 		// rewritten has nothing to restore, and selecting a whole page should

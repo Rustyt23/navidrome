@@ -57,11 +57,13 @@ type libraryLoudnessStatus struct {
 func (n *Router) beginLibraryLoudness(ctx context.Context, phase int) bool {
 	loudnessAnalyze.stopMu.Lock()
 	libraryLoudness.stopMu.Lock()
+	loudnessFileWorkMu.Lock()
 	defer loudnessAnalyze.stopMu.Unlock()
 	defer libraryLoudness.stopMu.Unlock()
+	defer loudnessFileWorkMu.Unlock()
 	// Analysis reads files but writes the same records; the other two rewrite
 	// the files themselves. Any of them running means this run must wait.
-	if loudnessAnalyze.running.Load() || loudnessFileWorkBusy() != "" {
+	if loudnessFileWorkInProgress() != "" {
 		return false
 	}
 	libraryLoudness.running.Store(true)

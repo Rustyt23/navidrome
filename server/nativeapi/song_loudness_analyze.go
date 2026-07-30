@@ -81,9 +81,11 @@ func (n *Router) loudnessAnalyzeStatusHandler() http.HandlerFunc {
 func beginLoudnessAnalyze() bool {
 	loudnessAnalyze.stopMu.Lock()
 	libraryLoudness.stopMu.Lock()
+	loudnessFileWorkMu.Lock()
 	defer loudnessAnalyze.stopMu.Unlock()
 	defer libraryLoudness.stopMu.Unlock()
-	if loudnessAnalyze.running.Load() || libraryLoudness.running.Load() {
+	defer loudnessFileWorkMu.Unlock()
+	if loudnessFileWorkInProgress() != "" {
 		return false
 	}
 	loudnessAnalyze.running.Store(true)

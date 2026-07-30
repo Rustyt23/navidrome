@@ -77,6 +77,10 @@ func (s *SQLStore) LoudnessAudit(ctx context.Context) model.LoudnessAuditReposit
 	return NewLoudnessAuditRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) SilenceTrimAudit(ctx context.Context) model.SilenceTrimAuditRepository {
+	return NewSilenceTrimAuditRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) RetailPlayerDeviceMapping(ctx context.Context) model.RetailPlayerDeviceMappingRepository {
 	return NewRetailPlayerDeviceMappingRepository(ctx, s.getDBXBuilder())
 }

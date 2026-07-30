@@ -49,6 +49,7 @@ import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
 import lufs from './lufs'
 import lufs2 from './lufs2'
+import silencetrim from './silencetrim'
 import PlaylistCreate from './playlist/PlaylistCreate'
 import PlaylistShow from './playlist/PlaylistShow'
 import PlaylistEdit from './playlist/PlaylistEdit'
@@ -130,7 +131,11 @@ const Admin = (props) => {
           show={PlaylistShow}
           edit={PlaylistEdit}
         />,
-        <Resource name="discovery" {...discovery} options={{ subMenu: 'discovery' }} />,
+        <Resource
+          name="discovery"
+          {...discovery}
+          options={{ subMenu: 'discovery' }}
+        />,
         <Resource
           {...playlist_folder}
           name="folder"
@@ -167,6 +172,9 @@ const Admin = (props) => {
         ) : null,
         permissions === 'admin' ? <Resource name="lufs" {...lufs} /> : null,
         permissions === 'admin' ? <Resource name="lufs2" {...lufs2} /> : null,
+        permissions === 'admin' ? (
+          <Resource name="silencetrim" {...silencetrim} />
+        ) : null,
         permissions === 'admin' && config.pluginsEnabled ? (
           <Resource
             name="plugin"

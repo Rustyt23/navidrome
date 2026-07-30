@@ -93,6 +93,7 @@ const applyLibraryFilter = (resource, params) => {
     'song',
     'lufs',
     'lufs2',
+    'silencetrim',
     'artist',
     'playlistTrack',
     'tag',
@@ -102,7 +103,11 @@ const applyLibraryFilter = (resource, params) => {
   const selectedLibraries = getSelectedLibraries()
 
   // Add library filter for content resources if libraries are selected
-  if (filteredResources.includes(resource) && selectedLibraries.length > 0) {
+  if (
+    filteredResources.includes(resource) &&
+    selectedLibraries.length > 0 &&
+    !Object.prototype.hasOwnProperty.call(params.filter || {}, 'library_id')
+  ) {
     if (!params.filter) {
       params.filter = {}
     }
@@ -137,6 +142,7 @@ const mapResource = (resource, params) => {
     case 'covertart':
     case 'lufs':
     case 'lufs2':
+    case 'silencetrim':
     case 'artist':
     case 'tag': {
       params.filter = params.filter || {}
@@ -148,13 +154,22 @@ const mapResource = (resource, params) => {
       // missing songs elsewhere deliberately. Listing them here inflates every
       // count on the page and makes "select all" queue work that can only fail.
       // The runs already skip them; this makes the page agree.
-      if (resource === 'lufs' || resource === 'lufs2') {
+      if (
+        resource === 'lufs' ||
+        resource === 'lufs2' ||
+        resource === 'silencetrim'
+      ) {
         params.filter.missing = false
       }
       params = applyLibraryFilter(resource, params)
 
-      // The LUFS page is a different view over the same media files
-      if (resource === 'covertart' || resource === 'lufs' || resource === 'lufs2') {
+      // These admin audit pages are different views over the same media files.
+      if (
+        resource === 'covertart' ||
+        resource === 'lufs' ||
+        resource === 'lufs2' ||
+        resource === 'silencetrim'
+      ) {
         return ['song', params]
       }
 
@@ -180,10 +195,10 @@ const handleUserLibraryAssociation = async (userId, libraryIds) => {
   }
 
   try {
-  await httpClient(`${REST_URL}/user/${userId}/library`, {
-    method: 'PUT',
-    body: JSON.stringify({ libraryIds }),
-  })
+    await httpClient(`${REST_URL}/user/${userId}/library`, {
+      method: 'PUT',
+      body: JSON.stringify({ libraryIds }),
+    })
   } catch (error) {
     console.error('Error setting user libraries:', error) //eslint-disable-line no-console
     throw error
@@ -308,7 +323,11 @@ const wrapperDataProvider = {
       if (resource === 'playlist' || resource === 'folder') {
         const parentId =
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
-        emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
+        emitFoldersChanged({
+          type: 'create',
+          resource,
+          targetParentId: parentId,
+        })
       }
       return res
     })
@@ -324,7 +343,11 @@ const wrapperDataProvider = {
   },
   deleteMany: (resource, params) => {
     const [r, p] = mapResource(resource, params)
-    if (r.endsWith('/tracks') || resource === 'missing' || resource === 'folder') {
+    if (
+      r.endsWith('/tracks') ||
+      resource === 'missing' ||
+      resource === 'folder'
+    ) {
       return callDeleteMany(r, p)
     }
     return dataProvider.deleteMany(r, p)
@@ -352,7 +375,7 @@ const wrapperDataProvider = {
     return httpClient(`${REST_URL}/playlist/${playlistId}/folder`, {
       method: 'PATCH',
       body: JSON.stringify({
-        folderId: targetFolderId
+        folderId: targetFolderId,
       }),
     }).then(() => {
       emitFoldersChanged({
@@ -369,7 +392,7 @@ const wrapperDataProvider = {
     return httpClient(`${REST_URL}/folder/${folderId}/parent`, {
       method: 'PATCH',
       body: JSON.stringify({
-        parentId: targetParentId
+        parentId: targetParentId,
       }),
     }).then(({ json }) => {
       emitFoldersChanged({

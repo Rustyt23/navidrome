@@ -165,6 +165,18 @@ func (m *MockMediaFileRepo) UpdateLoudnessTags(id string, lufs float64) error {
 	return nil
 }
 
+func (m *MockMediaFileRepo) UpdateFileSizeAndDuration(id string, size int64, duration float64) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		mf.Size = size
+		mf.Duration = float32(duration)
+		return nil
+	}
+	return model.ErrNotFound
+}
+
 func (m *MockMediaFileRepo) UpdateCoverPath(id string, coverPath string) error {
 	if m.Err {
 		return errors.New("error")

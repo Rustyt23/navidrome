@@ -11,25 +11,31 @@ import (
 )
 
 const (
-	probeFileCmd = "ffprobe -v quiet -print_format json -show_streams -show_format %s"
+	probeFileCmd = "ffprobe -v quiet -print_format json -show_streams -show_format -show_chapters %s"
 )
 
 // FileProbe is the full container/stream snapshot of one audio file: every
 // property that loudness normalization must leave untouched.
 type FileProbe struct {
-	Codec      string
-	BitRate    int // kbps
-	SampleRate int
-	BitDepth   int
-	Channels   int
-	Duration   float64
-	Size       int64
-	HasArt     bool
+	Codec                   string
+	BitRate                 int // kbps
+	SampleRate              int
+	BitDepth                int
+	Channels                int
+	Duration                float64
+	Size                    int64
+	HasArt                  bool
+	AttachedPicStreams      int
+	AudioStreams            int
+	ChapterCount            int
+	NonAttachedVideoStreams int
+	OtherStreams            int
 }
 
 type fullProbeOutput struct {
-	Streams []fullProbeStream `json:"streams"`
-	Format  fullProbeFormat   `json:"format"`
+	Streams  []fullProbeStream `json:"streams"`
+	Format   fullProbeFormat   `json:"format"`
+	Chapters []json.RawMessage `json:"chapters"`
 }
 
 type fullProbeFormat struct {
@@ -47,6 +53,9 @@ type fullProbeStream struct {
 	Channels         int    `json:"channels"`
 	BitsPerSample    int    `json:"bits_per_sample"`
 	BitsPerRawSample string `json:"bits_per_raw_sample"`
+	Disposition      struct {
+		AttachedPic int `json:"attached_pic"`
+	} `json:"disposition"`
 }
 
 // ProbeFile reads the container and stream properties of path, including
@@ -73,6 +82,7 @@ func ProbeFile(ctx context.Context, path string) (*FileProbe, error) {
 	for _, s := range parsed.Streams {
 		switch s.CodecType {
 		case "audio":
+			res.AudioStreams++
 			if res.Codec != "" {
 				continue // only the first audio stream matters
 			}
@@ -89,9 +99,21 @@ func ProbeFile(ctx context.Context, path string) (*FileProbe, error) {
 			res.Duration, _ = strconv.ParseFloat(s.Duration, 64)
 		case "video":
 			// In audio containers a video stream is the embedded cover art
+			// for existing audit purposes. Silence trimming additionally
+			// distinguishes attached pictures from real video below.
 			res.HasArt = true
+			if s.Disposition.AttachedPic == 1 {
+				res.AttachedPicStreams++
+			} else {
+				res.NonAttachedVideoStreams++
+			}
+		default:
+			// Subtitle, data, attachment, and unknown streams are not safe to
+			// silently discard or retime in an audio-only workflow.
+			res.OtherStreams++
 		}
 	}
+	res.ChapterCount = len(parsed.Chapters)
 	if res.Codec == "" {
 		return nil, fmt.Errorf("no audio stream found in %q", path)
 	}
