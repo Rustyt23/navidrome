@@ -117,6 +117,51 @@ export const SuggestionField = (props) => {
   )
 }
 
+// The closest a volume-only change can bring this song, and whether it is worth
+// doing. Answers the question the numbers on this page raise but never settle:
+// if the audio must not be touched, how near can we actually get?
+//
+// For many degraded sources the honest answer is "no nearer than it already
+// is", because rewriting the file costs more loudness than the peaks leave room
+// to add. Saying so plainly is the point of the column - otherwise every row
+// looks like outstanding work.
+export const BestWithoutDistortionField = (props) => {
+  const classes = useStyles()
+  const record = useRecordContext(props)
+  const rec = recommendationFor(record, props.settings)
+  if (!rec?.best) return <span className={classes.muted}>-</span>
+
+  const { best } = rec
+  const tone = best.onTarget
+    ? classes.ok
+    : best.worthDoing
+      ? classes.warn
+      : classes.muted
+
+  const note = best.onTarget
+    ? 'reaches the target with volume alone'
+    : best.worthDoing
+      ? `${fmtDb(best.gains)} dB closer than it is now`
+      : 'no closer than leaving it alone'
+
+  return (
+    <Tooltip
+      title={
+        best.estimated
+          ? 'Estimated. Rewriting a low-bitrate file costs loudness and can lift its peaks unpredictably, so the real result may fall a little short.'
+          : 'On a source this clean the peak follows the gain exactly, so this is what it will do.'
+      }
+    >
+      <span className={classes.nowrap}>
+        <span className={tone}>{`${fmtLufs(best.lufs)} LUFS`}</span>
+        <span className={`${classes.sub} ${classes.muted}`}>
+          {`${fmtDb(-best.offBy)} off · ${note}`}
+        </span>
+      </span>
+    </Tooltip>
+  )
+}
+
 // Why this song is on this page at all. Two things land here and they need
 // different answers: one is a trade for the client to weigh, the other is a
 // file nothing automatic can help with.
@@ -134,6 +179,23 @@ export const ReasonField = (props) => {
           </span>
         </span>
       </Tooltip>
+    )
+  }
+  // Already dealt with, and staying on the list. A song whose peaks were
+  // trimmed is the one kind that leaves this page altered rather than
+  // untouched, so it is exactly what someone would come here to check or undo.
+  if (a?.status === 'processed' && a?.action === 'limited') {
+    const from = a.lufsBefore == null ? null : Number(a.lufsBefore)
+    const to = a.lufsAfter == null ? null : Number(a.lufsAfter)
+    return (
+      <span className={classes.nowrap}>
+        <span className={classes.ok}>Peaks trimmed - done</span>
+        <span className={`${classes.sub} ${classes.muted}`}>
+          {from != null && to != null
+            ? `${fmtLufs(from)} → ${fmtLufs(to)} · restorable`
+            : 'restorable'}
+        </span>
+      </span>
     )
   }
   const rec = recommendationFor(record, props.settings)

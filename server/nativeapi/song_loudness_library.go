@@ -128,14 +128,21 @@ func (n *Router) startLibraryLoudness() http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(libraryLoudnessStatus{Message: "Turn on 'Optimise all LUFS' first"})
 			return
 		}
-		if !n.beginLibraryLoudness(r.Context(), loudnessPhaseFromRequest(r)) {
+		phase := loudnessPhaseFromRequest(r)
+		if !n.beginLibraryLoudness(r.Context(), phase) {
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus("LUFS processing is already running"))
 			return
 		}
 
+		// A phase 2 run opens only the songs the client has decided on, so
+		// saying it covers the library is both wrong and alarming.
+		started := "LUFS processing started for the entire library"
+		if phase == loudness.PhaseReview {
+			started = "Applying decisions to the songs you chose"
+		}
 		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus("LUFS processing started for the entire library"))
+		_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus(started))
 	}
 }
 

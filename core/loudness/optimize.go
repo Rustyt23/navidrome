@@ -33,11 +33,19 @@ const (
 	// peak and an unsafe one, it is between landing slightly above the ceiling
 	// and not reaching the target at all.
 	//
-	// -0.2 keeps what actually matters: the file still cannot clip, because
+	// It keeps what actually matters: the file still cannot clip, because
 	// clipping starts at 0. What is given up is part of the reserve held back
 	// for whatever handles the file next, and only on the few tracks that
-	// cannot do better. A track that cannot even reach this is left alone.
-	fallbackCeilingDB = -0.2
+	// cannot do better.
+	//
+	// -0.1 is where the measurements put the floor rather than where judgement
+	// would. Across a real library the refused peaks landed at -0.17, -0.15,
+	// -0.14, -0.11, -0.11 and then +0.01, +0.10, +0.21, +0.33, +0.39: a clean
+	// gap with nothing in it between -0.11 and zero. So no value below this
+	// rescues one more track, and every value above it ships audio that clips.
+	// A track that cannot reach even here has a peak past zero, which no
+	// ceiling can fix - it needs a better source file.
+	fallbackCeilingDB = -0.1
 )
 
 // OptimizeOptions carries the target, the safety limits and where backups go.

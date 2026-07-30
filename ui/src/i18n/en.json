@@ -451,7 +451,8 @@
         "clearAnalysis": "Clear analysis",
         "fetchOriginal": "Fetch Original LUFS",
         "restore": "Restore original",
-        "findOrphanedBackups": "Orphaned backups"
+        "findOrphanedBackups": "Orphaned backups",
+        "openExceptions": "Exception LUFS"
       },
       "clear": {
         "title": "Clear LUFS analysis data?",
@@ -608,8 +609,8 @@
       }
     },
     "lufs2": {
-      "name": "LUFS Exceptions |||| LUFS Exceptions",
-      "empty": "Nothing needs your attention",
+      "name": "Exception LUFS |||| Exception LUFS",
+      "empty": "No song has needed special handling",
       "fields": {
         "title": "Title",
         "artist": "Artist",
@@ -621,7 +622,15 @@
         "suggested": "Suggested",
         "decision": "Decision",
         "loudness_decision": "Decision",
-        "reason": "Why it is here"
+        "reason": "Why it is here",
+        "best": "Best without distortion",
+        "bitRate": "Bitrate",
+        "originalLufs": "Original LUFS",
+        "truePeak": "True peak",
+        "lra": "LRA (loud/quiet range)",
+        "gain": "Applied gain",
+        "status": "Status",
+        "verdict": "Verdict"
       },
       "decision": {
         "pending": "Undecided",
@@ -633,10 +642,13 @@
         "limit": "Limit to target",
         "gain_ceiling": "Gain to ceiling",
         "skip": "Leave alone",
-        "runPhase2": "Apply decisions"
+        "runPhase2": "Apply decisions",
+        "recheck": "Check again"
       },
       "notifications": {
-        "decisionSaved": "Decision saved for %{smart_count} song |||| Decision saved for %{smart_count} songs"
+        "decisionSaved": "Decision saved for %{smart_count} song |||| Decision saved for %{smart_count} songs",
+        "runFinished": "Decisions applied: %{changed} changed, %{skipped} skipped, %{failed} failed",
+        "rechecked": "Checked again: %{changed} fixed, %{skipped} still stuck, %{failed} failed"
       }
     }
   },

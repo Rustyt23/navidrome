@@ -279,8 +279,31 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 			}
 			return And{Eq{"media_file.has_cover_art": false}, Eq{"media_file.cover_path": ""}}
 		},
+		// "Left as-is" is not a stored verdict. It is what the page calls a
+		// track a run built a file for and then refused, which is recorded on
+		// the action instead. Offering it here keeps the filter matching the
+		// column, which is the only place anyone reads these names - a filter
+		// missing an outcome the column displays is worse than useless, because
+		// the rows are visibly there and cannot be narrowed to.
 		"loudness_verdict": func(_ string, value any) Sqlizer {
-			return eqFilter("media_file_loudness.verdict", value)
+			var stored []string
+			refused := false
+			for _, v := range filterStrings(value) {
+				if v == leftAsIsVerdict {
+					refused = true
+					continue
+				}
+				stored = append(stored, v)
+			}
+			byAction := Eq{"media_file_loudness.action": model.LoudnessActionRefused}
+			switch {
+			case refused && len(stored) > 0:
+				return Or{Eq{"media_file_loudness.verdict": stored}, byAction}
+			case refused:
+				return byAction
+			default:
+				return eqFilter("media_file_loudness.verdict", value)
+			}
 		},
 		"loudness_status": func(_ string, value any) Sqlizer {
 			return eqFilter("media_file_loudness.status", value)
@@ -291,16 +314,25 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		"loudness_decision": func(_ string, value any) Sqlizer {
 			return eqFilter("media_file_loudness.decision", value)
 		},
-		// Everything a person still has to look at. Either reaching the target
-		// needs the peaks cut by enough to be heard - which is the client's
-		// call, not ours - or a run built a file, judged it unfit and kept the
-		// original, and nothing further will happen to it on its own.
-		// Phase 2 is loudness.PhaseReview; the phases live in core/loudness,
-		// which this layer does not import.
+		// Every song whose handling was not routine, and it stays here once it
+		// qualifies rather than dropping off the moment it is dealt with. The
+		// list is what someone reviews, answers to a client from, and restores
+		// out of - none of which works if a song disappears the instant it is
+		// processed.
+		//
+		// Four ways to qualify: the target needs the peaks cut by enough to be
+		// heard, which is the client's call and not ours; a run built a file,
+		// judged it unfit and kept the original; the peaks were trimmed, so the
+		// audio was altered however slightly; or a person made a decision about
+		// it. Phase 2 is loudness.PhaseReview - the phases live in
+		// core/loudness, which this layer does not import.
 		"loudness_exception": func(_ string, _ any) Sqlizer {
 			return Or{
 				Eq{"media_file_loudness.phase": 2},
-				Eq{"media_file_loudness.action": model.LoudnessActionRefused},
+				Eq{"media_file_loudness.action": []string{
+					model.LoudnessActionRefused, model.LoudnessActionLimited,
+				}},
+				NotEq{"media_file_loudness.decision": ""},
 			}
 		},
 		"artists_id": artistFilter,
@@ -315,6 +347,31 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 	}
 	return filters
 })
+
+// leftAsIsVerdict is the UI's name for a track a run declined to change. It is
+// derived from the action rather than stored as a verdict, so it needs its own
+// handling wherever a verdict is filtered on.
+const leftAsIsVerdict = "left_as_is"
+
+// filterStrings normalises whatever a filter value arrives as - one value, or
+// several from a multi-select - into a plain list.
+func filterStrings(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return []string{v}
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
 
 func mediaFileRecentlyAddedSort() string {
 	if conf.Server.RecentlyAddedByModTime {

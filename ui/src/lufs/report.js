@@ -22,7 +22,7 @@ const DURATION_NOISE = 0.001
 // Mirrors fallbackCeilingDB in core/loudness: where a degraded source cannot
 // hold the configured ceiling, this is as high as its peak may ship. Still
 // below 0, so the file cannot clip either way.
-const FALLBACK_CEILING = -0.2
+const FALLBACK_CEILING = -0.1
 
 // The null test measures how much of the file changed, by energy. Rewriting a
 // lossy file costs a generation of codec noise and lands at -39 to -47 dB on

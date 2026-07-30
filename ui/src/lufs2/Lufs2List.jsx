@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button as RaButton,
   Datagrid,
@@ -13,10 +13,28 @@ import {
   useTranslate,
 } from 'react-admin'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
-import { List, PathField } from '../common'
+import { CircularProgress } from '@material-ui/core'
+import {
+  BitrateField,
+  List,
+  PathField,
+  ToggleFieldsMenu,
+  useSelectedFields,
+} from '../common'
 import { httpClient } from '../dataProvider'
 import { useLibraryStatus } from '../lufs/useLibraryStatus'
+import { useAnalyzeStatus } from '../lufs/useAnalyzeStatus'
+import RecheckButton from './RecheckButton'
+import { RestoreOriginalButton } from '../lufs/RestoreOriginalButton'
 import JobProgress from '../lufs/JobProgress'
+import {
+  GainField,
+  LraField,
+  OriginalLufsField,
+  StatusField,
+  TruePeakField,
+  VerdictField,
+} from '../lufs/LufsFields'
 import SetDecisionButton from './DecisionButtons'
 import {
   DECISION_CEILING,
@@ -24,6 +42,7 @@ import {
   DECISION_SKIP,
 } from './recommendation'
 import {
+  BestWithoutDistortionField,
   CurrentField,
   DecisionField,
   HeadroomField,
@@ -52,76 +71,135 @@ const Lufs2Filter = (props) => (
   </Filter>
 )
 
+// A song that a run built a file for and then refused is left alone by every
+// later run, so the same rejected file is not rebuilt for ever. That mark is
+// only as current as the settings it was made under: change the ceiling, the
+// tolerance, or the file itself, and the refusal may no longer hold. Checking
+// again measures the song and retries it, so it either comes back with a
+// current reason or turns out to be fixed.
 const BulkActions = (props) => (
   <>
     <SetDecisionButton {...props} decision={DECISION_CEILING} />
     <SetDecisionButton {...props} decision={DECISION_LIMIT} />
     <SetDecisionButton {...props} decision={DECISION_SKIP} />
+    <RecheckButton {...props} />
+    <RestoreOriginalButton {...props} />
   </>
 )
 
-const RunPhase2Button = ({ status, onStarted }) => {
+// The click has to be acknowledged before the server has been asked anything.
+// Waiting for the first status poll leaves the button looking untouched for up
+// to a second, which reads as "nothing happened" and invites a second click.
+const RunPhase2Button = ({ status, starting, onStarting, onStarted }) => {
   const translate = useTranslate()
   const notify = useNotify()
-  const running = status?.running
+  const busy = !!status?.running || starting
+
   const handleClick = useCallback(() => {
+    onStarting?.()
     httpClient(RUN_URL, { method: 'POST' })
       .then(({ json }) => {
-        notify(json?.message || 'Phase 2 run started', 'info')
-        onStarted?.()
+        notify(json?.message || 'Applying decisions…', 'info')
+        onStarted?.(true)
       })
-      .catch((error) =>
+      .catch((error) => {
         notify(
           error?.body?.message ||
             error?.message ||
             'ra.notification.http_error',
           'warning',
-        ),
-      )
-  }, [notify, onStarted])
+        )
+        onStarted?.(false)
+      })
+  }, [notify, onStarting, onStarted])
 
   return (
     <RaButton
       onClick={handleClick}
-      disabled={!!running}
+      disabled={busy}
       label={translate('resources.lufs2.actions.runPhase2')}
     >
-      <PlayArrowIcon />
+      {busy ? <CircularProgress size={16} /> : <PlayArrowIcon />}
     </RaButton>
   )
 }
 
-const Lufs2Actions = ({ status, onStarted, ...rest }) => {
+const Lufs2Actions = ({
+  status,
+  analyzeStatus,
+  starting,
+  onStarting,
+  onStarted,
+  ...rest
+}) => {
   const { total } = useListContext()
+  // Shown from the click itself, not from the first status that comes back:
+  // a run over a few tracks can be finished before the server is next asked.
+  const progress = status?.running
+    ? status
+    : starting
+      ? { running: true, processed: 0, total: 0 }
+      : null
   return (
     <TopToolbar {...rest}>
       <JobProgress
         label="Applying decisions"
-        status={status}
+        status={progress}
         detail={
           status?.running
             ? `${status.normalized || 0} changed · ${status.failed || 0} failed`
-            : undefined
+            : starting
+              ? 'starting…'
+              : undefined
         }
       />
-      <RunPhase2Button status={status} onStarted={onStarted} />
+      <JobProgress label="Measuring" status={analyzeStatus} />
+      <RunPhase2Button
+        status={status}
+        starting={starting}
+        onStarting={onStarting}
+        onStarted={onStarted}
+      />
       <ExportButton maxResults={total} />
+      <ToggleFieldsMenu resource="lufs2" />
     </TopToolbar>
   )
 }
 
-// Lufs2List is the exception list: everything the run could not finish on its
-// own. Two kinds of song end up here. One needs its peaks cut by enough to be
-// audible, which is a trade for the client rather than a formality - cuts too
-// small to hear are applied automatically and never reach this page. The other
-// is a file a run built, judged unfit and declined to ship.
+// Lufs2List is the standing record of every song whose handling was not
+// routine: one needing its peaks cut by enough to be audible, one a run built a
+// file for and then refused, one whose peaks were trimmed, or one a person has
+// already decided about.
 //
-// Keeping it to exceptions is the point. A page that mostly needs rubber
-// stamping is a page nobody reads, and the songs that genuinely need a person
-// are the ones that get lost in it.
+// A song stays once it qualifies rather than dropping off the moment it is
+// dealt with. This is the list someone reviews, answers to a client from, and
+// restores out of, and none of that works if a song vanishes the instant it is
+// processed. Trims small enough to be inaudible are still applied automatically
+// and never appear here at all - keeping the page to the songs that genuinely
+// needed a person is what stops it becoming something nobody reads.
 const Lufs2List = (props) => {
   const [settings, setSettings] = useState(null)
-  const { status, poll } = useLibraryStatus()
+  const [starting, setStarting] = useState(false)
+  const notify = useNotify()
+
+  // A run over a handful of decisions can be over before the next poll, so
+  // without this the only sign it happened is the rows quietly changing.
+  const report = useCallback(
+    (final) => {
+      setStarting(false)
+      notify('resources.lufs2.notifications.runFinished', {
+        type: final?.failed ? 'warning' : 'info',
+        messageArgs: {
+          changed: final?.normalized || 0,
+          skipped: final?.skipped || 0,
+          failed: final?.failed || 0,
+        },
+      })
+    },
+    [notify],
+  )
+  const { status, watch } = useLibraryStatus()
+  const { status: analyzeStatus } = useAnalyzeStatus()
 
   useEffect(() => {
     let active = true
@@ -135,7 +213,138 @@ const Lufs2List = (props) => {
     }
   }, [])
 
-  const handleStarted = useCallback(() => poll(), [poll])
+  // Clear the local flag as soon as the server confirms a run, so the progress
+  // bar hands over from "starting" to real counts.
+  useEffect(() => {
+    if (status?.running) setStarting(false)
+  }, [status?.running])
+
+  // Every column is optional except the title - a row has to be identifiable.
+  // The order here is the default layout; the picker remembers whatever you
+  // change it to.
+  const toggleableFields = useMemo(
+    () => ({
+      artist: <TextField source="artist" sortBy="artist" />,
+      bitRate: (
+        <BitrateField source="bitRate" label="Bitrate" sortBy="bitRate" />
+      ),
+      current: (
+        <CurrentField
+          source="current"
+          label="Now"
+          settings={settings}
+          sortBy="lufs_before"
+        />
+      ),
+      reason: (
+        <ReasonField
+          source="reason"
+          label="Why it is here"
+          settings={settings}
+          sortable={false}
+        />
+      ),
+      headroom: (
+        <HeadroomField
+          source="headroom"
+          label="Headroom short by"
+          settings={settings}
+          sortable={false}
+        />
+      ),
+      optionCeiling: (
+        <OptionCeilingField
+          source="optionCeiling"
+          label="Option A · keep audio intact"
+          settings={settings}
+          sortable={false}
+        />
+      ),
+      optionLimit: (
+        <OptionLimitField
+          source="optionLimit"
+          label="Option B · hit the target"
+          settings={settings}
+          sortable={false}
+        />
+      ),
+      best: (
+        <BestWithoutDistortionField
+          source="best"
+          label="Best without distortion"
+          settings={settings}
+          sortable={false}
+        />
+      ),
+      suggested: (
+        <SuggestionField
+          source="suggested"
+          label="Suggested"
+          settings={settings}
+          sortable={false}
+        />
+      ),
+      decision: (
+        <DecisionField
+          source="decision"
+          label="Decision"
+          sortBy="loudness_decision"
+        />
+      ),
+      originalLufs: (
+        <OriginalLufsField
+          source="originalLufs"
+          label="Original LUFS"
+          sortBy="lufs_before"
+        />
+      ),
+      truePeak: (
+        <TruePeakField source="truePeak" label="True Peak" sortBy="tp_before" />
+      ),
+      lra: <LraField source="lra" label="LRA" sortBy="lra_before" />,
+      gain: <GainField source="gain" label="Gain" sortBy="gain_applied" />,
+      status: (
+        <StatusField source="status" label="Status" sortBy="loudness_status" />
+      ),
+      verdict: (
+        <VerdictField
+          source="verdict"
+          label="Verdict"
+          sortBy="loudness_verdict"
+        />
+      ),
+      path: <PathField source="path" sortBy="path" />,
+    }),
+    [settings],
+  )
+
+  const columns = useSelectedFields({
+    resource: 'lufs2',
+    columns: toggleableFields,
+    defaultOff: [
+      'originalLufs',
+      'truePeak',
+      'lra',
+      'gain',
+      'status',
+      'verdict',
+      'path',
+    ],
+  })
+
+  const handleStarting = useCallback(() => setStarting(true), [])
+  const handleStarted = useCallback(
+    (ok) => {
+      if (!ok) {
+        setStarting(false)
+        return
+      }
+      // watch always settles, so the spinner cannot be left running by a run
+      // that finished before it was ever seen going.
+      watch(report)
+    },
+    [watch, report],
+  )
 
   return (
     <List
@@ -143,55 +352,21 @@ const Lufs2List = (props) => {
       sort={{ field: 'title', order: 'ASC' }}
       filter={{ loudness_exception: true }}
       filters={<Lufs2Filter />}
-      actions={<Lufs2Actions status={status} onStarted={handleStarted} />}
+      actions={
+        <Lufs2Actions
+          status={status}
+          analyzeStatus={analyzeStatus}
+          starting={starting}
+          onStarting={handleStarting}
+          onStarted={handleStarted}
+        />
+      }
       bulkActionButtons={<BulkActions />}
       perPage={50}
     >
       <Datagrid rowClick={null}>
         <TextField source="title" sortBy="title" />
-        <TextField source="artist" sortBy="artist" />
-        <CurrentField
-          source="current"
-          label="Now"
-          settings={settings}
-          sortBy="lufs_before"
-        />
-        <ReasonField
-          source="reason"
-          label="Why it is here"
-          settings={settings}
-          sortable={false}
-        />
-        <HeadroomField
-          source="headroom"
-          label="Headroom short by"
-          settings={settings}
-          sortable={false}
-        />
-        <OptionCeilingField
-          source="optionCeiling"
-          label="Option A · keep audio intact"
-          settings={settings}
-          sortable={false}
-        />
-        <OptionLimitField
-          source="optionLimit"
-          label="Option B · hit the target"
-          settings={settings}
-          sortable={false}
-        />
-        <SuggestionField
-          source="suggested"
-          label="Suggested"
-          settings={settings}
-          sortable={false}
-        />
-        <DecisionField
-          source="decision"
-          label="Decision"
-          sortBy="loudness_decision"
-        />
-        <PathField source="path" sortBy="path" />
+        {columns}
       </Datagrid>
     </List>
   )

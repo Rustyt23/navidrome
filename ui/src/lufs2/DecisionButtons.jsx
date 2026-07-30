@@ -10,6 +10,7 @@ import {
 import GraphicEqIcon from '@material-ui/icons/GraphicEq'
 import VolumeDownIcon from '@material-ui/icons/VolumeDown'
 import BlockIcon from '@material-ui/icons/Block'
+import { CircularProgress } from '@material-ui/core'
 import { httpClient } from '../dataProvider'
 import {
   DECISION_CEILING,
@@ -71,7 +72,7 @@ export const SetDecisionButton = ({ decision, selectedIds, resource }) => {
       disabled={!count || saving}
       label={translate(`resources.lufs2.actions.${decision}`)}
     >
-      {ICONS[decision]}
+      {saving ? <CircularProgress size={16} /> : ICONS[decision]}
     </RaButton>
   )
 }

@@ -106,11 +106,14 @@ func TestFallbackCeilingNeverRisesAboveClipping(t *testing.T) {
 	if fallbackCeilingDB >= 0 {
 		t.Fatalf("fallback ceiling %.2f allows clipping", fallbackCeilingDB)
 	}
-	// It has to clear the measurement slack too, or a file accepted against it
-	// could still be measured at or above 0.
-	if fallbackCeilingDB+truePeakToleranceDB >= 0 {
-		t.Errorf("fallback %.2f plus tolerance %.2f reaches 0",
-			fallbackCeilingDB, truePeakToleranceDB)
+	// The fallback is the loosest bound in the whole pipeline, so the highest
+	// peak that can ship is whatever it accepts. Nothing at or above zero may
+	// get through it, whatever the ceiling is set to.
+	if acceptableAsFallback(0, fallbackCeilingDB) {
+		t.Error("a file peaking at 0 dBTP was accepted; that is where clipping starts")
+	}
+	if !acceptableAsFallback(fallbackCeilingDB, fallbackCeilingDB) {
+		t.Error("a file sitting exactly on the fallback was refused")
 	}
 }
 
@@ -145,7 +148,8 @@ func TestFallbackAcceptanceIsAHardBound(t *testing.T) {
 	}
 	// The specific mistake this guards: the configured ceiling allows
 	// truePeakToleranceDB of measurement slack, and carrying that habit into
-	// the fallback would let files ship at -0.1 while the docs promise -0.2.
+	// the fallback would raise what ships by exactly that much. At the current
+	// floor it would put files at 0 dBTP, which is clipping.
 	if acceptableAsFallback(fb+truePeakToleranceDB, fb) {
 		t.Errorf("measurement slack is being added to the fallback; files could ship at %.2f",
 			fb+truePeakToleranceDB)
@@ -220,5 +224,27 @@ func TestInferActionReadsThePeakInOneDirectionOnly(t *testing.T) {
 	sprangUp := testMeasurement(-12.6, -1.36, 3.7) // 1.30 above the same gain
 	if got := inferAction(audit, before, sprangUp, 0.39); got != model.LoudnessActionGain {
 		t.Errorf("peak sprang up: action = %q, want %q - nothing in the chain raises peaks", got, model.LoudnessActionGain)
+	}
+}
+
+// The floor sits where the measurements put it, not where judgement would.
+// These are the peaks real refused tracks came out at, and there is a clean gap
+// between the last safe one and the first that clips. Moving the floor down
+// rescues nothing; moving it up ships audio that clips.
+func TestFallbackFloorSitsInTheGapTheMeasurementsFound(t *testing.T) {
+	rescued := []float64{-0.17, -0.15, -0.14, -0.11, -0.11}
+	clipping := []float64{0.01, 0.10, 0.21, 0.33, 0.39}
+
+	for _, peak := range rescued {
+		if !acceptableAsFallback(peak, fallbackCeilingDB) {
+			t.Errorf("floor %.2f refuses a track at %.2f, which is safe and on target",
+				fallbackCeilingDB, peak)
+		}
+	}
+	for _, peak := range clipping {
+		if acceptableAsFallback(peak, fallbackCeilingDB) {
+			t.Errorf("floor %.2f accepts a track at %.2f, which is at or above zero",
+				fallbackCeilingDB, peak)
+		}
 	}
 }

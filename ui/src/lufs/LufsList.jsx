@@ -4,7 +4,7 @@ import {
   Filter,
   FunctionField,
   SearchInput,
-  SelectInput,
+  SelectArrayInput,
   TextField,
 } from 'react-admin'
 import {
@@ -41,46 +41,41 @@ import {
   VerdictField,
 } from './LufsFields'
 
-// The verdict and phase dropdowns are always visible rather than hidden behind
-// "Add filter": on a library of this size, narrowing to the songs that were
-// altered - or that still need a decision - is the main thing anyone comes
-// here to do.
+// Both dropdowns are always visible rather than hidden behind "Add filter": on
+// a library of this size, narrowing to the songs that were altered is the main
+// thing anyone comes here to do. Both take several values at once, because the
+// useful questions are usually plural - "show me everything that was touched"
+// is two verdicts, not one.
+//
+// The choices are exactly what the Verdict and Status columns can display, and
+// worded exactly as the chips word them. A filter that offers an outcome the
+// column never shows sends people looking for rows that cannot exist; one that
+// omits an outcome the column does show leaves rows visibly there and
+// impossible to narrow to. "Left as-is" is the second of those - it is derived
+// from the action rather than stored as a verdict, and was missing entirely.
 const LufsFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
     <SearchInput source="title" alwaysOn />
-    <SelectInput
+    <SelectArrayInput
       source="loudness_verdict"
       label="Verdict"
-      emptyText="-- Any verdict --"
+      style={{ minWidth: 240 }}
       alwaysOn
       choices={[
-        { id: 'untouched', name: 'No change needed - already on target' },
-        { id: 'safe', name: 'Volume only - nothing else altered' },
+        { id: 'untouched', name: 'No change needed' },
+        { id: 'safe', name: 'Volume only' },
         { id: 'dynamics_changed', name: 'Peaks trimmed' },
-        { id: 'reencoded', name: 'Quality lost - format degraded' },
+        { id: 'reencoded', name: 'Quality lost' },
+        { id: 'left_as_is', name: 'Left as-is' },
         { id: 'failed', name: 'Could not process' },
       ]}
     />
-    <SelectInput
-      source="loudness_phase"
-      label="Still to do"
-      emptyText="-- Any --"
-      alwaysOn
-      // String ids on purpose: a numeric 0 is falsy and can be dropped before
-      // it reaches the query. SQLite compares it to the integer column fine.
-      choices={[
-        { id: '0', name: 'Nothing - in range' },
-        { id: '1', name: 'Volume change - automatic' },
-        { id: '3', name: 'Inaudible peak trim - automatic' },
-        { id: '2', name: 'Needs your decision' },
-      ]}
-    />
-    <SelectInput
+    <SelectArrayInput
       source="loudness_status"
       label="Status"
-      emptyText="-- Any status --"
+      alwaysOn
       choices={[
-        { id: 'analyzed', name: 'Measured only - file not changed' },
+        { id: 'analyzed', name: 'Measured only' },
         { id: 'processed', name: 'Changed' },
         { id: 'failed', name: 'Could not process' },
       ]}
