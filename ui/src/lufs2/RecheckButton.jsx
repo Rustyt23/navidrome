@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import {
   Button as RaButton,
@@ -11,6 +11,8 @@ import { CircularProgress } from '@material-ui/core'
 import ReplayIcon from '@material-ui/icons/Replay'
 import { httpClient } from '../dataProvider'
 import { ANALYZE_URL } from '../lufs/useAnalyzeStatus'
+import { LIBRARY_URL } from '../lufs/useLibraryStatus'
+import { useJobStatus } from '../lufs/useJobStatus'
 
 // RecheckButton measures the selected songs again and then tries them again.
 //
@@ -31,6 +33,10 @@ export const RecheckButton = ({ selectedIds, onDone }) => {
   const dataProvider = useDataProvider()
   const [busy, setBusy] = useState(false)
   const count = selectedIds?.length || 0
+  const { follow } = useJobStatus(LIBRARY_URL)
+  const stopFollowing = useRef(null)
+
+  useEffect(() => () => stopFollowing.current?.(), [])
 
   // The measuring pass runs in the background, so the retry has to wait for it
   // to finish rather than start on top of it.
@@ -60,27 +66,34 @@ export const RecheckButton = ({ selectedIds, onDone }) => {
       })
       await untilAnalyzeSettles()
 
-      const response = await dataProvider.optimizeSongLoudness(selectedIds)
-      const changed = response?.data?.normalized?.length || 0
-      const skipped = response?.data?.skipped?.length || 0
-      const failed = response?.data?.failed?.length || 0
-      notify('resources.lufs2.notifications.rechecked', {
-        type: failed ? 'warning' : 'info',
-        messageArgs: { changed, skipped, failed },
+      // The retry is a background run now, so its result arrives from the job
+      // rather than from the response.
+      await dataProvider.optimizeSongLoudness(selectedIds)
+      stopFollowing.current = follow((json) => {
+        stopFollowing.current = null
+        setBusy(false)
+        notify('resources.lufs2.notifications.rechecked', {
+          type: json?.failed ? 'warning' : 'info',
+          messageArgs: {
+            changed: json?.normalized || 0,
+            skipped: json?.skipped || 0,
+            failed: json?.failed || 0,
+          },
+        })
+        refresh()
+        onDone?.()
       })
-      refresh()
-      onDone?.()
     } catch (error) {
+      setBusy(false)
       notify(error?.message || 'ra.notification.http_error', {
         type: 'warning',
       })
-    } finally {
-      setBusy(false)
     }
   }, [
     busy,
     count,
     dataProvider,
+    follow,
     notify,
     onDone,
     refresh,

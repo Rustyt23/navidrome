@@ -44,8 +44,17 @@ export const JobProgress = ({ label, status, detail }) => {
     total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : null
   const remaining = eta(processed, total, status.startedAt)
 
+  // While stopping, the count of songs still open is the only number that is
+  // going anywhere, and watching it fall is what tells the user the stop is
+  // working. The overall progress bar is frozen by then and says nothing.
+  const inFlight = status.inFlight || 0
+  const stoppingText =
+    inFlight > 0
+      ? `Stopping - finishing ${inFlight.toLocaleString()} ${inFlight === 1 ? 'song' : 'songs'}…`
+      : 'Stopping…'
+
   const text = status.stopping
-    ? 'Stopping after current track…'
+    ? stoppingText
     : total > 0
       ? `${label} ${processed.toLocaleString()} / ${total.toLocaleString()}`
       : `${label} ${processed.toLocaleString()}`

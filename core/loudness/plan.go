@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/navidrome/navidrome/core/ffmpeg"
+	"github.com/navidrome/navidrome/model"
 )
 
 // Phases of the optimisation process.
@@ -28,6 +29,10 @@ const (
 	// where only the level moved.
 	PhaseTrim = 3
 )
+
+// model repeats PhaseReview as model.LoudnessPhaseReview, because it cannot
+// import this package. Fail the build here if the two ever drift apart.
+const _ = uint(PhaseReview - model.LoudnessPhaseReview)
 
 // audibleShaveDB is how deep a peak reduction has to be before anyone can hear
 // it, and so where automatic trimming stops and a client decision begins.

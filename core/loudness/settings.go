@@ -14,67 +14,105 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-var (
+// One toggle's worth of state: the value stored from the UI, once read.
+type storedSetting struct {
 	mu     sync.RWMutex
 	cached *bool
+	key    string
+	name   string
+}
+
+var (
+	enabledSetting = &storedSetting{key: consts.LoudnessNormalizationEnabledKey, name: "loudness normalization"}
+	backupSetting  = &storedSetting{key: consts.LoudnessNormalizationBackupKey, name: "loudness backup"}
 )
 
-// Enabled reports whether loudness normalization is currently enabled.
+// get returns the stored value, falling back to the configured one.
 //
 // The value set from the UI (stored in the property table) takes precedence
-// over Scanner.LoudnessNormalization.Enabled in the configuration file. The
-// configured value is only used until the toggle has been used for the first
-// time, so an existing navidrome.toml keeps working unchanged.
-func Enabled(ctx context.Context, ds model.DataStore) bool {
-	mu.RLock()
-	value := cached
-	mu.RUnlock()
+// over the configuration file. The configured value is only used until the
+// toggle has been used for the first time, so an existing navidrome.toml keeps
+// working unchanged.
+func (s *storedSetting) get(ctx context.Context, ds model.DataStore, configured bool) bool {
+	s.mu.RLock()
+	value := s.cached
+	s.mu.RUnlock()
 	if value != nil {
 		return *value
 	}
-
-	enabled := conf.Server.Scanner.LoudnessNormalization.Enabled
 	if ds == nil {
-		return enabled
+		return configured
 	}
 
-	stored, err := ds.Property(ctx).Get(consts.LoudnessNormalizationEnabledKey)
+	stored, err := ds.Property(ctx).Get(s.key)
 	switch {
 	case errors.Is(err, model.ErrNotFound):
 		// Never toggled from the UI: keep following the configuration file
 		// instead of caching, so config reloads are picked up.
-		return enabled
+		return configured
 	case err != nil:
-		log.Warn(ctx, "Could not read loudness normalization setting, using configured value", "enabled", enabled, err)
-		return enabled
+		log.Warn(ctx, "Could not read "+s.name+" setting, using configured value", "configured", configured, err)
+		return configured
 	}
 
 	parsed, err := strconv.ParseBool(stored)
 	if err != nil {
-		log.Warn(ctx, "Invalid stored loudness normalization setting, using configured value", "value", stored, "enabled", enabled, err)
-		return enabled
+		log.Warn(ctx, "Invalid stored "+s.name+" setting, using configured value",
+			"value", stored, "configured", configured, err)
+		return configured
 	}
 
-	mu.Lock()
-	cached = &parsed
-	mu.Unlock()
+	s.mu.Lock()
+	s.cached = &parsed
+	s.mu.Unlock()
 	return parsed
+}
+
+func (s *storedSetting) set(ctx context.Context, ds model.DataStore, value bool) error {
+	if err := ds.Property(ctx).Put(s.key, strconv.FormatBool(value)); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.cached = &value
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *storedSetting) reset() {
+	s.mu.Lock()
+	s.cached = nil
+	s.mu.Unlock()
+}
+
+// Enabled reports whether loudness normalization is currently enabled.
+func Enabled(ctx context.Context, ds model.DataStore) bool {
+	return enabledSetting.get(ctx, ds, conf.Server.Scanner.LoudnessNormalization.Enabled)
 }
 
 // SetEnabled persists the on/off state chosen in the UI.
 func SetEnabled(ctx context.Context, ds model.DataStore, enabled bool) error {
-	if err := ds.Property(ctx).Put(consts.LoudnessNormalizationEnabledKey, strconv.FormatBool(enabled)); err != nil {
-		return err
-	}
-	mu.Lock()
-	cached = &enabled
-	mu.Unlock()
-	return nil
+	return enabledSetting.set(ctx, ds, enabled)
 }
 
-// ResetCache drops the in-memory copy of the stored setting. Used by tests.
+// BackupEnabled reports whether an untouched original is kept before a song is
+// rewritten.
+//
+// Turning this off is the one setting here that cannot be undone: without a
+// stored original there is nothing to restore from, and no way to prove after
+// the fact that only the level changed. It exists because keeping a copy of
+// every song costs about as much disk as the library itself, which a client who
+// already holds the masters elsewhere may not want to pay twice.
+func BackupEnabled(ctx context.Context, ds model.DataStore) bool {
+	return backupSetting.get(ctx, ds, conf.Server.Scanner.LoudnessNormalization.Backup)
+}
+
+// SetBackupEnabled persists the on/off state chosen in the UI.
+func SetBackupEnabled(ctx context.Context, ds model.DataStore, enabled bool) error {
+	return backupSetting.set(ctx, ds, enabled)
+}
+
+// ResetCache drops the in-memory copies of the stored settings. Used by tests.
 func ResetCache() {
-	mu.Lock()
-	cached = nil
-	mu.Unlock()
+	enabledSetting.reset()
+	backupSetting.reset()
 }

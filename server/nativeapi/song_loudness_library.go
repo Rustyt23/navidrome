@@ -33,9 +33,38 @@ type libraryLoudnessJob struct {
 	normalized atomic.Int64
 	skipped    atomic.Int64
 	failed     atomic.Int64
-	stopMu     sync.Mutex
-	stop       chan struct{}
+	// inFlight is how many tracks are open right now. It is what makes stopping
+	// legible: the UI can say "finishing 3" and count down, instead of showing a
+	// bar that has stopped moving for reasons nobody can see.
+	inFlight atomic.Int64
+	// cancelled counts tracks dropped when the grace period ran out. Kept apart
+	// from failures deliberately - nothing is wrong with those tracks, they were
+	// simply not finished, and reporting eight failures every time someone
+	// presses stop would be both alarming and untrue.
+	cancelled atomic.Int64
+	stopMu    sync.Mutex
+	stop      chan struct{}
+	// cancel kills the ffmpeg processes of tracks still being worked on when
+	// the grace period runs out. Without it a stop can only stop handing out
+	// new tracks, and has to wait for whatever is already in flight.
+	cancel context.CancelFunc
 }
+
+// stopGracePeriod is how long a stopping run lets the tracks already in flight
+// finish before their ffmpeg processes are killed.
+//
+// A stop used to mean "stop dispatching", which sounds immediate but is not: one
+// track is in flight per worker - eight on a typical machine - and each is
+// several full decodes, so an unlucky one holds a worker for minutes. Waiting
+// for the slowest of eight is what made stopping feel like nothing happened.
+//
+// Killing them is safe. An encode is written to a temp file and the library file
+// is only ever touched by the atomic rename at the very end, so a track killed
+// mid-encode is simply a track that was not processed. The grace period exists
+// so the ones about to finish do, rather than throwing away nearly-complete work
+// for the sake of a couple of seconds.
+// A var rather than a const only so tests need not wait ten real seconds.
+var stopGracePeriod = 10 * time.Second
 
 var libraryLoudness libraryLoudnessJob
 
@@ -49,12 +78,20 @@ type libraryLoudnessStatus struct {
 	Normalized int64  `json:"normalized"`
 	Skipped    int64  `json:"skipped"`
 	Failed     int64  `json:"failed"`
+	InFlight   int64  `json:"inFlight"`
+	Cancelled  int64  `json:"cancelled"`
 	Message    string `json:"message,omitempty"`
 }
 
-// beginLibraryLoudness starts a whole-library run unless one is already going.
-// Returns false when a run was already in progress.
-func (n *Router) beginLibraryLoudness(ctx context.Context, phase int) bool {
+// beginLibraryLoudness starts a run unless one is already going. Returns false
+// when a run was already in progress.
+//
+// With ids, the run covers exactly those songs; without, the whole library at
+// the given phase. Both are the same job - one background run, one status, one
+// stop button - because a selection that behaves differently from a sweep is a
+// second implementation of the same thing, and was the reason optimising a
+// selection had no progress and could not be stopped.
+func (n *Router) beginLibraryLoudness(ctx context.Context, phase int, ids []string) bool {
 	loudnessAnalyze.stopMu.Lock()
 	libraryLoudness.stopMu.Lock()
 	defer loudnessAnalyze.stopMu.Unlock()
@@ -74,13 +111,23 @@ func (n *Router) beginLibraryLoudness(ctx context.Context, phase int) bool {
 	libraryLoudness.normalized.Store(0)
 	libraryLoudness.skipped.Store(0)
 	libraryLoudness.failed.Store(0)
+	libraryLoudness.inFlight.Store(0)
+	libraryLoudness.cancelled.Store(0)
 
-	go n.runLibraryLoudness(context.WithoutCancel(ctx))
+	// Detached from the request that started it - the run outlives the HTTP
+	// call - but cancellable on its own terms, so a stop can reach the ffmpeg
+	// processes rather than only the loop that hands out work.
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	libraryLoudness.cancel = cancel
+
+	go n.runLibraryLoudness(runCtx, phase, ids)
 	return true
 }
 
-// stopLibraryLoudness asks a running whole-library run to finish the track it
-// is on and stop. Tracks already rewritten are left as they are.
+// stopLibraryLoudness stops a running whole-library run: no further tracks are
+// handed out, the tracks in flight get stopGracePeriod to finish, and whatever
+// is still going after that has its ffmpeg processes killed. Tracks already
+// rewritten are left as they are; a track killed part-way is left untouched.
 func stopLibraryLoudness() {
 	libraryLoudness.stopMu.Lock()
 	defer libraryLoudness.stopMu.Unlock()
@@ -90,6 +137,11 @@ func stopLibraryLoudness() {
 	libraryLoudness.stopping.Store(true)
 	if libraryLoudness.stop != nil {
 		close(libraryLoudness.stop)
+	}
+	// Cancelling a run that has already finished on its own does nothing, so
+	// the timer needs no coordination with the run ending first.
+	if cancel := libraryLoudness.cancel; cancel != nil {
+		time.AfterFunc(stopGracePeriod, cancel)
 	}
 }
 
@@ -102,6 +154,14 @@ func libraryLoudnessStopSignal() <-chan struct{} {
 func finishLibraryLoudness() {
 	libraryLoudness.stopMu.Lock()
 	libraryLoudness.stop = nil
+	// Releases the context whether or not a stop ever cancelled it. A pending
+	// grace-period timer may still fire afterwards, which is harmless: the
+	// function it holds is this same one, and cancelling twice does nothing.
+	if cancel := libraryLoudness.cancel; cancel != nil {
+		cancel()
+		libraryLoudness.cancel = nil
+	}
+	libraryLoudness.inFlight.Store(0)
 	libraryLoudness.stopping.Store(false)
 	libraryLoudness.running.Store(false)
 	libraryLoudness.stopMu.Unlock()
@@ -123,13 +183,13 @@ func (n *Router) stopLibraryLoudnessHandler() http.HandlerFunc {
 func (n *Router) startLibraryLoudness() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !loudness.Enabled(r.Context(), n.ds) {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(libraryLoudnessStatus{Message: "Turn on 'Optimise all LUFS' first"})
-			return
-		}
+		// No check that "Optimise all LUFS" is on. That switch now means "a run
+		// is happening" and turns itself off when one ends, so requiring it here
+		// would refuse the phase 2 run every time - and applying decisions the
+		// client has already made is an explicit action that should not need a
+		// library-wide switch turned on first.
 		phase := loudnessPhaseFromRequest(r)
-		if !n.beginLibraryLoudness(r.Context(), phase) {
+		if !n.beginLibraryLoudness(r.Context(), phase, nil) {
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus("LUFS processing is already running"))
 			return
@@ -171,6 +231,8 @@ func currentLibraryLoudnessStatus(msg string) libraryLoudnessStatus {
 		Normalized: libraryLoudness.normalized.Load(),
 		Skipped:    libraryLoudness.skipped.Load(),
 		Failed:     libraryLoudness.failed.Load(),
+		InFlight:   libraryLoudness.inFlight.Load(),
+		Cancelled:  libraryLoudness.cancelled.Load(),
 		Message:    msg,
 	}
 	if ts := libraryLoudness.startedAt.Load(); ts > 0 {
@@ -179,22 +241,35 @@ func currentLibraryLoudnessStatus(msg string) libraryLoudnessStatus {
 	return st
 }
 
-func (n *Router) runLibraryLoudness(ctx context.Context) {
-	defer finishLibraryLoudness()
+func (n *Router) runLibraryLoudness(ctx context.Context, phase int, ids []string) {
+	// "Optimise all LUFS" describes a run, not a preference, so it goes off when
+	// the run ends. Persisting it - rather than leaving the UI to infer it from
+	// the job status - is what makes a page reload agree with what is actually
+	// happening; otherwise the stored setting says on for ever after the first
+	// run, and the switch has to be turned off and on again to start another.
+	//
+	// The stored context may be cancelled by now, which would fail the write.
+	defer func() {
+		saveCtx := context.WithoutCancel(ctx)
+		if err := loudness.SetEnabled(saveCtx, n.ds, false); err != nil {
+			log.Error(saveCtx, "Could not turn 'Optimise all LUFS' off after the run", err)
+		}
+		finishLibraryLoudness()
+	}()
 
-	phase := int(libraryLoudness.phase.Load())
 	options := conf.Server.Scanner.LoudnessNormalization
-	log.Info(ctx, "LUFS run started", "phase", phase, "targetLUFS", options.TargetLUFS)
+	log.Info(ctx, "LUFS run started", "phase", phase, "selected", len(ids),
+		"targetLUFS", options.TargetLUFS)
 	start := time.Now()
 
-	if total, err := n.countLoudnessTargets(ctx, phase); err != nil {
+	if total, err := n.countLoudnessTargets(ctx, phase, ids); err != nil {
 		log.Warn(ctx, "LUFS run: could not count tracks, progress will have no total", err)
 	} else {
 		libraryLoudness.total.Store(total)
 		log.Info(ctx, "LUFS run: tracks to process", "total", total, "phase", phase)
 	}
 
-	cursor, err := n.ds.MediaFile(ctx).GetCursor(model.QueryOptions{Filters: loudnessRunFilter(phase)})
+	cursor, err := n.ds.MediaFile(ctx).GetCursor(model.QueryOptions{Filters: loudnessRunFilter(phase, ids)})
 	if err != nil {
 		log.Error(ctx, "LUFS run: could not read media files", err)
 		return
@@ -212,8 +287,18 @@ func (n *Router) runLibraryLoudness(ctx context.Context) {
 			defer wg.Done()
 			normalizer := ffmpeg.NewLoudnessNormalizer()
 			for mf := range work {
+				libraryLoudness.inFlight.Add(1)
 				res, err := optimizeOneTrack(ctx, n.ds, normalizer, &mf)
+				libraryLoudness.inFlight.Add(-1)
 				switch {
+				case err != nil && ctx.Err() != nil:
+					// Abandoned when the grace period ran out. The file was not
+					// touched and no audit was written, so the next run selects
+					// it again - it is postponed, not lost, and counting it as
+					// processed or failed would misreport both.
+					libraryLoudness.cancelled.Add(1)
+					log.Debug(ctx, "LUFS run: track abandoned on stop", "path", mf.Path)
+					continue
 				case err != nil:
 					libraryLoudness.failed.Add(1)
 					log.Warn(ctx, "LUFS run: could not optimise track", "path", mf.Path, err)
@@ -253,15 +338,16 @@ dispatch:
 
 	log.Info(ctx, "LUFS run finished", "phase", phase, "processed", libraryLoudness.processed.Load(),
 		"normalized", libraryLoudness.normalized.Load(), "skipped", libraryLoudness.skipped.Load(),
-		"failed", libraryLoudness.failed.Load(), "elapsed", time.Since(start))
+		"failed", libraryLoudness.failed.Load(), "cancelled", libraryLoudness.cancelled.Load(),
+		"elapsed", time.Since(start))
 }
 
 // countLoudnessTargets counts how many tracks this run will actually touch, so
 // the UI can show "processed of total" rather than an open-ended counter. It
 // asks the database rather than walking every row, and so applies the same
 // filter the run itself does.
-func (n *Router) countLoudnessTargets(ctx context.Context, phase int) (int64, error) {
-	return n.ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: loudnessRunFilter(phase)})
+func (n *Router) countLoudnessTargets(ctx context.Context, phase int, ids []string) (int64, error) {
+	return n.ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: loudnessRunFilter(phase, ids)})
 }
 
 // loudnessRunFilter narrows a run to the tracks it will actually touch.
@@ -280,8 +366,16 @@ func (n *Router) countLoudnessTargets(ctx context.Context, phase int) (int64, er
 // current as the last analysis: neither a change of tolerance nor a file
 // replaced on disk updates it, so re-run Analyze after either. Phase 2 covers
 // only tracks the client has given a decision for.
-func loudnessRunFilter(phase int) squirrel.Sqlizer {
+func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 	notMissing := squirrel.Eq{"media_file.missing": false}
+	// An explicit selection overrides the planner. Every other clause below
+	// exists to stop a library sweep from redoing work it has already done or
+	// already refused - reasonable for a sweep, wrong for a list of songs a
+	// person picked out by hand. Applying them here would quietly drop the very
+	// tracks someone selected in order to try again.
+	if len(ids) > 0 {
+		return squirrel.And{notMissing, squirrel.Eq{"media_file.id": ids}}
+	}
 	if phase == loudness.PhaseReview {
 		return squirrel.And{
 			notMissing,

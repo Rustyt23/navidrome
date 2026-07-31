@@ -1,9 +1,12 @@
 package nativeapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"time"
 
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
@@ -18,6 +21,8 @@ var _ = Describe("LUFS job controls", func() {
 		loudnessAnalyze.total.Store(0)
 		loudnessAnalyze.processed.Store(0)
 		loudnessAnalyze.failed.Store(0)
+		loudnessAnalyze.inFlight.Store(0)
+		loudnessAnalyze.cancelled.Store(0)
 
 		finishLibraryLoudness()
 		libraryLoudness.phase.Store(0)
@@ -27,13 +32,71 @@ var _ = Describe("LUFS job controls", func() {
 		libraryLoudness.normalized.Store(0)
 		libraryLoudness.skipped.Store(0)
 		libraryLoudness.failed.Store(0)
+		libraryLoudness.inFlight.Store(0)
+		libraryLoudness.cancelled.Store(0)
 	}
 
 	BeforeEach(resetJobs)
 	AfterEach(resetJobs)
 
+	// Puts a job into the state a real run would be in, without starting one.
+	armLibraryRun := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		libraryLoudness.stopMu.Lock()
+		libraryLoudness.running.Store(true)
+		libraryLoudness.stop = make(chan struct{})
+		libraryLoudness.cancel = cancel
+		libraryLoudness.stopMu.Unlock()
+		return ctx
+	}
+
+	Describe("stopping a run", func() {
+		BeforeEach(func() {
+			original := stopGracePeriod
+			stopGracePeriod = 10 * time.Millisecond
+			DeferCleanup(func() { stopGracePeriod = original })
+		})
+
+		It("kills the tracks still running once the grace period is up", func() {
+			ctx := armLibraryRun()
+
+			stopLibraryLoudness()
+
+			// Before the grace period the tracks in flight are left alone.
+			Expect(ctx.Err()).ToNot(HaveOccurred())
+			Eventually(ctx.Done()).Should(BeClosed())
+			Expect(ctx.Err()).To(MatchError(context.Canceled))
+		})
+
+		It("does the same for an analysis sweep", func() {
+			ctx, ok := beginLoudnessAnalyze(context.Background())
+			Expect(ok).To(BeTrue())
+
+			stopLoudnessAnalyze()
+
+			Eventually(ctx.Done()).Should(BeClosed())
+		})
+
+		It("releases the run context when a run ends on its own", func() {
+			ctx := armLibraryRun()
+
+			finishLibraryLoudness()
+
+			Expect(ctx.Err()).To(MatchError(context.Canceled))
+			Expect(currentLibraryLoudnessStatus("").Running).To(BeFalse())
+		})
+
+		It("reports how many tracks are still open, so a stop can be seen working", func() {
+			armLibraryRun()
+			libraryLoudness.inFlight.Store(3)
+
+			Expect(currentLibraryLoudnessStatus("").InFlight).To(Equal(int64(3)))
+		})
+	})
+
 	It("requests a cooperative stop for library analysis", func() {
-		Expect(beginLoudnessAnalyze()).To(BeTrue())
+		_, ok := beginLoudnessAnalyze(GinkgoT().Context())
+		Expect(ok).To(BeTrue())
 		stopSignal := loudnessAnalyzeStopSignal()
 		handler := (&Router{}).stopLoudnessAnalyzeHandler()
 		response := httptest.NewRecorder()
@@ -94,7 +157,8 @@ var _ = Describe("LUFS job controls", func() {
 		ds := &tests.MockDataStore{}
 		repo := ds.LoudnessAudit(GinkgoT().Context())
 		Expect(repo.Put(&model.LoudnessAudit{MediaFileID: "song-1"})).To(Succeed())
-		Expect(beginLoudnessAnalyze()).To(BeTrue())
+		_, ok := beginLoudnessAnalyze(GinkgoT().Context())
+		Expect(ok).To(BeTrue())
 
 		handler := (&Router{ds: ds}).clearLoudnessAnalyzeResults()
 		response := httptest.NewRecorder()
@@ -106,8 +170,34 @@ var _ = Describe("LUFS job controls", func() {
 		Expect(audit).ToNot(BeNil())
 	})
 
+	// Whether originals are kept decides what happens to files the moment the
+	// next track is opened, and cannot be applied to work already done. Changing
+	// it mid-run would leave one half of a run restorable and the other half
+	// not, with nothing in the record saying where the line falls.
+	It("refuses to change whether originals are kept while a run is going", func() {
+		ds := &tests.MockDataStore{}
+		armLibraryRun()
+
+		handler := (&Router{ds: ds}).updateLoudnessSettings()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut,
+			"/song/loudness/settings", strings.NewReader(`{"backup":false}`)))
+
+		Expect(response.Code).To(Equal(http.StatusConflict))
+	})
+
+	It("rejects a settings request that sets nothing", func() {
+		handler := (&Router{ds: &tests.MockDataStore{}}).updateLoudnessSettings()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut,
+			"/song/loudness/settings", strings.NewReader(`{}`)))
+
+		Expect(response.Code).To(Equal(http.StatusBadRequest))
+	})
+
 	It("does not start analysis and optimisation at the same time", func() {
-		Expect(beginLoudnessAnalyze()).To(BeTrue())
-		Expect((&Router{}).beginLibraryLoudness(GinkgoT().Context(), 1)).To(BeFalse())
+		_, ok := beginLoudnessAnalyze(GinkgoT().Context())
+		Expect(ok).To(BeTrue())
+		Expect((&Router{}).beginLibraryLoudness(GinkgoT().Context(), 1, nil)).To(BeFalse())
 	})
 })

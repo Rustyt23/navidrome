@@ -18,10 +18,10 @@ import (
 var _ = Describe("loudnessRunFilter", func() {
 	var db *sql.DB
 
-	selectedBy := func(phase int) []string {
+	selectedWith := func(phase int, only []string) []string {
 		query := squirrel.Select("media_file.id").From("media_file").
 			LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id").
-			Where(loudnessRunFilter(phase)).OrderBy("media_file.id")
+			Where(loudnessRunFilter(phase, only)).OrderBy("media_file.id")
 		sqlStr, args, err := query.ToSql()
 		Expect(err).ToNot(HaveOccurred())
 
@@ -38,6 +38,8 @@ var _ = Describe("loudnessRunFilter", func() {
 		Expect(rows.Err()).ToNot(HaveOccurred())
 		return ids
 	}
+
+	selectedBy := func(phase int) []string { return selectedWith(phase, nil) }
 
 	BeforeEach(func() {
 		var err error
@@ -128,6 +130,32 @@ var _ = Describe("loudnessRunFilter", func() {
 			// same file would reach the same refusal - on every run, for ever.
 			// A fresh analysis clears the mark and it is tried again.
 			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("refused"))
+		})
+	})
+
+	// Optimising a hand-picked selection runs the same job, scoped by id. The
+	// point of the scope is that it overrides the planner: someone who selects a
+	// song has decided it should be tried, and the clauses that keep a sweep
+	// from redoing work must not quietly drop it.
+	Describe("a selected set of songs", func() {
+		It("covers exactly the songs asked for", func() {
+			Expect(selectedWith(loudness.PhaseGain, []string{"gain", "done"})).
+				To(Equal([]string{"done", "gain"}))
+		})
+
+		It("retries a track a run refused, which a sweep would skip", func() {
+			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("refused"))
+			Expect(selectedWith(loudness.PhaseGain, []string{"refused"})).
+				To(ContainElement("refused"))
+		})
+
+		It("opens a review track without waiting for a decision", func() {
+			Expect(selectedWith(loudness.PhaseGain, []string{"review-pending"})).
+				To(ContainElement("review-pending"))
+		})
+
+		It("still refuses to touch a file that is not on disk", func() {
+			Expect(selectedWith(loudness.PhaseGain, []string{"missing-file"})).To(BeEmpty())
 		})
 	})
 

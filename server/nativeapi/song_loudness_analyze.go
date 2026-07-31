@@ -28,8 +28,15 @@ type loudnessAnalyzeJob struct {
 	total     atomic.Int64
 	processed atomic.Int64
 	failed    atomic.Int64
+	inFlight  atomic.Int64
+	cancelled atomic.Int64
 	stopMu    sync.Mutex
 	stop      chan struct{}
+	// cancel kills the ffmpeg processes of tracks still being measured when the
+	// grace period runs out. Analysis never writes to a library file, so there
+	// is nothing to leave half-done: an abandoned track is simply one that was
+	// not measured, and the next sweep measures it.
+	cancel context.CancelFunc
 }
 
 var loudnessAnalyze loudnessAnalyzeJob
@@ -41,6 +48,8 @@ type loudnessAnalyzeStatus struct {
 	Total     int64  `json:"total"`
 	Processed int64  `json:"processed"`
 	Failed    int64  `json:"failed"`
+	InFlight  int64  `json:"inFlight"`
+	Cancelled int64  `json:"cancelled"`
 	Message   string `json:"message,omitempty"`
 }
 
@@ -62,6 +71,8 @@ func currentLoudnessAnalyzeStatus(msg string) loudnessAnalyzeStatus {
 		Total:     loudnessAnalyze.total.Load(),
 		Processed: loudnessAnalyze.processed.Load(),
 		Failed:    loudnessAnalyze.failed.Load(),
+		InFlight:  loudnessAnalyze.inFlight.Load(),
+		Cancelled: loudnessAnalyze.cancelled.Load(),
 		Message:   msg,
 	}
 	if ts := loudnessAnalyze.startedAt.Load(); ts > 0 {
@@ -77,24 +88,31 @@ func (n *Router) loudnessAnalyzeStatusHandler() http.HandlerFunc {
 	}
 }
 
-// beginLoudnessAnalyze prepares a fresh stop signal for one analysis run.
-func beginLoudnessAnalyze() bool {
+// beginLoudnessAnalyze prepares a fresh stop signal for one analysis run, and
+// returns the context the run must use so a stop can reach its ffmpeg processes.
+func beginLoudnessAnalyze(ctx context.Context) (context.Context, bool) {
 	loudnessAnalyze.stopMu.Lock()
 	libraryLoudness.stopMu.Lock()
 	defer loudnessAnalyze.stopMu.Unlock()
 	defer libraryLoudness.stopMu.Unlock()
 	if loudnessAnalyze.running.Load() || libraryLoudness.running.Load() {
-		return false
+		return nil, false
 	}
 	loudnessAnalyze.running.Store(true)
 	loudnessAnalyze.stopping.Store(false)
 	loudnessAnalyze.stop = make(chan struct{})
-	return true
+	loudnessAnalyze.inFlight.Store(0)
+	loudnessAnalyze.cancelled.Store(0)
+
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	loudnessAnalyze.cancel = cancel
+	return runCtx, true
 }
 
-// stopLoudnessAnalyze asks the producer to stop dispatching tracks. Workers
-// finish only the tracks already in progress, so every persisted row is a
-// complete analysis rather than a half-written result.
+// stopLoudnessAnalyze stops the sweep: no further tracks are handed out, the
+// ones in flight get stopGracePeriod to finish, and whatever is still going
+// after that is killed. Every persisted row is a complete analysis either way -
+// a track that does not finish measuring writes nothing at all.
 func stopLoudnessAnalyze() {
 	loudnessAnalyze.stopMu.Lock()
 	defer loudnessAnalyze.stopMu.Unlock()
@@ -104,6 +122,9 @@ func stopLoudnessAnalyze() {
 	loudnessAnalyze.stopping.Store(true)
 	if loudnessAnalyze.stop != nil {
 		close(loudnessAnalyze.stop)
+	}
+	if cancel := loudnessAnalyze.cancel; cancel != nil {
+		time.AfterFunc(stopGracePeriod, cancel)
 	}
 }
 
@@ -116,6 +137,11 @@ func loudnessAnalyzeStopSignal() <-chan struct{} {
 func finishLoudnessAnalyze() {
 	loudnessAnalyze.stopMu.Lock()
 	loudnessAnalyze.stop = nil
+	if cancel := loudnessAnalyze.cancel; cancel != nil {
+		cancel()
+		loudnessAnalyze.cancel = nil
+	}
+	loudnessAnalyze.inFlight.Store(0)
 	loudnessAnalyze.stopping.Store(false)
 	loudnessAnalyze.running.Store(false)
 	loudnessAnalyze.stopMu.Unlock()
@@ -176,7 +202,8 @@ func (n *Router) startLoudnessAnalyze() http.HandlerFunc {
 			http.Error(w, "ids are required (or set all=true)", http.StatusBadRequest)
 			return
 		}
-		if !beginLoudnessAnalyze() {
+		runCtx, ok := beginLoudnessAnalyze(r.Context())
+		if !ok {
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(currentLoudnessAnalyzeStatus("Another LUFS job is already running"))
 			return
@@ -186,7 +213,7 @@ func (n *Router) startLoudnessAnalyze() http.HandlerFunc {
 		loudnessAnalyze.processed.Store(0)
 		loudnessAnalyze.failed.Store(0)
 
-		go n.runLoudnessAnalyze(context.Background(), payload)
+		go n.runLoudnessAnalyze(runCtx, payload)
 
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(currentLoudnessAnalyzeStatus("Analysis started - no files are modified"))
@@ -235,11 +262,21 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 			normalizer := ffmpeg.NewLoudnessNormalizer()
 			for mf := range work {
 				trackPath := absoluteSelectedMediaPath(mf.LibraryPath, mf.Path)
+				loudnessAnalyze.inFlight.Add(1)
 				var audit *model.LoudnessAudit
 				if originalOnly {
 					audit = loudness.MeasureOriginal(ctx, normalizer, mf.ID, trackPath, target, tolerance)
 				} else {
 					audit = loudness.Audit(ctx, normalizer, mf.ID, mf.LibraryPath, trackPath, target, tolerance, options.BackupFolder)
+				}
+				loudnessAnalyze.inFlight.Add(-1)
+				// A measurement cut short by a stop is not a failed measurement.
+				// Recording it would replace a good reading with an error, and
+				// mark a track as analysed when nothing was learned about it.
+				if ctx.Err() != nil {
+					loudnessAnalyze.cancelled.Add(1)
+					log.Debug(ctx, "LUFS analysis: track abandoned on stop", "path", mf.Path)
+					continue
 				}
 				if err := n.ds.LoudnessAudit(ctx).Put(audit); err != nil {
 					log.Warn(ctx, "LUFS analysis: could not save audit record", "id", mf.ID, err)

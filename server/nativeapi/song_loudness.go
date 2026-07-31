@@ -3,12 +3,12 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/core/loudness"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -17,23 +17,6 @@ import (
 
 type songLoudnessPayload struct {
 	IDs []string `json:"ids"`
-}
-
-type songLoudnessResult struct {
-	ID        string   `json:"id"`
-	Status    string   `json:"status"`
-	Before    *float64 `json:"before,omitempty"`
-	After     *float64 `json:"after,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	UpdatedDB bool     `json:"updatedDb,omitempty"`
-}
-
-type songLoudnessResponse struct {
-	IDs        []string             `json:"ids"`
-	Normalized []string             `json:"normalized"`
-	Skipped    []string             `json:"skipped"`
-	Failed     []string             `json:"failed"`
-	Results    []songLoudnessResult `json:"results"`
 }
 
 func (n *Router) addSongLoudnessRoute(r chi.Router) {
@@ -54,7 +37,7 @@ func (n *Router) addSongLoudnessRoute(r chi.Router) {
 }
 
 // loudnessSettingsResponse describes the current loudness normalization state
-// for the LUFS page. Only Enabled is writable from the UI; the remaining
+// for the LUFS page. Enabled and Backup are writable from the UI; the remaining
 // fields come from the configuration and are shown for reference.
 type loudnessSettingsResponse struct {
 	Enabled    bool    `json:"enabled"`
@@ -65,8 +48,11 @@ type loudnessSettingsResponse struct {
 	Backup     bool    `json:"backup"`
 }
 
+// Both fields are optional so each toggle can be set without disturbing the
+// other. A request that sets neither is rejected rather than silently accepted.
 type loudnessSettingsPayload struct {
 	Enabled *bool `json:"enabled"`
+	Backup  *bool `json:"backup"`
 }
 
 func (n *Router) currentLoudnessSettings(ctx context.Context) loudnessSettingsResponse {
@@ -77,7 +63,7 @@ func (n *Router) currentLoudnessSettings(ctx context.Context) loudnessSettingsRe
 		Tolerance:  effectiveManualLoudnessTolerance(options.Tolerance),
 		TruePeak:   options.TruePeak,
 		LRA:        options.LRA,
-		Backup:     options.Backup,
+		Backup:     loudness.BackupEnabled(ctx, n.ds),
 	}
 }
 
@@ -99,25 +85,49 @@ func (n *Router) updateLoudnessSettings() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if payload.Enabled == nil {
-			http.Error(w, "enabled is required", http.StatusBadRequest)
-			return
-		}
-		if err := loudness.SetEnabled(ctx, n.ds, *payload.Enabled); err != nil {
-			log.Error(ctx, "Could not save loudness normalization setting", "enabled", *payload.Enabled, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if payload.Enabled == nil && payload.Backup == nil {
+			http.Error(w, "enabled or backup is required", http.StatusBadRequest)
 			return
 		}
 
-		// Turning "Optimise all LUFS" on starts a whole-library run; turning it
-		// off stops the run in progress. Optimizing a hand-picked selection is
-		// an explicit action and stays available either way.
-		if *payload.Enabled {
-			started := n.beginLibraryLoudness(ctx, loudness.PhaseGain)
-			log.Info(ctx, "Optimise all LUFS turned on", "startedRun", started)
-		} else {
-			stopLibraryLoudness()
-			log.Info(ctx, "Optimise all LUFS turned off")
+		// Whether originals are kept decides what happens to files the moment
+		// the next track is opened, and it cannot be applied to work already
+		// done. Changing it underneath a run would leave one half of that run
+		// restorable and the other half not, with nothing in the record saying
+		// where the line falls.
+		if payload.Backup != nil {
+			if libraryLoudness.running.Load() {
+				w.WriteHeader(http.StatusConflict)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"message": "Stop the optimisation before changing whether originals are kept",
+				})
+				return
+			}
+			if err := loudness.SetBackupEnabled(ctx, n.ds, *payload.Backup); err != nil {
+				log.Error(ctx, "Could not save loudness backup setting", "backup", *payload.Backup, err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			log.Warn(ctx, "Keep original before optimising changed", "backup", *payload.Backup)
+		}
+
+		if payload.Enabled != nil {
+			if err := loudness.SetEnabled(ctx, n.ds, *payload.Enabled); err != nil {
+				log.Error(ctx, "Could not save loudness normalization setting", "enabled", *payload.Enabled, err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Turning "Optimise all LUFS" on starts a whole-library run; turning
+			// it off stops the run in progress. Optimizing a hand-picked
+			// selection is an explicit action and stays available either way.
+			if *payload.Enabled {
+				started := n.beginLibraryLoudness(ctx, loudness.PhaseGain, nil)
+				log.Info(ctx, "Optimise all LUFS turned on", "startedRun", started)
+			} else {
+				stopLibraryLoudness()
+				log.Info(ctx, "Optimise all LUFS turned off")
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -127,9 +137,17 @@ func (n *Router) updateLoudnessSettings() http.HandlerFunc {
 	}
 }
 
+// optimizeSongLoudness optimises a hand-picked selection.
+//
+// It starts the same background run the whole-library sweep uses, scoped to the
+// chosen ids, and returns as soon as the run is going. It used to do the work
+// inside the request instead: one song at a time, with no progress, no way to
+// stop it, and a request that stayed open until the last song was finished -
+// which on a large selection outlives the browser's patience while the server
+// carries on working.
 func (n *Router) optimizeSongLoudness() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
+		w.Header().Set("Content-Type", "application/json")
 
 		var payload songLoudnessPayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -143,89 +161,23 @@ func (n *Router) optimizeSongLoudness() http.HandlerFunc {
 			return
 		}
 
-		release, busy := claimLoudnessFileWork(&selectionLoudnessRunning)
-		if busy != "" {
-			w.Header().Set("Content-Type", "application/json")
+		if !n.beginLibraryLoudness(r.Context(), loudness.PhaseGain, ids) {
 			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(songLoudnessResponse{
-				IDs: ids, Failed: ids,
-				Results: []songLoudnessResult{{
-					Status: "failed",
-					Error:  busy + " is already running - wait for it to finish",
-				}},
-			})
+			_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus("LUFS processing is already running"))
 			return
 		}
-		defer release()
 
-		response := optimizeSelectedSongLoudness(ctx, n.ds, ids)
-		status := http.StatusOK
-		if len(response.Normalized) == 0 && len(response.Skipped) == 0 && len(response.Failed) > 0 {
-			status = http.StatusInternalServerError
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Error(ctx, "Error sending song loudness response", err)
-		}
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(currentLibraryLoudnessStatus(
+			fmt.Sprintf("Optimising %d selected %s", len(ids), pluralSongs(len(ids)))))
 	}
 }
 
-func optimizeSelectedSongLoudness(ctx context.Context, ds model.DataStore, ids []string) songLoudnessResponse {
-	normalizer := ffmpeg.NewLoudnessNormalizer()
-	repo := ds.MediaFile(ctx)
-
-	response := songLoudnessResponse{IDs: ids}
-	for _, id := range ids {
-		result := songLoudnessResult{ID: id}
-		fail := func(msg string) {
-			result.Status = "failed"
-			result.Error = msg
-			response.Failed = append(response.Failed, id)
-			response.Results = append(response.Results, result)
-		}
-
-		mf, err := repo.Get(id)
-		if err != nil {
-			fail(err.Error())
-			continue
-		}
-		if mf.Path == "" || mf.LibraryPath == "" || mf.Missing {
-			fail("song file is missing")
-			continue
-		}
-
-		res, err := optimizeOneTrack(ctx, ds, normalizer, mf)
-		if err != nil {
-			log.Warn(ctx, "Could not optimize selected song loudness", "id", id, err)
-			fail(err.Error())
-			continue
-		}
-		result.Before = &res.OldLUFS
-		result.After = &res.NewLUFS
-		result.UpdatedDB = true
-
-		if !res.Changed {
-			result.Status = "skipped"
-			switch {
-			case res.Phase == loudness.PhaseReview:
-				result.Error = "not enough headroom: review it on the LUFS 2 page"
-			case res.Rejected != "":
-				result.Error = res.Rejected
-			}
-			response.Skipped = append(response.Skipped, id)
-			response.Results = append(response.Results, result)
-			continue
-		}
-
-		log.Info(ctx, "Optimized selected song loudness", "id", id, "fromLUFS", res.OldLUFS,
-			"finalLUFS", res.NewLUFS, "gain", res.GainDB, "phase", res.Phase)
-		result.Status = "normalized"
-		response.Normalized = append(response.Normalized, id)
-		response.Results = append(response.Results, result)
+func pluralSongs(n int) string {
+	if n == 1 {
+		return "song"
 	}
-	return response
+	return "songs"
 }
 
 func updateSongLoudnessTag(ctx context.Context, repo model.MediaFileRepository, id string, lufs float64) bool {

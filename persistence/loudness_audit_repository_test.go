@@ -96,6 +96,96 @@ var _ = Describe("LoudnessAuditRepository", func() {
 		Expect(other.LoudnessAudit).To(BeNil())
 	})
 
+	Describe("the exception latch", func() {
+		It("raises it for a track that needs a decision, and keeps it raised once the track is fixed", func() {
+			Expect(repo.Put(&model.LoudnessAudit{
+				MediaFileID: "1004",
+				Phase:       model.LoudnessPhaseReview,
+			})).To(Succeed())
+
+			saved, err := repo.Get("1004")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved.WasException).To(BeTrue())
+
+			By("surviving a later analysis that finds nothing wrong")
+			Expect(repo.Put(&model.LoudnessAudit{
+				MediaFileID: "1004",
+				Phase:       0,
+				Action:      model.LoudnessActionGain,
+				Verdict:     model.LoudnessVerdictSafe,
+			})).To(Succeed())
+
+			saved, err = repo.Get("1004")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved.Phase).To(Equal(0))
+			Expect(saved.WasException).To(BeTrue())
+		})
+
+		// Refusal is a note to the next run, not a verdict, and a fresh analysis
+		// clears it. Latching on it branded tracks that had one bad attempt -
+		// while the disk was full, say - and nothing could ever clear the brand.
+		It("leaves it down for a refused track, which the live filter lists anyway", func() {
+			Expect(repo.Put(&model.LoudnessAudit{
+				MediaFileID: "1004",
+				Phase:       1,
+				Action:      model.LoudnessActionRefused,
+			})).To(Succeed())
+
+			saved, err := repo.Get("1004")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved.WasException).To(BeFalse())
+
+			By("letting the track off the list once it succeeds")
+			Expect(repo.Put(&model.LoudnessAudit{
+				MediaFileID: "1004",
+				Phase:       0,
+				Action:      model.LoudnessActionGain,
+				Verdict:     model.LoudnessVerdictSafe,
+			})).To(Succeed())
+
+			saved, err = repo.Get("1004")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved.WasException).To(BeFalse())
+			Expect(saved.Action).To(Equal(model.LoudnessActionGain))
+		})
+
+		It("raises it when a decision is recorded", func() {
+			Expect(repo.Put(&model.LoudnessAudit{MediaFileID: "1004"})).To(Succeed())
+			Expect(repo.SetDecision("1004", "limit")).To(Succeed())
+
+			saved, err := repo.Get("1004")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved.WasException).To(BeTrue())
+		})
+
+		// The empty decision is "undecide this", which is the removal of a
+		// choice rather than one, and must not mark the track.
+		It("leaves it down when a decision is cleared", func() {
+			Expect(repo.Put(&model.LoudnessAudit{MediaFileID: "1004"})).To(Succeed())
+			Expect(repo.SetDecision("1004", "")).To(Succeed())
+
+			saved, err := repo.Get("1004")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved.WasException).To(BeFalse())
+		})
+
+		// The bug this column exists to fix: a small automatic peak trim also
+		// records action = limited, so matching on that listed routine successes
+		// as exceptions.
+		It("leaves it down for a track that was only trimmed automatically", func() {
+			Expect(repo.Put(&model.LoudnessAudit{
+				MediaFileID: "1004",
+				Phase:       0,
+				Action:      model.LoudnessActionLimited,
+				Verdict:     model.LoudnessVerdictDynamicsChanged,
+			})).To(Succeed())
+
+			saved, err := repo.Get("1004")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved.WasException).To(BeFalse())
+		})
+	})
+
 	It("clears every derived audit record without deleting media files", func() {
 		Expect(repo.Put(&model.LoudnessAudit{MediaFileID: "1003"})).To(Succeed())
 		Expect(repo.Put(&model.LoudnessAudit{MediaFileID: "1004"})).To(Succeed())

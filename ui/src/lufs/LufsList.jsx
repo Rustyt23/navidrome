@@ -236,6 +236,7 @@ const LufsList = (props) => {
       sort={{ field: 'title', order: 'ASC' }}
       actions={
         <LufsListActions
+          settings={settings}
           onSettingsChange={setSettings}
           analyzeStatus={analyzeStatus}
           onAnalyzeStarted={handleAnalyzeStarted}

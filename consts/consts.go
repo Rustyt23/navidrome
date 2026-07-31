@@ -22,6 +22,11 @@ const (
 	// loudness normalization. When unset, the configured value is used.
 	LoudnessNormalizationEnabledKey = "LoudnessNormalizationEnabled"
 
+	// LoudnessNormalizationBackupKey stores the UI-controlled on/off state for
+	// keeping an untouched original before a song is rewritten. When unset, the
+	// configured value is used.
+	LoudnessNormalizationBackupKey = "LoudnessNormalizationBackup"
+
 	UIAuthorizationHeader  = "X-ND-Authorization"
 	UIClientUniqueIDHeader = "X-ND-Client-Unique-Id"
 	JWTSecretKey           = "JWTSecret"

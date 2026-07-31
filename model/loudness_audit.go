@@ -30,6 +30,28 @@ const (
 	LoudnessActionRefused = "refused"
 )
 
+// LoudnessPhaseReview mirrors loudness.PhaseReview: the stage where the target
+// cannot be reached without an audible change and the client has to choose.
+// The value is repeated here because core/loudness imports this package, so it
+// cannot be imported back. core/loudness asserts the two stay equal.
+const LoudnessPhaseReview = 2
+
+// IsException reports whether this record describes a track that needed a human
+// to look at it. It is the condition that raises WasException; the stored latch
+// is what keeps the answer true afterwards.
+//
+// Being refused is deliberately not one of these. Refusal is a note to the next
+// run - "this exact file was built and thrown away, do not build it again" -
+// which a fresh analysis clears by design. Latching a permanent flag off a mark
+// the system clears on purpose brands a track for ever on the strength of one
+// bad attempt: a run that failed because the disk was full, or an attempt made
+// before the track was restored, is enough. Refusal still puts a track on the
+// exceptions list through the live filter, and takes it off again once it is no
+// longer refused, which is the behaviour a temporary mark should have.
+func (a *LoudnessAudit) IsException() bool {
+	return a.Phase == LoudnessPhaseReview || a.Decision != ""
+}
+
 // LoudnessAudit is the before/after record for one media file. It lives in its
 // own table so that a library rescan - which rebuilds media_file rows from the
 // files on disk - cannot erase the "before" snapshot, which is unrecoverable
@@ -47,6 +69,13 @@ type LoudnessAudit struct {
 	Phase int `structs:"phase" json:"phase"`
 	// Decision is the client's choice for a phase 2 track.
 	Decision string `structs:"decision" json:"decision"`
+	// WasException records that this track needed a decision or was refused at
+	// some point. It is a latch: once raised it is never lowered, so a track
+	// that has since been dealt with stays on the exceptions list instead of
+	// disappearing the moment it stops being a problem. Nothing in the live
+	// columns can stand in for it - a refused track that is later reprocessed
+	// successfully looks identical to one that never gave any trouble.
+	WasException bool `structs:"was_exception" json:"wasException"`
 
 	// Field names must stay in this CamelCase form: the DB layer maps them to
 	// snake_case columns by lower->upper transitions, so LUFSBefore would map

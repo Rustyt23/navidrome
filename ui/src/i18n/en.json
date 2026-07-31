@@ -66,6 +66,7 @@
         }
       },
       "notifications": {
+        "lufsOptimiseStarted": "Optimising %{count} song(s). You can carry on working - progress and a stop button are on the LUFS page.",
         "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{skipped} skipped, %{failed} failed.",
         "lufsRestored": "Restore complete: %{restored} restored, %{skipped} had no stored original, %{failed} failed."
       }
@@ -381,7 +382,17 @@
     "lufs": {
       "name": "LUFS |||| LUFS",
       "empty": "No Songs",
-      "toggleHelper": "Target %{target} LUFS ± %{tolerance} LU. Turn on to optimise every song in the library; turn off to stop and optimise only the songs you select.",
+      "backupOnHelper": "An untouched original is kept for every song before it is rewritten, so any song can be restored. Costs about as much disk as the library itself.",
+      "backupOffHelper": "Originals are NOT being kept. Songs rewritten from now on cannot be restored from here.",
+      "backupLockedHelper": "Stop the optimisation before changing whether originals are kept.",
+      "backupOffConfirm": {
+        "title": "Stop keeping originals?",
+        "body": "Songs optimised from now on will have no stored original. Restore will not be available for them, and there will be no way to show afterwards that only the level changed. Originals already stored are kept and stay restorable. This cannot be undone from here - only a copy held outside this system could put a song back.",
+        "confirm": "Yes, do not keep originals"
+      },
+      "toggleHelper": "Target %{target} LUFS ± %{tolerance} LU. Turn on to optimise every song in the library. It switches itself off when the run finishes.",
+      "toggleRunning": "Optimising the library. Use Stop optimisation to end the run - songs already in progress are given a few seconds to finish.",
+      "toggleStopping": "Stopping. Songs already in progress are finishing; the rest are left for the next run.",
       "progress": {
         "optimising": "Optimising all: %{processed} done, %{normalized} changed",
         "stopping": "Stopping after current track…",
@@ -444,6 +455,7 @@
       },
       "actions": {
         "toggle": "Optimise all LUFS",
+        "keepOriginals": "Keep originals",
         "analyze": "Analyze",
         "analyzeAll": "Analyze library",
         "stopAnalysis": "Stop analysis",
@@ -461,6 +473,8 @@
       "notifications": {
         "enabled": "Optimising LUFS for the entire library",
         "disabled": "Stopped optimising all - select songs to optimise them individually",
+        "backupOn": "Originals will be kept before each song is rewritten",
+        "backupOff": "Originals will no longer be kept - songs optimised from now on cannot be restored",
         "noOrphanedBackups": "Every stored original still matches a song in the library.",
         "orphanedBackupsMoved": "Moved %{moved} orphaned backups to %{folder}"
       },

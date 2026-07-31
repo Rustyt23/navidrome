@@ -16,7 +16,9 @@ import (
 )
 
 // loudnessRunOptions builds the engine options from the current configuration.
-func loudnessRunOptions(mf *model.MediaFile) loudness.OptimizeOptions {
+// Whether originals are kept is read from the stored setting rather than the
+// config file, since it is switchable from the UI.
+func loudnessRunOptions(ctx context.Context, ds model.DataStore, mf *model.MediaFile) loudness.OptimizeOptions {
 	options := conf.Server.Scanner.LoudnessNormalization
 	return loudness.OptimizeOptions{
 		Target: ffmpeg.LoudnessTarget{
@@ -25,7 +27,7 @@ func loudnessRunOptions(mf *model.MediaFile) loudness.OptimizeOptions {
 			LRA:            options.LRA,
 		},
 		Tolerance:    effectiveManualLoudnessTolerance(options.Tolerance),
-		Backup:       options.Backup,
+		Backup:       loudness.BackupEnabled(ctx, ds),
 		LibraryPath:  mf.LibraryPath,
 		BackupFolder: options.BackupFolder,
 		MediaFileID:  mf.ID,
@@ -38,7 +40,7 @@ func loudnessRunOptions(mf *model.MediaFile) loudness.OptimizeOptions {
 func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg.LoudnessNormalizer,
 	mf *model.MediaFile) (loudness.OptimizeResult, error) {
 	trackPath := absoluteSelectedMediaPath(mf.LibraryPath, mf.Path)
-	opts := loudnessRunOptions(mf)
+	opts := loudnessRunOptions(ctx, ds, mf)
 
 	decision := loudness.DecisionPending
 	if audit, err := ds.LoudnessAudit(ctx).Get(mf.ID); err == nil && audit != nil {
@@ -50,17 +52,24 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 		return res, err
 	}
 
+	// Past this point the file on disk may already have been replaced, so the
+	// record of it has to be written even if the run is being cancelled. A
+	// cancelled context would fail the write and leave a rewritten file that
+	// every page still describes as untouched - the one inconsistency this audit
+	// exists to prevent. Measuring stays cancellable; only the recording does not.
+	recordCtx := context.WithoutCancel(ctx)
+
 	// Refresh the audit record so the pages reflect what just happened. The run
 	// already measured both sides of the change, so the record is built from
 	// those rather than decoding the same files again.
-	audit := loudness.AuditFromOptimize(ctx, normalizer, mf.ID, mf.LibraryPath, trackPath, res,
+	audit := loudness.AuditFromOptimize(recordCtx, normalizer, mf.ID, mf.LibraryPath, trackPath, res,
 		opts.Target, opts.Tolerance, opts.BackupFolder)
-	if err := ds.LoudnessAudit(ctx).Put(audit); err != nil {
-		log.Warn(ctx, "Could not save loudness audit record", "id", mf.ID, err)
+	if err := ds.LoudnessAudit(recordCtx).Put(audit); err != nil {
+		log.Warn(recordCtx, "Could not save loudness audit record", "id", mf.ID, err)
 	}
 
 	if res.Changed {
-		updateSongLoudnessTag(ctx, ds.MediaFile(ctx), mf.ID, res.NewLUFS)
+		updateSongLoudnessTag(recordCtx, ds.MediaFile(recordCtx), mf.ID, res.NewLUFS)
 
 		uploadPath := trackPath
 		if dest, err := copyTrackToSyncMP3Folder(mf.LibraryPath, trackPath); err != nil {

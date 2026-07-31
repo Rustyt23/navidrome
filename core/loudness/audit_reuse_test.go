@@ -175,3 +175,67 @@ func TestAuditFromOptimizeLeavesTheErrorClearWhenNothingWasRejected(t *testing.T
 		t.Errorf("error = %q, want empty: the track was simply already on target", audit.Error)
 	}
 }
+
+// With backups turned off there is no stored original and never will be, so the
+// run's own measurements are the only record the track will ever have.
+//
+// The regression this guards against is silent and total: falling through to the
+// no-backup path takes the file on disk as its own "before", so a song that had
+// just been rewritten is recorded as never touched, with the rewritten loudness
+// stored as its original. Run over a library, every song reads "no change
+// needed" and nothing on disk can contradict it.
+func TestAuditFromOptimizeUsesItsOwnMeasurementsWhenBackupsAreOff(t *testing.T) {
+	libraryPath, trackPath, backupFolder := auditTestPaths(t)
+	normalizer := &countingNormalizer{}
+
+	res := OptimizeResult{
+		Changed:       true,
+		BackupSkipped: true, // no originals are being kept
+		BackupCreated: false,
+		BeforeSet:     testMeasurement(-15.20, -3.10, 7.0),
+		AfterSet:      testMeasurement(-12.58, -0.48, 7.0),
+	}
+	audit := AuditFromOptimize(context.Background(), normalizer, "track-1", libraryPath, trackPath,
+		res, auditTestTarget, testTolerance, backupFolder)
+
+	if audit.Status != model.LoudnessStatusProcessed {
+		t.Errorf("status = %q, want %q: the file was rewritten", audit.Status, model.LoudnessStatusProcessed)
+	}
+	if audit.LufsBefore == nil || *audit.LufsBefore != -15.20 {
+		t.Errorf("before snapshot = %v, want -15.20: the original loudness, not the rewritten one", audit.LufsBefore)
+	}
+	if audit.LufsAfter == nil || *audit.LufsAfter != -12.58 {
+		t.Errorf("after snapshot = %v, want -12.58", audit.LufsAfter)
+	}
+	if audit.GainApplied == nil || math.Abs(*audit.GainApplied-2.62) > 0.001 {
+		t.Errorf("gain = %v, want 2.62", audit.GainApplied)
+	}
+	if audit.HasBackup {
+		t.Error("reported a stored original; none was kept")
+	}
+	if audit.NullResidual != nil {
+		t.Error("reported a null test; there is no original to compare against")
+	}
+	if audit.Verdict != model.LoudnessVerdictSafe {
+		t.Errorf("verdict = %q, want %q", audit.Verdict, model.LoudnessVerdictSafe)
+	}
+}
+
+// A backup that already existed still predates this run, so the "before"
+// snapshot must come from that file rather than from what the run measured.
+func TestAuditFromOptimizeStillDefersToAnOlderStoredOriginal(t *testing.T) {
+	libraryPath, trackPath, backupFolder := auditTestPaths(t)
+
+	res := OptimizeResult{
+		Changed:       true,
+		BackupCreated: false, // one was already there
+		BeforeSet:     testMeasurement(-13.10, -1.10, 7.0),
+		AfterSet:      testMeasurement(-12.58, -0.48, 7.0),
+	}
+	audit := AuditFromOptimize(context.Background(), &countingNormalizer{}, "track-1", libraryPath, trackPath,
+		res, auditTestTarget, testTolerance, backupFolder)
+
+	if audit.LufsBefore != nil && *audit.LufsBefore == -13.10 {
+		t.Error("took this run's measurement as the original; the stored one is older")
+	}
+}

@@ -161,6 +161,14 @@ func auditWith(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaF
 // existing backup is never overwritten, so for a track being processed a second
 // time the stored original is older than anything this run measured and the
 // "before" snapshot has to be read from the backup itself.
+//
+// When backups are turned off there is no original to read and never will be,
+// so the run's own measurements are the only record this track will ever have.
+// They are used directly. Falling through to the no-backup path instead - which
+// takes the file on disk as its own "before" - would record a track that had
+// just been rewritten as never touched, with the rewritten loudness stored as
+// its original: a claim that is wrong, unfalsifiable once the run is over, and
+// applied to every song in the library.
 func AuditFromOptimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer,
 	mediaFileID, libraryPath, trackPath string, res OptimizeResult,
 	target ffmpeg.LoudnessTarget, tolerance float64, backupFolder string) *model.LoudnessAudit {
@@ -170,7 +178,10 @@ func AuditFromOptimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer
 		current = res.AfterSet
 	}
 
-	if !res.Changed || !res.BackupCreated || res.BeforeSet == nil || res.AfterSet == nil {
+	// A run that stored the original, or one that was never going to.
+	measuredThisRun := res.BackupCreated || res.BackupSkipped
+
+	if !res.Changed || !measuredThisRun || res.BeforeSet == nil || res.AfterSet == nil {
 		// Either nothing was rewritten, or the stored original predates this
 		// run. Reuse whatever was measured of the file on disk and let the
 		// normal path read the backup if there is one.

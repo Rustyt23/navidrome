@@ -5,10 +5,9 @@ import (
 	"sync/atomic"
 )
 
-// Three things rewrite files in the library: a whole-library run, an
-// optimisation of hand-picked songs, and a restore. Each locks a track while it
-// works, so an overlap cannot corrupt a file - but the order they finish in is
-// undefined, and that is enough to lose work:
+// Two things rewrite files in the library: an optimisation run and a restore.
+// Each locks a track while it works, so an overlap cannot corrupt a file - but
+// the order they finish in is undefined, and that is enough to lose work:
 //
 //   - a restore that completes while an optimisation is still working through
 //     its list is silently undone when the run reaches that track;
@@ -17,12 +16,15 @@ import (
 //     describing a file that is not the one on disk.
 //
 // Only the whole-library run used to announce itself, so restore could only be
-// held back from that one. All three now claim the same right, and whichever
-// asks second is told what is already running.
+// held back from that one. Both now claim the same right, and whichever asks
+// second is told what is already running.
+//
+// Optimising a selection used to be a third, separate operation with its own
+// flag. It is now the same background run as a sweep, differing only in which
+// tracks it covers, so libraryLoudness speaks for both.
 var (
-	loudnessFileWorkMu       sync.Mutex
-	selectionLoudnessRunning atomic.Bool
-	restoreLoudnessRunning   atomic.Bool
+	loudnessFileWorkMu     sync.Mutex
+	restoreLoudnessRunning atomic.Bool
 )
 
 // loudnessFileWorkInProgress names the operation currently rewriting library
@@ -30,9 +32,7 @@ var (
 func loudnessFileWorkInProgress() string {
 	switch {
 	case libraryLoudness.running.Load():
-		return "a whole-library LUFS run"
-	case selectionLoudnessRunning.Load():
-		return "an optimisation of selected songs"
+		return "a LUFS optimisation run"
 	case restoreLoudnessRunning.Load():
 		return "a restore"
 	}

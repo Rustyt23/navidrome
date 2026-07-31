@@ -79,6 +79,15 @@ type OptimizeResult struct {
 	// original. It is false when a backup was already there, which means the
 	// stored original is older than anything this run measured.
 	BackupCreated bool
+	// BackupSkipped reports that no original was kept because none are being
+	// kept, as opposed to none being made because one was already there. The
+	// first means this run's measurements are the only record the track will
+	// ever have; the second means an older original is on disk to read.
+	//
+	// Phrased as the exception rather than the rule so that the zero value means
+	// "an original is expected", which is the conservative reading: a caller
+	// that does not set it gets the path that goes and looks for the stored file.
+	BackupSkipped bool
 	// CeilingRelaxed reports that the configured ceiling could not be reached
 	// and the file was accepted against fallbackCeilingDB instead. The audio is
 	// unaffected; only the headroom left above the peak is smaller.
@@ -98,7 +107,7 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 	unlock := filelock.Lock(trackPath)
 	defer unlock()
 
-	res := OptimizeResult{Decision: decision}
+	res := OptimizeResult{Decision: decision, BackupSkipped: !opts.Backup}
 
 	stat, err := os.Stat(trackPath)
 	if err != nil {

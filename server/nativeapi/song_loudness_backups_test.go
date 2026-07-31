@@ -63,14 +63,13 @@ var _ = Describe("orphaned backup detection", func() {
 
 var _ = Describe("loudness file-work guard", func() {
 	reset := func() {
-		selectionLoudnessRunning.Store(false)
 		restoreLoudnessRunning.Store(false)
 		libraryLoudness.running.Store(false)
 	}
 	BeforeEach(reset)
 	AfterEach(reset)
 
-	// All three rewrite files in the library. They lock per track, so an overlap
+	// Both rewrite files in the library. They lock per track, so an overlap
 	// cannot corrupt one - but the finishing order is undefined, and a restore
 	// that lands before an optimisation reaches the same track is undone
 	// without a word.
@@ -79,28 +78,21 @@ var _ = Describe("loudness file-work guard", func() {
 		Expect(busy).To(BeEmpty())
 		Expect(release).ToNot(BeNil())
 
-		_, busy = claimLoudnessFileWork(&selectionLoudnessRunning)
-		Expect(busy).To(Equal("a restore"))
+		libraryLoudness.running.Store(true)
+		Expect(loudnessFileWorkBusy()).ToNot(BeEmpty())
+		libraryLoudness.running.Store(false)
 
 		release()
-		release2, busy := claimLoudnessFileWork(&selectionLoudnessRunning)
+		release2, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
 		Expect(busy).To(BeEmpty())
 		release2()
 	})
 
+	// A selection is the same run as a sweep now, so one message covers both.
 	It("holds back a restore while songs are being optimised", func() {
-		release, busy := claimLoudnessFileWork(&selectionLoudnessRunning)
-		Expect(busy).To(BeEmpty())
-		defer release()
-
-		_, busy = claimLoudnessFileWork(&restoreLoudnessRunning)
-		Expect(busy).To(Equal("an optimisation of selected songs"))
-	})
-
-	It("holds back a restore during a whole-library run", func() {
 		libraryLoudness.running.Store(true)
 		_, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
-		Expect(busy).To(Equal("a whole-library LUFS run"))
+		Expect(busy).To(Equal("a LUFS optimisation run"))
 	})
 
 	It("reports nothing running when nothing is", func() {

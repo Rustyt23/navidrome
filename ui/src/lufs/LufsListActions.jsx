@@ -8,6 +8,7 @@ import {
 import { makeStyles } from '@material-ui/core/styles'
 import { ToggleFieldsMenu } from '../common'
 import LufsToggle from './LufsToggle'
+import BackupToggle from './BackupToggle'
 import { AnalyzeLufsButton } from './LufsAnalyzeButton'
 import SpeedIcon from '@material-ui/icons/Speed'
 import TuneIcon from '@material-ui/icons/Tune'
@@ -75,6 +76,7 @@ const OpenExceptionsButton = () => {
 }
 
 const LufsListActions = ({
+  settings,
   onSettingsChange,
   analyzeStatus,
   onAnalyzeStarted,
@@ -86,8 +88,19 @@ const LufsListActions = ({
   const classes = useStyles()
   const { total } = useListContext()
 
+  // Abandoned tracks are shown only once there are some, and worded so they do
+  // not read as damage: they were left alone and the next run picks them up.
   const optimiseDetail = libraryStatus?.running
-    ? `${libraryStatus.normalized || 0} changed · ${libraryStatus.skipped || 0} already fine · ${libraryStatus.failed || 0} failed`
+    ? [
+        `${libraryStatus.normalized || 0} changed`,
+        `${libraryStatus.skipped || 0} already fine`,
+        `${libraryStatus.failed || 0} failed`,
+        libraryStatus.cancelled
+          ? `${libraryStatus.cancelled} left for next run`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
     : undefined
   const analyzeDetail = analyzeStatus?.running
     ? `${analyzeStatus.failed || 0} failed`
@@ -131,6 +144,13 @@ const LufsListActions = ({
           onChange={onSettingsChange}
           onToggled={onOptimiseAllToggled}
           disabled={!!analyzeStatus?.running}
+          libraryStatus={libraryStatus}
+        />
+        <BackupToggle
+          settings={settings}
+          onChange={onSettingsChange}
+          disabled={!!analyzeStatus?.running}
+          libraryStatus={libraryStatus}
         />
         <AnalyzeLufsButton
           all

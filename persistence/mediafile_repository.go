@@ -43,6 +43,7 @@ type dbMediaFile struct {
 	LoudnessAction           string     `structs:"-" json:"-"`
 	LoudnessPhase            int        `structs:"-" json:"-"`
 	LoudnessDecision         string     `structs:"-" json:"-"`
+	LoudnessWasException     bool       `structs:"-" json:"-"`
 	LoudnessLufsBefore       *float64   `structs:"-" json:"-"`
 	LoudnessLufsAfter        *float64   `structs:"-" json:"-"`
 	LoudnessGainApplied      *float64   `structs:"-" json:"-"`
@@ -86,6 +87,7 @@ var loudnessAuditColumns = map[string]string{
 	"codec_before":       "''",
 	"error":              "''",
 	"decision":           "''",
+	"was_exception":      "0",
 	"phase":              "-1",
 	"bitrate_before":     "0",
 	"sample_rate_before": "0",
@@ -141,6 +143,7 @@ func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
 		Action:           m.LoudnessAction,
 		Phase:            m.LoudnessPhase,
 		Decision:         m.LoudnessDecision,
+		WasException:     m.LoudnessWasException,
 		LufsBefore:       m.LoudnessLufsBefore,
 		LufsAfter:        m.LoudnessLufsAfter,
 		GainApplied:      m.LoudnessGainApplied,
@@ -326,12 +329,19 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		// audio was altered however slightly; or a person made a decision about
 		// it. Phase 2 is loudness.PhaseReview - the phases live in
 		// core/loudness, which this layer does not import.
+		// Tracks that needed human attention, and stay listed afterwards so the
+		// admin keeps a permanent record of them.
+		//
+		// The latch is the real answer; the live conditions alongside it catch
+		// rows written before it existed, and any that somehow miss it. Note
+		// that action = 'limited' is deliberately absent: a small automatic peak
+		// trim records 'limited' too, and matching on it listed several dozen
+		// ordinary successes as exceptions.
 		"loudness_exception": func(_ string, _ any) Sqlizer {
 			return Or{
-				Eq{"media_file_loudness.phase": 2},
-				Eq{"media_file_loudness.action": []string{
-					model.LoudnessActionRefused, model.LoudnessActionLimited,
-				}},
+				Eq{"media_file_loudness.was_exception": true},
+				Eq{"media_file_loudness.phase": model.LoudnessPhaseReview},
+				Eq{"media_file_loudness.action": model.LoudnessActionRefused},
 				NotEq{"media_file_loudness.decision": ""},
 			}
 		},
