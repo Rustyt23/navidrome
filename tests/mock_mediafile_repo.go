@@ -125,6 +125,20 @@ func (m *MockMediaFileRepo) UpdateProbeData(id string, data string) error {
 	return model.ErrNotFound
 }
 
+func (m *MockMediaFileRepo) UpdateSilenceMutationProperties(id string, size int64, duration float64, updatedAt time.Time) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if d, ok := m.Data[id]; ok {
+		d.Size = size
+		d.Duration = float32(duration)
+		d.UpdatedAt = updatedAt
+		d.ProbeData = ""
+		return nil
+	}
+	return model.ErrNotFound
+}
+
 func (m *MockMediaFileRepo) Delete(id string) error {
 	if m.Err {
 		return errors.New("error")

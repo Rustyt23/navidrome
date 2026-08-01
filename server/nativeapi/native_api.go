@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -74,29 +75,36 @@ type Router struct {
 	maintenance            core.Maintenance
 	pluginManager          PluginManager
 	imgUpload              core.ImageUploadService
+	scanner                model.Scanner
 	devices                *retailPlayerDeviceResolver
 	songTracker            *retailPlayerSongTracker
 	metadataJob            *musicBrainzMetadataJob
 	spotifyJob             *spotifyMetadataJob
+	silenceJob             *silenceAnalyzeJob
+	silenceMutation        *silenceMutationJob
+	silenceOperationMu     sync.Mutex
 	retailPlayerRefreshing atomic.Bool
 }
 
-func New(ds model.DataStore, streamer stream.MediaStreamer, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload core.ImageUploadService) *Router {
+func New(ds model.DataStore, streamer stream.MediaStreamer, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload core.ImageUploadService, scanner model.Scanner) *Router {
 	r := &Router{
-		ds:            ds,
-		streamer:      streamer,
-		share:         share,
-		playlists:     playlists,
-		insights:      insights,
-		libs:          libraryService,
-		users:         userService,
-		maintenance:   maintenance,
-		pluginManager: pluginManager,
-		imgUpload:     imgUpload,
-		devices:       newRetailPlayerDeviceResolver(),
-		songTracker:   newRetailPlayerSongTracker(),
-		metadataJob:   newMusicBrainzMetadataJob(),
-		spotifyJob:    newSpotifyMetadataJob(),
+		ds:              ds,
+		streamer:        streamer,
+		share:           share,
+		playlists:       playlists,
+		insights:        insights,
+		libs:            libraryService,
+		users:           userService,
+		maintenance:     maintenance,
+		pluginManager:   pluginManager,
+		imgUpload:       imgUpload,
+		scanner:         scanner,
+		devices:         newRetailPlayerDeviceResolver(),
+		songTracker:     newRetailPlayerSongTracker(),
+		metadataJob:     newMusicBrainzMetadataJob(),
+		spotifyJob:      newSpotifyMetadataJob(),
+		silenceJob:      newSilenceAnalyzeJob(),
+		silenceMutation: newSilenceMutationJob(),
 	}
 	r.ensureCoverCacheDir()
 	r.preloadRetailPlayerDeviceMappings()
@@ -200,6 +208,7 @@ func (api *Router) routes() http.Handler {
 			api.addUserLibraryRoute(r)
 			api.addSyncRoute(r)
 			api.addSongLoudnessRoute(r)
+			api.addSongSilenceRoute(r)
 			api.addMusicBrainzMetadataRoute(r)
 			api.addGCSyncRoute(r)
 			api.addPluginRoute(r)

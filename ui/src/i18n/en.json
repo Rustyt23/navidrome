@@ -664,6 +664,26 @@
         "runFinished": "Decisions applied: %{changed} changed, %{skipped} skipped, %{failed} failed",
         "rechecked": "Checked again: %{changed} fixed, %{skipped} still stuck, %{failed} failed"
       }
+    },
+    "silenceTrim": {
+      "name": "Silence Trim |||| Silence Trim",
+      "fields": {
+        "artist": "Artist",
+        "album": "Album",
+        "startSilence": "Start Silence",
+        "endSilence": "End Silence",
+        "afterTrimStart": "After Trim Start Silence",
+        "afterTrimEnd": "After Trim End Silence",
+        "backup": "Backup",
+        "integrity": "Integrity",
+        "format": "Format",
+        "sampleRate": "Sample Rate",
+        "bitDepth": "Bit Depth",
+        "channels": "Channels",
+        "duration": "Duration",
+        "size": "Size",
+        "path": "Path"
+      }
     }
   },
   "ra": {

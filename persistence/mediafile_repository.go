@@ -71,6 +71,43 @@ type dbMediaFile struct {
 	LoudnessHasBackup        bool       `structs:"-" json:"-"`
 	LoudnessError            string     `structs:"-" json:"-"`
 	LoudnessAnalyzedAt       *time.Time `structs:"-" json:"-"`
+	// Joined from media_file_silence. These aliases keep this feature's data
+	// independent from both media_file and the loudness audit.
+	SilenceLeadingSilence                  *float64   `structs:"-" json:"-"`
+	SilenceTrailingSilence                 *float64   `structs:"-" json:"-"`
+	SilenceLeadingSilenceAfter             *float64   `structs:"-" json:"-"`
+	SilenceTrailingSilenceAfter            *float64   `structs:"-" json:"-"`
+	SilenceThresholdDB                     float64    `structs:"-" json:"-"`
+	SilenceMinimumSilence                  float64    `structs:"-" json:"-"`
+	SilenceSourceSize                      int64      `structs:"-" json:"-"`
+	SilenceSourceUpdatedAt                 *time.Time `structs:"-" json:"-"`
+	SilenceStatus                          string     `structs:"-" json:"-"`
+	SilenceError                           string     `structs:"-" json:"-"`
+	SilenceAnalyzedAt                      *time.Time `structs:"-" json:"-"`
+	SilenceBackupFile                      string     `structs:"-" json:"-"`
+	SilenceBackupStatus                    string     `structs:"-" json:"-"`
+	SilenceBackupIntegrityStatus           string     `structs:"-" json:"-"`
+	SilenceBackupIntegrityBackupVerified   bool       `structs:"-" json:"-"`
+	SilenceBackupIntegrityDecodeVerified   bool       `structs:"-" json:"-"`
+	SilenceBackupIntegrityAudioVerified    bool       `structs:"-" json:"-"`
+	SilenceBackupIntegrityMetadataVerified bool       `structs:"-" json:"-"`
+	SilenceBackupIntegrityArtworkVerified  bool       `structs:"-" json:"-"`
+	SilenceBackupIntegrityPacketVerified   bool       `structs:"-" json:"-"`
+	SilenceBackupIntegrityRestoreVerified  bool       `structs:"-" json:"-"`
+	SilenceBackupIntegrityError            string     `structs:"-" json:"-"`
+	SilenceBackupIntegrityVerifiedAt       *time.Time `structs:"-" json:"-"`
+	SilenceBackupOriginalSha256            string     `structs:"-" json:"-"`
+	SilenceBackupTrimmedSha256             string     `structs:"-" json:"-"`
+	SilenceBackupOriginalSize              int64      `structs:"-" json:"-"`
+	SilenceBackupTrimmedSize               int64      `structs:"-" json:"-"`
+	SilenceBackupOriginalMode              uint32     `structs:"-" json:"-"`
+	SilenceBackupTrimStart                 float64    `structs:"-" json:"-"`
+	SilenceBackupTrimEnd                   float64    `structs:"-" json:"-"`
+	SilenceBackupOriginalModTime           *time.Time `structs:"-" json:"-"`
+	SilenceBackupCreatedAt                 *time.Time `structs:"-" json:"-"`
+	SilenceBackupPreparedAt                *time.Time `structs:"-" json:"-"`
+	SilenceBackupTrimmedAt                 *time.Time `structs:"-" json:"-"`
+	SilenceBackupRestoredAt                *time.Time `structs:"-" json:"-"`
 }
 
 // loudnessAuditColumns are the media_file_loudness columns joined into media
@@ -130,6 +167,73 @@ func loudnessAuditSelectColumns() []string {
 	return cols
 }
 
+var silenceAnalysisColumns = map[string]string{
+	"threshold_db":           "0",
+	"minimum_silence":        "0",
+	"source_size":            "0",
+	"status":                 "''",
+	"error":                  "''",
+	"leading_silence":        "",
+	"trailing_silence":       "",
+	"leading_silence_after":  "",
+	"trailing_silence_after": "",
+	"source_updated_at":      "",
+	"analyzed_at":            "",
+}
+
+func silenceAnalysisSelectColumns() []string {
+	cols := make([]string, 0, len(silenceAnalysisColumns))
+	for name, zero := range silenceAnalysisColumns {
+		if zero == "" {
+			cols = append(cols, fmt.Sprintf("media_file_silence.%s as silence_%s", name, name))
+			continue
+		}
+		cols = append(cols, fmt.Sprintf("coalesce(media_file_silence.%s, %s) as silence_%s", name, zero, name))
+	}
+	slices.Sort(cols)
+	return cols
+}
+
+var silenceBackupColumns = map[string]string{
+	"backup_file":                 "''",
+	"status":                      "''",
+	"integrity_status":            "''",
+	"integrity_backup_verified":   "0",
+	"integrity_decode_verified":   "0",
+	"integrity_audio_verified":    "0",
+	"integrity_metadata_verified": "0",
+	"integrity_artwork_verified":  "0",
+	"integrity_packet_verified":   "0",
+	"integrity_restore_verified":  "0",
+	"integrity_error":             "''",
+	"original_sha256":             "''",
+	"trimmed_sha256":              "''",
+	"original_size":               "0",
+	"trimmed_size":                "0",
+	"original_mode":               "0",
+	"trim_start":                  "0",
+	"trim_end":                    "0",
+	"original_mod_time":           "",
+	"created_at":                  "",
+	"prepared_at":                 "",
+	"trimmed_at":                  "",
+	"restored_at":                 "",
+	"integrity_verified_at":       "",
+}
+
+func silenceBackupSelectColumns() []string {
+	cols := make([]string, 0, len(silenceBackupColumns))
+	for name, zero := range silenceBackupColumns {
+		if zero == "" {
+			cols = append(cols, fmt.Sprintf("media_file_silence_backup.%s as silence_backup_%s", name, name))
+			continue
+		}
+		cols = append(cols, fmt.Sprintf("coalesce(media_file_silence_backup.%s, %s) as silence_backup_%s", name, zero, name))
+	}
+	slices.Sort(cols)
+	return cols
+}
+
 // toAudit rebuilds the audit record from the joined columns. Returns nil when
 // the track has never been analyzed (no row in media_file_loudness).
 func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
@@ -177,12 +281,77 @@ func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
 	return audit
 }
 
+func (m *dbMediaFile) toSilenceAnalysis() *model.SilenceAnalysis {
+	if m.SilenceAnalyzedAt == nil && m.SilenceStatus == "" {
+		return nil
+	}
+	analysis := &model.SilenceAnalysis{
+		MediaFileID:          m.ID,
+		LeadingSilence:       m.SilenceLeadingSilence,
+		TrailingSilence:      m.SilenceTrailingSilence,
+		LeadingSilenceAfter:  m.SilenceLeadingSilenceAfter,
+		TrailingSilenceAfter: m.SilenceTrailingSilenceAfter,
+		ThresholdDB:          m.SilenceThresholdDB,
+		MinimumSilence:       m.SilenceMinimumSilence,
+		SourceSize:           m.SilenceSourceSize,
+		Status:               m.SilenceStatus,
+		Error:                m.SilenceError,
+	}
+	if m.SilenceSourceUpdatedAt != nil {
+		analysis.SourceUpdatedAt = *m.SilenceSourceUpdatedAt
+	}
+	if m.SilenceAnalyzedAt != nil {
+		analysis.AnalyzedAt = *m.SilenceAnalyzedAt
+	}
+	return analysis
+}
+
+func (m *dbMediaFile) toSilenceBackup() *model.SilenceBackup {
+	if m.SilenceBackupCreatedAt == nil && m.SilenceBackupFile == "" {
+		return nil
+	}
+	backup := &model.SilenceBackup{
+		MediaFileID:               m.ID,
+		BackupFile:                m.SilenceBackupFile,
+		Status:                    m.SilenceBackupStatus,
+		IntegrityStatus:           m.SilenceBackupIntegrityStatus,
+		IntegrityBackupVerified:   m.SilenceBackupIntegrityBackupVerified,
+		IntegrityDecodeVerified:   m.SilenceBackupIntegrityDecodeVerified,
+		IntegrityAudioVerified:    m.SilenceBackupIntegrityAudioVerified,
+		IntegrityMetadataVerified: m.SilenceBackupIntegrityMetadataVerified,
+		IntegrityArtworkVerified:  m.SilenceBackupIntegrityArtworkVerified,
+		IntegrityPacketVerified:   m.SilenceBackupIntegrityPacketVerified,
+		IntegrityRestoreVerified:  m.SilenceBackupIntegrityRestoreVerified,
+		IntegrityError:            m.SilenceBackupIntegrityError,
+		IntegrityVerifiedAt:       m.SilenceBackupIntegrityVerifiedAt,
+		OriginalSHA256:            m.SilenceBackupOriginalSha256,
+		TrimmedSHA256:             m.SilenceBackupTrimmedSha256,
+		OriginalSize:              m.SilenceBackupOriginalSize,
+		TrimmedSize:               m.SilenceBackupTrimmedSize,
+		OriginalMode:              m.SilenceBackupOriginalMode,
+		TrimStart:                 m.SilenceBackupTrimStart,
+		TrimEnd:                   m.SilenceBackupTrimEnd,
+		PreparedAt:                m.SilenceBackupPreparedAt,
+		TrimmedAt:                 m.SilenceBackupTrimmedAt,
+		RestoredAt:                m.SilenceBackupRestoredAt,
+	}
+	if m.SilenceBackupCreatedAt != nil {
+		backup.CreatedAt = *m.SilenceBackupCreatedAt
+	}
+	if m.SilenceBackupOriginalModTime != nil {
+		backup.OriginalModTime = *m.SilenceBackupOriginalModTime
+	}
+	return backup
+}
+
 func (m *dbMediaFile) PostScan() error {
 	m.RGTrackGain = m.RgTrackGain
 	m.RGTrackPeak = m.RgTrackPeak
 	m.RGAlbumGain = m.RgAlbumGain
 	m.RGAlbumPeak = m.RgAlbumPeak
 	m.MediaFile.LoudnessAudit = m.toAudit()
+	m.MediaFile.SilenceAnalysis = m.toSilenceAnalysis()
+	m.MediaFile.SilenceBackup = m.toSilenceBackup()
 	var err error
 	m.MediaFile.Participants, err = unmarshalParticipants(m.Participants)
 	if err != nil {
@@ -438,12 +607,28 @@ func (r *mediaFileRepository) UpdateProbeData(id string, data string) error {
 	return err
 }
 
+func (r *mediaFileRepository) UpdateSilenceMutationProperties(id string, size int64, duration float64, updatedAt time.Time) error {
+	_, err := r.executeSQL(
+		Update(r.tableName).
+			Set("size", size).
+			Set("duration", duration).
+			Set("updated_at", updatedAt).
+			Set("probe_data", "").
+			Where(Eq{"id": id}),
+	)
+	return err
+}
+
 func (r *mediaFileRepository) selectMediaFile(options ...model.QueryOptions) SelectBuilder {
 	columns := append([]string{"media_file.*", "library.path as library_path", "library.name as library_name"},
 		loudnessAuditSelectColumns()...)
+	columns = append(columns, silenceAnalysisSelectColumns()...)
+	columns = append(columns, silenceBackupSelectColumns()...)
 	sql := r.newSelect(options...).Columns(columns...).
 		LeftJoin("library on media_file.library_id = library.id").
-		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id")
+		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id").
+		LeftJoin("media_file_silence on media_file_silence.media_file_id = media_file.id").
+		LeftJoin("media_file_silence_backup on media_file_silence_backup.media_file_id = media_file.id")
 	sql = r.withAnnotation(sql, "media_file.id")
 	sql = r.withBookmark(sql, "media_file.id")
 	return r.applyLibraryFilter(sql)

@@ -101,6 +101,11 @@ type MediaFile struct {
 	// analysis/normalization code, never by the scanner.
 	LoudnessAudit *LoudnessAudit `structs:"-" json:"loudnessAudit,omitempty" hash:"ignore"`
 
+	// SilenceAnalysis contains read-only leading/trailing silence measurements.
+	// It is stored separately and is never populated by changing the audio file.
+	SilenceAnalysis *SilenceAnalysis `structs:"-" json:"silenceAnalysis,omitempty" hash:"ignore"`
+	SilenceBackup   *SilenceBackup   `structs:"-" json:"silenceBackup,omitempty" hash:"ignore"`
+
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track
 
@@ -442,6 +447,7 @@ type MediaFileRepository interface {
 	Exists(id string) (bool, error)
 	Put(m *MediaFile) error
 	UpdateProbeData(id string, data string) error
+	UpdateSilenceMutationProperties(id string, size int64, duration float64, updatedAt time.Time) error
 	Get(id string) (*MediaFile, error)
 	GetWithParticipants(id string) (*MediaFile, error)
 	GetAll(options ...QueryOptions) (MediaFiles, error)

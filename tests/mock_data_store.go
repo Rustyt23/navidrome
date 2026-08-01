@@ -30,6 +30,8 @@ type MockDataStore struct {
 	MockedScrobble                  model.ScrobbleRepository
 	MockedRadio                     model.RadioRepository
 	MockedLoudnessAudit             *MockLoudnessAuditRepo
+	MockedSilenceAnalysis           *MockSilenceAnalysisRepo
+	MockedSilenceBackup             *MockSilenceBackupRepo
 	MockedPlugin                    model.PluginRepository
 	MockedRetailPlayerDeviceMapping model.RetailPlayerDeviceMappingRepository
 	MockedRetailPlayerFolder        model.RetailPlayerFolderRepository
@@ -287,6 +289,68 @@ func (db *MockDataStore) LoudnessAudit(ctx context.Context) model.LoudnessAuditR
 	}
 	db.MockedLoudnessAudit = &MockLoudnessAuditRepo{data: map[string]*model.LoudnessAudit{}}
 	return db.MockedLoudnessAudit
+}
+
+func (db *MockDataStore) SilenceAnalysis(ctx context.Context) model.SilenceAnalysisRepository {
+	if db.MockedSilenceAnalysis != nil {
+		return db.MockedSilenceAnalysis
+	}
+	if db.RealDS != nil {
+		return db.RealDS.SilenceAnalysis(ctx)
+	}
+	db.MockedSilenceAnalysis = &MockSilenceAnalysisRepo{data: map[string]*model.SilenceAnalysis{}}
+	return db.MockedSilenceAnalysis
+}
+
+type MockSilenceAnalysisRepo struct {
+	data map[string]*model.SilenceAnalysis
+}
+
+func (m *MockSilenceAnalysisRepo) Put(analysis *model.SilenceAnalysis) error {
+	if m.data == nil {
+		m.data = map[string]*model.SilenceAnalysis{}
+	}
+	m.data[analysis.MediaFileID] = analysis
+	return nil
+}
+
+func (m *MockSilenceAnalysisRepo) Get(mediaFileID string) (*model.SilenceAnalysis, error) {
+	analysis, ok := m.data[mediaFileID]
+	if !ok {
+		return nil, model.ErrNotFound
+	}
+	return analysis, nil
+}
+
+func (db *MockDataStore) SilenceBackup(ctx context.Context) model.SilenceBackupRepository {
+	if db.MockedSilenceBackup != nil {
+		return db.MockedSilenceBackup
+	}
+	if db.RealDS != nil {
+		return db.RealDS.SilenceBackup(ctx)
+	}
+	db.MockedSilenceBackup = &MockSilenceBackupRepo{data: map[string]*model.SilenceBackup{}}
+	return db.MockedSilenceBackup
+}
+
+type MockSilenceBackupRepo struct {
+	data map[string]*model.SilenceBackup
+}
+
+func (m *MockSilenceBackupRepo) Put(backup *model.SilenceBackup) error {
+	if m.data == nil {
+		m.data = map[string]*model.SilenceBackup{}
+	}
+	m.data[backup.MediaFileID] = backup
+	return nil
+}
+
+func (m *MockSilenceBackupRepo) Get(mediaFileID string) (*model.SilenceBackup, error) {
+	backup, ok := m.data[mediaFileID]
+	if !ok {
+		return nil, model.ErrNotFound
+	}
+	return backup, nil
 }
 
 // MockLoudnessAuditRepo is an in-memory LoudnessAuditRepository for tests.

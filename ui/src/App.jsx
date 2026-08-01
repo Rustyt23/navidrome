@@ -49,6 +49,7 @@ import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
 import lufs from './lufs'
 import lufs2 from './lufs2'
+import silenceTrim from './silenceTrim'
 import PlaylistCreate from './playlist/PlaylistCreate'
 import PlaylistShow from './playlist/PlaylistShow'
 import PlaylistEdit from './playlist/PlaylistEdit'
@@ -167,6 +168,13 @@ const Admin = (props) => {
         ) : null,
         permissions === 'admin' ? <Resource name="lufs" {...lufs} /> : null,
         permissions === 'admin' ? <Resource name="lufs2" {...lufs2} /> : null,
+        permissions === 'admin' ? (
+          <Resource
+            name="silenceTrim"
+            {...silenceTrim}
+            options={{ label: 'Silence Trim' }}
+          />
+        ) : null,
         permissions === 'admin' && config.pluginsEnabled ? (
           <Resource
             name="plugin"
