@@ -4,6 +4,7 @@ import { useRecordContext, useTranslate } from 'react-admin'
 import { Chip, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import { nullFloorFor, reportFor } from './report'
+import { isLevelTwo, outcomeFor } from './outcome'
 
 const useStyles = makeStyles((theme) => ({
   chip: {
@@ -12,10 +13,22 @@ const useStyles = makeStyles((theme) => ({
     fontWeight: 600,
   },
   safe: { backgroundColor: '#2e7d32', color: '#fff' },
-  warn: {
+  // Amber means "look at this", so it is reserved for things that need a
+  // decision. It used to be #fdd835 - the loudest thing on the page - and it
+  // was being spent on songs where the process had worked exactly as intended.
+  warn: { backgroundColor: '#ef6c00', color: '#fff' },
+  // Yellow on blue marks a song whose peaks were touched. Not a warning - the
+  // file is intact and on target - but distinct enough to pick out at a glance
+  // from the ones where only the level moved, which is the difference someone
+  // scanning the column actually wants to see.
+  capped: {
     backgroundColor: '#fdd835',
     '& .MuiChip-label': { color: '#1565c0 !important' },
   },
+  // Blue reads as information rather than as a state to act on, which is what
+  // a track held to the wider tolerance is: nothing was done and nothing needs
+  // doing, but it is not silently on target either.
+  info: { backgroundColor: '#1565c0', color: '#fff' },
   bad: { backgroundColor: '#c62828', color: '#fff' },
   neutral: { backgroundColor: theme.palette.action.selected },
   pair: { whiteSpace: 'nowrap' },
@@ -23,6 +36,21 @@ const useStyles = makeStyles((theme) => ({
   same: { color: theme.palette.text.secondary },
   issues: { color: '#ef5350', fontSize: '0.78rem', whiteSpace: 'nowrap' },
   ok: { color: '#66bb6a' },
+  nowrap: {
+    whiteSpace: 'nowrap',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sub: { fontSize: '0.72rem' },
+  reportHeading: {
+    fontWeight: 700,
+    fontSize: '0.72rem',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    opacity: 0.75,
+    marginTop: 4,
+  },
 }))
 
 const audit = (record) => record?.loudnessAudit
@@ -51,12 +79,25 @@ const Pair = ({ before, after, changed, suffix = '' }) => {
   )
 }
 
+// Colour says whether the file is good, not what was done to it. Which method
+// was used is the Mode column's job, and having the colour say it too meant a
+// song that had been capped to reach the target - a success - wore the same
+// amber as a song that needed someone to look at it.
 const verdictClass = (classes, verdict) => {
   switch (verdict) {
     case 'safe':
     case 'untouched':
       return classes.safe
+    // Nothing was done and nothing needs doing - but it is not on target
+    // either, so it does not wear the same green as a track that is.
+    case 'level_two':
+      return classes.info
+    // Capping a peak is how the target is reached on a song whose peaks are in
+    // the way. The file is intact and on target, so this is not amber - but it
+    // gets its own colour so it can be told apart from a plain level change.
     case 'dynamics_changed':
+      return classes.capped
+    case 'rewrite_costly':
       return classes.warn
     case 'reencoded':
     case 'failed':
@@ -72,7 +113,13 @@ const verdictClass = (classes, verdict) => {
 // Derived rather than stored: the run already wrote down why, and inventing a
 // verdict for it would mean a column and a migration to say the same thing.
 const LEFT_AS_IS = 'left_as_is'
-const verdictOf = (a) => {
+const LEVEL_TWO = 'level_two'
+// Held to the wider tolerance, and said before "left as-is": a refusal that
+// was never worth reporting reads as an unexplained shrug otherwise, and the
+// tracks the planner never opened had no verdict at all - a blank cell where
+// the reason should be.
+const verdictOf = (a, settings) => {
+  if (isLevelTwo(a, settings)) return LEVEL_TWO
   if (a?.verdict) return a.verdict
   if (a?.action === 'refused') return LEFT_AS_IS
   return ''
@@ -83,7 +130,7 @@ export const VerdictField = (props) => {
   const translate = useTranslate()
   const record = useRecordContext(props)
   const a = audit(record)
-  const verdict = verdictOf(a)
+  const verdict = verdictOf(a, props.settings)
   if (!verdict) {
     return <span className={classes.same}>-</span>
   }
@@ -98,6 +145,42 @@ export const VerdictField = (props) => {
     />
   )
   return a.error ? <Tooltip title={a.error}>{chip}</Tooltip> : chip
+}
+
+// OutcomeField says where the song ended up relative to the target, which is
+// the question the whole exercise exists to answer and which no other column
+// on this page answers. The verdict beside it says whether the file was harmed
+// - a different question, and one a song can pass while still being nowhere
+// near -12.6.
+export const OutcomeField = (props) => {
+  const classes = useStyles()
+  const translate = useTranslate()
+  const record = useRecordContext(props)
+  const outcome = outcomeFor(record, props.settings)
+  if (!outcome) return <span className={classes.same}>-</span>
+
+  const tone =
+    outcome.tone === 'good'
+      ? classes.safe
+      : outcome.tone === 'warn'
+        ? classes.warn
+        : outcome.tone === 'info'
+          ? classes.info
+          : classes.neutral
+
+  return (
+    <Tooltip title={outcome.detail}>
+      <span className={classes.nowrap}>
+        <Chip
+          size="small"
+          label={translate(`resources.lufs.outcome.${outcome.id}`, {
+            _: outcome.id,
+          })}
+          className={`${classes.chip} ${tone}`}
+        />
+      </span>
+    </Tooltip>
+  )
 }
 
 export const StatusField = (props) => {
@@ -121,8 +204,11 @@ export const ActionField = (props) => {
   const record = useRecordContext(props)
   const a = audit(record)
   if (!a?.action) return <span className={classes.same}>-</span>
+  // Plain text, whatever the method. Capping a peak used to be painted red
+  // here, which said "this one went wrong" about a song that reached the
+  // target exactly as intended.
   return (
-    <span className={a.action === 'limited' ? classes.changed : undefined}>
+    <span>
       {translate(`resources.lufs.action.${a.action}`, { _: a.action })}
     </span>
   )
@@ -199,10 +285,12 @@ export const LraField = (props) => {
   )
 }
 
-// The pass mark depends on the format, not on a fixed number: re-encoding a
-// lossy file always leaves a floor of codec noise around -25 dB, while a
-// lossless round trip leaves almost nothing. Using one hard-coded threshold
-// for both flagged perfectly clean MP3s as problems.
+// The pass mark depends on the format and on the bitrate, not on a fixed
+// number. Re-encoding a lossy file always leaves a floor of codec noise, and
+// how much depends on how coarse the format is - measured at -36 dB for 128k
+// against -78 dB for 320k. A lossless round trip leaves almost nothing. One
+// hard-coded threshold for all of them flagged perfectly clean MP3s as
+// problems, and did it hardest on the lowest bitrates.
 export const NullResidualField = (props) => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -211,7 +299,10 @@ export const NullResidualField = (props) => {
   if (!has(a?.nullResidual)) return <span className={classes.same}>-</span>
 
   const v = Number(a.nullResidual)
-  const floor = nullFloorFor(a.codecAfter || a.codecBefore || record?.suffix)
+  const floor = nullFloorFor(
+    a.codecAfter || a.codecBefore || record?.suffix,
+    a.bitrateAfter || a.bitrateBefore || record?.bitRate,
+  )
   const altered = v > floor
 
   return (
@@ -419,22 +510,38 @@ export const ReportField = (props) => {
     </div>
   )
 
+  const section = (heading, items, prefix, key) =>
+    items.length > 0 && (
+      <div key={key}>
+        <div className={classes.reportHeading}>{heading}</div>
+        {items.map((text, i) => line(`${prefix} ${text}`, `${key}${i}`))}
+      </div>
+    )
+
   const detail = (
     <div>
       {report.intended && line(`• ${report.intended}`, 'intended')}
-      {report.significant.map((s, i) => line(`⚠ ${s}`, `s${i}`))}
-      {report.minor.map((s, i) => line(`· ${s}`, `m${i}`))}
+      {section('Needs attention', report.significant, '⚠', 'sig')}
+      {section('Changes applied', report.applied, '●', 'app')}
+      {section('Side effects', report.minor, '·', 'min')}
       {report.unchanged.length > 0 &&
-        line(`✓ Unchanged: ${report.unchanged.join(', ')}`, 'unchanged')}
+        line(
+          `✓ Verified unchanged: ${report.unchanged.join(', ')}`,
+          'unchanged',
+        )}
     </div>
   )
 
-  const summary = report.clean
-    ? translate('resources.lufs.report.levelOnly', { _: 'Level only' })
-    : translate('resources.lufs.report.issues', {
+  // A song where work was applied and nothing is wrong reads as what it is: a
+  // success that did something, rather than a success with a warning on it.
+  const summary = !report.clean
+    ? translate('resources.lufs.report.issues', {
         smart_count: report.significant.length,
-        _: `${report.significant.length} significant`,
+        _: `${report.significant.length} to check`,
       })
+    : report.applied.length > 0
+      ? translate('resources.lufs.report.optimised', { _: 'Optimised' })
+      : translate('resources.lufs.report.levelOnly', { _: 'Level only' })
 
   return (
     <Tooltip title={detail}>

@@ -436,14 +436,16 @@
       "verdict": {
         "untouched": "No change needed",
         "safe": "Volume only",
-        "dynamics_changed": "Peaks trimmed",
+        "dynamics_changed": "Levelled + peaks capped",
+        "rewrite_costly": "Differs from original",
         "reencoded": "Quality lost",
         "failed": "Could not process",
-        "left_as_is": "Left as-is"
+        "left_as_is": "Left as-is",
+        "level_two": "Level 2 tolerance"
       },
       "action": {
         "gain": "Volume only",
-        "limited": "Peaks trimmed",
+        "limited": "Peaks capped",
         "skipped": "Not opened",
         "refused": "Left as-is"
       },
@@ -482,15 +484,23 @@
       "originalFromFile": "The file has never been rewritten, so this is its original loudness",
       "report": {
         "levelOnly": "Level only",
-        "issues": "%{smart_count} significant |||| %{smart_count} significant"
+        "issues": "%{smart_count} to check",
+        "optimised": "Optimised"
       },
-      "nullClean": "At or below %{floor} dB: what is left after undoing the level change is only re-encoding noise, which is inaudible",
-      "nullAltered": "Above %{floor} dB: more than the level changed - the audio itself was altered",
+      "nullClean": "Only the cost of re-encoding, and inaudible (floor %{floor} dB)",
+      "nullAltered": "More of this file differs from the original than re-encoding at this bitrate explains (floor %{floor} dB)",
       "confirmRestore": "Put the untouched original back for %{smart_count} song |||| Put the untouched originals back for %{smart_count} songs",
       "confirmOrphanCleanup": "%{count} of %{total} stored originals no longer match any song in the library (%{size}). They will be moved into a dated folder next to the backups, not deleted.\n\n%{list}",
       "restoreAuditDb": {
         "title": "Restore LUFS data?",
         "content": "This replaces the LUFS records with the backup taken on %{when} (%{file}, %{rows} records). Any analysis done since then is discarded. Songs, audio backups, playlists, play counts and ratings are not affected."
+      },
+      "outcome": {
+        "on_target": "On target",
+        "short_by_choice": "Short - by choice",
+        "short_source_limited": "Short - source limited",
+        "not_attempted": "Not attempted",
+        "level_two": "Level 2 tolerance"
       }
     },
     "library": {

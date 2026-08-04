@@ -12,28 +12,42 @@ import (
 )
 
 const (
-	// Null-test thresholds: the energy below which what is left over after
-	// undoing the gain is the cost of rewriting the file rather than a change
-	// to the audio.
+	// Null-test floors: the energy below which what is left over after undoing
+	// the gain is the cost of rewriting the file rather than a change to the
+	// audio.
 	//
 	// Calibrated by measurement, not judgement. Rewriting a lossy file adds a
 	// generation of codec noise even at identical settings; across real music
 	// that leftover measures -39 to -47 dB, and pure synthetic tones - which an
 	// encoder reproduces almost exactly - reach -90. Running the same track
-	// through an actual limiter or compressor instead leaves -10 to -15. The
-	// two outcomes are 25 dB apart at their closest, so -30 separates them with
-	// room on both sides.
+	// through an actual limiter or compressor instead leaves -10 to -15. The two
+	// outcomes are 25 dB apart at their closest, so the middle figure separates
+	// them with room on both sides.
 	//
-	// A lossless round trip has no codec noise to account for and should null
-	// almost perfectly, so anything above -60 there means the audio itself was
-	// altered.
-	nullResidualSafeLossyDB    = -30.0
+	// They differ by bitrate because the noise floor does - see
+	// NullResidualThreshold. A lossless round trip has no codec noise to account
+	// for and should null almost perfectly, so anything above -60 there means
+	// the audio itself was altered.
+	nullResidualNoisyLossyDB   = -25.0 // 160k and below
+	nullResidualSafeLossyDB    = -30.0 // 192k to 256k - the measured middle
+	nullResidualCleanLossyDB   = -35.0 // above 256k
 	nullResidualSafeLosslessDB = -60.0
 
 	// pureGainToleranceDB: under a constant gain the true peak moves by exactly
 	// the applied gain and the loudness range does not move at all. Allow this
 	// much slack for encoder/resampler noise before calling it non-linear.
 	pureGainToleranceDB = 0.5
+
+	// corroboratedShaveDB is how far the peak must fall below what the gain
+	// predicts to count as limiting when the null test already says a great deal
+	// of the file changed.
+	//
+	// Lower than pureGainToleranceDB on purpose: evidence needs to be stronger
+	// when it stands alone than when something independent agrees with it. This
+	// is the level at which a peak stops tracking its gain for any reason other
+	// than measurement noise, so anything above it is a real movement - too
+	// small to convict on by itself, enough to convict on with a witness.
+	corroboratedShaveDB = 0.15
 )
 
 // Measurement is everything measurable about one audio file at a point in time.
@@ -111,8 +125,16 @@ func auditWith(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaF
 		// Never processed: the file as it stands is the "before" snapshot.
 		recordBefore(audit, current)
 		audit.Status = model.LoudnessStatusAnalyzed
-		if plan.Phase == PhaseDone {
+		switch plan.Phase {
+		case PhaseDone:
 			audit.Verdict = model.LoudnessVerdictUntouched
+			audit.Action = model.LoudnessActionSkipped
+		case PhaseCloseEnough:
+			// The file was never opened, so nothing can be said about whether it
+			// was harmed - no verdict. What happened to it is that it was left
+			// alone on purpose, which the phase records and the outcome column
+			// reads. "No change needed" would be the wrong claim here: a change
+			// was needed, and was judged not worth what it would cost.
 			audit.Action = model.LoudnessActionSkipped
 		}
 		return audit
@@ -316,31 +338,50 @@ func recordAfter(audit *model.LoudnessAudit, m *Measurement) {
 // inferAction works out whether the change was a constant gain or something
 // that reshaped the audio.
 //
-// The null test decides wherever it is available. It measures how much of the
-// file changed beyond the level, and the two outcomes are 25 dB apart at their
-// closest - far more separation than any other signal offers.
+// Only direct evidence answers this. The loudness range closing means the gap
+// between the loud and quiet passages narrowed, which a level change cannot do.
+// A peak LOWER than the gain predicts means something pushed it down, which is
+// what limiting does. Between them they say what happened to the music.
 //
-// Without one, the peak and the loudness range answer instead, and the peak is
-// read in one direction only. A peak LOWER than the gain predicts means
-// something pushed it down, which is what limiting does. A peak HIGHER than
-// predicted cannot be limiting - a limiter never raises anything - it is the
-// encoder rebuilding the waveform imperfectly, which low-bitrate sources do by
-// up to 0.8 dB. Treating the two alike reported untouched tracks as reshaped.
+// The peak is read in one direction only. A peak HIGHER than predicted cannot
+// be limiting - a limiter never raises anything - it is the encoder rebuilding
+// the waveform imperfectly, which low-bitrate sources do by up to 0.8 dB.
+// Treating the two alike reported untouched tracks as reshaped.
+//
+// The null test corroborates rather than decides. On its own it cannot say the
+// dynamics were touched: a rewrite that cost more than its format should and a
+// rewrite that squashed the peaks both leave a large leftover, and nothing in
+// that one number separates them. Deciding on it alone put "peaks trimmed"
+// against tracks whose peaks nothing had touched.
+//
+// It is far from useless though, and dropping it entirely loses real detections.
+// Window to the Soul shaved 0.44 dB off its peak and closed its range by 0.1 -
+// both under the thresholds above, both dismissed - while its null test sat at
+// -10.9, nineteen decibels above the floor. Neither direct signal was large
+// enough to trust on its own; together with the null test agreeing, they are.
+//
+// So a movement too small to stand alone is enough when the null test says a
+// great deal of the file changed. What is not enough is the null test with no
+// movement at all: a peak that tracked the gain exactly was not limited, however
+// expensive the rewrite turned out to be.
 func inferAction(audit *model.LoudnessAudit, before, after *Measurement, gain float64) string {
-	if audit.NullResidual != nil {
-		if *audit.NullResidual > NullResidualThreshold(after.Probe.Codec) {
-			return model.LoudnessActionLimited
-		}
-		return model.LoudnessActionGain
-	}
+	lraMoved := math.Abs(after.LRA - before.LRA)
+	shavedBy := (before.TruePeak + gain) - after.TruePeak
 
-	if math.Abs(after.LRA-before.LRA) > pureGainToleranceDB {
+	if lraMoved > pureGainToleranceDB || shavedBy > pureGainToleranceDB {
 		return model.LoudnessActionLimited
 	}
-	if shavedBy := (before.TruePeak + gain) - after.TruePeak; shavedBy > pureGainToleranceDB {
+	if rewriteWasCostly(audit, after) && shavedBy > corroboratedShaveDB {
 		return model.LoudnessActionLimited
 	}
 	return model.LoudnessActionGain
+}
+
+// rewriteWasCostly reports whether the null test found more difference from the
+// original than re-encoding this format accounts for.
+func rewriteWasCostly(audit *model.LoudnessAudit, after *Measurement) bool {
+	return audit.NullResidual != nil &&
+		*audit.NullResidual > NullResidualThreshold(after.Probe.Codec, after.Probe.BitRate)
 }
 
 // verdict grades the change. Format degradation outranks everything else: once
@@ -357,15 +398,22 @@ func verdict(audit *model.LoudnessAudit, before, after *Measurement) string {
 	if len(IntegrityIssues(before, after)) > 0 {
 		return model.LoudnessVerdictReencoded
 	}
-	// Whether the audio itself was reshaped is settled by inferAction, which
-	// reads the null test where there is one and the peak and range where there
-	// is not.
+	// Whether the audio itself was reshaped is settled by inferAction, from the
+	// loudness range and the true peak - the two signals that say what happened
+	// to the music rather than how much of the file moved.
 	if audit.Action == model.LoudnessActionLimited {
 		return model.LoudnessVerdictDynamicsChanged
 	}
-	// A backstop for a track with no null test whose range moved anyway.
 	if math.Abs(after.LRA-before.LRA) > pureGainToleranceDB {
 		return model.LoudnessVerdictDynamicsChanged
+	}
+	// Nothing reshaped the audio and the format survived, yet more of the file
+	// differs from the original than re-encoding should account for. That is
+	// worth saying, and worth saying as itself: the file cost more to rewrite
+	// than it should have, which is not the same claim as the peaks having been
+	// trimmed.
+	if rewriteWasCostly(audit, after) {
+		return model.LoudnessVerdictRewriteCostly
 	}
 	return model.LoudnessVerdictSafe
 }
@@ -383,11 +431,36 @@ func IsLossy(codec string) bool {
 
 // NullResidualThreshold returns the level below which the leftover from a null
 // test is codec noise rather than a change to the audio.
-func NullResidualThreshold(codec string) float64 {
-	if IsLossy(codec) {
-		return nullResidualSafeLossyDB
+//
+// It scales with the bitrate because the noise floor does. Every other
+// codec-sensitive figure in this system already does the same - what a rewrite
+// costs in loudness, how far the peak springs back - because a 128k file and a
+// 320k file are not the same problem. One threshold for both had to sit low
+// enough not to fail the noisy end, which left the clean end barely checked, or
+// high enough to check the clean end, which failed the noisy one. The noisy end
+// is the client's worst material, so that is where the false alarms landed.
+//
+//	PROVISIONAL. The lossless figure and the mid-range are measured; the values
+//	at the two lossy extremes are interpolated from them and from the gain-only
+//	rewrites recorded in verdict_test.go (-39.0 and -41.6). Replace them with
+//	real numbers using cmd/measure-null-floor, which rewrites a sample of the
+//	library at each bitrate with no gain at all and reports the floor it finds.
+func NullResidualThreshold(codec string, bitRate int) float64 {
+	if !IsLossy(codec) {
+		return nullResidualSafeLosslessDB
 	}
-	return nullResidualSafeLosslessDB
+	switch {
+	case bitRate <= 0:
+		// Unknown bitrate: assume the noisiest case rather than fail a file for
+		// noise its format was always going to produce.
+		return nullResidualNoisyLossyDB
+	case bitRate <= 160:
+		return nullResidualNoisyLossyDB
+	case bitRate <= 256:
+		return nullResidualSafeLossyDB
+	default:
+		return nullResidualCleanLossyDB
+	}
 }
 
 // bitrateLost reports whether the rewrite cost the file data per second.

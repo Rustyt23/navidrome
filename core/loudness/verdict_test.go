@@ -30,15 +30,49 @@ func TestVerdict(t *testing.T) {
 		}
 	})
 
-	t.Run("re-encoded means the format got worse, not that something was unexplained", func(t *testing.T) {
-		// A leftover this large means the audio was reshaped, which inferAction
-		// now reports. What must not happen is the verdict claiming quality was
-		// lost when the file came back in exactly the format it went in.
+	t.Run("an expensive rewrite is reported as one, not as reshaped audio", func(t *testing.T) {
+		// The peak tracked the gain exactly and the range did not close, so
+		// nothing limited this track - whatever the leftover cost. Calling it
+		// "peaks trimmed" accuses the process of something the two signals that
+		// can actually see the dynamics both say did not happen.
+		//
+		// It must not become "quality lost" either: the file came back in
+		// exactly the format it went in.
 		audit, before, after := gainOnly()
 		audit.NullResidual = f64(-14.2)
 		audit.Action = inferAction(audit, before, after, 0.40)
+		if audit.Action != model.LoudnessActionGain {
+			t.Errorf("action = %q, want %q - nothing touched the peak", audit.Action, model.LoudnessActionGain)
+		}
+		if got := verdict(audit, before, after); got != model.LoudnessVerdictRewriteCostly {
+			t.Errorf("verdict = %q, want %q", got, model.LoudnessVerdictRewriteCostly)
+		}
+	})
+
+	// The null test cannot convict on its own, but it can corroborate. A peak
+	// movement too small to trust by itself is trustworthy once something
+	// independent agrees the audio changed.
+	t.Run("a small peak shave counts once the null test agrees", func(t *testing.T) {
+		audit, before, _ := gainOnly()
+		// Gain 0.40 on a -1.35 peak predicts -0.95; it came back at -1.25, so
+		// something took 0.30 off - under the 0.5 standalone threshold.
+		after := testMeasurement(-12.62, -1.25, 4.8)
+		audit.NullResidual = f64(-12.0)
+		audit.Action = inferAction(audit, before, after, 0.40)
+		if audit.Action != model.LoudnessActionLimited {
+			t.Errorf("action = %q, want %q", audit.Action, model.LoudnessActionLimited)
+		}
 		if got := verdict(audit, before, after); got != model.LoudnessVerdictDynamicsChanged {
 			t.Errorf("verdict = %q, want %q", got, model.LoudnessVerdictDynamicsChanged)
+		}
+
+		// The same shave with a clean null test stays a gain: on its own, 0.30
+		// is not enough to convict.
+		quiet, before2, _ := gainOnly()
+		quiet.NullResidual = f64(-41.0)
+		quiet.Action = inferAction(quiet, before2, after, 0.40)
+		if quiet.Action != model.LoudnessActionGain {
+			t.Errorf("action = %q, want %q without corroboration", quiet.Action, model.LoudnessActionGain)
 		}
 	})
 
@@ -70,15 +104,25 @@ func TestVerdict(t *testing.T) {
 
 	t.Run("a lossless round trip is held to a tighter floor", func(t *testing.T) {
 		// -45 is an ordinary result for an mp3 and an alarming one for flac,
-		// which has no codec noise to account for.
+		// which has no codec noise to account for. The peak still tracked its
+		// gain, so what is alarming is the cost of the rewrite, not the shape
+		// of the audio.
 		audit, before, after := gainOnly()
 		audit.NullResidual = f64(-45.0)
 		for _, m := range []*Measurement{before, after} {
 			m.Probe.Codec = "flac"
 		}
 		audit.Action = inferAction(audit, before, after, 0.40)
-		if got := verdict(audit, before, after); got != model.LoudnessVerdictDynamicsChanged {
-			t.Errorf("verdict = %q, want %q", got, model.LoudnessVerdictDynamicsChanged)
+		if got := verdict(audit, before, after); got != model.LoudnessVerdictRewriteCostly {
+			t.Errorf("verdict = %q, want %q", got, model.LoudnessVerdictRewriteCostly)
+		}
+
+		// The same leftover on an mp3 is unremarkable.
+		mp3, mb, ma := gainOnly()
+		mp3.NullResidual = f64(-45.0)
+		mp3.Action = inferAction(mp3, mb, ma, 0.40)
+		if got := verdict(mp3, mb, ma); got != model.LoudnessVerdictSafe {
+			t.Errorf("mp3 verdict = %q, want %q", got, model.LoudnessVerdictSafe)
 		}
 	})
 }
@@ -90,12 +134,33 @@ func TestNullResidualThresholdSeparatesRewritingFromReshaping(t *testing.T) {
 		worstGainOnlyRewrite = -39.0
 		mildestReshaping     = -14.5
 	)
-	floor := NullResidualThreshold("mp3")
-	if floor <= worstGainOnlyRewrite {
-		t.Errorf("floor %.1f would flag an ordinary rewrite at %.1f", floor, worstGainOnlyRewrite)
+	// Every lossy floor has to clear both, at every bitrate. A floor that fails
+	// ordinary rewrites cries wolf; one that passes reshaped audio is not
+	// checking anything.
+	for _, bitRate := range []int{0, 128, 160, 192, 256, 320} {
+		floor := NullResidualThreshold("mp3", bitRate)
+		if floor <= worstGainOnlyRewrite {
+			t.Errorf("%dk: floor %.1f would flag an ordinary rewrite at %.1f",
+				bitRate, floor, worstGainOnlyRewrite)
+		}
+		if floor >= mildestReshaping {
+			t.Errorf("%dk: floor %.1f would pass reshaped audio at %.1f",
+				bitRate, floor, mildestReshaping)
+		}
 	}
-	if floor >= mildestReshaping {
-		t.Errorf("floor %.1f would pass reshaped audio at %.1f", floor, mildestReshaping)
+
+	// The floor must never tighten as the format gets noisier, or the client's
+	// worst material is held to the strictest standard - which is where the
+	// false alarms were landing.
+	noisy := NullResidualThreshold("mp3", 128)
+	middle := NullResidualThreshold("mp3", 224)
+	clean := NullResidualThreshold("mp3", 320)
+	if !(noisy > middle && middle > clean) {
+		t.Errorf("floors must loosen as the bitrate drops: 128k=%.1f 224k=%.1f 320k=%.1f",
+			noisy, middle, clean)
+	}
+	if lossless := NullResidualThreshold("flac", 0); lossless >= clean {
+		t.Errorf("lossless floor %.1f must be tighter than any lossy one", lossless)
 	}
 }
 

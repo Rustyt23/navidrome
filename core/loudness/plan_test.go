@@ -339,3 +339,98 @@ func TestSpecForTrimLimitsToTheTarget(t *testing.T) {
 		t.Errorf("expected loudness = %.3f, want the target", expected)
 	}
 }
+
+// The audible-cut line looks like it should scale with how dynamic a track is:
+// the same trim costs more on a master that is already compressed than on a
+// live recording where only one cymbal reaches the peak. It was very nearly
+// changed to do exactly that.
+//
+// It must not be, because the two are the same variable. The predicted peak is
+// truePeak + (target - lufs), which rearranges to (truePeak - lufs) + target -
+// that is PLR + target. So how far a track's peaks overshoot is fixed by its
+// PLR alone, and the fixed line is already dynamics-aware.
+//
+// The consequence worth keeping is this: a compressed master can never reach a
+// peak problem at all. Low PLR means it is already loud, so it needs turning
+// down or barely up, and its peaks go down with it. Every track that needs a cut
+// deep enough to be worth asking about is necessarily a dynamic one, which is
+// precisely where the cut is least audible.
+func TestPeakOvershootIsDecidedByDynamicsAlone(t *testing.T) {
+	const ceiling = -0.5
+	for _, plr := range []float64{6, 9, 12, 14, 16, 19} {
+		// Two tracks with the same dynamics at completely different levels.
+		for _, lufs := range []float64{-20.0, -16.0, -13.0} {
+			p := PlanFor(lufs, lufs+plr, testTarget, ceiling, 0.2, 320)
+
+			want := math.Max(0, plr+testTarget-ceiling)
+			if math.Abs(p.PeakOverBy-want) > 0.001 {
+				t.Errorf("PLR %.0f at %.1f LUFS: overshoot %.2f, want %.2f - it is a function of PLR only",
+					plr, lufs, p.PeakOverBy, want)
+			}
+			if math.Abs(p.PLR-plr) > 0.001 {
+				t.Errorf("PLR reported as %.2f, want %.2f", p.PLR, plr)
+			}
+		}
+	}
+
+	// A compressed master never gets there, whatever its level.
+	for _, lufs := range []float64{-20.0, -16.0, -13.0} {
+		if p := PlanFor(lufs, lufs+8, testTarget, ceiling, 0.2, 320); p.PeakOverBy > 0 {
+			t.Errorf("a PLR-8 master at %.1f LUFS should have no peak problem, got %.2f dB over",
+				lufs, p.PeakOverBy)
+		}
+	}
+}
+
+// Reaching the last fraction of a decibel on a track that cannot be corrected
+// transparently costs a full encode and a row on the review page, and buys a
+// difference nobody can hear. Measured on a real library, seven of ten refusals
+// were exactly this: gained by a quarter to half a decibel, re-encoded,
+// measured, found to have sprung the peak over the ceiling, thrown away.
+func TestPlanLeavesATrackAloneWhenItIsCloseEnoughToNotBeWorthAsking(t *testing.T) {
+	const tol = 0.2
+	// Quiet and peaky: the target is out of reach without an audible cut, which
+	// is what would otherwise send it to the client.
+	peaky := func(lufs float64) Plan {
+		return PlanFor(lufs, lufs+16.5, testTarget, -0.5, tol, 320)
+	}
+
+	if p := peaky(-12.9); p.Phase != PhaseCloseEnough {
+		t.Errorf("0.30 from target: phase %d, want %d - too close to be worth asking about",
+			p.Phase, PhaseCloseEnough)
+	}
+	if p := peaky(-13.05); p.Phase != PhaseCloseEnough {
+		t.Errorf("0.45 from target: phase %d, want %d", p.Phase, PhaseCloseEnough)
+	}
+	// Beyond the band the client is asked, as before.
+	if p := peaky(-14.0); p.Phase != PhaseReview {
+		t.Errorf("1.40 from target: phase %d, want %d - far enough to be worth a decision",
+			p.Phase, PhaseReview)
+	}
+	// Inside the ordinary tolerance nothing changes: it was already done.
+	if p := peaky(-12.7); p.Phase != PhaseDone {
+		t.Errorf("0.10 from target: phase %d, want %d", p.Phase, PhaseDone)
+	}
+}
+
+// The rule must not reach a track that never troubles the client. A small
+// automatic trim is applied without asking, so there is nothing to save by
+// skipping it - and one such track in the real library was clipping, which is
+// worth fixing whatever its loudness already was.
+func TestPlanStillTrimsQuietlyInsideTheLeaveAloneBand(t *testing.T) {
+	// 0.30 from target - inside the band - and clipping at +0.10 dBTP. A pure
+	// gain cannot reach the target from here, but the peaks only need 0.90 dB
+	// off, which nobody can hear. Exactly the shape of the track in the real
+	// library that this rule must not skip.
+	p := PlanFor(-12.9, 0.1, testTarget, -0.5, 0.2, 320)
+	if p.PeakOverBy > audibleShaveDB {
+		t.Fatalf("fixture no longer exercises the trim path (over by %.2f)", p.PeakOverBy)
+	}
+	if math.Abs(-12.9-testTarget) > leaveAloneToleranceDB {
+		t.Fatal("fixture is outside the leave-alone band, so it proves nothing")
+	}
+	if p.Phase != PhaseTrim {
+		t.Errorf("phase = %d, want %d - an inaudible trim is applied, not skipped",
+			p.Phase, PhaseTrim)
+	}
+}

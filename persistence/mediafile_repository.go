@@ -267,6 +267,143 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 // server normalized has no such tag: the value is written to the tags column
 // but never into the file, so the next scan - which rebuilds that column from
 // the file - drops it. Whatever this finds therefore came from outside.
+// loudnessOutcomeFilter selects songs by how close they ended up to the target.
+//
+// The loudness read is whatever the song measures now - lufs_after once it has
+// been rewritten, lufs_before while it has only been measured. A song that was
+// already on target and never opened counts as on target: it did not need
+// processing to get there.
+// loudnessExceptionFilter lists the tracks that genuinely needed a person.
+//
+// A refusal is only worth listing when correcting the track was worth
+// attempting. Measured on a real library, seven of ten refusals sat within half
+// a decibel of target: each had been gained by a fraction, re-encoded, measured,
+// found to have sprung its peak over the ceiling, and thrown away - leaving the
+// file exactly as it started and a row asking someone to decide about a
+// difference nobody can hear. Those are not exceptions, they are noise, and a
+// review page that is mostly noise stops being read.
+// effectiveLoudnessTolerance mirrors the engine's own fallback: an unset or
+// nonsensical tolerance means the default, not zero. Reading the raw setting
+// here while the engine reads the effective one would have the page counting
+// against a band the optimiser never used.
+func effectiveLoudnessTolerance(tolerance float64) float64 {
+	if tolerance <= 0 {
+		return conf.DefaultLoudnessNormalizationTolerance
+	}
+	return tolerance
+}
+
+// LoudnessExceptionFilter is what the list filters by, exported so the library
+// summary counts the same rows. The summary used to carry its own copy of this
+// expression, which drifted the moment the rule changed: the page stopped
+// listing the tracks left alone at the wider tolerance and the headline went on
+// counting them as exceptions.
+func LoudnessExceptionFilter() Sqlizer { return loudnessExceptionFilter("", nil) }
+
+// LoudnessLevelTwoFilter selects tracks held to the wider tolerance: near enough
+// to target that correcting them was judged not worth a re-encode, so they were
+// left untouched rather than sent to the client.
+func LoudnessLevelTwoFilter() Sqlizer {
+	options := conf.Server.Scanner.LoudnessNormalization
+	tolerance := effectiveLoudnessTolerance(options.Tolerance)
+	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
+	withinBand := Expr(
+		fmt.Sprintf("%s is not null and abs(%s - ?) <= ?", measured, measured),
+		options.TargetLUFS, loudnessLeaveAloneToleranceDB)
+	outsideOrdinary := Expr(
+		fmt.Sprintf("abs(%s - ?) > ?", measured), options.TargetLUFS, tolerance)
+
+	return And{
+		withinBand,
+		outsideOrdinary,
+		Or{
+			// The planner decided in advance not to ask.
+			Eq{"media_file_loudness.phase": loudnessPhaseCloseEnough},
+			// Or it tried, could not ship the result, and the track was close
+			// enough that the failure is not worth reporting.
+			Eq{"media_file_loudness.action": model.LoudnessActionRefused},
+		},
+	}
+}
+
+func loudnessExceptionFilter(_ string, _ any) Sqlizer {
+	options := conf.Server.Scanner.LoudnessNormalization
+	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
+	// Far enough from target that the attempt was worth making, so its failure
+	// is worth reporting.
+	worthListing := Expr(
+		fmt.Sprintf("%s is null or abs(%s - ?) > ?", measured, measured),
+		options.TargetLUFS, loudnessLeaveAloneToleranceDB)
+
+	return And{
+		// Never list a track the engine deliberately left alone.
+		NotEq{"media_file_loudness.phase": loudnessPhaseCloseEnough},
+		Or{
+			Eq{"media_file_loudness.was_exception": true},
+			Eq{"media_file_loudness.phase": model.LoudnessPhaseReview},
+			And{Eq{"media_file_loudness.action": model.LoudnessActionRefused}, worthListing},
+			NotEq{"media_file_loudness.decision": ""},
+		},
+	}
+}
+
+// Mirrors core/loudness, which this layer cannot import.
+const (
+	loudnessPhaseCloseEnough      = 4
+	loudnessLeaveAloneToleranceDB = 0.5
+)
+
+// Exported so the library summary counts with exactly the expression the list
+// filters by. Two copies of this arithmetic would be two chances for the
+// headline to disagree with the table someone clicks into to check it.
+func LoudnessOutcomeFilter(outcome string) Sqlizer { return loudnessOutcomeFilter("", outcome) }
+
+func loudnessOutcomeFilter(_ string, value any) Sqlizer {
+	options := conf.Server.Scanner.LoudnessNormalization
+	tolerance := effectiveLoudnessTolerance(options.Tolerance)
+	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
+
+	build := func(one string) Sqlizer {
+		switch one {
+		case "on_target":
+			return Expr(fmt.Sprintf("%s is not null and abs(%s - ?) <= ?", measured, measured),
+				options.TargetLUFS, tolerance)
+		case "short":
+			return Expr(fmt.Sprintf("%s is not null and abs(%s - ?) > ?", measured, measured),
+				options.TargetLUFS, tolerance)
+		case "not_measured":
+			return Expr(fmt.Sprintf("%s is null", measured))
+		}
+		return nil
+	}
+
+	// The UI sends an array, because the filter allows more than one at a time.
+	var wanted []string
+	switch v := value.(type) {
+	case string:
+		wanted = []string{v}
+	case []string:
+		wanted = v
+	case []any:
+		for _, item := range v {
+			wanted = append(wanted, fmt.Sprint(item))
+		}
+	default:
+		return nil
+	}
+
+	any := Or{}
+	for _, one := range wanted {
+		if clause := build(one); clause != nil {
+			any = append(any, clause)
+		}
+	}
+	if len(any) == 0 {
+		return nil
+	}
+	return any
+}
+
 func mediaFileLufsTagSort() string {
 	return "cast(coalesce(" +
 		"json_extract(tags, '$.loudnorm_final_lufs[0].value'), " +
@@ -358,17 +495,21 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		// that action = 'limited' is deliberately absent: a small automatic peak
 		// trim records 'limited' too, and matching on it listed several dozen
 		// ordinary successes as exceptions.
-		"loudness_exception": func(_ string, _ any) Sqlizer {
-			return Or{
-				Eq{"media_file_loudness.was_exception": true},
-				Eq{"media_file_loudness.phase": model.LoudnessPhaseReview},
-				Eq{"media_file_loudness.action": model.LoudnessActionRefused},
-				NotEq{"media_file_loudness.decision": ""},
-			}
-		},
-		"artists_id": artistFilter,
-		"library_id": libraryIdFilter,
-		"path":       containsFilter("media_file.path"),
+		"loudness_exception": loudnessExceptionFilter,
+		// Where a song ended up relative to the target, which is a different
+		// question from whether the file was harmed and the one someone comes
+		// to this page to answer. Computed rather than stored: every input is
+		// already here, and a column would only be a slower copy of this that
+		// could fall out of step with the UI's own arithmetic.
+		//
+		// Coarser than the labels on screen. "Short by choice" and "short
+		// because the source ran out" are the same query - both are simply not
+		// on target - and the finer distinction needs the decision alongside,
+		// which the row already carries for display.
+		"loudness_outcome": loudnessOutcomeFilter,
+		"artists_id":       artistFilter,
+		"library_id":       libraryIdFilter,
+		"path":             containsFilter("media_file.path"),
 	}
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {

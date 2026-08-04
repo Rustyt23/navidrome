@@ -17,8 +17,19 @@ const (
 	LoudnessVerdictUntouched       = "untouched"        // already in range, file never rewritten
 	LoudnessVerdictSafe            = "safe"             // only the level changed
 	LoudnessVerdictDynamicsChanged = "dynamics_changed" // format intact, but the audio itself was reshaped
-	LoudnessVerdictReencoded       = "reencoded"        // codec/bitrate/rate/depth/channels/art degraded
-	LoudnessVerdictFailed          = "failed"
+	// LoudnessVerdictRewriteCostly: the format survived and nothing reshaped the
+	// audio, but the null test found more difference from the original than
+	// re-encoding this format should account for.
+	//
+	// It is deliberately separate from "dynamics changed". The null test measures
+	// HOW MUCH of the file differs, never WHAT about it differs - only the
+	// loudness range and the true peak can say the dynamics were touched. Routing
+	// a large leftover into the dynamics verdict claimed the peaks had been
+	// trimmed on tracks where nothing had trimmed them, which is a specific
+	// accusation the measurement cannot support.
+	LoudnessVerdictRewriteCostly = "rewrite_costly"
+	LoudnessVerdictReencoded     = "reencoded" // codec/bitrate/rate/depth/channels/art degraded
+	LoudnessVerdictFailed        = "failed"
 )
 
 // How the loudness change was applied.

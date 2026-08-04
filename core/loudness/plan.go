@@ -28,7 +28,33 @@ const (
 	// so a track that had its peaks touched at all can still be told from one
 	// where only the level moved.
 	PhaseTrim = 3
+	// PhaseCloseEnough: reaching the target would need a decision from the
+	// client, but the track is already near enough that the decision is not
+	// worth asking for. Left completely untouched, and kept off the review
+	// page. See leaveAloneToleranceDB.
+	PhaseCloseEnough = 4
 )
+
+// leaveAloneToleranceDB is how far from the target a track may sit before it is
+// worth troubling the client about.
+//
+// Inside the ordinary tolerance a track is simply done. Between that and this,
+// a track that cannot be corrected transparently is left alone rather than
+// listed: the difference is inaudible - the smallest loudness change anyone can
+// hear is around 1 LU, twice this - and the alternative is a review page full of
+// decisions that change nothing anybody could notice.
+//
+// Measured on a real library, seven of ten refused tracks sat here: each was
+// gained by a quarter to half a decibel, re-encoded, measured, found to have
+// sprung its peak over the ceiling, and thrown away. The file was untouched
+// either way. All that was produced was a row asking someone to decide about a
+// difference they cannot hear, at the cost of a full encode per track per run.
+//
+// It deliberately does not apply to a track that only needs an inaudible peak
+// trim (PhaseTrim). Those are handled automatically and never reach the client,
+// so there is nothing to save - and one of them was clipping, which is worth
+// fixing whatever its loudness already was.
+const leaveAloneToleranceDB = 0.5
 
 // model repeats PhaseReview as model.LoudnessPhaseReview, because it cannot
 // import this package. Fail the build here if the two ever drift apart.
@@ -99,6 +125,23 @@ type Plan struct {
 	// the ceiling. SafeLoudness is where it lands.
 	SafeGain     float64
 	SafeLoudness float64
+
+	// PLR is the gap between the loudest instant and the average level - how
+	// much headroom this track's dynamics demand.
+	//
+	// It is not an independent input to the phase decision, though it looks like
+	// one. PeakOverBy is derived from it exactly: the predicted peak is
+	// truePeak + (target - lufs), which is (truePeak - lufs) + target, which is
+	// PLR + target. So PeakOverBy = PLR + target - ceiling, and at -12.6 with a
+	// -0.5 ceiling that is PLR - 12.1.
+	//
+	// Which means the fixed line above is already dynamics-aware, and scaling it
+	// by PLR - as this once did - can only ever shift the same boundary sideways.
+	// A compressed master cannot reach a peak problem at all: low PLR means it is
+	// already loud and needs turning down, not up. Every track that needs a cut
+	// deep enough to ask about is, necessarily, a dynamic one - which is exactly
+	// where a cut is least audible.
+	PLR float64
 }
 
 // PlanFor works out what can be done with a track.
@@ -110,6 +153,7 @@ type Plan struct {
 func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate int) Plan {
 	p := Plan{}
 	p.RewriteCost = ffmpeg.RewriteLoudnessCost(sourceBitRate)
+	p.PLR = truePeak - lufs
 	p.GainToTarget = target - lufs
 	p.PredictedPeak = truePeak + p.GainToTarget
 	p.TransparentGain = ceiling - truePeak
@@ -151,6 +195,10 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 		// The level alone cannot get there, but the peaks only have to come
 		// down by an amount nobody can hear. Nothing is gained by asking.
 		p.Phase = PhaseTrim
+	case math.Abs(lufs-target) <= leaveAloneToleranceDB:
+		// Reaching the target from here needs a decision, and the track is
+		// already close enough that the decision is not worth asking for.
+		p.Phase = PhaseCloseEnough
 	default:
 		p.Phase = PhaseReview
 	}

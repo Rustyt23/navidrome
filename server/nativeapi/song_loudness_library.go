@@ -413,6 +413,11 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 		squirrel.Expr("media_file_loudness.restored_at is null"),
 		squirrel.Expr("coalesce(media_file_loudness.phase, ?) <> ?",
 			loudness.PhaseUnplanned, loudness.PhaseReview),
+		// Deliberately left alone: near enough to target that correcting it is
+		// not worth what it would cost. Retrying it every sweep would spend a
+		// full encode per run to arrive at the same conclusion.
+		squirrel.Expr("coalesce(media_file_loudness.phase, ?) <> ?",
+			loudness.PhaseUnplanned, loudness.PhaseCloseEnough),
 		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and media_file_loudness.lufs_before is not null)",
 			loudness.PhaseUnplanned, loudness.PhaseDone),
 		// A track whose last attempt was built and then rejected is left out.

@@ -16,6 +16,7 @@ import {
   useSelectedFields,
 } from '../common'
 import LufsListActions from './LufsListActions'
+import LufsSummary from './LufsSummary'
 import { AnalyzeLufsButton } from './LufsAnalyzeButton'
 import { RestoreOriginalButton } from './RestoreOriginalButton'
 import { useAnalyzeStatus } from './useAnalyzeStatus'
@@ -31,6 +32,7 @@ import {
   GainField,
   IntegrityField,
   LraField,
+  OutcomeField,
   LufsPairField,
   NullResidualField,
   ReportField,
@@ -64,10 +66,21 @@ const LufsFilter = (props) => (
       choices={[
         { id: 'untouched', name: 'No change needed' },
         { id: 'safe', name: 'Volume only' },
-        { id: 'dynamics_changed', name: 'Peaks trimmed' },
+        { id: 'dynamics_changed', name: 'Levelled + peaks capped' },
+        { id: 'rewrite_costly', name: 'Differs from original' },
         { id: 'reencoded', name: 'Quality lost' },
         { id: 'left_as_is', name: 'Left as-is' },
         { id: 'failed', name: 'Could not process' },
+      ]}
+    />
+    <SelectArrayInput
+      source="loudness_outcome"
+      label="Outcome"
+      alwaysOn
+      choices={[
+        { id: 'on_target', name: 'On target' },
+        { id: 'short', name: 'Short of target' },
+        { id: 'not_measured', name: 'Not measured' },
       ]}
     />
     <SelectArrayInput
@@ -125,6 +138,7 @@ const LufsList = (props) => {
       ),
       verdict: (
         <VerdictField
+          settings={settings}
           source="verdict"
           label="Verdict"
           sortBy="loudness_verdict"
@@ -136,6 +150,14 @@ const LufsList = (props) => {
         <TruePeakField source="truePeak" label="True Peak" sortBy="tp_before" />
       ),
       lra: <LraField source="lra" label="LRA" sortBy="lra_before" />,
+      outcome: (
+        <OutcomeField
+          source="outcome"
+          label="Outcome"
+          settings={settings}
+          sortable={false}
+        />
+      ),
       action: (
         <ActionField source="action" label="Mode" sortBy="loudness_action" />
       ),
@@ -231,35 +253,42 @@ const LufsList = (props) => {
   })
 
   return (
-    <List
-      {...props}
-      sort={{ field: 'title', order: 'ASC' }}
-      actions={
-        <LufsListActions
-          settings={settings}
-          onSettingsChange={setSettings}
-          analyzeStatus={analyzeStatus}
-          onAnalyzeStarted={handleAnalyzeStarted}
-          libraryStatus={libraryStatus}
-          onOptimiseAllToggled={handleOptimiseAllToggled}
-        />
-      }
-      filters={<LufsFilter />}
-      bulkActionButtons={<LufsBulkActions />}
-      perPage={200}
-    >
-      <Datagrid rowClick={null}>
-        <TextField source="title" sortBy="title" />
-        {/* Fixed column: the original loudness is the reference every other
+    <>
+      {/* Recounted whenever a job ends, so the headline follows the work
+          instead of going stale behind it. */}
+      <LufsSummary
+        refreshKey={`${libraryStatus?.running}-${analyzeStatus?.running}`}
+      />
+      <List
+        {...props}
+        sort={{ field: 'title', order: 'ASC' }}
+        actions={
+          <LufsListActions
+            settings={settings}
+            onSettingsChange={setSettings}
+            analyzeStatus={analyzeStatus}
+            onAnalyzeStarted={handleAnalyzeStarted}
+            libraryStatus={libraryStatus}
+            onOptimiseAllToggled={handleOptimiseAllToggled}
+          />
+        }
+        filters={<LufsFilter />}
+        bulkActionButtons={<LufsBulkActions />}
+        perPage={200}
+      >
+        <Datagrid rowClick={null}>
+          <TextField source="title" sortBy="title" />
+          {/* Fixed column: the original loudness is the reference every other
             number is judged against, so it is never hidden by the picker. */}
-        <OriginalLufsField
-          source="originalLufs"
-          label="Original LUFS"
-          sortBy="lufs_before"
-        />
-        {columns}
-      </Datagrid>
-    </List>
+          <OriginalLufsField
+            source="originalLufs"
+            label="Original LUFS"
+            sortBy="lufs_before"
+          />
+          {columns}
+        </Datagrid>
+      </List>
+    </>
   )
 }
 

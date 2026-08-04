@@ -36,6 +36,7 @@ func (n *Router) addSongLoudnessRoute(r chi.Router) {
 	r.Delete("/song/loudness/analyze/results", n.clearLoudnessAnalyzeResults())
 	r.Post("/song/loudness/library/stop", n.stopLibraryLoudnessHandler())
 	r.Put("/song/loudness/decision", n.setLoudnessDecision())
+	r.Get("/song/loudness/summary", n.loudnessSummaryHandler())
 	r.Get("/song/loudness/db", n.loudnessAuditDbList())
 	r.Post("/song/loudness/db", n.loudnessAuditDbSnapshot())
 	r.Post("/song/loudness/db/restore", n.loudnessAuditDbRestore())

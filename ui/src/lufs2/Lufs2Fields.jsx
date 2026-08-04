@@ -33,7 +33,22 @@ export const HeadroomField = (props) => {
   if (!rec) return <span className={classes.muted}>-</span>
   return (
     <Tooltip
-      title={`Turning it up by ${fmtDb(rec.gainToTarget)} dB would put the peaks at ${fmtLufs(rec.predictedPeak)} dBTP, ${fmtDb(rec.peakOverBy)} dB above the ${fmtLufs(rec.ceiling, 1)} ceiling`}
+      // Spelled out in full because the two corrections are exactly what makes
+      // the plain arithmetic wrong: part of the gain is spent replacing what
+      // re-encoding costs, and the encoder puts some of the peak back after
+      // the gain has been applied. A tooltip that named only the distance to
+      // target described a file the engine would never produce.
+      title={
+        `Reaching ${fmtLufs(rec.target)} needs ${fmtDb(rec.gainToReachTarget)} dB` +
+        (rec.rewriteCost > 0
+          ? ` (${fmtDb(rec.gainToTarget)} to the target, plus ${rec.rewriteCost.toFixed(2)} lost to re-encoding at ${rec.bitRate}k)`
+          : '') +
+        `. That puts the peaks at ${fmtLufs(rec.predictedPeak)} dBTP` +
+        (rec.springBack > 0
+          ? `, and ${rec.springBack.toFixed(2)} dB of encoder spring-back takes them to ${fmtLufs(rec.predictedPeakEncoded)}`
+          : '') +
+        ` - ${fmtDb(rec.peakOverBy)} dB above the ${fmtLufs(rec.ceiling, 1)} ceiling.`
+      }
     >
       <span className={`${classes.nowrap} ${classes.bad}`}>
         {`${fmtDb(rec.peakOverBy)} dB over`}
