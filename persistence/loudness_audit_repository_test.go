@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 
+	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -17,7 +18,7 @@ var _ = Describe("LoudnessAuditRepository", func() {
 	BeforeEach(func() {
 		ctx := log.NewContext(context.TODO())
 		ctx = request.WithUser(ctx, model.User{ID: "userid"})
-		repo = NewLoudnessAuditRepository(ctx, GetDBXBuilder())
+		repo = NewLoudnessAuditRepository(ctx, GetDBXBuilder(), db.Db())
 		mr = NewMediaFileRepository(ctx, GetDBXBuilder())
 	})
 

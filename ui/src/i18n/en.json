@@ -450,8 +450,7 @@
         "gain": "Volume only",
         "limited": "Peaks trimmed",
         "skipped": "Not opened",
-        "refused": "Left as-is",
-        "trimmed": "Peaks trimmed"
+        "refused": "Left as-is"
       },
       "actions": {
         "toggle": "Optimise all LUFS",
@@ -464,7 +463,9 @@
         "fetchOriginal": "Fetch Original LUFS",
         "restore": "Restore original",
         "findOrphanedBackups": "Orphaned backups",
-        "openExceptions": "Exception LUFS"
+        "openExceptions": "Exception LUFS",
+        "saveAuditDb": "Backup LUFS data",
+        "restoreAuditDb": "Restore LUFS data"
       },
       "clear": {
         "title": "Clear LUFS analysis data?",
@@ -476,7 +477,10 @@
         "backupOn": "Originals will be kept before each song is rewritten",
         "backupOff": "Originals will no longer be kept - songs optimised from now on cannot be restored",
         "noOrphanedBackups": "Every stored original still matches a song in the library.",
-        "orphanedBackupsMoved": "Moved %{moved} orphaned backups to %{folder}"
+        "orphanedBackupsMoved": "Moved %{moved} orphaned backups to %{folder}",
+        "auditDbSaved": "LUFS data backed up: %{rows} records saved to %{file}",
+        "auditDbRestored": "LUFS data restored: %{restored} records back, %{removed} removed, %{skipped} skipped (song no longer in the library)",
+        "noAuditDb": "There are no LUFS data backups yet - one is written automatically when a job finishes"
       },
       "originalFromBackup": "Measured from the stored original, before any processing",
       "originalFromFile": "The file has never been rewritten, so this is its original loudness",
@@ -487,7 +491,11 @@
       "nullClean": "At or below %{floor} dB: what is left after undoing the level change is only re-encoding noise, which is inaudible",
       "nullAltered": "Above %{floor} dB: more than the level changed - the audio itself was altered",
       "confirmRestore": "Put the untouched original back for %{smart_count} song |||| Put the untouched originals back for %{smart_count} songs",
-      "confirmOrphanCleanup": "%{count} of %{total} stored originals no longer match any song in the library (%{size}). They will be moved into a dated folder next to the backups, not deleted.\n\n%{list}"
+      "confirmOrphanCleanup": "%{count} of %{total} stored originals no longer match any song in the library (%{size}). They will be moved into a dated folder next to the backups, not deleted.\n\n%{list}",
+      "restoreAuditDb": {
+        "title": "Restore LUFS data?",
+        "content": "This replaces the LUFS audit records with the backup taken on %{when} (%{file}, %{rows} records).\n\nAny analysis done since then is discarded. Songs, audio backups, playlists, play counts and ratings are NOT affected."
+      }
     },
     "library": {
       "name": "Library |||| Libraries",

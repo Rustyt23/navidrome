@@ -435,25 +435,34 @@ func (r *playlistRepository) refreshCounters(pls *model.Playlist) error {
 func (r *playlistRepository) loadTracks(sel SelectBuilder, id string) (model.PlaylistTracks, error) {
 	sel = r.applyLibraryFilter(sel, "f")
 	userID := loggedUser(r.ctx).ID
+	// The loudness audit is joined here for the same reason it is in
+	// selectMediaFile: it carries the loudness a song actually has now. A song
+	// this server normalized has no loudness tag in its file, so without this the
+	// playlist's LUFS column would go blank on the next scan while the same
+	// column on the song list kept working.
+	columns := append([]string{
+		"coalesce(starred, 0) as starred",
+		"starred_at",
+		"coalesce(play_count, 0) as play_count",
+		"play_date",
+		"coalesce(rating, 0) as rating",
+		"rated_at",
+		"f.*",
+		"playlist_tracks.*",
+		"library.path as library_path",
+		"library.name as library_name",
+	}, loudnessAuditSelectColumns()...)
 	tracksQuery := sel.
-		Columns(
-			"coalesce(starred, 0) as starred",
-			"starred_at",
-			"coalesce(play_count, 0) as play_count",
-			"play_date",
-			"coalesce(rating, 0) as rating",
-			"rated_at",
-			"f.*",
-			"playlist_tracks.*",
-			"library.path as library_path",
-			"library.name as library_name",
-		).
+		Columns(columns...).
+		// media_file_id is qualified because media_file_loudness has a column of
+		// the same name; unqualified it is ambiguous the moment that table joins.
 		LeftJoin("annotation on (" +
-			"annotation.item_id = media_file_id" +
+			"annotation.item_id = playlist_tracks.media_file_id" +
 			" AND annotation.item_type = 'media_file'" +
 			" AND annotation.user_id = '" + userID + "')").
-		Join("media_file f on f.id = media_file_id").
+		Join("media_file f on f.id = playlist_tracks.media_file_id").
 		Join("library on f.library_id = library.id").
+		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = f.id").
 		Where(Eq{"playlist_id": id})
 	tracks := dbPlaylistTracks{}
 	err := r.queryAll(tracksQuery, &tracks)

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,13 +26,20 @@ import (
 const orphanTrashPrefix = ".orphaned-"
 
 type backupEntry struct {
-	Path     string `json:"path"` // relative to the backup root
+	Path string `json:"path"` // relative to Root
+	// Root is which backup folder this one lives in. With no BackupFolder
+	// configured each library has its own, so an orphan cannot be located from
+	// its relative path alone - and must be moved aside within its own root.
+	Root     string `json:"root"`
 	Size     int64  `json:"size"`
 	Modified string `json:"modified"`
 }
 
 type backupReport struct {
+	// Root is the first folder found, kept for callers that only ever expect
+	// one. Roots is all of them.
 	Root        string        `json:"root"`
+	Roots       []string      `json:"roots"`
 	Total       int           `json:"total"`
 	TotalBytes  int64         `json:"totalBytes"`
 	Orphans     []backupEntry `json:"orphans"`
@@ -78,11 +87,19 @@ func (n *Router) cleanupLoudnessBackups() http.HandlerFunc {
 			return
 		}
 
-		trash := filepath.Join(report.Root, orphanTrashPrefix+time.Now().Format("20060102-150405"))
+		stamp := orphanTrashPrefix + time.Now().Format("20060102-150405")
 		moved := 0
+		folders := map[string]struct{}{}
 		for _, entry := range report.Orphans {
-			src := filepath.Join(report.Root, entry.Path)
-			dst := filepath.Join(trash, entry.Path)
+			// Each orphan is moved aside within its own root: with no configured
+			// backup folder those are on different volumes, and renaming across
+			// them would fail.
+			root := entry.Root
+			if root == "" {
+				root = report.Root
+			}
+			src := filepath.Join(root, entry.Path)
+			dst := filepath.Join(root, stamp, entry.Path)
 			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 				log.Warn(ctx, "Could not prepare the orphan folder", "path", dst, err)
 				continue
@@ -91,13 +108,16 @@ func (n *Router) cleanupLoudnessBackups() http.HandlerFunc {
 				log.Warn(ctx, "Could not move an orphaned backup", "path", src, err)
 				continue
 			}
+			folders[filepath.Join(root, stamp)] = struct{}{}
 			moved++
 		}
-		log.Info(ctx, "Orphaned backups moved aside", "moved", moved, "folder", trash)
+		movedTo := slices.Sorted(maps.Keys(folders))
+		log.Info(ctx, "Orphaned backups moved aside", "moved", moved, "folders", movedTo)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"moved":      moved,
-			"folder":     trash,
+			"folder":     strings.Join(movedTo, ", "),
+			"folders":    movedTo,
 			"freedBytes": report.OrphanBytes,
 		})
 	}
@@ -116,6 +136,11 @@ func buildBackupReport(ctx context.Context, ds model.DataStore) (backupReport, e
 
 	liveIDs := map[string]struct{}{}
 	legacyPaths := map[string]struct{}{}
+	// Every distinct root, not just the first song's. With no BackupFolder
+	// configured each library backs up beside itself, so a second library's
+	// originals live somewhere the first one's root never reaches - and were
+	// invisible to this report and to the cleanup that reads it.
+	roots := map[string]struct{}{}
 	cursor, err := ds.MediaFile(ctx).GetCursor()
 	if err != nil {
 		return report, err
@@ -127,8 +152,11 @@ func buildBackupReport(ctx context.Context, ds model.DataStore) (backupReport, e
 		if strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
 			continue
 		}
-		if report.Root == "" {
-			report.Root = ffmpeg.LoudnessBackupRoot(options.BackupFolder, mf.LibraryPath)
+		if root := ffmpeg.LoudnessBackupRoot(options.BackupFolder, mf.LibraryPath); root != "" {
+			roots[root] = struct{}{}
+			if report.Root == "" {
+				report.Root = root
+			}
 		}
 		report.LiveSongs++
 		liveIDs[mf.ID] = struct{}{}
@@ -139,10 +167,14 @@ func buildBackupReport(ctx context.Context, ds model.DataStore) (backupReport, e
 	}
 	if report.Root == "" {
 		report.Root = ffmpeg.LoudnessBackupRoot(options.BackupFolder, "")
+		if report.Root != "" {
+			roots[report.Root] = struct{}{}
+		}
 	}
 	if report.Root == "" {
 		return report, fmt.Errorf("no backup folder is configured")
 	}
+	report.Roots = slices.Sorted(maps.Keys(roots))
 
 	// Deciding what is orphaned means trusting that the library we just read is
 	// the whole library. An empty one is what an unmounted drive or a database
@@ -153,48 +185,52 @@ func buildBackupReport(ctx context.Context, ds model.DataStore) (backupReport, e
 		return report, nil
 	}
 
-	err = filepath.WalkDir(report.Root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if os.IsNotExist(err) {
+	for _, root := range report.Roots {
+		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if os.IsNotExist(err) {
+					return nil
+				}
+				return err
+			}
+			name := d.Name()
+			if d.IsDir() {
+				// Skip the folders orphans were moved into, anything hidden, and
+				// the copies of the audit data that live alongside them.
+				if path != root && strings.HasPrefix(name, ".") {
+					return filepath.SkipDir
+				}
 				return nil
 			}
-			return err
-		}
-		name := d.Name()
-		if d.IsDir() {
-			// Skip the folders orphans were moved into, and anything hidden.
-			if path != report.Root && strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
+			if strings.HasPrefix(name, ".") {
+				return nil
 			}
-			return nil
-		}
-		if strings.HasPrefix(name, ".") {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		report.Total++
-		report.TotalBytes += info.Size()
+			info, err := d.Info()
+			if err != nil {
+				return nil
+			}
+			report.Total++
+			report.TotalBytes += info.Size()
 
-		if backupIsLive(report.Root, path, name, liveIDs, legacyPaths) {
+			if backupIsLive(root, path, name, liveIDs, legacyPaths) {
+				return nil
+			}
+			rel, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				rel = path
+			}
+			report.Orphans = append(report.Orphans, backupEntry{
+				Path:     rel,
+				Root:     root,
+				Size:     info.Size(),
+				Modified: info.ModTime().Format(time.RFC3339),
+			})
+			report.OrphanBytes += info.Size()
 			return nil
-		}
-		rel, relErr := filepath.Rel(report.Root, path)
-		if relErr != nil {
-			rel = path
-		}
-		report.Orphans = append(report.Orphans, backupEntry{
-			Path:     rel,
-			Size:     info.Size(),
-			Modified: info.ModTime().Format(time.RFC3339),
 		})
-		report.OrphanBytes += info.Size()
-		return nil
-	})
-	if err != nil {
-		return report, err
+		if err != nil {
+			return report, err
+		}
 	}
 
 	report.Safe = true

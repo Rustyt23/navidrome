@@ -25,9 +25,11 @@ type RestoreResult struct {
 // Normally nothing needs measuring afterwards. The audit's "before" snapshot is
 // the measurement of the very file just copied back, so it is still exactly
 // right - and it was taken before the track was ever rewritten, which is the
-// one measurement that cannot be reproduced if the backup is later lost. A
-// track whose record has no before snapshot is measured, since there is then
-// nothing to restore the record from.
+// one measurement that cannot be reproduced if the backup is later lost.
+//
+// It is only reusable when it really came from the stored original. A record
+// with no snapshot, or one whose snapshot was taken from the file while it was
+// normalized, is rebuilt by measuring the restored file instead.
 func Restore(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFileID, libraryPath, trackPath string,
 	previous *model.LoudnessAudit, target ffmpeg.LoudnessTarget, tolerance float64,
 	backupFolder string) (RestoreResult, error) {
@@ -50,15 +52,26 @@ func Restore(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFil
 		return RestoreResult{}, err
 	}
 
-	if previous == nil || previous.LufsBefore == nil {
-		audit := Audit(ctx, normalizer, mediaFileID, libraryPath, trackPath, target, tolerance, backupFolder)
-		if audit.LufsBefore == nil {
-			return RestoreResult{Audit: audit}, fmt.Errorf("restored, but could not measure the result: %s", audit.Error)
-		}
+	// The stored snapshot may be carried over only when it is a measurement of
+	// the stored original - which is what HasBackup records. A snapshot taken
+	// from the file while it was normalized describes the wrong audio entirely,
+	// and carrying it forward would report the track at the loudness it had
+	// before the restore rather than the one it has now.
+	if previous != nil && previous.LufsBefore != nil && previous.HasBackup {
+		audit := revertedAudit(previous, target, tolerance)
 		return RestoreResult{LUFS: *audit.LufsBefore, Audit: audit}, nil
 	}
 
-	audit := revertedAudit(previous, target, tolerance)
+	// Nothing trustworthy to rebuild the record from, so measure what is now on
+	// disk. One pass, not a full audit: the file was just copied from the stored
+	// original, so comparing the two would only measure them against themselves.
+	measured, err := Measure(ctx, normalizer, trackPath, target)
+	if err != nil {
+		return RestoreResult{}, fmt.Errorf("restored, but could not measure the result: %w", err)
+	}
+	audit := analyzedAudit(mediaFileID, measured, target, tolerance)
+	// The original is still stored, so the track can be restored again.
+	audit.HasBackup = true
 	return RestoreResult{LUFS: *audit.LufsBefore, Audit: audit}, nil
 }
 

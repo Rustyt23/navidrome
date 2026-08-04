@@ -15,10 +15,14 @@ import (
 
 type SQLStore struct {
 	db dbx.Builder
+	// conn is the same pool db was built from, kept because loudness snapshots
+	// need to ATTACH a second database file and that has to happen on one
+	// connection rather than on whichever the builder picks.
+	conn *sql.DB
 }
 
 func New(conn *sql.DB) model.DataStore {
-	return &SQLStore{db: dbx.NewFromDB(conn, db.Driver)}
+	return &SQLStore{db: dbx.NewFromDB(conn, db.Driver), conn: conn}
 }
 
 func (s *SQLStore) Album(ctx context.Context) model.AlbumRepository {
@@ -74,7 +78,7 @@ func (s *SQLStore) Radio(ctx context.Context) model.RadioRepository {
 }
 
 func (s *SQLStore) LoudnessAudit(ctx context.Context) model.LoudnessAuditRepository {
-	return NewLoudnessAuditRepository(ctx, s.getDBXBuilder())
+	return NewLoudnessAuditRepository(ctx, s.getDBXBuilder(), s.getConn())
 }
 
 func (s *SQLStore) RetailPlayerDeviceMapping(ctx context.Context) model.RetailPlayerDeviceMappingRepository {
@@ -230,4 +234,13 @@ func (s *SQLStore) getDBXBuilder() dbx.Builder {
 		return dbx.NewFromDB(db.Db(), db.Driver)
 	}
 	return s.db
+}
+
+// getConn returns the raw pool, for the one place that needs a connection of
+// its own rather than the query builder.
+func (s *SQLStore) getConn() *sql.DB {
+	if s.conn == nil {
+		return db.Db()
+	}
+	return s.conn
 }

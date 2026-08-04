@@ -248,3 +248,44 @@ func TestFallbackFloorSitsInTheGapTheMeasurementsFound(t *testing.T) {
 		}
 	}
 }
+
+// Reaching -12.6 means turning most masters down, and a quieter lossless file
+// compresses smaller. Read as damage that rejected the output and marked the
+// track refused - which, on a lossless library, is every file in it.
+func TestLosslessCompressingSmallerIsNotDamage(t *testing.T) {
+	before, after := codecPair("flac", 620, 592)
+
+	if issues := IntegrityIssues(before, after); len(issues) > 0 {
+		t.Errorf("a FLAC that compressed better is intact, got %v", issues)
+	}
+}
+
+func TestLossyLosingBitrateIsStillDamage(t *testing.T) {
+	before, after := codecPair("mp3", 320, 128)
+
+	if issues := IntegrityIssues(before, after); len(issues) == 0 {
+		t.Error("an mp3 re-encoded at a lower bitrate has lost quality")
+	}
+}
+
+// A source can probe above what the format can hold when the stream reports no
+// bitrate and the container's figure - cover art and tags included - stands in
+// for it. The encoder is clamped to the ceiling, so the output measures lower
+// through no fault of its own.
+func TestLossyAtTheFormatCeilingIsNotDamage(t *testing.T) {
+	before, after := codecPair("mp3", 340, 320)
+
+	if issues := IntegrityIssues(before, after); len(issues) > 0 {
+		t.Errorf("an mp3 shipped at the 320k ceiling is intact, got %v", issues)
+	}
+}
+
+// codecPair builds two otherwise-identical measurements that differ only in
+// codec and bitrate, so an integrity check sees nothing else to complain about.
+func codecPair(codec string, beforeKbps, afterKbps int) (before, after *Measurement) {
+	before = testMeasurement(-18.0, -3.0, 7.0)
+	after = testMeasurement(-12.6, -0.5, 7.0)
+	before.Probe.Codec, after.Probe.Codec = codec, codec
+	before.Probe.BitRate, after.Probe.BitRate = beforeKbps, afterKbps
+	return before, after
+}

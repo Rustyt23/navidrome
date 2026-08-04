@@ -66,6 +66,9 @@ func (n *Router) restoreSongLoudness() http.HandlerFunc {
 		defer release()
 
 		response := restoreSelectedSongs(ctx, n.ds, ids)
+		if len(response.Restored) > 0 {
+			snapshotLoudnessAudit(ctx, n.ds, "songs restored")
+		}
 		status := http.StatusOK
 		if len(response.Restored) == 0 && len(response.Failed) > 0 {
 			status = http.StatusInternalServerError
@@ -143,9 +146,6 @@ func restoreSelectedSongs(ctx context.Context, ds model.DataStore, ids []string)
 			log.Warn(ctx, "Restored the song but could not clear its decision", "id", id, err)
 		}
 		updateSongLoudnessTag(ctx, repo, id, res.LUFS)
-		if _, err := copyTrackToSyncMP3Folder(mf.LibraryPath, trackPath); err != nil {
-			log.Warn(ctx, "Restored the song but could not update the sync folder copy", "path", trackPath, err)
-		}
 
 		log.Info(ctx, "Restored original song", "id", id, "path", trackPath, "lufs", res.LUFS)
 		result.LUFS = &res.LUFS

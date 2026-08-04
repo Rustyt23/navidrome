@@ -258,13 +258,31 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 	return r
 }
 
-func mediaFileLufsSort() string {
-	return "(cast(coalesce(" +
+// mediaFileLufsTagSort reads the loudness a song carries in its own tags.
+//
+// Only usable on its own where media_file_loudness is not joined. A song this
+// server normalized has no such tag: the value is written to the tags column
+// but never into the file, so the next scan - which rebuilds that column from
+// the file - drops it. Whatever this finds therefore came from outside.
+func mediaFileLufsTagSort() string {
+	return "cast(coalesce(" +
 		"json_extract(tags, '$.loudnorm_final_lufs[0].value'), " +
 		"json_extract(tags, '$.final_lufs[0].value'), " +
 		"json_extract(tags, '$.finallufs[0].value'), " +
 		"json_extract(tags, '$.lufs[0].value')" +
-		") as real))"
+		") as real)"
+}
+
+// mediaFileLufsSort orders by the loudness a song actually has now.
+//
+// The audit comes first and the tags are the fallback, matching what the UI
+// displays - otherwise the column and the sort disagree and the list looks
+// randomly ordered. lufs_after is the measurement of the file as it stands
+// after processing; lufs_before is that same measurement for a song only ever
+// analysed. Requires the media_file_loudness join, which selectMediaFile makes.
+func mediaFileLufsSort() string {
+	return "(coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before, " +
+		mediaFileLufsTagSort() + "))"
 }
 
 var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {

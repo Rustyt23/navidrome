@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -98,10 +96,13 @@ func (n *Router) beginLibraryLoudness(ctx context.Context, phase int, ids []stri
 	defer libraryLoudness.stopMu.Unlock()
 	// Analysis reads files but writes the same records; the other two rewrite
 	// the files themselves. Any of them running means this run must wait.
-	if loudnessAnalyze.running.Load() || loudnessFileWorkBusy() != "" {
+	//
+	// The release function is discarded on purpose: finishLibraryLoudness clears
+	// the same flag, and it is the one path that also tears down the stop channel
+	// and the run context.
+	if _, busy := claimLoudnessFileWork(&libraryLoudness.running); busy != "" {
 		return false
 	}
-	libraryLoudness.running.Store(true)
 	libraryLoudness.phase.Store(int64(phase))
 	libraryLoudness.stopping.Store(false)
 	libraryLoudness.stop = make(chan struct{})
@@ -324,7 +325,12 @@ dispatch:
 			break
 		}
 		if strings.TrimSpace(mf.Path) == "" || strings.TrimSpace(mf.LibraryPath) == "" {
+			// Counted as processed as well as skipped: the total came from the
+			// same query this loop reads, so a track dropped here without being
+			// counted leaves the progress bar permanently short of its total and
+			// the estimated time never resolving.
 			libraryLoudness.skipped.Add(1)
+			libraryLoudness.processed.Add(1)
 			continue
 		}
 		select {
@@ -340,6 +346,10 @@ dispatch:
 		"normalized", libraryLoudness.normalized.Load(), "skipped", libraryLoudness.skipped.Load(),
 		"failed", libraryLoudness.failed.Load(), "cancelled", libraryLoudness.cancelled.Load(),
 		"elapsed", time.Since(start))
+
+	// The run has just rewritten files and the records describing them. Copy
+	// those records somewhere the data directory cannot take with it.
+	snapshotLoudnessAudit(context.WithoutCancel(ctx), n.ds, "optimisation run finished")
 }
 
 // countLoudnessTargets counts how many tracks this run will actually touch, so
@@ -400,32 +410,4 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 		// Re-analysing clears the mark and the track is tried again.
 		squirrel.Expr("coalesce(media_file_loudness.action, '') <> ?", model.LoudnessActionRefused),
 	}
-}
-
-// copyTrackToSyncMP3Folder copies a LUFS-updated track into SyncFolder/mp3,
-// preserving its library-relative path (mirrors the scanner's behavior).
-// Returns the destination path, or "" when no SyncFolder is configured.
-func copyTrackToSyncMP3Folder(libraryPath, trackPath string) (string, error) {
-	syncRoot := strings.TrimSpace(conf.Server.SyncFolder)
-	if syncRoot == "" {
-		return "", nil
-	}
-	rel := filepath.Base(trackPath)
-	if libraryPath != "" {
-		if r, err := filepath.Rel(filepath.Clean(libraryPath), trackPath); err == nil && r != "." && !strings.HasPrefix(r, "..") {
-			rel = r
-		}
-	}
-	dest := filepath.Join(syncRoot, "mp3", rel)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(trackPath)
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(dest, data, 0o644); err != nil {
-		return "", err
-	}
-	return dest, nil
 }

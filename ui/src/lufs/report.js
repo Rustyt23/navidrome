@@ -171,7 +171,12 @@ export const reportFor = (record, settings) => {
       significant.push(
         `True peak ${f2(a.tpAfter)} dBTP — above 0, the file can clip`,
       )
-    } else if (n(a.tpAfter) > FALLBACK_CEILING + 0.1) {
+      // Above the lowest ceiling the engine will ever accept. `+ 0.1` used to
+      // sit here, which made this `> 0` - identical to the branch above, so it
+      // never ran and a file shipped past the fallback was reported as a minor
+      // note. The engine's own check is a hard bound with no slack, and this
+      // mirrors it.
+    } else if (n(a.tpAfter) > FALLBACK_CEILING) {
       significant.push(
         `True peak ${f2(a.tpAfter)} dBTP is above the ${f2(ceiling)} ceiling`,
       )

@@ -3,13 +3,11 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/ffmpeg"
-	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/core/loudness"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -68,20 +66,18 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 		log.Warn(recordCtx, "Could not save loudness audit record", "id", mf.ID, err)
 	}
 
+	// Nothing outside the library is touched. Loudness normalization rewrites the
+	// song in place, keeps its original in the backup folder and records the
+	// audit - and stops there.
+	//
+	// It used to also copy the result into SyncFolder/mp3 and hand that copy to
+	// gcsync, which uploaded it and then moved it into the music folder under its
+	// basename alone - leaving a flattened duplicate of every normalized song at
+	// the library root, which the next scan indexed as a new track. The sync
+	// folder is an inbox for files arriving from outside; these files are already
+	// in the library, so there was nothing there to ingest.
 	if res.Changed {
 		updateSongLoudnessTag(recordCtx, ds.MediaFile(recordCtx), mf.ID, res.NewLUFS)
-
-		uploadPath := trackPath
-		if dest, err := copyTrackToSyncMP3Folder(mf.LibraryPath, trackPath); err != nil {
-			log.Warn(ctx, "Could not copy LUFS-updated track to sync folder", "path", trackPath, err)
-		} else if dest != "" {
-			uploadPath = dest
-		}
-		if gcsync.IsEligibleLUFS(res.OldLUFS, res.NewLUFS, opts.Target.IntegratedLUFS) {
-			gcsync.GetInstance().EnqueueMP3(uploadPath,
-				fmt.Sprintf("LUFS optimised: %.2f -> %.2f (target %.2f)",
-					res.OldLUFS, res.NewLUFS, opts.Target.IntegratedLUFS))
-		}
 	}
 	return res, nil
 }

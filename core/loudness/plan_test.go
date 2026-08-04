@@ -142,7 +142,13 @@ func TestSpecForPhaseGainIsPureGain(t *testing.T) {
 }
 
 func TestSpecForReviewTrackNeedsADecision(t *testing.T) {
-	p := PlanFor(-18.0, -0.5, testTarget, testCeiling, testTolerance, 320)
+	// Peaks at -2.0, so there is 1.5 dB of headroom for "gain to ceiling" to
+	// actually use. A fixture whose peak already sits on the ceiling has none,
+	// and would only exercise the do-nothing path below.
+	p := PlanFor(-20.0, -2.0, testTarget, testCeiling, testTolerance, 320)
+	if p.Phase != PhaseReview {
+		t.Fatalf("fixture no longer exercises the review path (phase %d)", p.Phase)
+	}
 
 	if _, _, ok := SpecFor(p, DecisionPending, &ffmpeg.FileProbe{}, testTarget, testCeiling); ok {
 		t.Fatal("a review track must not be touched before the client decides")
@@ -170,6 +176,59 @@ func TestSpecForReviewTrackNeedsADecision(t *testing.T) {
 	// that, not against -12.6.
 	if math.Abs(expected-p.LoudnessAtCeiling) > 0.001 {
 		t.Errorf("expected loudness = %.3f, want %.3f", expected, p.LoudnessAtCeiling)
+	}
+}
+
+// A "gain to ceiling" track is gained until its peak meets the ceiling. On
+// every run after that there is no headroom left, so the transform is a 0 dB
+// gain - and the track is still phase 2 carrying the same decision, so every
+// phase 2 run selected it again and rewrote it. Each pass was a fresh codec
+// generation spent to change nothing.
+func TestSpecForCeilingDecisionIsNotReappliedOnceThereIsNoHeadroomLeft(t *testing.T) {
+	// The state the track is left in by a successful "gain to ceiling" pass:
+	// short of target, peaks resting exactly on the ceiling.
+	p := PlanFor(-18.5, testCeiling, testTarget, testCeiling, testTolerance, 320)
+	if p.Phase != PhaseReview {
+		t.Fatalf("a track gained to the ceiling stays a review track (phase %d)", p.Phase)
+	}
+	if math.Abs(p.TransparentGain) > 0.001 {
+		t.Fatalf("fixture should have no headroom left, TransparentGain = %.3f", p.TransparentGain)
+	}
+
+	if _, _, ok := SpecFor(p, DecisionCeiling, &ffmpeg.FileProbe{}, testTarget, testCeiling); ok {
+		t.Fatal("re-applying 'gain to ceiling' with no headroom left must not rewrite the file")
+	}
+
+	// The decision itself is still honoured wherever it has something to do.
+	withHeadroom := PlanFor(-20.0, -2.0, testTarget, testCeiling, testTolerance, 320)
+	if _, _, ok := SpecFor(withHeadroom, DecisionCeiling, &ffmpeg.FileProbe{}, testTarget, testCeiling); !ok {
+		t.Fatal("'gain to ceiling' must still apply while there is headroom to use")
+	}
+}
+
+// Limiting is not a level change: it is there to bring the peaks down, so it
+// stays available however small the accompanying gain is.
+//
+// PlanFor cannot actually produce this state - a gain that small means the
+// track is within tolerance of the target, which is PhaseDone - so the plan is
+// built directly. The point is to pin the guard's scope: it belongs to the
+// pure-gain transforms and must not spread to the limiting ones.
+func TestSpecForSmallGainStillLimits(t *testing.T) {
+	tiny := minWorthwhileGainDB / 2
+	p := Plan{Phase: PhaseReview, GainToTarget: tiny}
+
+	spec, expected, ok := SpecFor(p, DecisionLimit, &ffmpeg.FileProbe{}, testTarget, testCeiling)
+	if !ok || !spec.LimitTruePeak {
+		t.Fatal("'limit' must still engage the limiter when the gain is tiny - the peaks are the point")
+	}
+	if math.Abs(expected-testTarget) > 0.001 {
+		t.Errorf("limiting should still aim at the target, expected %.3f", expected)
+	}
+
+	// The same tiny number on the pure-gain side is refused.
+	p.TransparentGain = tiny
+	if _, _, ok := SpecFor(p, DecisionCeiling, &ffmpeg.FileProbe{}, testTarget, testCeiling); ok {
+		t.Error("a pure gain this small must not rewrite the file")
 	}
 }
 

@@ -2,7 +2,9 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/navidrome/navidrome/model"
 )
@@ -292,6 +294,12 @@ func (db *MockDataStore) LoudnessAudit(ctx context.Context) model.LoudnessAuditR
 // MockLoudnessAuditRepo is an in-memory LoudnessAuditRepository for tests.
 type MockLoudnessAuditRepo struct {
 	data map[string]*model.LoudnessAudit
+	// snaps holds the copies Snapshot took, newest first, so the handlers can be
+	// exercised end to end without a real database file.
+	snaps []model.LoudnessSnapshot
+	saved map[string]map[string]*model.LoudnessAudit
+	// SnapshotErr, when set, makes every snapshot call fail.
+	SnapshotErr error
 }
 
 func (m *MockLoudnessAuditRepo) Put(audit *model.LoudnessAudit) error {
@@ -325,6 +333,65 @@ func (m *MockLoudnessAuditRepo) Clear() (int64, error) {
 	count := int64(len(m.data))
 	m.data = map[string]*model.LoudnessAudit{}
 	return count, nil
+}
+
+func (m *MockLoudnessAuditRepo) Snapshot(dir string, keep int) (*model.LoudnessSnapshot, error) {
+	if m.SnapshotErr != nil {
+		return nil, m.SnapshotErr
+	}
+	if m.saved == nil {
+		m.saved = map[string]map[string]*model.LoudnessAudit{}
+	}
+	copied := map[string]*model.LoudnessAudit{}
+	for id, audit := range m.data {
+		clone := *audit
+		copied[id] = &clone
+	}
+	now := time.Now()
+	snap := model.LoudnessSnapshot{
+		File:      fmt.Sprintf("lufs-audit-%s-%d.db", now.Format("20060102-150405"), len(m.snaps)),
+		Path:      dir,
+		Rows:      int64(len(copied)),
+		CreatedAt: now,
+	}
+	m.saved[snap.File] = copied
+	m.snaps = append([]model.LoudnessSnapshot{snap}, m.snaps...)
+	if keep > 0 && len(m.snaps) > keep {
+		for _, dropped := range m.snaps[keep:] {
+			delete(m.saved, dropped.File)
+		}
+		m.snaps = m.snaps[:keep]
+	}
+	return &snap, nil
+}
+
+func (m *MockLoudnessAuditRepo) Snapshots(string) ([]model.LoudnessSnapshot, error) {
+	if m.SnapshotErr != nil {
+		return nil, m.SnapshotErr
+	}
+	return m.snaps, nil
+}
+
+func (m *MockLoudnessAuditRepo) RestoreSnapshot(_, file string) (*model.LoudnessRestoreReport, error) {
+	if m.SnapshotErr != nil {
+		return nil, m.SnapshotErr
+	}
+	saved, ok := m.saved[file]
+	if !ok {
+		return nil, model.ErrNotFound
+	}
+	report := &model.LoudnessRestoreReport{
+		File:     file,
+		Rows:     int64(len(saved)),
+		Restored: int64(len(saved)),
+	}
+	for id := range m.data {
+		if _, kept := saved[id]; !kept {
+			report.Removed++
+		}
+	}
+	m.data = saved
+	return report, nil
 }
 
 func (db *MockDataStore) Radio(ctx context.Context) model.RadioRepository {

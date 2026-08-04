@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	. "github.com/Masterminds/squirrel"
@@ -11,10 +12,15 @@ import (
 
 type loudnessAuditRepository struct {
 	sqlRepository
+	// conn is the raw pool, needed only for snapshots: ATTACH belongs to a
+	// single connection, so those take one of their own rather than borrowing
+	// whichever the query builder happens to use. Nil where snapshots are not
+	// available, which the snapshot calls report rather than panic on.
+	conn *sql.DB
 }
 
-func NewLoudnessAuditRepository(ctx context.Context, db dbx.Builder) model.LoudnessAuditRepository {
-	r := &loudnessAuditRepository{}
+func NewLoudnessAuditRepository(ctx context.Context, db dbx.Builder, conn *sql.DB) model.LoudnessAuditRepository {
+	r := &loudnessAuditRepository{conn: conn}
 	r.ctx = ctx
 	r.db = db
 	r.tableName = "media_file_loudness"
@@ -87,9 +93,13 @@ func (r *loudnessAuditRepository) SetDecision(mediaFileID, decision string) erro
 	if count > 0 {
 		return nil
 	}
+	// analyzed_at is set even though nothing has been analysed. The column has no
+	// default, and LoudnessAudit.AnalyzedAt is a time.Time rather than a pointer,
+	// so a NULL here makes every later Get of this row fail to scan - which the
+	// callers treat as "no record", quietly discarding the decision just made.
 	insert := Insert(r.tableName).
-		Columns("media_file_id", "decision", "was_exception").
-		Values(mediaFileID, decision, decision != "")
+		Columns("media_file_id", "decision", "was_exception", "analyzed_at").
+		Values(mediaFileID, decision, decision != "", time.Now())
 	_, err = r.executeSQL(insert)
 	return err
 }

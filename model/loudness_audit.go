@@ -116,9 +116,49 @@ type LoudnessAudit struct {
 	AnalyzedAt time.Time `structs:"analyzed_at" json:"analyzedAt"`
 }
 
+// LoudnessSnapshot describes one stored copy of the loudness audit table.
+//
+// The copy is a SQLite database of its own, kept outside the application's data
+// directory. What was done to the client's audio is the one record here that
+// cannot be rebuilt cheaply - re-deriving it means decoding every song and its
+// stored original again - and the client's phase 2 decisions cannot be rebuilt
+// at all, because nothing but a person can produce them.
+type LoudnessSnapshot struct {
+	File      string    `json:"file"`
+	Path      string    `json:"path"`
+	Rows      int64     `json:"rows"`
+	Size      int64     `json:"size"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// LoudnessRestoreReport accounts for every row a restore touched, so the result
+// can be checked rather than trusted.
+type LoudnessRestoreReport struct {
+	File string `json:"file"`
+	// Rows is how many the snapshot held.
+	Rows int64 `json:"rows"`
+	// Restored is how many were written back.
+	Restored int64 `json:"restored"`
+	// Skipped is snapshot rows whose song is not in this library. Their audio is
+	// gone or was never here, so there is nothing for the record to describe.
+	Skipped int64 `json:"skipped"`
+	// Removed is rows deleted because the snapshot did not have them - the
+	// "exact replace" half of the restore.
+	Removed int64 `json:"removed"`
+}
+
 type LoudnessAuditRepository interface {
 	Put(audit *LoudnessAudit) error
 	Get(mediaFileID string) (*LoudnessAudit, error)
 	SetDecision(mediaFileID, decision string) error
 	Clear() (int64, error)
+
+	// Snapshot writes the current audit table to its own database file in dir,
+	// keeping at most `keep` of them.
+	Snapshot(dir string, keep int) (*LoudnessSnapshot, error)
+	// Snapshots lists what is stored in dir, newest first.
+	Snapshots(dir string) ([]LoudnessSnapshot, error)
+	// RestoreSnapshot makes the audit table match the named snapshot exactly.
+	// It touches no other table.
+	RestoreSnapshot(dir, file string) (*LoudnessRestoreReport, error)
 }

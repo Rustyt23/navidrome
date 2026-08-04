@@ -23,13 +23,34 @@ type encoderSpec struct {
 // than the source had.
 var standardBitrates = []int{96, 128, 160, 192, 224, 256, 320}
 
-func roundUpBitrate(kbps int) int {
+// MaxBitrateFor is the highest bitrate a codec can actually encode at, or 0
+// where there is no fixed ceiling. Asking for more is not an error - libmp3lame
+// silently clamps to 320 - which is exactly the problem: the output then
+// measures below the source and looks like lost quality.
+func MaxBitrateFor(codec string) int {
+	switch strings.ToLower(codec) {
+	case "mp3":
+		return 320
+	default:
+		return 0
+	}
+}
+
+func roundUpBitrate(kbps int, codec string) int {
+	wanted := kbps
 	for _, b := range standardBitrates {
 		if kbps <= b {
-			return b
+			wanted = b
+			break
 		}
 	}
-	return kbps
+	// A source can probe above the format's ceiling when the stream reports no
+	// bitrate and the container's figure - which counts cover art and tags -
+	// stands in for it. Asking for the impossible just gets clamped anyway.
+	if max := MaxBitrateFor(codec); max > 0 && wanted > max {
+		return max
+	}
+	return wanted
 }
 
 // encoderForSource picks the encoder settings that reproduce the source's
@@ -41,13 +62,13 @@ func encoderForSource(probe *FileProbe) (*encoderSpec, error) {
 	}
 	switch strings.ToLower(probe.Codec) {
 	case "mp3":
-		return &encoderSpec{Codec: "libmp3lame", Bitrate: roundUpBitrate(probe.BitRate)}, nil
+		return &encoderSpec{Codec: "libmp3lame", Bitrate: roundUpBitrate(probe.BitRate, "mp3")}, nil
 	case "aac":
-		return &encoderSpec{Codec: "aac", Bitrate: roundUpBitrate(probe.BitRate)}, nil
+		return &encoderSpec{Codec: "aac", Bitrate: roundUpBitrate(probe.BitRate, "aac")}, nil
 	case "opus":
-		return &encoderSpec{Codec: "libopus", Bitrate: roundUpBitrate(probe.BitRate)}, nil
+		return &encoderSpec{Codec: "libopus", Bitrate: roundUpBitrate(probe.BitRate, "opus")}, nil
 	case "vorbis":
-		return &encoderSpec{Codec: "libvorbis", Bitrate: roundUpBitrate(probe.BitRate)}, nil
+		return &encoderSpec{Codec: "libvorbis", Bitrate: roundUpBitrate(probe.BitRate, "vorbis")}, nil
 	case "flac":
 		return &encoderSpec{Codec: "flac", SampleFmt: losslessSampleFmt(probe.BitDepth), Lossless: true}, nil
 	case "alac":

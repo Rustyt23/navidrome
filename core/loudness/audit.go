@@ -229,30 +229,51 @@ func AuditFromOptimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer
 	return audit
 }
 
-// MeasureOriginal records only what the song is right now: one loudness pass
-// plus a container probe.
+// MeasureOriginal records what a song's original was: one loudness pass plus a
+// container probe.
 //
-// It deliberately skips the two expensive parts of a full audit - re-measuring
-// the stored original and running the null test - because neither says
-// anything about a file that has not been rewritten. For a processed track it
-// therefore reports the file as it currently stands, not its pre-processing
-// original, so it is only used where no audit exists yet.
-func MeasureOriginal(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFileID, trackPath string,
-	target ffmpeg.LoudnessTarget, tolerance float64) *model.LoudnessAudit {
-	audit := &model.LoudnessAudit{MediaFileID: mediaFileID, AnalyzedAt: time.Now()}
+// It skips the two expensive parts of a full audit - re-measuring the stored
+// original and running the null test - because neither says anything about a
+// file that has not been rewritten.
+//
+// A file that HAS been rewritten is a different matter, and is why the stored
+// original is looked for first. Measuring the file on disk there records the
+// normalized loudness as the song's original: wrong on the page, wrong in the
+// tag, and wrong in a way that survives. Worse, a restore trusts that snapshot
+// to describe the file it puts back, so the track would be reported at the
+// loudness it had while normalized after being returned to one 20 dB away.
+// Those songs get the full audit instead, which reads the original from the
+// backup where it actually is.
+func MeasureOriginal(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer,
+	mediaFileID, libraryPath, trackPath string, target ffmpeg.LoudnessTarget, tolerance float64,
+	backupFolder string) *model.LoudnessAudit {
+	if ffmpeg.FindLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath) != "" {
+		return Audit(ctx, normalizer, mediaFileID, libraryPath, trackPath, target, tolerance, backupFolder)
+	}
 
 	current, err := Measure(ctx, normalizer, trackPath, target)
 	if err != nil {
-		audit.Status = model.LoudnessStatusFailed
-		audit.Verdict = model.LoudnessVerdictFailed
-		audit.Error = err.Error()
-		return audit
+		return &model.LoudnessAudit{
+			MediaFileID: mediaFileID,
+			AnalyzedAt:  time.Now(),
+			Status:      model.LoudnessStatusFailed,
+			Verdict:     model.LoudnessVerdictFailed,
+			Error:       err.Error(),
+		}
 	}
+	return analyzedAudit(mediaFileID, current, target, tolerance)
+}
 
-	recordBefore(audit, current)
+// analyzedAudit is the record for a file that was measured and not rewritten:
+// its current state is its own "before" snapshot, and there is no "after"
+// because nothing was applied.
+func analyzedAudit(mediaFileID string, m *Measurement, target ffmpeg.LoudnessTarget,
+	tolerance float64) *model.LoudnessAudit {
+	audit := &model.LoudnessAudit{MediaFileID: mediaFileID, AnalyzedAt: time.Now()}
+	recordBefore(audit, m)
 	audit.Status = model.LoudnessStatusAnalyzed
 
-	plan := PlanFor(current.LUFS, current.TruePeak, target.IntegratedLUFS, target.TruePeak, tolerance, current.Probe.BitRate)
+	plan := PlanFor(m.LUFS, m.TruePeak, target.IntegratedLUFS, target.TruePeak, tolerance, m.Probe.BitRate)
 	audit.Phase = plan.Phase
 	if plan.Phase == PhaseDone {
 		audit.Verdict = model.LoudnessVerdictUntouched
@@ -369,6 +390,34 @@ func NullResidualThreshold(codec string) float64 {
 	return nullResidualSafeLosslessDB
 }
 
+// bitrateLost reports whether the rewrite cost the file data per second.
+//
+// Only a lossy file can lose any. For a lossless one the bitrate is how well
+// the audio happened to compress, not how much of it survived: turning a track
+// down leaves smaller numbers to encode, so it compresses better and the figure
+// drops with nothing lost at all. Measured on a real FLAC, a 4 dB reduction took
+// it from 620 to 592 kbps - which, read as damage, rejected the output and
+// refused the track for ever. Since reaching -12.6 means turning most masters
+// down, that was every lossless file in the library.
+//
+// A lossy file that comes back at the format's ceiling is also let through. The
+// encoder is asked for at least what the source had, so it can only land lower
+// when the source was probed above what the format can hold - which happens when
+// the stream reports no bitrate and the container's figure, cover art and tags
+// included, stands in for it.
+func bitrateLost(before, after *ffmpeg.FileProbe) bool {
+	if after.BitRate >= before.BitRate {
+		return false
+	}
+	if !IsLossy(before.Codec) {
+		return false
+	}
+	if max := ffmpeg.MaxBitrateFor(after.Codec); max > 0 && after.BitRate >= max {
+		return false
+	}
+	return true
+}
+
 // IntegrityIssues lists everything that changed which should not have.
 func IntegrityIssues(before, after *Measurement) []string {
 	var issues []string
@@ -376,7 +425,7 @@ func IntegrityIssues(before, after *Measurement) []string {
 	if b.Codec != a.Codec {
 		issues = append(issues, fmt.Sprintf("codec %s->%s", b.Codec, a.Codec))
 	}
-	if a.BitRate < b.BitRate {
+	if bitrateLost(b, a) {
 		issues = append(issues, fmt.Sprintf("bitrate %dk->%dk", b.BitRate, a.BitRate))
 	}
 	if b.SampleRate != a.SampleRate {

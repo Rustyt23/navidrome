@@ -95,10 +95,12 @@ func beginLoudnessAnalyze(ctx context.Context) (context.Context, bool) {
 	libraryLoudness.stopMu.Lock()
 	defer loudnessAnalyze.stopMu.Unlock()
 	defer libraryLoudness.stopMu.Unlock()
-	if loudnessAnalyze.running.Load() || libraryLoudness.running.Load() {
+	// The release function is discarded on purpose: finishLoudnessAnalyze clears
+	// the same flag, and it is the one path that also tears down the stop channel
+	// and the run context.
+	if _, busy := claimLoudnessFileWork(&loudnessAnalyze.running); busy != "" {
 		return nil, false
 	}
-	loudnessAnalyze.running.Store(true)
 	loudnessAnalyze.stopping.Store(false)
 	loudnessAnalyze.stop = make(chan struct{})
 	loudnessAnalyze.inFlight.Store(0)
@@ -169,10 +171,11 @@ func (n *Router) clearLoudnessAnalyzeResults() http.HandlerFunc {
 		libraryLoudness.stopMu.Lock()
 		defer loudnessAnalyze.stopMu.Unlock()
 		defer libraryLoudness.stopMu.Unlock()
-		if loudnessAnalyze.running.Load() || libraryLoudness.running.Load() {
+		// A restore counts too: it writes the very record this would delete.
+		if busy := loudnessFileWorkBusy(); busy != "" {
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"message": "Stop the active LUFS job before clearing analysis data",
+				"message": "Stop " + busy + " before clearing analysis data",
 			})
 			return
 		}
@@ -204,8 +207,16 @@ func (n *Router) startLoudnessAnalyze() http.HandlerFunc {
 		}
 		runCtx, ok := beginLoudnessAnalyze(r.Context())
 		if !ok {
+			// Named rather than "another job", so someone who started a restore
+			// is not left guessing what is holding the library. Read after the
+			// fact, so it may have finished in between - hence the fallback.
+			busy := loudnessFileWorkBusy()
+			if busy == "" {
+				busy = "another LUFS job"
+			}
 			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(currentLoudnessAnalyzeStatus("Another LUFS job is already running"))
+			_ = json.NewEncoder(w).Encode(currentLoudnessAnalyzeStatus(
+				busy + " is already running - wait for it to finish"))
 			return
 		}
 		loudnessAnalyze.startedAt.Store(time.Now().Unix())
@@ -232,17 +243,32 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 	tolerance := effectiveManualLoudnessTolerance(options.Tolerance)
 	originalOnly := payload.Mode == loudnessModeOriginal
 
-	tracks, err := n.collectAnalyzeTargets(ctx, payload)
-	if err != nil {
-		log.Error(ctx, "LUFS analysis: could not read media files", err)
-		return
+	// A hand-picked list is read up front: it is short, and reading it once is
+	// what reports which ids could not be read at all. The whole library is
+	// counted and then streamed - see eachLibraryAnalyzeTarget.
+	var selected []model.MediaFile
+	if payload.All {
+		total, err := n.countAnalyzeTargets(ctx, payload)
+		if err != nil {
+			log.Error(ctx, "LUFS analysis: could not read media files", err)
+			return
+		}
+		loudnessAnalyze.total.Store(total)
+	} else {
+		var err error
+		selected, err = n.collectAnalyzeTargets(ctx, payload)
+		if err != nil {
+			log.Error(ctx, "LUFS analysis: could not read media files", err)
+			return
+		}
+		loudnessAnalyze.total.Store(int64(len(selected)))
 	}
 	if loudnessAnalyze.stopping.Load() {
 		log.Info(ctx, "LUFS analysis stopped before track processing began")
 		return
 	}
-	loudnessAnalyze.total.Store(int64(len(tracks)))
-	log.Info(ctx, "LUFS analysis started", "tracks", len(tracks), "targetLUFS", options.TargetLUFS,
+	total := loudnessAnalyze.total.Load()
+	log.Info(ctx, "LUFS analysis started", "tracks", total, "targetLUFS", options.TargetLUFS,
 		"mode", cmp.Or(payload.Mode, "full"))
 	start := time.Now()
 
@@ -252,8 +278,8 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 	if workers <= 0 {
 		workers = runtime.NumCPU()
 	}
-	if workers > len(tracks) {
-		workers = max(len(tracks), 1)
+	if int64(workers) > total {
+		workers = max(int(total), 1)
 	}
 	wg.Add(workers)
 	for range workers {
@@ -265,7 +291,8 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 				loudnessAnalyze.inFlight.Add(1)
 				var audit *model.LoudnessAudit
 				if originalOnly {
-					audit = loudness.MeasureOriginal(ctx, normalizer, mf.ID, trackPath, target, tolerance)
+					audit = loudness.MeasureOriginal(ctx, normalizer, mf.ID, mf.LibraryPath, trackPath,
+						target, tolerance, options.BackupFolder)
 				} else {
 					audit = loudness.Audit(ctx, normalizer, mf.ID, mf.LibraryPath, trackPath, target, tolerance, options.BackupFolder)
 				}
@@ -285,18 +312,29 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 					loudnessAnalyze.failed.Add(1)
 				}
 				if done := loudnessAnalyze.processed.Add(1); done%100 == 0 {
-					log.Info(ctx, "LUFS analysis progress", "processed", done, "total", len(tracks), "elapsed", time.Since(start))
+					log.Info(ctx, "LUFS analysis progress", "processed", done, "total", total, "elapsed", time.Since(start))
 				}
 			}
 		}()
 	}
 	stop := loudnessAnalyzeStopSignal()
-dispatch:
-	for _, mf := range tracks {
+	dispatch := func(mf model.MediaFile) bool {
 		select {
 		case <-stop:
-			break dispatch
+			return false
 		case work <- mf:
+			return true
+		}
+	}
+	if payload.All {
+		if err := n.eachLibraryAnalyzeTarget(ctx, payload, dispatch); err != nil {
+			log.Error(ctx, "LUFS analysis: could not read media files", err)
+		}
+	} else {
+		for _, mf := range selected {
+			if !dispatch(mf) {
+				break
+			}
 		}
 	}
 	close(work)
@@ -305,6 +343,10 @@ dispatch:
 	log.Info(ctx, "LUFS analysis finished", "stopped", loudnessAnalyze.stopping.Load(),
 		"processed", loudnessAnalyze.processed.Load(),
 		"failed", loudnessAnalyze.failed.Load(), "elapsed", time.Since(start))
+
+	// Measurements of the untouched originals are the one snapshot that cannot
+	// be taken again once a song has been rewritten.
+	snapshotLoudnessAudit(context.WithoutCancel(ctx), n.ds, "analysis finished")
 }
 
 // alreadyMeasured lets the loudness-only pass resume: a track whose original
@@ -319,33 +361,65 @@ func alreadyMeasured(mf *model.MediaFile, payload loudnessAnalyzePayload) bool {
 	return audit != nil && audit.LufsBefore != nil
 }
 
+// usableAnalyzeTarget: a song with no file behind it cannot be measured.
+func usableAnalyzeTarget(mf *model.MediaFile) bool {
+	return !mf.Missing && strings.TrimSpace(mf.Path) != "" && strings.TrimSpace(mf.LibraryPath) != ""
+}
+
+// eachLibraryAnalyzeTarget walks every song a whole-library sweep will measure,
+// calling fn for each until fn returns false.
+//
+// Walked rather than collected. The sweep used to build a slice holding every
+// model.MediaFile in the library before measuring any of them - a wide struct,
+// tags and joined audit columns included - and then held it for the entire run,
+// which on a large library is hours. The optimisation run has always streamed
+// its cursor; this now does the same.
+//
+// The cost is reading the table twice, once to count and once to dispatch. That
+// is a few seconds against a run that decodes every file in the library, and it
+// buys an exact total for the progress bar rather than an estimate.
+func (n *Router) eachLibraryAnalyzeTarget(ctx context.Context, payload loudnessAnalyzePayload,
+	fn func(model.MediaFile) bool) error {
+	cursor, err := n.ds.MediaFile(ctx).GetCursor()
+	if err != nil {
+		return err
+	}
+	for mf, err := range cursor {
+		if err != nil {
+			return err
+		}
+		if loudnessAnalyze.stopping.Load() {
+			return nil
+		}
+		if !usableAnalyzeTarget(&mf) || alreadyMeasured(&mf, payload) {
+			continue
+		}
+		if !fn(mf) {
+			return nil
+		}
+	}
+	return nil
+}
+
+// countAnalyzeTargets counts what a whole-library sweep will measure, so the
+// progress bar has a denominator. Counting by walking rather than by SQL
+// because "already measured" depends on the joined audit row and "usable"
+// depends on the library path, and the two together are easier to keep honest
+// in one place than to reproduce as a query that must not drift from it.
+func (n *Router) countAnalyzeTargets(ctx context.Context, payload loudnessAnalyzePayload) (int64, error) {
+	var total int64
+	err := n.eachLibraryAnalyzeTarget(ctx, payload, func(model.MediaFile) bool {
+		total++
+		return true
+	})
+	return total, err
+}
+
+// collectAnalyzeTargets reads a hand-picked selection. Short by definition, and
+// read once so that ids which cannot be read at all are reported exactly once.
 func (n *Router) collectAnalyzeTargets(ctx context.Context, payload loudnessAnalyzePayload) ([]model.MediaFile, error) {
 	repo := n.ds.MediaFile(ctx)
 	var tracks []model.MediaFile
-
-	usable := func(mf *model.MediaFile) bool {
-		return !mf.Missing && strings.TrimSpace(mf.Path) != "" && strings.TrimSpace(mf.LibraryPath) != ""
-	}
-
-	if payload.All {
-		cursor, err := repo.GetCursor()
-		if err != nil {
-			return nil, err
-		}
-		for mf, err := range cursor {
-			if err != nil {
-				return nil, err
-			}
-			if loudnessAnalyze.stopping.Load() {
-				break
-			}
-			if usable(&mf) && !alreadyMeasured(&mf, payload) {
-				tracks = append(tracks, mf)
-			}
-		}
-		return tracks, nil
-	}
-
 	for _, id := range payload.IDs {
 		mf, err := repo.Get(id)
 		if err != nil {
@@ -353,7 +427,7 @@ func (n *Router) collectAnalyzeTargets(ctx context.Context, payload loudnessAnal
 			loudnessAnalyze.failed.Add(1)
 			continue
 		}
-		if usable(mf) && !alreadyMeasured(mf, payload) {
+		if usableAnalyzeTarget(mf) && !alreadyMeasured(mf, payload) {
 			tracks = append(tracks, *mf)
 		}
 	}

@@ -37,39 +37,16 @@ import { useSelector, useDispatch } from 'react-redux'
 import { makeStyles } from '@material-ui/core/styles'
 import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
 import { playTracks } from '../actions'
-import { setColumnsOrder, setOmittedFields, setToggleableFields } from '../actions/settings'
+import {
+  setColumnsOrder,
+  setOmittedFields,
+  setToggleableFields,
+} from '../actions/settings'
 import { SongListActions } from './SongListActions'
 import { AlbumLinkField } from './AlbumLinkField'
-import { SongBulkActions, QualityInfo } from '../common'
+import { SongBulkActions, QualityInfo, getLufsValue } from '../common'
 import config from '../config'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
-
-
-const getLufsValue = (song) => {
-  const tags = song?.tags || {}
-  const rawTags = song?.rawTags || {}
-
-  const direct =
-    tags.loudnorm_final_lufs?.[0] ??
-    tags.final_lufs?.[0] ??
-    tags.finallufs?.[0] ??
-    tags.lufs?.[0]
-  if (direct !== undefined && direct !== null && direct !== '') return direct
-
-  const merged = { ...tags, ...rawTags }
-  for (const [key, values] of Object.entries(merged)) {
-    const normalized = key.toLowerCase()
-    if (
-      normalized.includes('loudnorm_final_lufs') ||
-      normalized.includes('final_lufs') ||
-      normalized.includes('finallufs')
-    ) {
-      return Array.isArray(values) ? values[0] ?? '' : values ?? ''
-    }
-  }
-
-  return ''
-}
 
 const useStyles = makeStyles({
   contextHeader: {
@@ -237,7 +214,9 @@ const ReorderableSongList = (props) => {
           return accumulator
         }, {})
 
-        if (Object.prototype.hasOwnProperty.call(orderedSongs, resolvedSelectedId)) {
+        if (
+          Object.prototype.hasOwnProperty.call(orderedSongs, resolvedSelectedId)
+        ) {
           dispatch(playTracks(orderedSongs, undefined, resolvedSelectedId))
           return
         }
@@ -294,7 +273,9 @@ const ReorderableSongList = (props) => {
   const toggleableFields = useMemo(() => {
     return {
       title: <SongTitleField source="title" showTrackNumbers={false} />,
-      album: isDesktop ? <AlbumLinkField source="album" sortByOrder={'ASC'} /> : null,
+      album: isDesktop ? (
+        <AlbumLinkField source="album" sortByOrder={'ASC'} />
+      ) : null,
       artist: <ArtistLinkField source="artist" />,
       albumArtist: isDesktop ? <ArtistLinkField source="albumArtist" /> : null,
       trackNumber: isDesktop ? (
@@ -315,20 +296,21 @@ const ReorderableSongList = (props) => {
           sortByOrder={'DESC'}
         />
       ) : null,
-      quality: isDesktop ? <QualityInfo source="quality" sortable={false} /> : null,
+      quality: isDesktop ? (
+        <QualityInfo source="quality" sortable={false} />
+      ) : null,
       channels: isDesktop ? (
         <NumberField source="channels" sortByOrder={'ASC'} />
       ) : null,
       duration: <DurationField source="duration" />,
-      rating:
-        config.enableStarRating && (
-          <RatingField
-            source="rating"
-            sortByOrder={'DESC'}
-            resource={'song'}
-            className={classes.ratingField}
-          />
-        ),
+      rating: config.enableStarRating && (
+        <RatingField
+          source="rating"
+          sortByOrder={'DESC'}
+          resource={'song'}
+          className={classes.ratingField}
+        />
+      ),
       bpm: isDesktop ? <NumberField source="bpm" /> : null,
       loudnessFinalLUFS: (
         <FunctionField
@@ -348,11 +330,16 @@ const ReorderableSongList = (props) => {
       ) : null,
       comment: <TextField source="comment" sortBy="comment" />,
       path: <PathField source="path" />,
-      createdAt: <DateField source="createdAt" sortBy="recently_added" showTime />,
+      createdAt: (
+        <DateField source="createdAt" sortBy="recently_added" showTime />
+      ),
     }
   }, [getRowNumber, isDesktop, classes.ratingField])
 
-  const columnKeys = useMemo(() => Object.keys(toggleableFields), [toggleableFields])
+  const columnKeys = useMemo(
+    () => Object.keys(toggleableFields),
+    [toggleableFields],
+  )
 
   useEffect(() => {
     if (
@@ -411,7 +398,10 @@ const ReorderableSongList = (props) => {
         visible.push(column)
       }
     }
-    return { visibleColumns: Children.toArray(visible), computedOmitted: omitted }
+    return {
+      visibleColumns: Children.toArray(visible),
+      computedOmitted: omitted,
+    }
   }, [columnOrder, toggleableFields, toggleableColumnsState])
 
   useEffect(() => {

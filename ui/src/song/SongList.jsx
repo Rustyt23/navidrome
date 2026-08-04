@@ -32,36 +32,14 @@ import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
 import { playTracks } from '../actions'
 import { SongListActions } from './SongListActions'
 import { AlbumLinkField } from './AlbumLinkField'
-import { SongBulkActions, QualityInfo, useSelectedFields } from '../common'
+import {
+  SongBulkActions,
+  QualityInfo,
+  useSelectedFields,
+  getLufsValue,
+} from '../common'
 import config from '../config'
 import ExpandInfoDialog from '../dialogs/ExpandInfoDialog'
-
-
-const getLufsValue = (song) => {
-  const tags = song?.tags || {}
-  const rawTags = song?.rawTags || {}
-
-  const direct =
-    tags.loudnorm_final_lufs?.[0] ??
-    tags.final_lufs?.[0] ??
-    tags.finallufs?.[0] ??
-    tags.lufs?.[0]
-  if (direct !== undefined && direct !== null && direct !== '') return direct
-
-  const merged = { ...tags, ...rawTags }
-  for (const [key, values] of Object.entries(merged)) {
-    const normalized = key.toLowerCase()
-    if (
-      normalized.includes('loudnorm_final_lufs') ||
-      normalized.includes('final_lufs') ||
-      normalized.includes('finallufs')
-    ) {
-      return Array.isArray(values) ? values[0] ?? '' : values ?? ''
-    }
-  }
-
-  return ''
-}
 
 const useStyles = makeStyles({
   contextHeader: {
@@ -160,8 +138,7 @@ const SongList = (props) => {
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
   useResourceRefresh('song')
 
-  const songsState =
-    useSelector((state) => state.admin.resources.song) ?? {}
+  const songsState = useSelector((state) => state.admin.resources.song) ?? {}
   const songsData = songsState.data
   const listIds = songsState.list?.ids
 
@@ -170,8 +147,8 @@ const SongList = (props) => {
       const normalizedSongs = Array.isArray(songsData)
         ? songsData
         : songsData
-        ? Object.values(songsData)
-        : []
+          ? Object.values(songsData)
+          : []
 
       if (normalizedSongs.length === 0 || !Array.isArray(listIds)) {
         return

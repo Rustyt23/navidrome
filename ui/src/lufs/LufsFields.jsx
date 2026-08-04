@@ -339,25 +339,42 @@ export const IntegrityField = (props) => {
   if (!a || a.status !== 'processed') {
     return <span className={classes.same}>-</span>
   }
+  // Both sides have to come from the same probe. Reading the "after" side from
+  // media_file instead compares an ffprobe codec name against a file extension
+  // - so every processed .m4a read as "aac→m4a" and every .ogg as "vorbis→ogg"
+  // - and compares against whatever the last scan happened to record, which for
+  // a freshly rewritten or restored file is the wrong generation entirely. The
+  // audit's own after snapshot is used wherever it exists; media_file is only a
+  // fallback for records written before that snapshot was kept.
+  const hasAfterSnapshot = !!a.codecAfter
+  const pick = (afterVal, recordVal) =>
+    hasAfterSnapshot ? afterVal : recordVal
+
+  const codecAfter = pick(a.codecAfter, record.suffix)
+  const bitrateAfter = pick(a.bitrateAfter, record.bitRate)
+  const sampleRateAfter = pick(a.sampleRateAfter, record.sampleRate)
+  const bitDepthAfter = pick(a.bitDepthAfter, record.bitDepth)
+  const channelsAfter = pick(a.channelsAfter, record.channels)
+
   const issues = []
-  if (a.codecBefore && record.suffix && a.codecBefore !== record.suffix) {
-    issues.push(`${a.codecBefore}→${record.suffix}`)
+  if (a.codecBefore && codecAfter && a.codecBefore !== codecAfter) {
+    issues.push(`${a.codecBefore}→${codecAfter}`)
   }
-  if (a.bitrateBefore && record.bitRate < a.bitrateBefore) {
-    issues.push(`${a.bitrateBefore}k→${record.bitRate}k`)
-  }
-  if (a.sampleRateBefore && a.sampleRateBefore !== record.sampleRate) {
-    issues.push(`${a.sampleRateBefore / 1000}→${record.sampleRate / 1000}kHz`)
+  if (a.bitrateBefore && has(bitrateAfter) && bitrateAfter < a.bitrateBefore) {
+    issues.push(`${a.bitrateBefore}k→${bitrateAfter}k`)
   }
   if (
-    a.bitDepthBefore &&
-    record.bitDepth &&
-    a.bitDepthBefore !== record.bitDepth
+    a.sampleRateBefore &&
+    sampleRateAfter &&
+    a.sampleRateBefore !== sampleRateAfter
   ) {
-    issues.push(`${a.bitDepthBefore}→${record.bitDepth}bit`)
+    issues.push(`${a.sampleRateBefore / 1000}→${sampleRateAfter / 1000}kHz`)
   }
-  if (a.channelsBefore && a.channelsBefore !== record.channels) {
-    issues.push(`${a.channelsBefore}→${record.channels}ch`)
+  if (a.bitDepthBefore && bitDepthAfter && a.bitDepthBefore !== bitDepthAfter) {
+    issues.push(`${a.bitDepthBefore}→${bitDepthAfter}bit`)
+  }
+  if (a.channelsBefore && channelsAfter && a.channelsBefore !== channelsAfter) {
+    issues.push(`${a.channelsBefore}→${channelsAfter}ch`)
   }
   if (a.artBefore && !a.artAfter) {
     issues.push(translate('resources.lufs.artLostShort'))

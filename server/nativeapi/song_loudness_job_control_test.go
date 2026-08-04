@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/navidrome/navidrome/core/loudness"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
@@ -34,6 +35,8 @@ var _ = Describe("LUFS job controls", func() {
 		libraryLoudness.failed.Store(0)
 		libraryLoudness.inFlight.Store(0)
 		libraryLoudness.cancelled.Store(0)
+
+		restoreLoudnessRunning.Store(false)
 	}
 
 	BeforeEach(resetJobs)
@@ -186,6 +189,27 @@ var _ = Describe("LUFS job controls", func() {
 		Expect(response.Code).To(Equal(http.StatusConflict))
 	})
 
+	// The switch shows a run, not a preference, and a run turns it off when it
+	// ends. Saving "on" for a run that never started left it claiming one for
+	// ever, with nothing able to clear it.
+	It("does not leave 'Optimise all' on when the run could not start", func() {
+		ds := &tests.MockDataStore{}
+		loudness.ResetCache()
+		DeferCleanup(loudness.ResetCache)
+		release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+		Expect(busy).To(BeEmpty())
+		DeferCleanup(release)
+
+		handler := (&Router{ds: ds}).updateLoudnessSettings()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut,
+			"/song/loudness/settings", strings.NewReader(`{"enabled":true}`)))
+
+		Expect(response.Code).To(Equal(http.StatusConflict))
+		Expect(response.Body.String()).To(ContainSubstring("a restore"))
+		Expect(loudness.Enabled(GinkgoT().Context(), ds)).To(BeFalse())
+	})
+
 	It("rejects a settings request that sets nothing", func() {
 		handler := (&Router{ds: &tests.MockDataStore{}}).updateLoudnessSettings()
 		response := httptest.NewRecorder()
@@ -199,5 +223,65 @@ var _ = Describe("LUFS job controls", func() {
 		_, ok := beginLoudnessAnalyze(GinkgoT().Context())
 		Expect(ok).To(BeTrue())
 		Expect((&Router{}).beginLibraryLoudness(GinkgoT().Context(), 1, nil)).To(BeFalse())
+	})
+
+	// Analysis never writes to a library file, so it looks harmless next to a
+	// restore. It is not: it measures the file, then writes the record saying
+	// what that file is. Let a restore swap the file in between and whichever
+	// writes last wins, leaving the record describing audio that is no longer
+	// there - with nothing on screen to say so.
+	Describe("analysis and restore", func() {
+		It("does not start an analysis while a restore is running", func() {
+			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			Expect(busy).To(BeEmpty())
+			DeferCleanup(release)
+
+			_, ok := beginLoudnessAnalyze(GinkgoT().Context())
+			Expect(ok).To(BeFalse())
+		})
+
+		It("does not start a restore while an analysis is running", func() {
+			_, ok := beginLoudnessAnalyze(GinkgoT().Context())
+			Expect(ok).To(BeTrue())
+
+			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			Expect(release).To(BeNil())
+			Expect(busy).To(Equal("a LUFS analysis"))
+		})
+
+		It("tells the caller which job is holding the library", func() {
+			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			Expect(busy).To(BeEmpty())
+			DeferCleanup(release)
+
+			handler := (&Router{}).startLoudnessAnalyze()
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost,
+				"/song/loudness/analyze", strings.NewReader(`{"all":true}`)))
+
+			Expect(response.Code).To(Equal(http.StatusConflict))
+			Expect(response.Body.String()).To(ContainSubstring("a restore"))
+		})
+
+		// Clearing the audit rows while a restore is writing one deletes the
+		// record of work that just happened.
+		It("refuses to clear analysis data while a restore is running", func() {
+			ds := &tests.MockDataStore{}
+			repo := ds.LoudnessAudit(GinkgoT().Context())
+			Expect(repo.Put(&model.LoudnessAudit{MediaFileID: "song-1"})).To(Succeed())
+			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			Expect(busy).To(BeEmpty())
+			DeferCleanup(release)
+
+			handler := (&Router{ds: ds}).clearLoudnessAnalyzeResults()
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodDelete,
+				"/song/loudness/analyze/results", nil))
+
+			Expect(response.Code).To(Equal(http.StatusConflict))
+			audit, err := repo.Get("song-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(audit).ToNot(BeNil())
+		})
 	})
 })

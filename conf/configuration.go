@@ -212,6 +212,20 @@ type loudnessNormalizationOptions struct {
 	// rewritten. Keep it outside the music library. When empty, backups go to
 	// a folder next to the library root.
 	BackupFolder string
+
+	// AuditDbFolder is where copies of the loudness audit table are kept. Each
+	// is a SQLite database of its own, written when a job finishes.
+	//
+	// The audit lives in the main database, so it goes when the data directory
+	// goes - and with it the record of which songs were rewritten, what they
+	// measured before, and every decision the client made. Most of that can be
+	// rebuilt by re-analysing against the stored originals, but that means
+	// decoding the whole library again, and the decisions cannot be rebuilt at
+	// all. When empty, the copies go next to the stored originals, which are
+	// already outside the data directory.
+	AuditDbFolder string
+	// AuditDbKeep is how many copies to keep. 0 or less keeps every one.
+	AuditDbKeep int
 }
 
 type transcodingOptions struct {
@@ -958,6 +972,8 @@ func setViperDefaults() {
 	viper.SetDefault("scanner.loudnessnormalization.parallelism", runtime.NumCPU())
 	viper.SetDefault("scanner.loudnessnormalization.backup", true)
 	viper.SetDefault("scanner.loudnessnormalization.backupfolder", "")
+	viper.SetDefault("scanner.loudnessnormalization.auditdbfolder", "")
+	viper.SetDefault("scanner.loudnessnormalization.auditdbkeep", 10)
 	viper.SetDefault("scanner.artistjoiner", consts.ArtistJoiner)
 	viper.SetDefault("scanner.genreseparators", "")
 	viper.SetDefault("scanner.groupalbumreleases", false)

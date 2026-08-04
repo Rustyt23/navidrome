@@ -34,6 +34,9 @@ func (n *Router) addSongLoudnessRoute(r chi.Router) {
 	r.Delete("/song/loudness/analyze/results", n.clearLoudnessAnalyzeResults())
 	r.Post("/song/loudness/library/stop", n.stopLibraryLoudnessHandler())
 	r.Put("/song/loudness/decision", n.setLoudnessDecision())
+	r.Get("/song/loudness/db", n.loudnessAuditDbList())
+	r.Post("/song/loudness/db", n.loudnessAuditDbSnapshot())
+	r.Post("/song/loudness/db/restore", n.loudnessAuditDbRestore())
 }
 
 // loudnessSettingsResponse describes the current loudness normalization state
@@ -122,8 +125,26 @@ func (n *Router) updateLoudnessSettings() http.HandlerFunc {
 			// it off stops the run in progress. Optimizing a hand-picked
 			// selection is an explicit action and stays available either way.
 			if *payload.Enabled {
-				started := n.beginLibraryLoudness(ctx, loudness.PhaseGain, nil)
-				log.Info(ctx, "Optimise all LUFS turned on", "startedRun", started)
+				if !n.beginLibraryLoudness(ctx, loudness.PhaseGain, nil) {
+					// Nothing started, so nothing will turn the setting off
+					// again - the run's own ending is what does that. Saying
+					// "on" here would leave the switch claiming a run that does
+					// not exist, and stay that way for ever.
+					busy := loudnessFileWorkBusy()
+					if busy == "" {
+						busy = "another LUFS job"
+					}
+					if err := loudness.SetEnabled(ctx, n.ds, false); err != nil {
+						log.Error(ctx, "Could not undo 'Optimise all LUFS' after a refused start", err)
+					}
+					log.Warn(ctx, "Optimise all LUFS could not start", "busy", busy)
+					w.WriteHeader(http.StatusConflict)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"message": busy + " is already running - wait for it to finish",
+					})
+					return
+				}
+				log.Info(ctx, "Optimise all LUFS turned on, run started")
 			} else {
 				stopLibraryLoudness()
 				log.Info(ctx, "Optimise all LUFS turned off")

@@ -44,6 +44,22 @@ const _ = uint(PhaseReview - model.LoudnessPhaseReview)
 // it is a trade worth stopping for, not a formality.
 const audibleShaveDB = 3.0
 
+// minWorthwhileGainDB is the smallest level change worth rewriting a file for.
+//
+// Re-encoding moves the measured loudness by about this much on its own, so a
+// gain below it cannot be shown to have improved anything - it sits inside the
+// process's own noise. What it can be shown to cost is a codec generation.
+//
+// This is what stops a "gain to ceiling" track being rebuilt on every phase 2
+// run. Such a track is gained until its peak meets the ceiling, which leaves
+// TransparentGain at zero on the next pass - and it is still short of target
+// with its peaks still over, so it is still phase 2 and still carries its
+// decision. Nothing in the record can say the decision was already applied,
+// because the phase describes what remains to be done and the answer is
+// honestly "still short": that shortfall is what the client accepted when they
+// chose this option. So the exit condition has to be the gain itself.
+const minWorthwhileGainDB = 0.1
+
 // Decisions available for a PhaseReview track.
 const (
 	DecisionPending = ""             // client has not chosen yet
@@ -154,7 +170,7 @@ func SpecFor(plan Plan, decision string, source *ffmpeg.FileProbe, target, ceili
 	case PhaseGain:
 		// SafeGain equals GainToTarget whenever there is headroom for it, and
 		// stops at the ceiling when there is not.
-		return ffmpeg.ApplySpec{GainDB: plan.SafeGain, Source: source}, plan.SafeLoudness, true
+		return gainOnly(plan.SafeGain, source, plan.SafeLoudness)
 	case PhaseTrim:
 		// The same transform the client would be offered as "limit to target",
 		// applied without asking because the cut is too small to hear.
@@ -174,8 +190,22 @@ func SpecFor(plan Plan, decision string, source *ffmpeg.FileProbe, target, ceili
 				Source:        source,
 			}, target, true
 		case DecisionCeiling:
-			return ffmpeg.ApplySpec{GainDB: plan.TransparentGain, Source: source}, plan.LoudnessAtCeiling, true
+			return gainOnly(plan.TransparentGain, source, plan.LoudnessAtCeiling)
 		}
 	}
 	return ffmpeg.ApplySpec{}, 0, false
+}
+
+// gainOnly builds a level-only transform, unless the level is not actually
+// moving. A gain under minWorthwhileGainDB buys nothing measurable and costs a
+// rewrite, so there is nothing to do to the file.
+//
+// It guards only the transforms that are pure gain. A limiting pass with a
+// small gain still does real work - it is there to bring the peaks down, not
+// the level - so it is left alone.
+func gainOnly(gainDB float64, source *ffmpeg.FileProbe, expectedLUFS float64) (ffmpeg.ApplySpec, float64, bool) {
+	if math.Abs(gainDB) < minWorthwhileGainDB {
+		return ffmpeg.ApplySpec{}, 0, false
+	}
+	return ffmpeg.ApplySpec{GainDB: gainDB, Source: source}, expectedLUFS, true
 }

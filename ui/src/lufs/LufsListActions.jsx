@@ -16,6 +16,7 @@ import { useHistory } from 'react-router-dom'
 import JobProgress from './JobProgress'
 import { ClearLufsAnalysisButton, StopLufsJobButton } from './LufsJobButtons'
 import { BackupCleanupButton } from './BackupCleanupButton'
+import { RestoreAuditDbButton, SaveAuditDbButton } from './AuditDbButtons'
 import { ANALYZE_URL } from './useAnalyzeStatus'
 import { LIBRARY_URL } from './useLibraryStatus'
 
@@ -168,6 +169,12 @@ const LufsListActions = ({
       </div>
       <div className={`${classes.row} ${classes.utilityRow}`}>
         <ClearLufsAnalysisButton
+          disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
+        />
+        <SaveAuditDbButton />
+        {/* Restoring rewrites the same rows a running job is writing, so it is
+            held back while one is going - the server refuses it as well. */}
+        <RestoreAuditDbButton
           disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
         />
         <BackupCleanupButton />
