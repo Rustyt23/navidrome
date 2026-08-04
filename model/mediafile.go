@@ -436,6 +436,18 @@ func (mfs MediaFiles) ToM3U8(title string, absolutePaths bool) string {
 
 type MediaFileCursor iter.Seq2[MediaFile, error]
 
+// AudioFileProperties is what a song's row records about the audio itself, as
+// opposed to its tags. Replacing the file on disk - which is what a restore
+// does - changes all of it at once.
+type AudioFileProperties struct {
+	BitRate    int
+	SampleRate int
+	BitDepth   int
+	Channels   int
+	Duration   float32
+	Size       int64
+}
+
 type MediaFileRepository interface {
 	CountAll(options ...QueryOptions) (int64, error)
 	CountBySuffix(options ...QueryOptions) (map[string]int64, error)
@@ -453,6 +465,10 @@ type MediaFileRepository interface {
 	FindByPaths(paths []string) (MediaFiles, error)
 	UpdateComment(ids []string, comment string) error
 	UpdateLoudnessTags(id string, lufs float64) error
+	// UpdateAudioProperties brings a song's stored description back in step with
+	// the file on disk, for the one case that replaces a file outside the
+	// scanner: putting a stored original back.
+	UpdateAudioProperties(id string, props AudioFileProperties) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
 	UpdateCoverPath(id string, coverPath string) error
 	UpdateSpotifyMetadata(id string, confidence *float64, match *string, artist *string, spotifyURL *string) error

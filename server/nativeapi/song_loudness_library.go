@@ -389,6 +389,11 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 	if phase == loudness.PhaseReview {
 		return squirrel.And{
 			notMissing,
+			// Restoring clears the decision, so a restored song should not reach
+			// here at all. It is excluded anyway: clearing the decision is a
+			// separate write that only logs if it fails, and the cost of it
+			// having failed is re-applying a choice the client has just undone.
+			squirrel.Expr("media_file_loudness.restored_at is null"),
 			squirrel.Eq{"media_file_loudness.phase": loudness.PhaseReview},
 			squirrel.Eq{"media_file_loudness.decision": []string{
 				loudness.DecisionLimit, loudness.DecisionCeiling,
@@ -400,6 +405,12 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 	// value the column defaults to.
 	return squirrel.And{
 		notMissing,
+		// A song whose original was put back is left alone. Restoring is someone
+		// saying "I want this one as it was", and a sweep that normalized it
+		// again would undo that silently - every time. Re-analysing the song
+		// clears the mark, and picking it out by hand skips this filter entirely,
+		// so neither way of saying "do this one" is blocked.
+		squirrel.Expr("media_file_loudness.restored_at is null"),
 		squirrel.Expr("coalesce(media_file_loudness.phase, ?) <> ?",
 			loudness.PhaseUnplanned, loudness.PhaseReview),
 		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and media_file_loudness.lufs_before is not null)",

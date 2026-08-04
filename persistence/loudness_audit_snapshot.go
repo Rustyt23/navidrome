@@ -103,11 +103,24 @@ func (r *loudnessAuditRepository) Snapshot(dir string, keep int) (*model.Loudnes
 	if dir == "" {
 		return nil, fmt.Errorf("no folder configured for loudness snapshots")
 	}
+	ctx := r.ctx
+
+	// Nothing to protect, and a copy of nothing still counts against however
+	// many are kept - so a few of these would evict every copy that held
+	// something. Checked before the folder is created, so a server that has
+	// never analysed anything does not leave an empty folder behind either.
+	var rows int64
+	if err := r.conn.QueryRowContext(ctx,
+		fmt.Sprintf("SELECT count(*) FROM %s", r.tableName)).Scan(&rows); err != nil {
+		return nil, fmt.Errorf("reading the audit table: %w", err)
+	}
+	if rows == 0 {
+		return nil, model.ErrNoLoudnessAuditData
+	}
+
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating the snapshot folder: %w", err)
 	}
-
-	ctx := r.ctx
 	now := time.Now()
 
 	// Written to a temporary name and renamed at the end, so a crash part way

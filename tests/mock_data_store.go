@@ -339,6 +339,9 @@ func (m *MockLoudnessAuditRepo) Snapshot(dir string, keep int) (*model.LoudnessS
 	if m.SnapshotErr != nil {
 		return nil, m.SnapshotErr
 	}
+	if len(m.data) == 0 {
+		return nil, model.ErrNoLoudnessAuditData
+	}
 	if m.saved == nil {
 		m.saved = map[string]map[string]*model.LoudnessAudit{}
 	}

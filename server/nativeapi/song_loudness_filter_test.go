@@ -54,7 +54,8 @@ var _ = Describe("loudnessRunFilter", func() {
 				phase integer not null default -1,
 				lufs_before real,
 				decision text not null default '',
-				action text not null default ''
+				action text not null default '',
+				restored_at datetime
 			);
 
 			insert into media_file (id, missing) values
@@ -70,20 +71,24 @@ var _ = Describe("loudnessRunFilter", func() {
 				('missing-file', true),
 				('missing-review', true),
 				('refused', false),
+				('restored', false),
+				('restored-review', false),
 				('trim', false);
 
-			insert into media_file_loudness (media_file_id, phase, lufs_before, decision, action) values
-				('unplanned', -1, null, '', ''),
-				('done', 0, -12.6, '', 'skipped'),
-				('done-unmeasured', 0, null, '', ''),
-				('gain', 1, -15.2, '', ''),
-				('trim', 3, -13.5, '', ''),
-				('refused', 1, -13.0, '', 'refused'),
-				('review-pending', 2, -9.1, '', ''),
-				('review-limit', 2, -9.1, 'limit', ''),
-				('review-ceiling', 2, -9.1, 'gain_ceiling', ''),
-				('review-skip', 2, -9.1, 'skip', ''),
-				('missing-review', 2, -9.1, 'limit', '');
+			insert into media_file_loudness (media_file_id, phase, lufs_before, decision, action, restored_at) values
+				('unplanned', -1, null, '', '', null),
+				('done', 0, -12.6, '', 'skipped', null),
+				('done-unmeasured', 0, null, '', '', null),
+				('gain', 1, -15.2, '', '', null),
+				('trim', 3, -13.5, '', '', null),
+				('refused', 1, -13.0, '', 'refused', null),
+				('restored', 1, -15.2, '', '', '2026-08-04 09:00:00'),
+				('restored-review', 2, -9.1, 'limit', '', '2026-08-04 09:00:00'),
+				('review-pending', 2, -9.1, '', '', null),
+				('review-limit', 2, -9.1, 'limit', '', null),
+				('review-ceiling', 2, -9.1, 'gain_ceiling', '', null),
+				('review-skip', 2, -9.1, 'skip', '', null),
+				('missing-review', 2, -9.1, 'limit', '', null);
 		`)
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -156,6 +161,26 @@ var _ = Describe("loudnessRunFilter", func() {
 
 		It("still refuses to touch a file that is not on disk", func() {
 			Expect(selectedWith(loudness.PhaseGain, []string{"missing-file"})).To(BeEmpty())
+		})
+	})
+
+	// A restored song looks exactly like one that was never processed - same
+	// phase, same measurements - so a sweep would pick it up and normalize it
+	// again, undoing the restore without a word, after every restore.
+	Describe("a song whose original was put back", func() {
+		It("is left alone by a sweep", func() {
+			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("restored"))
+		})
+
+		It("is left alone by a phase 2 run even if a decision survived", func() {
+			Expect(selectedBy(loudness.PhaseReview)).ToNot(ContainElement("restored-review"))
+		})
+
+		// Picking it out by hand is someone saying "do this one", which outranks
+		// a standing preference to leave it be.
+		It("is still processed when picked out by hand", func() {
+			Expect(selectedWith(loudness.PhaseGain, []string{"restored"})).
+				To(Equal([]string{"restored"}))
 		})
 	})
 

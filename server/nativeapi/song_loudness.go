@@ -22,6 +22,8 @@ type songLoudnessPayload struct {
 func (n *Router) addSongLoudnessRoute(r chi.Router) {
 	r.Put("/song/loudness", n.optimizeSongLoudness())
 	r.Post("/song/loudness/restore", n.restoreSongLoudness())
+	r.Get("/song/loudness/restore", n.restoreLoudnessStatusHandler())
+	r.Post("/song/loudness/restore/stop", n.stopRestoreLoudnessHandler())
 	r.Get("/song/loudness/backups", n.loudnessBackupReport())
 	r.Post("/song/loudness/backups/cleanup", n.cleanupLoudnessBackups())
 	r.Post("/song/loudness/library", n.startLibraryLoudness())

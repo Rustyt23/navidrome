@@ -131,6 +131,40 @@ var _ = Describe("LoudnessAudit snapshots", func() {
 		Expect(report.Skipped).To(Equal(int64(1)))
 	})
 
+	// A copy of nothing still counts against however many are kept, so a few of
+	// them - after a cleared table, or a run that measured nothing - would
+	// quietly evict every copy that did hold something.
+	It("refuses to copy an empty audit table", func() {
+		_, err := repo.Clear()
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = repo.Snapshot(dir, 3)
+		Expect(err).To(MatchError(model.ErrNoLoudnessAuditData))
+
+		listed, err := repo.Snapshots(dir)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(listed).To(BeEmpty())
+	})
+
+	It("does not let empty copies push out the ones that hold something", func() {
+		decision("snap-1", "limit")
+		real1, err := repo.Snapshot(dir, 2)
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = repo.Clear()
+		Expect(err).ToNot(HaveOccurred())
+		for range 5 {
+			_, err = repo.Snapshot(dir, 2)
+			Expect(err).To(MatchError(model.ErrNoLoudnessAuditData))
+		}
+
+		listed, err := repo.Snapshots(dir)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(listed).To(HaveLen(1))
+		Expect(listed[0].File).To(Equal(real1.File))
+		Expect(listed[0].Rows).To(Equal(int64(1)))
+	})
+
 	It("keeps only the newest copies", func() {
 		decision("snap-1", "limit")
 		var files []string

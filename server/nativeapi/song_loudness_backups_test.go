@@ -63,7 +63,7 @@ var _ = Describe("orphaned backup detection", func() {
 
 var _ = Describe("loudness file-work guard", func() {
 	reset := func() {
-		restoreLoudnessRunning.Store(false)
+		restoreLoudness.running.Store(false)
 		libraryLoudness.running.Store(false)
 	}
 	BeforeEach(reset)
@@ -74,7 +74,7 @@ var _ = Describe("loudness file-work guard", func() {
 	// that lands before an optimisation reaches the same track is undone
 	// without a word.
 	It("lets one operation through at a time", func() {
-		release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+		release, busy := claimLoudnessFileWork(&restoreLoudness.running)
 		Expect(busy).To(BeEmpty())
 		Expect(release).ToNot(BeNil())
 
@@ -83,7 +83,7 @@ var _ = Describe("loudness file-work guard", func() {
 		libraryLoudness.running.Store(false)
 
 		release()
-		release2, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+		release2, busy := claimLoudnessFileWork(&restoreLoudness.running)
 		Expect(busy).To(BeEmpty())
 		release2()
 	})
@@ -91,7 +91,7 @@ var _ = Describe("loudness file-work guard", func() {
 	// A selection is the same run as a sweep now, so one message covers both.
 	It("holds back a restore while songs are being optimised", func() {
 		libraryLoudness.running.Store(true)
-		_, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+		_, busy := claimLoudnessFileWork(&restoreLoudness.running)
 		Expect(busy).To(Equal("a LUFS optimisation run"))
 	})
 
@@ -101,7 +101,7 @@ var _ = Describe("loudness file-work guard", func() {
 
 	It("releases cleanly so the next operation can proceed", func() {
 		for range 3 {
-			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			release, busy := claimLoudnessFileWork(&restoreLoudness.running)
 			Expect(busy).To(BeEmpty())
 			release()
 		}

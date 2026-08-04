@@ -393,11 +393,6 @@
       "toggleHelper": "Target %{target} LUFS ± %{tolerance} LU. Turn on to optimise every song in the library. It switches itself off when the run finishes.",
       "toggleRunning": "Optimising the library. Use Stop optimisation to end the run - songs already in progress are given a few seconds to finish.",
       "toggleStopping": "Stopping. Songs already in progress are finishing; the rest are left for the next run.",
-      "progress": {
-        "optimising": "Optimising all: %{processed} done, %{normalized} changed",
-        "stopping": "Stopping after current track…",
-        "analysing": "Analysing %{processed}/%{total}"
-      },
       "integrityOk": "unchanged",
       "artLost": "The embedded cover art was destroyed by processing",
       "artLostShort": "art lost",
@@ -465,7 +460,8 @@
         "findOrphanedBackups": "Orphaned backups",
         "openExceptions": "Exception LUFS",
         "saveAuditDb": "Backup LUFS data",
-        "restoreAuditDb": "Restore LUFS data"
+        "restoreAuditDb": "Restore LUFS data",
+        "stopRestore": "Stop restore"
       },
       "clear": {
         "title": "Clear LUFS analysis data?",
@@ -494,7 +490,7 @@
       "confirmOrphanCleanup": "%{count} of %{total} stored originals no longer match any song in the library (%{size}). They will be moved into a dated folder next to the backups, not deleted.\n\n%{list}",
       "restoreAuditDb": {
         "title": "Restore LUFS data?",
-        "content": "This replaces the LUFS audit records with the backup taken on %{when} (%{file}, %{rows} records).\n\nAny analysis done since then is discarded. Songs, audio backups, playlists, play counts and ratings are NOT affected."
+        "content": "This replaces the LUFS records with the backup taken on %{when} (%{file}, %{rows} records). Any analysis done since then is discarded. Songs, audio backups, playlists, play counts and ratings are not affected."
       }
     },
     "library": {

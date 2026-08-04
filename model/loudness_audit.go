@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // Loudness audit lifecycle states.
 const (
@@ -114,7 +117,31 @@ type LoudnessAudit struct {
 
 	Error      string    `structs:"error" json:"error,omitempty"`
 	AnalyzedAt time.Time `structs:"analyzed_at" json:"analyzedAt"`
+
+	// RestoredAt is when the client's original was last put back.
+	//
+	// A restored song is left alone by library sweeps. Restoring is someone
+	// saying "I want the original"; a sweep that normalized it again an hour
+	// later would undo that silently, and would keep doing so after every
+	// restore. Nothing else in the record can tell a restored song from one that
+	// was never touched - they measure the same and plan the same - so the fact
+	// that a person asked has to be written down.
+	//
+	// Not a latch: a fresh analysis clears it, and picking the song out by hand
+	// overrides it. Both are explicit instructions that outrank it.
+	RestoredAt *time.Time `structs:"restored_at" json:"restoredAt,omitempty"`
 }
+
+// IsRestored reports whether the client asked for this song's original back and
+// has not since asked for it to be looked at again.
+func (a *LoudnessAudit) IsRestored() bool { return a.RestoredAt != nil }
+
+// ErrNoLoudnessAuditData is returned instead of writing a copy of an empty
+// audit table. There is nothing to protect, and storing one would count against
+// however many copies are kept - so a handful of them, taken after a cleared
+// table or a run that measured nothing, would quietly evict every copy that did
+// hold something.
+var ErrNoLoudnessAuditData = errors.New("there is no LUFS audit data to copy yet")
 
 // LoudnessSnapshot describes one stored copy of the loudness audit table.
 //

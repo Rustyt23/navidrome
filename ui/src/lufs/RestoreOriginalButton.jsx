@@ -11,6 +11,7 @@ import {
   useUnselectAll,
 } from 'react-admin'
 import RestoreIcon from '@material-ui/icons/Restore'
+import { useRestoreStatus } from './useRestoreStatus'
 
 // RestoreOriginalButton puts the client's untouched originals back.
 //
@@ -28,6 +29,11 @@ export const RestoreOriginalButton = ({ resource, selectedIds, disabled }) => {
   const unselectAll = useUnselectAll()
   const dataProvider = useDataProvider()
   const { permissions } = usePermissions()
+  // The server hands the work to a background job and answers immediately, so
+  // the outcome arrives by following that job rather than by waiting on the
+  // request. A big selection used to hold the request open for minutes with
+  // nothing to show, which reads as a hung page.
+  const { status, follow } = useRestoreStatus()
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -40,27 +46,33 @@ export const RestoreOriginalButton = ({ resource, selectedIds, disabled }) => {
     }
     setSaving(true)
     try {
-      const response = await dataProvider.restoreSongLoudness(selectedIds)
-      const restored = response?.data?.restored?.length || 0
-      const skipped = response?.data?.skipped?.length || 0
-      const failed = response?.data?.failed?.length || 0
-
-      notify('resources.song.notifications.lufsRestored', {
-        type: failed > 0 ? 'warning' : 'info',
-        messageArgs: { restored, skipped, failed },
-      })
-
+      await dataProvider.restoreSongLoudness(selectedIds)
+      // The selection is cleared as soon as the job owns the work: leaving it
+      // highlighted invites a second press, which would only be refused.
       unselectAll(resource)
-      refresh({ hard: true })
-    } catch (error) {
-      notify(error?.message || 'ra.notification.http_error', {
-        type: 'warning',
+
+      follow((final) => {
+        notify('resources.song.notifications.lufsRestored', {
+          type: final?.failed ? 'warning' : 'info',
+          messageArgs: {
+            restored: final?.restored || 0,
+            skipped: final?.skipped || 0,
+            failed: final?.failed || 0,
+          },
+        })
+        refresh({ hard: true })
       })
+    } catch (error) {
+      notify(
+        error?.body?.message || error?.message || 'ra.notification.http_error',
+        { type: 'warning' },
+      )
     } finally {
       setSaving(false)
     }
   }, [
     dataProvider,
+    follow,
     notify,
     refresh,
     resource,
@@ -79,7 +91,7 @@ export const RestoreOriginalButton = ({ resource, selectedIds, disabled }) => {
       <RaButton
         onClick={() => setConfirming(true)}
         label={translate('resources.lufs.actions.restore')}
-        disabled={!selectedCount || saving || disabled}
+        disabled={!selectedCount || saving || !!status?.running || disabled}
       >
         <RestoreIcon />
       </RaButton>

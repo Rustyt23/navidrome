@@ -29,10 +29,7 @@ import (
 // Optimising a selection used to be a separate operation with its own flag. It
 // is now the same background run as a sweep, differing only in which tracks it
 // covers, so libraryLoudness speaks for both.
-var (
-	loudnessFileWorkMu     sync.Mutex
-	restoreLoudnessRunning atomic.Bool
-)
+var loudnessFileWorkMu sync.Mutex
 
 // loudnessFileWorkInProgress names the operation currently working on library
 // songs, or "" when none is. Callers must hold loudnessFileWorkMu.
@@ -42,7 +39,7 @@ func loudnessFileWorkInProgress() string {
 		return "a LUFS optimisation run"
 	case loudnessAnalyze.running.Load():
 		return "a LUFS analysis"
-	case restoreLoudnessRunning.Load():
+	case restoreLoudness.running.Load():
 		return "a restore"
 	}
 	return ""

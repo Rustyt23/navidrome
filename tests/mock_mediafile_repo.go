@@ -165,6 +165,22 @@ func (m *MockMediaFileRepo) UpdateLoudnessTags(id string, lufs float64) error {
 	return nil
 }
 
+func (m *MockMediaFileRepo) UpdateAudioProperties(id string, props model.AudioFileProperties) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		mf.BitRate = props.BitRate
+		mf.SampleRate = props.SampleRate
+		mf.BitDepth = props.BitDepth
+		mf.Channels = props.Channels
+		mf.Duration = props.Duration
+		mf.Size = props.Size
+		m.Data[id] = mf
+	}
+	return nil
+}
+
 func (m *MockMediaFileRepo) UpdateCoverPath(id string, coverPath string) error {
 	if m.Err {
 		return errors.New("error")

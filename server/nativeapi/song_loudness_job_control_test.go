@@ -36,7 +36,14 @@ var _ = Describe("LUFS job controls", func() {
 		libraryLoudness.inFlight.Store(0)
 		libraryLoudness.cancelled.Store(0)
 
-		restoreLoudnessRunning.Store(false)
+		finishRestoreLoudness()
+		restoreLoudness.startedAt.Store(0)
+		restoreLoudness.total.Store(0)
+		restoreLoudness.processed.Store(0)
+		restoreLoudness.restored.Store(0)
+		restoreLoudness.skipped.Store(0)
+		restoreLoudness.failed.Store(0)
+		restoreLoudness.cancelled.Store(0)
 	}
 
 	BeforeEach(resetJobs)
@@ -77,6 +84,20 @@ var _ = Describe("LUFS job controls", func() {
 
 			stopLoudnessAnalyze()
 
+			Eventually(ctx.Done()).Should(BeClosed())
+		})
+
+		// A restore is a whole-file copy that either happened or did not, so a
+		// stop can only leave a song still normalized - never half-replaced.
+		It("does the same for a restore", func() {
+			ctx, ok := beginRestoreLoudness(context.Background(), 3)
+			Expect(ok).To(BeTrue())
+			stopSignal := restoreLoudnessStopSignal()
+
+			stopRestoreLoudness()
+
+			Expect(stopSignal).To(BeClosed())
+			Expect(currentRestoreLoudnessStatus("").Stopping).To(BeTrue())
 			Eventually(ctx.Done()).Should(BeClosed())
 		})
 
@@ -196,7 +217,7 @@ var _ = Describe("LUFS job controls", func() {
 		ds := &tests.MockDataStore{}
 		loudness.ResetCache()
 		DeferCleanup(loudness.ResetCache)
-		release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+		release, busy := claimLoudnessFileWork(&restoreLoudness.running)
 		Expect(busy).To(BeEmpty())
 		DeferCleanup(release)
 
@@ -232,7 +253,7 @@ var _ = Describe("LUFS job controls", func() {
 	// there - with nothing on screen to say so.
 	Describe("analysis and restore", func() {
 		It("does not start an analysis while a restore is running", func() {
-			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			release, busy := claimLoudnessFileWork(&restoreLoudness.running)
 			Expect(busy).To(BeEmpty())
 			DeferCleanup(release)
 
@@ -244,13 +265,30 @@ var _ = Describe("LUFS job controls", func() {
 			_, ok := beginLoudnessAnalyze(GinkgoT().Context())
 			Expect(ok).To(BeTrue())
 
-			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			release, busy := claimLoudnessFileWork(&restoreLoudness.running)
 			Expect(release).To(BeNil())
 			Expect(busy).To(Equal("a LUFS analysis"))
 		})
 
+		// The request used to do the work itself, so a big selection left the
+		// browser waiting with nothing to show and no way to call it off.
+		It("hands the restore to a background job and answers straight away", func() {
+			handler := (&Router{ds: &tests.MockDataStore{}}).restoreSongLoudness()
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost,
+				"/song/loudness/restore", strings.NewReader(`{"ids":["song-1","song-2"]}`)))
+
+			Expect(response.Code).To(Equal(http.StatusAccepted))
+			var status restoreLoudnessStatus
+			Expect(json.Unmarshal(response.Body.Bytes(), &status)).To(Succeed())
+			Expect(status.Total).To(Equal(int64(2)))
+
+			// The job owns the library until it ends, however long that takes.
+			Eventually(func() bool { return restoreLoudness.running.Load() }).Should(BeFalse())
+		})
+
 		It("tells the caller which job is holding the library", func() {
-			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			release, busy := claimLoudnessFileWork(&restoreLoudness.running)
 			Expect(busy).To(BeEmpty())
 			DeferCleanup(release)
 
@@ -269,7 +307,7 @@ var _ = Describe("LUFS job controls", func() {
 			ds := &tests.MockDataStore{}
 			repo := ds.LoudnessAudit(GinkgoT().Context())
 			Expect(repo.Put(&model.LoudnessAudit{MediaFileID: "song-1"})).To(Succeed())
-			release, busy := claimLoudnessFileWork(&restoreLoudnessRunning)
+			release, busy := claimLoudnessFileWork(&restoreLoudness.running)
 			Expect(busy).To(BeEmpty())
 			DeferCleanup(release)
 

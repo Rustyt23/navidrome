@@ -17,6 +17,10 @@ type RestoreResult struct {
 	LUFS float64
 	// Audit is the record rewritten to describe the file as it now stands.
 	Audit *model.LoudnessAudit
+	// Probe describes the file now on disk, so the song's own row can be brought
+	// back in step with it. Without this the library keeps reporting the size and
+	// bitrate of the normalized file until the next scan happens to notice.
+	Probe *ffmpeg.FileProbe
 }
 
 // Restore puts the client's original back and rewrites the audit record to
@@ -44,13 +48,17 @@ func Restore(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFil
 	if backup == "" {
 		return RestoreResult{}, fmt.Errorf("no stored original for %s", trackPath)
 	}
-	if err := verifyStoredOriginal(ctx, backup, previous); err != nil {
+	stored, err := verifyStoredOriginal(ctx, backup, previous)
+	if err != nil {
 		return RestoreResult{}, err
 	}
 
 	if err := ffmpeg.RestoreOriginal(trackPath, libraryPath, backupFolder, mediaFileID); err != nil {
 		return RestoreResult{}, err
 	}
+	// The file on disk is now a byte-for-byte copy of the one just probed, so
+	// that probe describes it exactly - no need to read it again.
+	restoredAt := time.Now()
 
 	// The stored snapshot may be carried over only when it is a measurement of
 	// the stored original - which is what HasBackup records. A snapshot taken
@@ -59,7 +67,8 @@ func Restore(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFil
 	// before the restore rather than the one it has now.
 	if previous != nil && previous.LufsBefore != nil && previous.HasBackup {
 		audit := revertedAudit(previous, target, tolerance)
-		return RestoreResult{LUFS: *audit.LufsBefore, Audit: audit}, nil
+		audit.RestoredAt = &restoredAt
+		return RestoreResult{LUFS: *audit.LufsBefore, Audit: audit, Probe: stored}, nil
 	}
 
 	// Nothing trustworthy to rebuild the record from, so measure what is now on
@@ -72,7 +81,8 @@ func Restore(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFil
 	audit := analyzedAudit(mediaFileID, measured, target, tolerance)
 	// The original is still stored, so the track can be restored again.
 	audit.HasBackup = true
-	return RestoreResult{LUFS: *audit.LufsBefore, Audit: audit}, nil
+	audit.RestoredAt = &restoredAt
+	return RestoreResult{LUFS: *audit.LufsBefore, Audit: audit, Probe: measured.Probe}, nil
 }
 
 // verifyStoredOriginal refuses a backup that cannot be read as audio, or that
@@ -84,31 +94,39 @@ func Restore(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFil
 // would replace the client's song with someone else's recording. The stored
 // snapshot says exactly what the original was; anything that disagrees is not
 // it.
-func verifyStoredOriginal(ctx context.Context, backupPath string, previous *model.LoudnessAudit) error {
+// It returns the probe so the caller does not have to read the file twice: what
+// is restored is a byte-for-byte copy of what was checked here.
+func verifyStoredOriginal(ctx context.Context, backupPath string, previous *model.LoudnessAudit) (*ffmpeg.FileProbe, error) {
 	probe, err := ffmpeg.ProbeFile(ctx, backupPath)
 	if err != nil {
-		return fmt.Errorf("the stored original could not be read as audio, so nothing was changed: %w", err)
+		return nil, fmt.Errorf("the stored original could not be read as audio, so nothing was changed: %w", err)
 	}
 	if previous == nil {
 		// No record to check against. The file is readable audio, which is as
 		// much as can be established.
-		return nil
+		return probe, nil
 	}
 	mismatch := func(what string, want, got any) error {
 		return fmt.Errorf("the stored original does not match this song (%s %v, expected %v), so nothing was changed",
 			what, got, want)
 	}
+	// Only a snapshot taken from the stored original describes the file being
+	// checked. One taken while the song was normalized describes the rewrite, so
+	// comparing against it would refuse a perfectly good restore.
+	if !previous.HasBackup {
+		return probe, nil
+	}
 	if previous.SizeBefore > 0 && probe.Size > 0 && previous.SizeBefore != probe.Size {
-		return mismatch("size", previous.SizeBefore, probe.Size)
+		return nil, mismatch("size", previous.SizeBefore, probe.Size)
 	}
 	if previous.DurationBefore > 0 && probe.Duration > 0 &&
 		math.Abs(previous.DurationBefore-probe.Duration) > durationMatchToleranceSec {
-		return mismatch("duration", previous.DurationBefore, probe.Duration)
+		return nil, mismatch("duration", previous.DurationBefore, probe.Duration)
 	}
 	if previous.CodecBefore != "" && probe.Codec != "" && previous.CodecBefore != probe.Codec {
-		return mismatch("format", previous.CodecBefore, probe.Codec)
+		return nil, mismatch("format", previous.CodecBefore, probe.Codec)
 	}
-	return nil
+	return probe, nil
 }
 
 // durationMatchToleranceSec: the same file probed twice reports the same length,

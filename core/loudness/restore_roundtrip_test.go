@@ -116,6 +116,21 @@ func TestOptimiseThenRestoreReturnsTheExactOriginalFile(t *testing.T) {
 		t.Error("the stored original was consumed by the restore")
 	}
 
+	// Marked as restored, so the next library sweep leaves it alone instead of
+	// normalising it straight back.
+	if !restored.Audit.IsRestored() {
+		t.Error("a restored song must be marked so a sweep does not undo it")
+	}
+
+	// The probe describes the file now on disk, so the song's own row can be
+	// brought back in step without waiting for a scan.
+	if restored.Probe == nil {
+		t.Fatal("no description of the restored file was returned")
+	}
+	if restored.Probe.Size != originalSize {
+		t.Errorf("described size %d, want the original %d", restored.Probe.Size, originalSize)
+	}
+
 	// The record has to describe the file that is now on disk, not the one that
 	// was replaced - otherwise every page reports the track as still processed.
 	if restored.Audit.Status != model.LoudnessStatusProcessed &&

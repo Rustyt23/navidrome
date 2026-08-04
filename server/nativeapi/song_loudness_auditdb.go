@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -67,7 +68,12 @@ func snapshotLoudnessAudit(ctx context.Context, ds model.DataStore, reason strin
 	}
 	keep := conf.Server.Scanner.LoudnessNormalization.AuditDbKeep
 	snapshot, err := ds.LoudnessAudit(ctx).Snapshot(dir, keep)
-	if err != nil {
+	switch {
+	case errors.Is(err, model.ErrNoLoudnessAuditData):
+		// Not a failure: a run that measured nothing has nothing to copy.
+		log.Debug(ctx, "No LUFS audit data to copy", "reason", reason)
+		return
+	case err != nil:
 		log.Error(ctx, "Could not copy the LUFS audit data", "reason", reason, "folder", dir, err)
 		return
 	}
@@ -112,6 +118,13 @@ func (n *Router) loudnessAuditDbSnapshot() http.HandlerFunc {
 		}
 		keep := conf.Server.Scanner.LoudnessNormalization.AuditDbKeep
 		snapshot, err := n.ds.LoudnessAudit(ctx).Snapshot(dir, keep)
+		if errors.Is(err, model.ErrNoLoudnessAuditData) {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"message": "There is no LUFS data to back up yet - analyse some songs first",
+			})
+			return
+		}
 		if err != nil {
 			log.Error(ctx, "Could not copy the LUFS audit data", "folder", dir, err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)

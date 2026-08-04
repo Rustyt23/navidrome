@@ -71,6 +71,7 @@ type dbMediaFile struct {
 	LoudnessHasBackup        bool       `structs:"-" json:"-"`
 	LoudnessError            string     `structs:"-" json:"-"`
 	LoudnessAnalyzedAt       *time.Time `structs:"-" json:"-"`
+	LoudnessRestoredAt       *time.Time `structs:"-" json:"-"`
 }
 
 // loudnessAuditColumns are the media_file_loudness columns joined into media
@@ -115,6 +116,7 @@ var loudnessAuditColumns = map[string]string{
 	"lra_after":     "",
 	"null_residual": "",
 	"analyzed_at":   "",
+	"restored_at":   "",
 }
 
 func loudnessAuditSelectColumns() []string {
@@ -170,6 +172,7 @@ func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
 		SizeAfter:        m.LoudnessSizeAfter,
 		HasBackup:        m.LoudnessHasBackup,
 		Error:            m.LoudnessError,
+		RestoredAt:       m.LoudnessRestoredAt,
 	}
 	if m.LoudnessAnalyzedAt != nil {
 		audit.AnalyzedAt = *m.LoudnessAnalyzedAt
@@ -658,6 +661,34 @@ func (r *mediaFileRepository) UpdateLoudnessTags(id string, lufs float64) error 
 		Set("updated_at", time.Now()).
 		Where(Eq{"id": id})
 	_, err = r.executeSQL(upd)
+	return err
+}
+
+// UpdateAudioProperties brings a song's stored description back in step with the
+// file on disk.
+//
+// Only the restore path needs this. Everywhere else the scanner owns these
+// columns, and it notices a changed file by its timestamp - but a restore
+// replaces the audio without anything asking the scanner to look again, so the
+// row goes on describing a file that is no longer there until some later scan
+// happens to catch it.
+//
+// updated_at is deliberately not touched: it is the scanner's own record of when
+// it last read the file, and moving it forward here would tell the next scan the
+// row is newer than the file it describes.
+func (r *mediaFileRepository) UpdateAudioProperties(id string, props model.AudioFileProperties) error {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	upd := Update(r.tableName).
+		Set("bit_rate", props.BitRate).
+		Set("sample_rate", props.SampleRate).
+		Set("bit_depth", props.BitDepth).
+		Set("channels", props.Channels).
+		Set("duration", props.Duration).
+		Set("size", props.Size).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(upd)
 	return err
 }
 

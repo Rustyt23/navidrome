@@ -36,7 +36,6 @@ const when = (value) => {
 // on demand - before a risky change, or to check the copies are being written
 // where the client expects them.
 export const SaveAuditDbButton = ({ disabled }) => {
-  const translate = useTranslate()
   const notify = useNotify()
   const { permissions } = usePermissions()
   const [saving, setSaving] = useState(false)
