@@ -55,6 +55,14 @@ import {
 const SETTINGS_URL = '/api/song/loudness/settings'
 const RUN_URL = '/api/song/loudness/library?phase=2'
 
+// Where the column layout is remembered. Versioned, because saved visibility
+// wins over defaultOff for any column the browser already knows about - that is
+// deliberate, so adding a column never wipes someone's layout, but it also
+// means a change to the default layout reaches nobody who has opened the page
+// before. Bumping this retires the old layout once. Bump it again only for
+// another deliberate change to the defaults, never for adding a column.
+const COLUMNS_KEY = 'lufs2.v2'
+
 const Lufs2Filter = (props) => (
   <Filter {...props} variant={'outlined'}>
     <SearchInput source="title" alwaysOn />
@@ -161,7 +169,7 @@ const Lufs2Actions = ({
         onStarted={onStarted}
       />
       <ExportButton maxResults={total} />
-      <ToggleFieldsMenu resource="lufs2" />
+      <ToggleFieldsMenu resource={COLUMNS_KEY} />
     </TopToolbar>
   )
 }
@@ -319,9 +327,23 @@ const Lufs2List = (props) => {
   )
 
   const columns = useSelectedFields({
-    resource: 'lufs2',
+    resource: COLUMNS_KEY,
     columns: toggleableFields,
+    // Six columns on by default: what the song is, where it sits now, why it
+    // is here, what we propose, and the decision. Everything else is working.
+    //
+    // Headroom, the two options and the best volume-only result are four
+    // columns of the same arithmetic - they answer "how far over is the peak"
+    // four times over. On a page of eight rows that reads as a spreadsheet
+    // demanding to be reconciled rather than as eight questions, and every one
+    // of those numbers is now in the Suggested column or its tooltip. They stay
+    // one click away in the column picker for anyone checking the working.
     defaultOff: [
+      'bitRate',
+      'headroom',
+      'optionCeiling',
+      'optionLimit',
+      'best',
       'originalLufs',
       'truePeak',
       'lra',

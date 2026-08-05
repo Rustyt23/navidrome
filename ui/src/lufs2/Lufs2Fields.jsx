@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { useCallback, useState } from 'react'
 import { useRecordContext, useTranslate } from 'react-admin'
-import { Chip, Tooltip } from '@material-ui/core'
+import { Chip, Collapse, Link, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import {
   DECISION_CEILING,
@@ -8,8 +8,11 @@ import {
   DECISION_SKIP,
   fmtDb,
   fmtLufs,
+  fmtMag,
+  optionsFor,
   recommendationFor,
 } from './recommendation'
+import { explainRefusal } from './reason'
 
 const useStyles = makeStyles((theme) => ({
   muted: { color: theme.palette.text.secondary },
@@ -23,6 +26,27 @@ const useStyles = makeStyles((theme) => ({
   ceiling: { backgroundColor: '#2e7d32', color: '#fff' },
   skip: { backgroundColor: '#546e7a', color: '#fff' },
   sub: { fontSize: '0.72rem', display: 'block' },
+  // The reason wraps now. It used to be nowrap because it was an error string
+  // nobody could act on anyway; a sentence written to be read has to be
+  // allowed to be read.
+  wrap: { display: 'block', whiteSpace: 'normal', maxWidth: 320 },
+  cell: { display: 'block', maxWidth: 340 },
+  more: {
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    display: 'inline-block',
+    marginTop: 2,
+  },
+  detail: {
+    fontSize: '0.72rem',
+    lineHeight: 1.5,
+    marginTop: theme.spacing(0.75),
+    paddingLeft: theme.spacing(1),
+    borderLeft: `2px solid ${theme.palette.divider}`,
+    whiteSpace: 'normal',
+  },
+  detailRow: { marginBottom: 3 },
+  detailKey: { fontWeight: 700 },
 }))
 
 // Why this track cannot simply be turned up.
@@ -108,27 +132,115 @@ export const OptionCeilingField = (props) => {
   )
 }
 
+// Where the suggested option actually leaves the song.
+//
+// This used to be spread over four columns - the headroom shortfall and the
+// two options and the best volume-only result - which between them restated
+// the same arithmetic four ways and made a page of eight rows look like an
+// audit. Everything anyone acts on is the landing loudness and what it costs,
+// so that is what the row says; the four columns still exist behind the column
+// picker for whoever wants to check the working.
+const landing = (rec) => {
+  switch (rec.suggested) {
+    case DECISION_LIMIT:
+      return rec.peakOverBy > 0.005
+        ? `${fmtLufs(rec.target)} LUFS · ${fmtMag(rec.peakOverBy)} dB off the peaks`
+        : `${fmtLufs(rec.target)} LUFS · volume only, peaks untouched`
+    case DECISION_CEILING:
+      return `${fmtLufs(rec.loudnessAtCeiling)} LUFS · ${fmtMag(rec.shortfall)} dB short, audio untouched`
+    default:
+      return `${fmtLufs(rec.lufs)} LUFS · left as it is`
+  }
+}
+
+const DECISION_KEY = {
+  [DECISION_LIMIT]: 'resources.lufs2.decision.limit',
+  [DECISION_CEILING]: 'resources.lufs2.decision.gain_ceiling',
+  [DECISION_SKIP]: 'resources.lufs2.decision.skip',
+}
+
+// SuggestionField: the recommendation, and on request the case for it.
+//
+// A suggestion with no reasoning has to be taken on trust, and a page of them
+// is approved or not approved as a block - which is the wrong unit, because
+// these rows differ from each other. But the reasoning is three or four
+// sentences and eight rows of it is a wall nobody reads either. So it is folded
+// away: the row stays one line, and the argument is one click from anyone who
+// wants to see it.
+//
+// The alternatives are in there too. What a recommendation is worth depends
+// entirely on what it was chosen over, and "hits the target" means nothing
+// until you can see that the other option stops 0.66 dB short.
 export const SuggestionField = (props) => {
   const classes = useStyles()
   const translate = useTranslate()
   const record = useRecordContext(props)
+  const [open, setOpen] = useState(false)
+  // The row underneath navigates on click, so the toggle has to keep its own
+  // click to itself.
+  const toggle = useCallback((e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    setOpen((wasOpen) => !wasOpen)
+  }, [])
+
   const rec = recommendationFor(record, props.settings)
   if (!rec) return <span className={classes.muted}>-</span>
-  const key =
-    rec.suggested === DECISION_CEILING
-      ? 'resources.lufs2.decision.gain_ceiling'
-      : 'resources.lufs2.decision.limit'
-  // A suggestion without its reason has to be taken on trust, and these are
-  // reviewed a row at a time.
+
+  const options = optionsFor(rec)
+  const chosen = options[rec.suggested]
+  const others = [DECISION_LIMIT, DECISION_CEILING, DECISION_SKIP].filter(
+    (d) => d !== rec.suggested,
+  )
+  const name = (d) => translate(DECISION_KEY[d], { _: d })
+
   return (
-    <Tooltip title={rec.suggestedBecause}>
+    <span className={classes.cell}>
       <span className={classes.nowrap}>
-        {translate(key, { _: rec.suggested })}
-        <span className={`${classes.sub} ${classes.muted}`}>
-          {rec.suggestedBecause}
-        </span>
+        {translate(
+          DECISION_KEY[rec.suggested] || DECISION_KEY[DECISION_LIMIT],
+          {
+            _: rec.suggested,
+          },
+        )}
       </span>
-    </Tooltip>
+      <span className={`${classes.sub} ${classes.muted}`}>{landing(rec)}</span>
+      <Link
+        component="button"
+        type="button"
+        onClick={toggle}
+        className={classes.more}
+        aria-expanded={open}
+      >
+        {open ? 'Hide explanation' : 'Why this?'}
+      </Link>
+      <Collapse in={open} timeout="auto" unmountOnExit>
+        <div className={classes.detail}>
+          <div className={classes.detailRow}>
+            <span className={classes.detailKey}>Why: </span>
+            {rec.suggestedBecause}.
+          </div>
+          {chosen && (
+            <div className={classes.detailRow}>
+              <span className={classes.detailKey}>What you get: </span>
+              {chosen.sole
+                ? `lands at ${chosen.lands} - ${chosen.sole}.`
+                : `lands at ${chosen.lands} - ${chosen.gain}. The trade is that ${chosen.cost}.`}
+            </div>
+          )}
+          {others.map((d) => (
+            <div key={d} className={classes.detailRow}>
+              <span
+                className={classes.detailKey}
+              >{`${name(d)} instead: `}</span>
+              {options[d].sole
+                ? `${options[d].lands} - ${options[d].sole}.`
+                : `${options[d].lands} - ${options[d].gain}, but ${options[d].cost}.`}
+            </div>
+          ))}
+        </div>
+      </Collapse>
+    </span>
   )
 }
 
@@ -185,13 +297,18 @@ export const ReasonField = (props) => {
   const record = useRecordContext(props)
   const a = record?.loudnessAudit
   if (a?.action === 'refused') {
+    const { headline, detail } = explainRefusal(a.error)
+    // Amber, not red. A refusal here means the engine produced a file, judged
+    // it not good enough and threw it away - the song on disk is exactly as it
+    // was. Red says damage was done, which is the opposite of what happened,
+    // and on a page shown to a client that reads as a fault to answer for.
     return (
+      // The raw engine text stays reachable, because someone eventually has to
+      // debug one of these and the sentence above is deliberately not it.
       <Tooltip title={a.error || ''}>
-        <span className={classes.nowrap}>
-          <span className={classes.bad}>Could not be processed</span>
-          <span className={`${classes.sub} ${classes.muted}`}>
-            {a.error || 'the result was not fit to ship'}
-          </span>
+        <span className={classes.wrap}>
+          <span className={classes.warn}>{headline}</span>
+          <span className={`${classes.sub} ${classes.muted}`}>{detail}</span>
         </span>
       </Tooltip>
     )
@@ -215,11 +332,16 @@ export const ReasonField = (props) => {
   }
   const rec = recommendationFor(record, props.settings)
   if (!rec) return <span className={classes.muted}>-</span>
+  // Not a failure - a question. The song has no headroom left, so the target
+  // and the untouched waveform cannot both be had, and which one to give up is
+  // the client's call rather than ours.
   return (
-    <span className={classes.nowrap}>
-      <span className={classes.warn}>Needs an audible cut</span>
+    <span className={classes.wrap}>
+      <span className={classes.warn}>Too quiet to fix without a trade</span>
       <span className={`${classes.sub} ${classes.muted}`}>
-        {`${fmtDb(rec.peakOverBy)} dB off the peaks - deep enough to hear`}
+        {`This song sits ${fmtMag(rec.lufs - rec.target)} dB below the target and its peaks are already ` +
+          `near the limit. Reaching ${fmtLufs(rec.target)} means cutting ${fmtMag(rec.peakOverBy)} dB off them, ` +
+          `which is deep enough to hear on drums and transients.`}
       </span>
     </span>
   )

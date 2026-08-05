@@ -214,6 +214,15 @@ const suggest = (best, peakOverBy, target, lufs, cost) => {
       suggestedBecause: `cutting ${peakOverBy.toFixed(2)} dB off the peaks would be audible`,
     }
   }
+  // No peak problem left to solve - the transform is a volume change and the
+  // limiter never engages. Saying "0.00 dB off the peaks is inaudible" was
+  // true and useless; what someone needs to know is that nothing gets reshaped.
+  if (peakOverBy <= 0.005) {
+    return {
+      suggested: DECISION_LIMIT,
+      suggestedBecause: `it reaches ${target.toFixed(2)} on volume alone - nothing is taken off the peaks`,
+    }
+  }
   return {
     suggested: DECISION_LIMIT,
     suggestedBecause: `${peakOverBy.toFixed(2)} dB off the peaks is inaudible, and it reaches ${target.toFixed(2)}`,
@@ -227,3 +236,77 @@ export const fmtDb = (v, digits = 2) =>
 
 export const fmtLufs = (v, digits = 2) =>
   v == null || Number.isNaN(v) ? '-' : Number(v).toFixed(digits)
+
+// Magnitude only, for prose where a word already carries the direction:
+// "0.42 dB above", "3.36 dB short of target". fmtDb's leading + belongs on a
+// signed quantity like a gain, where the sign is the information. In front of
+// "below" it reads as a typo, and "+3.96 dB below the target" is the kind of
+// line a client stops on.
+export const fmtMag = (v, digits = 2) =>
+  v == null || Number.isNaN(v) ? '-' : Math.abs(Number(v)).toFixed(digits)
+
+// Where a loudness sits relative to the target, in words.
+//
+// Signed, because the page has songs on both sides of it and the floors in the
+// arithmetic hide that. shortfall is max(0, ...), so a song already louder than
+// the target reported "0.00 dB short" - true to the formula and a plain
+// falsehood about the song, on the row most likely to be questioned.
+const distanceTo = (lufs, target) => {
+  const d = lufs - target
+  if (Math.abs(d) < 0.005) return `exactly on ${fmtLufs(target)}`
+  return `${fmtMag(d)} dB ${d > 0 ? 'louder than' : 'below'} ${fmtLufs(target)}`
+}
+
+// What each of the three decisions would do to this song.
+//
+// The suggestion is only useful next to the thing it was chosen over. Every
+// row here is a trade - loudness against leaving the audio alone - and someone
+// approving a page of them is entitled to see both sides of it without doing
+// the arithmetic themselves. Each option carries what it gives and what it
+// costs, because an option with only an upside reads as the obvious answer and
+// none of these are obvious.
+export const optionsFor = (rec) => {
+  // A track whose peaks already leave no room cannot be turned up at all, so
+  // "gain to ceiling" is not a third option there - it is "leave alone" under
+  // another name. Offering it as though the volume moves invites someone to
+  // pick it expecting a different result from the row above.
+  const ceilingMoves = rec.transparentGain > 0.005
+  // And with no peak problem to solve, "limit to target" does no limiting: it
+  // is a plain volume change. Describing that as "0.00 dB off the peaks is
+  // inaudible" is technically true and tells nobody what will happen.
+  const limitCuts = rec.peakOverBy > 0.005
+
+  return {
+    [DECISION_LIMIT]: {
+      lands: `${fmtLufs(rec.target)} LUFS`,
+      gain: 'hits the target exactly',
+      cost: !limitCuts
+        ? 'nothing comes off the peaks - this one is only a volume change'
+        : rec.peakOverBy > AUDIBLE_SHAVE_DB
+          ? `${fmtMag(rec.peakOverBy)} dB comes off the peaks - deep enough to soften every drum hit`
+          : `${fmtMag(rec.peakOverBy)} dB comes off the peaks, too little to hear`,
+    },
+    [DECISION_CEILING]: ceilingMoves
+      ? {
+          lands: `${fmtLufs(rec.loudnessAtCeiling)} LUFS`,
+          gain: 'the waveform is not reshaped at all - only the volume moves',
+          cost: `it lands ${distanceTo(rec.loudnessAtCeiling, rec.target)}`,
+        }
+      : {
+          lands: `${fmtLufs(rec.lufs)} LUFS`,
+          // One clause, not a gain weighed against a cost, because there is no
+          // trade here to weigh. Forcing it into the "X, but Y" shape produced
+          // "nothing happens, but it is the same as leaving it alone", which
+          // reads as two different answers to the same question.
+          sole:
+            rec.lufs > rec.target
+              ? `this song is already ${distanceTo(rec.lufs, rec.target)}, and this option only turns songs up - so it does nothing`
+              : `the peaks leave no room to turn this one up at all, so it does exactly what leaving it alone does`,
+        },
+    [DECISION_SKIP]: {
+      lands: `${fmtLufs(rec.lufs)} LUFS`,
+      gain: 'the file is never rewritten, so it keeps the quality it has',
+      cost: `it stays ${distanceTo(rec.lufs, rec.target)}`,
+    },
+  }
+}
