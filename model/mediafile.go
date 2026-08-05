@@ -101,6 +101,12 @@ type MediaFile struct {
 	// analysis/normalization code, never by the scanner.
 	LoudnessAudit *LoudnessAudit `structs:"-" json:"loudnessAudit,omitempty" hash:"ignore"`
 
+	// SilenceAudit is the head/tail silence record, joined from
+	// media_file_silence. Read-only here, like LoudnessAudit, and entirely
+	// separate from it: the two features measure different things and a track
+	// may have either, both or neither.
+	SilenceAudit *SilenceAudit `structs:"-" json:"silenceAudit,omitempty" hash:"ignore"`
+
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track
 

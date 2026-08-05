@@ -681,6 +681,41 @@
         "runFinished": "Decisions applied: %{changed} changed, %{skipped} skipped, %{failed} failed",
         "rechecked": "Checked again: %{changed} fixed, %{skipped} still stuck, %{failed} failed"
       }
+    },
+    "silence": {
+      "name": "Silence Trim |||| Silence Trim",
+      "empty": "No Songs",
+      "fields": {
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
+        "totalTrim": "To trim",
+        "silenceFound": "Silence found",
+        "trimBreakdown": "Start / end",
+        "verdict": "Result",
+        "status": "State",
+        "method": "Method",
+        "durationChange": "Length",
+        "onset": "Onset",
+        "gapless": "Album",
+        "sizeSaved": "Space saved",
+        "size": "Size",
+        "path": "Path",
+        "analyzedAt": "Analysed",
+        "silence_verdict": "Result",
+        "silence_reason": "Why left alone",
+        "silence_method": "How it is cut",
+        "silence_pending": "Waiting to be trimmed"
+      },
+      "actions": {
+        "analyzeAll": "Analyse all",
+        "analyzeSelected": "Analyse selected",
+        "trimAll": "Trim all",
+        "trimSelected": "Trim selected",
+        "stopAnalysis": "Stop analysis",
+        "stopTrim": "Stop trim",
+        "clearAnalysis": "Clear analysis"
+      }
     }
   },
   "ra": {

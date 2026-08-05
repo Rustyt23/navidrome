@@ -72,6 +72,29 @@ type dbMediaFile struct {
 	LoudnessError            string     `structs:"-" json:"-"`
 	LoudnessAnalyzedAt       *time.Time `structs:"-" json:"-"`
 	LoudnessRestoredAt       *time.Time `structs:"-" json:"-"`
+
+	// Joined from media_file_silence, with a `silence_` prefix for the same
+	// reason the loudness columns carry theirs: the alias cannot collide with a
+	// media_file column, nor with the other join.
+	SilenceStatus         string     `structs:"-" json:"-"`
+	SilenceVerdict        string     `structs:"-" json:"-"`
+	SilenceLeadSilence    float64    `structs:"-" json:"-"`
+	SilenceTrailSilence   float64    `structs:"-" json:"-"`
+	SilenceLeadTrim       float64    `structs:"-" json:"-"`
+	SilenceTrailTrim      float64    `structs:"-" json:"-"`
+	SilenceLeadOnsetGap   float64    `structs:"-" json:"-"`
+	SilenceTrailOnsetGap  float64    `structs:"-" json:"-"`
+	SilenceSkipReason     string     `structs:"-" json:"-"`
+	SilenceMethod         string     `structs:"-" json:"-"`
+	SilenceCodec          string     `structs:"-" json:"-"`
+	SilenceDurationBefore float64    `structs:"-" json:"-"`
+	SilenceDurationAfter  float64    `structs:"-" json:"-"`
+	SilenceSizeBefore     int64      `structs:"-" json:"-"`
+	SilenceSizeAfter      int64      `structs:"-" json:"-"`
+	SilenceGapless        bool       `structs:"-" json:"-"`
+	SilenceError          string     `structs:"-" json:"-"`
+	SilenceAnalyzedAt     *time.Time `structs:"-" json:"-"`
+	SilenceTrimmedAt      *time.Time `structs:"-" json:"-"`
 }
 
 // loudnessAuditColumns are the media_file_loudness columns joined into media
@@ -132,6 +155,79 @@ func loudnessAuditSelectColumns() []string {
 	return cols
 }
 
+// silenceAuditColumns are the media_file_silence columns joined into media file
+// queries, aliased with a `silence_` prefix. Same LEFT JOIN rule as the loudness
+// join above: anything scanned into a non-pointer field is coalesced, and the
+// timestamps stay nullable so "never analysed" is distinguishable from zero.
+var silenceAuditColumns = map[string]string{
+	"status":          "''",
+	"verdict":         "''",
+	"skip_reason":     "''",
+	"method":          "''",
+	"codec":           "''",
+	"error":           "''",
+	"lead_silence":    "0",
+	"trail_silence":   "0",
+	"lead_trim":       "0",
+	"trail_trim":      "0",
+	"lead_onset_gap":  "0",
+	"trail_onset_gap": "0",
+	"duration_before": "0",
+	"duration_after":  "0",
+	"size_before":     "0",
+	"size_after":      "0",
+	"gapless":         "0",
+	// Nullable: no default
+	"analyzed_at": "",
+	"trimmed_at":  "",
+}
+
+func silenceAuditSelectColumns() []string {
+	cols := make([]string, 0, len(silenceAuditColumns))
+	for name, zero := range silenceAuditColumns {
+		if zero == "" {
+			cols = append(cols, fmt.Sprintf("media_file_silence.%s as silence_%s", name, name))
+			continue
+		}
+		cols = append(cols, fmt.Sprintf("coalesce(media_file_silence.%s, %s) as silence_%s", name, zero, name))
+	}
+	slices.Sort(cols) // stable column order for query caching
+	return cols
+}
+
+// toSilenceAudit rebuilds the silence record from the joined columns. Returns
+// nil when the track has never been analysed for silence.
+func (m *dbMediaFile) toSilenceAudit() *model.SilenceAudit {
+	if m.SilenceAnalyzedAt == nil && m.SilenceStatus == "" {
+		return nil
+	}
+	audit := &model.SilenceAudit{
+		MediaFileID:    m.ID,
+		Status:         m.SilenceStatus,
+		Verdict:        m.SilenceVerdict,
+		LeadSilence:    m.SilenceLeadSilence,
+		TrailSilence:   m.SilenceTrailSilence,
+		LeadTrim:       m.SilenceLeadTrim,
+		TrailTrim:      m.SilenceTrailTrim,
+		LeadOnsetGap:   m.SilenceLeadOnsetGap,
+		TrailOnsetGap:  m.SilenceTrailOnsetGap,
+		SkipReason:     m.SilenceSkipReason,
+		Method:         m.SilenceMethod,
+		Codec:          m.SilenceCodec,
+		DurationBefore: m.SilenceDurationBefore,
+		DurationAfter:  m.SilenceDurationAfter,
+		SizeBefore:     m.SilenceSizeBefore,
+		SizeAfter:      m.SilenceSizeAfter,
+		Gapless:        m.SilenceGapless,
+		Error:          m.SilenceError,
+		TrimmedAt:      m.SilenceTrimmedAt,
+	}
+	if m.SilenceAnalyzedAt != nil {
+		audit.AnalyzedAt = *m.SilenceAnalyzedAt
+	}
+	return audit
+}
+
 // toAudit rebuilds the audit record from the joined columns. Returns nil when
 // the track has never been analyzed (no row in media_file_loudness).
 func (m *dbMediaFile) toAudit() *model.LoudnessAudit {
@@ -186,6 +282,7 @@ func (m *dbMediaFile) PostScan() error {
 	m.RGAlbumGain = m.RgAlbumGain
 	m.RGAlbumPeak = m.RgAlbumPeak
 	m.MediaFile.LoudnessAudit = m.toAudit()
+	m.MediaFile.SilenceAudit = m.toSilenceAudit()
 	var err error
 	m.MediaFile.Participants, err = unmarshalParticipants(m.Participants)
 	if err != nil {
@@ -257,6 +354,23 @@ func NewMediaFileRepository(ctx context.Context, db dbx.Builder) model.MediaFile
 		"bitrate_before":     "media_file_loudness.bitrate_before",
 		"sample_rate_before": "media_file_loudness.sample_rate_before",
 		"analyzed_at":        "media_file_loudness.analyzed_at",
+		// Silence audit (joined from media_file_silence)
+		"silence_verdict": "media_file_silence.verdict",
+		"silence_status":  "media_file_silence.status",
+		"silence_method":  "media_file_silence.method",
+		"silence_reason":  "media_file_silence.skip_reason",
+		"lead_silence":    "media_file_silence.lead_silence",
+		"trail_silence":   "media_file_silence.trail_silence",
+		// The headline column: how much comes off this song. Sorting by it is
+		// the main thing anyone does on the page, so it sorts by the total
+		// rather than by either end on its own.
+		"total_trim":        "(coalesce(media_file_silence.lead_trim, 0) + coalesce(media_file_silence.trail_trim, 0))",
+		"lead_trim":         "media_file_silence.lead_trim",
+		"trail_trim":        "media_file_silence.trail_trim",
+		"silence_trimmed":   "media_file_silence.trimmed_at",
+		"silence_analyzed":  "media_file_silence.analyzed_at",
+		"silence_duration":  "media_file_silence.duration_before",
+		"silence_size_diff": "(coalesce(media_file_silence.size_before, 0) - coalesce(media_file_silence.size_after, 0))",
 	})
 	return r
 }
@@ -570,6 +684,36 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		"loudness_status": func(_ string, value any) Sqlizer {
 			return eqFilter("media_file_loudness.status", value)
 		},
+		"silence_verdict": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_silence.verdict", value)
+		},
+		"silence_status": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_silence.status", value)
+		},
+		"silence_reason": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_silence.skip_reason", value)
+		},
+		"silence_method": func(_ string, value any) Sqlizer {
+			return eqFilter("media_file_silence.method", value)
+		},
+		// "Waiting to be trimmed": analysed as trimmable and not yet cut. This
+		// is the working set - what the client selects before pressing Trim -
+		// and it cannot be expressed as a plain column match, because the thing
+		// that takes a track out of it is a timestamp being set elsewhere.
+		"silence_pending": func(_ string, value any) Sqlizer {
+			pending := And{
+				Eq{"media_file_silence.verdict": model.SilenceVerdictTrimmable},
+				Eq{"media_file_silence.trimmed_at": nil},
+			}
+			if isTrue(value) {
+				return pending
+			}
+			return Or{
+				NotEq{"media_file_silence.verdict": model.SilenceVerdictTrimmable},
+				NotEq{"media_file_silence.trimmed_at": nil},
+				Eq{"media_file_silence.media_file_id": nil},
+			}
+		},
 		"loudness_phase": func(_ string, value any) Sqlizer {
 			return eqFilter("media_file_loudness.phase", value)
 		},
@@ -707,9 +851,11 @@ func (r *mediaFileRepository) UpdateProbeData(id string, data string) error {
 func (r *mediaFileRepository) selectMediaFile(options ...model.QueryOptions) SelectBuilder {
 	columns := append([]string{"media_file.*", "library.path as library_path", "library.name as library_name"},
 		loudnessAuditSelectColumns()...)
+	columns = append(columns, silenceAuditSelectColumns()...)
 	sql := r.newSelect(options...).Columns(columns...).
 		LeftJoin("library on media_file.library_id = library.id").
-		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id")
+		LeftJoin("media_file_loudness on media_file_loudness.media_file_id = media_file.id").
+		LeftJoin("media_file_silence on media_file_silence.media_file_id = media_file.id")
 	sql = r.withAnnotation(sql, "media_file.id")
 	sql = r.withBookmark(sql, "media_file.id")
 	return r.applyLibraryFilter(sql)

@@ -32,6 +32,7 @@ type MockDataStore struct {
 	MockedScrobble                  model.ScrobbleRepository
 	MockedRadio                     model.RadioRepository
 	MockedLoudnessAudit             *MockLoudnessAuditRepo
+	MockedSilenceAudit              *MockSilenceAuditRepo
 	MockedPlugin                    model.PluginRepository
 	MockedRetailPlayerDeviceMapping model.RetailPlayerDeviceMappingRepository
 	MockedRetailPlayerFolder        model.RetailPlayerFolderRepository
@@ -289,6 +290,70 @@ func (db *MockDataStore) LoudnessAudit(ctx context.Context) model.LoudnessAuditR
 	}
 	db.MockedLoudnessAudit = &MockLoudnessAuditRepo{data: map[string]*model.LoudnessAudit{}}
 	return db.MockedLoudnessAudit
+}
+
+func (db *MockDataStore) SilenceAudit(ctx context.Context) model.SilenceAuditRepository {
+	if db.MockedSilenceAudit != nil {
+		return db.MockedSilenceAudit
+	}
+	if db.RealDS != nil {
+		return db.RealDS.SilenceAudit(ctx)
+	}
+	db.MockedSilenceAudit = &MockSilenceAuditRepo{data: map[string]*model.SilenceAudit{}}
+	return db.MockedSilenceAudit
+}
+
+// MockSilenceAuditRepo is an in-memory SilenceAuditRepository for tests.
+type MockSilenceAuditRepo struct {
+	data map[string]*model.SilenceAudit
+}
+
+func (m *MockSilenceAuditRepo) Put(audit *model.SilenceAudit) error {
+	if m.data == nil {
+		m.data = map[string]*model.SilenceAudit{}
+	}
+	if audit == nil || audit.MediaFileID == "" {
+		return nil
+	}
+	// Mirrors the real repository: an analysis that carries no trimmed_at must
+	// not erase one already stored, or a re-analysed track looks untrimmed and
+	// gets cut a second time.
+	if existing, ok := m.data[audit.MediaFileID]; ok && audit.TrimmedAt == nil {
+		audit.TrimmedAt = existing.TrimmedAt
+	}
+	m.data[audit.MediaFileID] = audit
+	return nil
+}
+
+func (m *MockSilenceAuditRepo) Get(mediaFileID string) (*model.SilenceAudit, error) {
+	if audit, ok := m.data[mediaFileID]; ok {
+		return audit, nil
+	}
+	return nil, model.ErrNotFound
+}
+
+func (m *MockSilenceAuditRepo) Clear() (int64, error) {
+	n := int64(len(m.data))
+	m.data = map[string]*model.SilenceAudit{}
+	return n, nil
+}
+
+func (m *MockSilenceAuditRepo) CountByVerdict() (map[string]int64, error) {
+	counts := map[string]int64{}
+	for _, audit := range m.data {
+		counts[audit.Verdict]++
+	}
+	return counts, nil
+}
+
+func (m *MockSilenceAuditRepo) PendingTrimSeconds() (float64, error) {
+	var total float64
+	for _, audit := range m.data {
+		if audit.Verdict == model.SilenceVerdictTrimmable && audit.TrimmedAt == nil {
+			total += audit.TotalTrim()
+		}
+	}
+	return total, nil
 }
 
 // MockLoudnessAuditRepo is an in-memory LoudnessAuditRepository for tests.
