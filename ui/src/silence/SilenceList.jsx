@@ -20,6 +20,7 @@ import {
   DurationChangeField,
   GaplessField,
   OnsetField,
+  RemovedPeakField,
   SilenceFoundField,
   SilenceMethodField,
   SilenceStatusField,
@@ -63,10 +64,11 @@ const SilenceFilter = (props) => (
       label="Why left alone"
       style={{ minWidth: 220 }}
       choices={[
-        { id: 'fade', name: 'Fades in/out' },
+        { id: 'audible', name: 'Something audible in it' },
         { id: 'too_long', name: 'Too much to be dead air' },
         { id: 'gapless', name: 'Album plays continuously' },
         { id: 'too_short', name: 'Less than the margin' },
+        { id: 'fade', name: 'Measurement unreliable' },
       ]}
     />
     <SelectArrayInput
@@ -129,6 +131,13 @@ const SilenceList = (props) => {
           source="durationChange"
           label="Length"
           sortBy="silence_duration"
+        />
+      ),
+      removedPeak: (
+        <RemovedPeakField
+          source="removedPeak"
+          label="Removed audio level"
+          sortable={false}
         />
       ),
       onset: <OnsetField source="onset" label="Onset" sortable={false} />,

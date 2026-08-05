@@ -698,6 +698,7 @@
         "durationChange": "Length",
         "onset": "Onset",
         "gapless": "Album",
+        "removedPeak": "Removed audio level",
         "sizeSaved": "Space saved",
         "size": "Size",
         "path": "Path",

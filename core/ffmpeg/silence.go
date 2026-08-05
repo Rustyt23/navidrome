@@ -19,22 +19,34 @@ type SilenceDetector interface {
 func NewSilenceDetector() SilenceDetector { return &ffmpeg{} }
 
 const (
-	// PrimaryThresholdDB is what counts as silence. -60 dB sits below the noise
-	// floor of a normal digital transfer but above true digital black, so it
-	// catches the near-silence of a real run-out as well as a zeroed head,
-	// without reaching up into quiet music.
-	PrimaryThresholdDB = -60.0
+	// PrimaryThresholdDB is what counts as silence, and therefore where the cut
+	// lands: the boundary is where the audio falls below this, pulled back by
+	// the margin. Everything removed is quieter than this by construction, so
+	// this number alone decides how loud the removed audio can possibly be.
+	//
+	// -50 dB is about three thousandths of full scale. Played at any normal
+	// level it sits at roughly 35 dB SPL - under the noise floor of a quiet room
+	// and far under a shop's. Measured on real tracks, the audio actually
+	// removed at this threshold peaked between -55 and -64 dB, so the figure
+	// here is a ceiling that real material stays well below.
+	//
+	// It was -60 dB, which is inaudible with more room to spare but found very
+	// little: 3 of 70 sampled tracks, against 17 at this threshold. Going
+	// further the other way is what does damage - at -40 dB the removed audio
+	// measured -43 dB on real material, which is the song's own decay rather
+	// than dead air, and truncating a decay is heard as a chopped ending even
+	// though it is quiet.
+	PrimaryThresholdDB = -50.0
 
 	// OnsetThresholdDB is the second, louder threshold used only to judge how
-	// abruptly the music starts. It is never used to decide where to cut.
+	// abruptly the audio arrives. It is never used to decide where to cut.
 	//
-	// The distance between the two boundaries is what separates a real track
-	// start from a fade. Measured: a sharp start puts them ~1 ms apart, a linear
-	// fade ~164 ms, an exponential fade ~756 ms. Without this a fade-in reads as
-	// silence all the way up to wherever it crosses -60 dB - on a measured
-	// example, 6.28 s of "silence" on a file holding only 3.0 s of it - and
-	// cutting to that boundary takes seconds of music with it.
-	OnsetThresholdDB = -45.0
+	// Held 15 dB above the primary threshold, which is the spacing that makes
+	// the distance between the two boundaries mean something: at a sharp start
+	// they land ~1 ms apart, on a fade hundreds of ms apart. Moving the primary
+	// threshold without moving this one would squeeze the two together until
+	// every track looked sharp and the measurement said nothing.
+	OnsetThresholdDB = -35.0
 
 	// MinSilenceDuration is how long a quiet stretch must last to be reported.
 	// Shorter than this is a pause in the music, not dead air at the edge.

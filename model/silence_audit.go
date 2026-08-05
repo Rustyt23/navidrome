@@ -39,6 +39,11 @@ const (
 	SilenceSkipGapless = "gapless"
 	// SilenceSkipUnsupported: the codec has no honest way to be cut here.
 	SilenceSkipUnsupported = "unsupported"
+	// SilenceSkipAudible: measuring the exact stretch that would be removed
+	// found something loud enough to hear in it. The detector and the level
+	// meter disagree about this track, and there is no way to tell which is
+	// right, so nothing is cut.
+	SilenceSkipAudible = "audible"
 	// SilenceSkipTooShort: the silence is under the margin, so cutting it would
 	// remove less than the margin the client asked to keep - i.e. nothing.
 	SilenceSkipTooShort = "too_short"
@@ -81,6 +86,15 @@ type SilenceAudit struct {
 
 	SkipReason string `structs:"skip_reason" json:"skipReason,omitempty"`
 	Method     string `structs:"method" json:"method,omitempty"`
+
+	// RemovedPeakDB is the loudest sample found in the stretch that would be
+	// removed, measured independently of the silence detection. This is the
+	// evidence that trimming is safe, so it is stored rather than recomputed -
+	// it is what answers "how do you know that was nothing?".
+	//
+	// A pointer because 0 dB is a real and very loud value: storing zero for
+	// "never measured" would claim the removed audio peaked at full scale.
+	RemovedPeakDB *float64 `structs:"removed_peak_db" json:"removedPeakDB,omitempty"`
 
 	Codec          string  `structs:"codec" json:"codec"`
 	DurationBefore float64 `structs:"duration_before" json:"durationBefore"`

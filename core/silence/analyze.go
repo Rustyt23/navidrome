@@ -15,8 +15,8 @@ import (
 // many seconds every song would lose, and on which songs the guards refused,
 // before anything is cut - which is the whole reason the page is worth having
 // rather than a single "remove silence" button.
-func Analyze(ctx context.Context, detector ffmpeg.SilenceDetector, mf *model.MediaFile,
-	gapless bool, opts Options) (*model.SilenceAudit, error) {
+func Analyze(ctx context.Context, detector ffmpeg.SilenceDetector, measurer ffmpeg.PeakMeasurer,
+	mf *model.MediaFile, gapless bool, opts Options) (*model.SilenceAudit, error) {
 
 	audit := &model.SilenceAudit{
 		MediaFileID: mf.ID,
@@ -48,6 +48,19 @@ func Analyze(ctx context.Context, detector ffmpeg.SilenceDetector, mf *model.Med
 	audit.TrailOnsetGap = report.TrailOnsetGap
 
 	plan := BuildPlan(report, probe, gapless, opts)
+
+	// Nothing is trusted to the detector alone. Where the plan would actually
+	// remove audio, the stretch coming off is measured with a level meter and
+	// the trim only stands if there is provably nothing in it.
+	if measurer != nil && plan.ShouldTrim() {
+		verified, peak, err := VerifyInaudible(ctx, measurer, trackPath, plan)
+		if err != nil {
+			return failedAudit(audit, err), err
+		}
+		plan = verified
+		audit.RemovedPeakDB = &peak
+	}
+
 	audit.LeadTrim = plan.LeadTrim
 	audit.TrailTrim = plan.TrailTrim
 	audit.Verdict = plan.Verdict

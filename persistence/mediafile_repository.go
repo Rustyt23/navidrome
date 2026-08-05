@@ -92,6 +92,7 @@ type dbMediaFile struct {
 	SilenceSizeBefore     int64      `structs:"-" json:"-"`
 	SilenceSizeAfter      int64      `structs:"-" json:"-"`
 	SilenceGapless        bool       `structs:"-" json:"-"`
+	SilenceRemovedPeakDb  *float64   `structs:"-" json:"-"`
 	SilenceError          string     `structs:"-" json:"-"`
 	SilenceAnalyzedAt     *time.Time `structs:"-" json:"-"`
 	SilenceTrimmedAt      *time.Time `structs:"-" json:"-"`
@@ -177,9 +178,11 @@ var silenceAuditColumns = map[string]string{
 	"size_before":     "0",
 	"size_after":      "0",
 	"gapless":         "0",
-	// Nullable: no default
-	"analyzed_at": "",
-	"trimmed_at":  "",
+	// Nullable: no default. 0 dB is full scale, so it must never stand in for
+	// "not measured".
+	"removed_peak_db": "",
+	"analyzed_at":     "",
+	"trimmed_at":      "",
 }
 
 func silenceAuditSelectColumns() []string {
@@ -219,6 +222,7 @@ func (m *dbMediaFile) toSilenceAudit() *model.SilenceAudit {
 		SizeBefore:     m.SilenceSizeBefore,
 		SizeAfter:      m.SilenceSizeAfter,
 		Gapless:        m.SilenceGapless,
+		RemovedPeakDB:  m.SilenceRemovedPeakDb,
 		Error:          m.SilenceError,
 		TrimmedAt:      m.SilenceTrimmedAt,
 	}

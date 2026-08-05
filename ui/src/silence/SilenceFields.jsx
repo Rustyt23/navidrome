@@ -4,8 +4,10 @@ import { Chip, Tooltip, Typography } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import {
   formatBytes,
+  formatPeakDb,
   formatSeconds,
   METHOD_LABELS,
+  SILENT_PEAK_DB,
   skipReasonLabel,
   VERDICT_LABELS,
 } from './format'
@@ -255,7 +257,7 @@ export const OnsetField = ({ record }) => {
   const trail = audit.trailOnsetGap || 0
   if (lead === 0 && trail === 0) return <span className={classes.muted}>sharp</span>
   return (
-    <Tooltip title="How gradually the audio arrives. Anything above 10ms is treated as a fade and left alone.">
+    <Tooltip title="How gradually the audio arrives at the start and end. Informational - what decides whether a song is trimmed is the measured level of the audio being removed, not this.">
       <span className={classes.ends}>
         {`${(lead * 1000).toFixed(0)}ms`}
         <span className={classes.endLabel}>/</span>
@@ -279,6 +281,40 @@ export const SizeChangeField = ({ record }) => {
 
 SizeChangeField.propTypes = { record: PropTypes.object }
 SizeChangeField.defaultProps = { addLabel: true }
+
+// RemovedPeakField is the evidence that a trim is safe: the loudest sample in
+// the exact stretch about to be deleted, measured with a level meter rather
+// than inferred from the silence detection.
+//
+// It earns a column because it is the answer to the only question that matters
+// about this page - "how do you know that was nothing?" - and because it is
+// checkable. The threshold it is judged against is SILENT_PEAK_DB, which is
+// quiet enough to sit under the noise floor of a room, let alone a shop.
+export const RemovedPeakField = ({ record }) => {
+  const classes = useStyles()
+  const audit = auditOf(record)
+  const peak = audit?.removedPeakDB
+  if (peak === null || peak === undefined) {
+    return <span className={classes.muted}>-</span>
+  }
+  const inaudible = peak <= SILENT_PEAK_DB
+  return (
+    <Tooltip
+      title={
+        inaudible
+          ? `Loudest sample in the audio being removed. At or below ${SILENT_PEAK_DB} dB it is inaudible, so removing it changes nothing you can hear.`
+          : `Loud enough to hear - this song is left alone.`
+      }
+    >
+      <span className={inaudible ? classes.lossless : classes.reencoded}>
+        {formatPeakDb(peak)}
+      </span>
+    </Tooltip>
+  )
+}
+
+RemovedPeakField.propTypes = { record: PropTypes.object }
+RemovedPeakField.defaultProps = { addLabel: true }
 
 export const GaplessField = ({ record }) => {
   const classes = useStyles()

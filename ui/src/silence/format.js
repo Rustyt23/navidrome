@@ -52,11 +52,27 @@ export const formatBytes = (value) => {
 // Why a song with silence was left alone, in words rather than in the stored
 // slug. Each one says what was found, not just that something was.
 export const SKIP_REASON_LABELS = {
-  fade: 'Fades in/out - not silence',
+  audible: 'Something audible in it',
+  fade: 'Measurement unreliable',
   too_long: 'Too much to be dead air',
   gapless: 'Album plays continuously',
   unsupported: 'Format cannot be cut safely',
   too_short: 'Less than the margin',
+}
+
+// The level at or below which audio is treated as nothing. Mirrors
+// ffmpeg.SilentPeakDB - the page states the threshold it is judging against, so
+// the number in the Evidence column can be read rather than taken on trust.
+export const SILENT_PEAK_DB = -50
+
+// formatPeakDb renders a measured peak. Digital silence has no real peak, and
+// ffmpeg reports the format's floor for it, so anything that low is shown as
+// silence rather than as a number nobody can interpret.
+export const formatPeakDb = (value) => {
+  if (value === null || value === undefined) return '-'
+  const db = Number(value)
+  if (!Number.isFinite(db) || db <= -90) return 'silent'
+  return `${db.toFixed(1)} dB`
 }
 
 export const skipReasonLabel = (reason) => SKIP_REASON_LABELS[reason] || reason

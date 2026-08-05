@@ -68,6 +68,30 @@ var _ = Describe("edgeAt", func() {
 	})
 })
 
+var _ = Describe("the silence thresholds", func() {
+	// The detector places the cut using PrimaryThresholdDB and the level meter
+	// then confirms the result against SilentPeakDB. If those two drift apart,
+	// the check silently stops doing its job: set higher than the detector it
+	// rejects everything found, set lower it waves through audio the detector
+	// never claimed was silent. Nothing else in the code forces them together.
+	It("judges removed audio against the same level it cuts at", func() {
+		Expect(SilentPeakDB).To(Equal(PrimaryThresholdDB))
+	})
+
+	// The gap between the two detection thresholds is what makes the onset
+	// measurement mean anything. Squeeze them together and every track looks
+	// like a sharp start.
+	It("keeps the onset threshold clear of the primary one", func() {
+		Expect(OnsetThresholdDB - PrimaryThresholdDB).To(BeNumerically(">=", 10))
+	})
+
+	// Above roughly -45 dB the audio removed stops being dead air and starts
+	// being the song's own decay, which is heard as a chopped ending.
+	It("stays quiet enough that removed audio cannot be heard", func() {
+		Expect(PrimaryThresholdDB).To(BeNumerically("<=", -45))
+	})
+})
+
 var _ = Describe("canCopyCodec", func() {
 	It("allows the codecs whose headers stay honest after a copy", func() {
 		Expect(canCopyCodec("mp3")).To(BeTrue())

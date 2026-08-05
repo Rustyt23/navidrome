@@ -127,9 +127,10 @@ func (n *Router) runSilenceAnalyze(ctx context.Context, ids []string) {
 		go func() {
 			defer wg.Done()
 			detector := ffmpeg.NewSilenceDetector()
+			measurer := ffmpeg.NewPeakMeasurer()
 			for mf := range work {
 				silenceAnalyze.inFlight.Add(1)
-				audit, err := silence.Analyze(ctx, detector, &mf, false, silence.Options{})
+				audit, err := silence.Analyze(ctx, detector, measurer, &mf, false, silence.Options{})
 				silenceAnalyze.inFlight.Add(-1)
 
 				switch {

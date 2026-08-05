@@ -53,42 +53,45 @@ var _ = Describe("BuildPlan", func() {
 		})
 	})
 
-	Describe("the fade guard", func() {
-		// The measured exponential fade: 6.283s below -60dB but the music has
-		// been rising for most of it. Cutting to 6.283-0.5 takes 2.8s of music.
-		It("refuses a fade-in", func() {
+	Describe("gradual onsets", func() {
+		// These used to be refused. They are not any more, and the reason is
+		// worth stating: the cut is anchored to where the audio falls below the
+		// detector's threshold and then pulled back by the margin, so a gradual
+		// arrival does not put the cut any closer to the music - it only means
+		// the quiet part lasts longer. On a real library the old 10ms rule
+		// refused all 23 tracks that had removable silence at the end, because
+		// real endings decay rather than stopping dead.
+		It("trims a track whose ending decays", func() {
+			report := &ffmpeg.SilenceReport{
+				TrailSilence: 2.718, TrailOnsetGap: 0.698, Duration: 166,
+			}
+			plan := BuildPlan(report, mp3Probe(166), false, Options{})
+			Expect(plan.Verdict).To(Equal(model.SilenceVerdictTrimmable))
+			Expect(plan.TrailTrim).To(BeNumerically("~", 2.218, 0.001))
+		})
+
+		It("trims a track that fades in", func() {
 			report := &ffmpeg.SilenceReport{
 				LeadSilence: 6.283, LeadOnsetGap: 0.756, Duration: 23,
 			}
 			plan := BuildPlan(report, mp3Probe(23), false, Options{})
-			Expect(plan.Verdict).To(Equal(model.SilenceVerdictSkipped))
-			Expect(plan.SkipReason).To(Equal(model.SilenceSkipFade))
-			Expect(plan.TotalTrim()).To(BeZero())
+			Expect(plan.Verdict).To(Equal(model.SilenceVerdictTrimmable))
+			Expect(plan.LeadTrim).To(BeNumerically("~", 5.783, 0.001))
 		})
 
-		It("refuses a gentler linear fade too", func() {
-			report := &ffmpeg.SilenceReport{LeadSilence: 3.2, LeadOnsetGap: 0.164, Duration: 23}
-			plan := BuildPlan(report, mp3Probe(23), false, Options{})
-			Expect(plan.SkipReason).To(Equal(model.SilenceSkipFade))
-		})
-
-		It("allows a sharp onset", func() {
+		It("still allows a sharp onset", func() {
 			report := &ffmpeg.SilenceReport{LeadSilence: 3.199, LeadOnsetGap: 0.001, Duration: 23}
 			plan := BuildPlan(report, mp3Probe(23), false, Options{})
 			Expect(plan.Verdict).To(Equal(model.SilenceVerdictTrimmable))
 		})
 
-		It("trims the sharp end of a track whose other end fades", func() {
+		// The backstop still exists for measurements that make no sense.
+		It("refuses an absurdly wide gap, where the measurement is suspect", func() {
 			report := &ffmpeg.SilenceReport{
-				LeadSilence: 3.0, LeadOnsetGap: 0.001,
-				TrailSilence: 8.0, TrailOnsetGap: 0.9,
-				Duration: 200,
+				LeadSilence: 20, LeadOnsetGap: 12, Duration: 200,
 			}
 			plan := BuildPlan(report, mp3Probe(200), false, Options{})
-			Expect(plan.Verdict).To(Equal(model.SilenceVerdictTrimmable))
-			Expect(plan.LeadTrim).To(BeNumerically("~", 2.5, 0.001))
-			Expect(plan.TrailTrim).To(BeZero())
-			// The refused end still explains itself.
+			Expect(plan.Verdict).To(Equal(model.SilenceVerdictSkipped))
 			Expect(plan.SkipReason).To(Equal(model.SilenceSkipFade))
 		})
 	})

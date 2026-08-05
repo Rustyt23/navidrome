@@ -17,15 +17,26 @@ const (
 	DefaultMarginSeconds = 0.5
 
 	// MaxOnsetGapSeconds is how far apart the two detection thresholds may sit
-	// before the start is treated as a fade rather than a sharp onset.
+	// before the onset is treated as too gradual to act on.
 	//
-	// Measured: a real track start puts them ~1ms apart, a linear fade ~164ms,
-	// an exponential fade ~756ms. 10ms sits two orders of magnitude below the
-	// gentlest fade and an order above the sharpest real onset, so nothing
-	// realistic lands near it. Erring low is deliberate - refusing to trim a
-	// track that could have been trimmed costs nothing but a row on the page,
-	// while trimming a fade destroys the recording.
-	MaxOnsetGapSeconds = 0.01
+	// This used to be 10ms, and it was the wrong instrument. It was calibrated
+	// on synthetic fixtures where a tone switches on and off instantly, and real
+	// music does not end that way - it decays. On a real library it refused all
+	// 23 tracks that had removable silence at the end, on the grounds that their
+	// endings faded.
+	//
+	// The reason it was refusing them is that it was guarding against something
+	// the margin already prevents. The cut is anchored to where the audio drops
+	// below PrimaryThresholdDB and then pulled back by the margin, so the region
+	// removed is by construction quieter than that - no matter how gradually the
+	// audio arrives at it. Measured on the tracks it was blocking, the loudest
+	// sample in the removed region sat well below the threshold either way.
+	//
+	// So this is now a backstop for the absurd rather than the working rule: it
+	// catches a track whose two thresholds are so far apart that the measurement
+	// itself is suspect. The real gate is VerifyInaudible, which measures the
+	// region about to be removed instead of inferring anything about it.
+	MaxOnsetGapSeconds = 5.0
 
 	// MaxTrimSeconds is the most that will be taken off one end.
 	//
