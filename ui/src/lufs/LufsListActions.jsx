@@ -1,10 +1,14 @@
-import React from 'react'
+import React, { useCallback, useState } from 'react'
 import {
   Button as RaButton,
   ExportButton,
   TopToolbar,
   useListContext,
 } from 'react-admin'
+import { Collapse, Typography } from '@material-ui/core'
+import BuildIcon from '@material-ui/icons/Build'
+import ExpandLessIcon from '@material-ui/icons/ExpandLess'
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import { makeStyles } from '@material-ui/core/styles'
 import { ToggleFieldsMenu } from '../common'
 import LufsToggle from './LufsToggle'
@@ -58,7 +62,52 @@ const useStyles = makeStyles((theme) => ({
       marginRight: '0 !important',
     },
   },
+
+  // Layout only - no border of its own. The box belongs to the content, so a
+  // folded panel leaves the corner toggle and nothing else. Drawn on the
+  // wrapper instead, it collapsed to a full-width empty rectangle: a long line
+  // across the page marking out the space where the buttons used to be.
+  panel: { width: '100%' },
+  // The bar is not the control. A full-width click target the height of a row
+  // gives no clue where to click and swallows clicks meant for nothing at all,
+  // so the header only positions the toggle - at the right, over the buttons
+  // it folds away.
+  panelHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    padding: theme.spacing(0.5, 0.75),
+  },
+  panelToggle: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.25, 0.75),
+    borderRadius: 4,
+    cursor: 'pointer',
+    userSelect: 'none',
+    '&:hover': { backgroundColor: theme.palette.action.hover },
+    '&:focus-visible': {
+      outline: `2px solid ${theme.palette.primary.main}`,
+      outlineOffset: 2,
+    },
+    '& .MuiSvgIcon-root': { opacity: 0.7 },
+  },
+  panelTitle: { fontWeight: 700, letterSpacing: 0.3 },
+  panelBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(0.75),
+    padding: theme.spacing(1, 1.5),
+    borderRadius: 6,
+    border: `1px solid ${theme.palette.divider}`,
+    backgroundColor: theme.palette.background.paper,
+  },
 }))
+
+// Remembered, so the panel does not spring open again on every page load for
+// someone who folded it away.
+const OPEN_KEY = 'lufs.actions.open'
 
 // The exception list is a view of the same songs, not a separate area of the
 // app, so it is reached from here rather than from the sidebar - where it sat
@@ -94,6 +143,18 @@ const LufsListActions = ({
   // only place that can draw its progress. The shared store means both see the
   // same job.
   const { status: restoreStatus } = useRestoreStatus()
+
+  // Open unless it was closed before. A control panel that hides itself the
+  // first time someone opens the page has hidden the page's controls.
+  const [open, setOpen] = useState(
+    () => localStorage.getItem(OPEN_KEY) !== 'false',
+  )
+  const toggle = useCallback(() => {
+    setOpen((wasOpen) => {
+      localStorage.setItem(OPEN_KEY, String(!wasOpen))
+      return !wasOpen
+    })
+  }, [])
 
   // Abandoned tracks are shown only once there are some, and worded so they do
   // not read as damage: they were left alone and the next run picks them up.
@@ -166,47 +227,81 @@ const LufsListActions = ({
           )}
         </div>
       )}
-      <div className={classes.row}>
-        <OpenExceptionsButton />
-        <LufsToggle
-          onChange={onSettingsChange}
-          onToggled={onOptimiseAllToggled}
-          disabled={!!analyzeStatus?.running}
-          libraryStatus={libraryStatus}
-        />
-        <BackupToggle
-          settings={settings}
-          onChange={onSettingsChange}
-          disabled={!!analyzeStatus?.running}
-          libraryStatus={libraryStatus}
-        />
-        <AnalyzeLufsButton
-          all
-          mode="original"
-          label="resources.lufs.actions.fetchOriginal"
-          icon={<SpeedIcon />}
-          onStarted={onAnalyzeStarted}
-          disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
-        />
-        <AnalyzeLufsButton
-          all
-          onStarted={onAnalyzeStarted}
-          disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
-        />
-      </div>
-      <div className={`${classes.row} ${classes.utilityRow}`}>
-        <ClearLufsAnalysisButton
-          disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
-        />
-        <SaveAuditDbButton />
-        {/* Restoring rewrites the same rows a running job is writing, so it is
+      <div className={classes.panel}>
+        <div className={classes.panelHeader}>
+          {/* One element, not a label beside a button: two click targets that
+              do the same thing means half the clicks land on the half that
+              looks less like a control. */}
+          <span
+            className={classes.panelToggle}
+            onClick={toggle}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
+            role="button"
+            tabIndex={0}
+            aria-expanded={open}
+          >
+            <BuildIcon fontSize="small" />
+            <Typography variant="body2" className={classes.panelTitle}>
+              LUFS Controls
+            </Typography>
+            {open ? (
+              <ExpandLessIcon fontSize="small" />
+            ) : (
+              <ExpandMoreIcon fontSize="small" />
+            )}
+          </span>
+        </div>
+
+        {/* No unmountOnExit. These buttons carry their own state and a couple
+            poll while mounted, so folding the panel should hide them rather
+            than tear them down and rebuild them. Collapse marks the collapsed
+            content visibility:hidden, which keeps it out of the tab order. */}
+        <Collapse in={open} timeout="auto">
+          <div className={classes.panelBody}>
+            <div className={classes.row}>
+              <OpenExceptionsButton />
+              <LufsToggle
+                onChange={onSettingsChange}
+                onToggled={onOptimiseAllToggled}
+                disabled={!!analyzeStatus?.running}
+                libraryStatus={libraryStatus}
+              />
+              <BackupToggle
+                settings={settings}
+                onChange={onSettingsChange}
+                disabled={!!analyzeStatus?.running}
+                libraryStatus={libraryStatus}
+              />
+              <AnalyzeLufsButton
+                all
+                mode="original"
+                label="resources.lufs.actions.fetchOriginal"
+                icon={<SpeedIcon />}
+                onStarted={onAnalyzeStarted}
+                disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
+              />
+              <AnalyzeLufsButton
+                all
+                onStarted={onAnalyzeStarted}
+                disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
+              />
+            </div>
+            <div className={`${classes.row} ${classes.utilityRow}`}>
+              <ClearLufsAnalysisButton
+                disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
+              />
+              <SaveAuditDbButton />
+              {/* Restoring rewrites the same rows a running job is writing, so it is
             held back while one is going - the server refuses it as well. */}
-        <RestoreAuditDbButton
-          disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
-        />
-        <BackupCleanupButton />
-        <ExportButton maxResults={total} />
-        <ToggleFieldsMenu resource="lufs" />
+              <RestoreAuditDbButton
+                disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
+              />
+              <BackupCleanupButton />
+              <ExportButton maxResults={total} />
+              <ToggleFieldsMenu resource="lufs" />
+            </div>
+          </div>
+        </Collapse>
       </div>
     </TopToolbar>
   )

@@ -74,9 +74,13 @@ const LufsFilter = (props) => (
         { id: 'failed', name: 'Could not process' },
       ]}
     />
+    {/* Wide enough for the label and the dropdown arrow together. Left to size
+        itself an empty SelectArrayInput shrinks to its content, which is
+        nothing, and the floating label spills out over the border. */}
     <SelectArrayInput
       source="loudness_outcome"
       label="Outcome"
+      style={{ minWidth: 160 }}
       alwaysOn
       choices={[
         { id: 'on_target', name: 'On target' },
@@ -87,6 +91,7 @@ const LufsFilter = (props) => (
     <SelectArrayInput
       source="loudness_status"
       label="Status"
+      style={{ minWidth: 160 }}
       alwaysOn
       choices={[
         { id: 'analyzed', name: 'Measured only' },

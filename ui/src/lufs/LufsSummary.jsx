@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import {
   Collapse,
-  IconButton,
   LinearProgress,
   Tooltip,
   Typography,
@@ -25,25 +24,42 @@ const INFO = '#1565c0'
 const WARN = '#ef6c00'
 
 const useStyles = makeStyles((theme) => ({
-  root: {
-    marginBottom: theme.spacing(1.5),
-    borderRadius: 6,
-    border: `1px solid ${theme.palette.divider}`,
-    backgroundColor: theme.palette.background.paper,
-    overflow: 'hidden',
-  },
+  // No border on the wrapper. Carried here it collapsed to a full-width empty
+  // rectangle - a long line across the top of the page holding open the space
+  // where the panel used to be. The box belongs to the content, so folding it
+  // away leaves the corner toggle and nothing else.
+  root: { marginBottom: theme.spacing(1) },
+  // The bar is not the control: a click target the width of the page gives no
+  // clue where to click. It only positions the toggle, in the same corner the
+  // controls panel below it uses.
   header: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(1),
-    padding: theme.spacing(1.25, 1.5),
+    justifyContent: 'flex-end',
+    padding: theme.spacing(0.5, 0.75),
+  },
+  toggle: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.25, 0.75),
+    borderRadius: 4,
     cursor: 'pointer',
     userSelect: 'none',
     '&:hover': { backgroundColor: theme.palette.action.hover },
+    '&:focus-visible': {
+      outline: `2px solid ${theme.palette.primary.main}`,
+      outlineOffset: 2,
+    },
+    '& .MuiSvgIcon-root': { opacity: 0.7 },
   },
-  title: { fontWeight: 700, letterSpacing: 0.3, flex: 1 },
-  icon: { opacity: 0.7, display: 'flex' },
-  body: { padding: theme.spacing(0, 2, 2) },
+  title: { fontWeight: 700, letterSpacing: 0.3 },
+  body: {
+    padding: theme.spacing(2),
+    borderRadius: 6,
+    border: `1px solid ${theme.palette.divider}`,
+    backgroundColor: theme.palette.background.paper,
+  },
 
   // The headline, now inside the panel rather than in the bar.
   headline: {
@@ -188,23 +204,28 @@ export const LufsSummary = ({ refreshKey }) => {
 
   return (
     <div className={classes.root}>
-      <div
-        className={classes.header}
-        onClick={toggle}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-      >
-        <span className={classes.icon}>
+      <div className={classes.header}>
+        {/* One element, not a label beside a button: two click targets doing
+            the same thing means half the clicks land on whichever half looks
+            less like a control. */}
+        <span
+          className={classes.toggle}
+          onClick={toggle}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+        >
           <EqualizerIcon fontSize="small" />
+          <Typography variant="body2" className={classes.title}>
+            LUFS Optimisation Library
+          </Typography>
+          {open ? (
+            <ExpandLessIcon fontSize="small" />
+          ) : (
+            <ExpandMoreIcon fontSize="small" />
+          )}
         </span>
-        <Typography variant="body1" className={classes.title}>
-          LUFS Optimisation Library
-        </Typography>
-        <IconButton size="small" aria-label={open ? 'Hide' : 'Show'}>
-          {open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-        </IconButton>
       </div>
 
       <Collapse in={open} timeout="auto" unmountOnExit>
