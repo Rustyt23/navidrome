@@ -73,7 +73,8 @@ var _ = Describe("loudnessRunFilter", func() {
 				('refused', false),
 				('restored', false),
 				('restored-review', false),
-				('trim', false);
+				('trim', false),
+				('refused-decided', false);
 
 			insert into media_file_loudness (media_file_id, phase, lufs_before, decision, action, restored_at) values
 				('unplanned', -1, null, '', '', null),
@@ -88,7 +89,12 @@ var _ = Describe("loudnessRunFilter", func() {
 				('review-limit', 2, -9.1, 'limit', '', null),
 				('review-ceiling', 2, -9.1, 'gain_ceiling', '', null),
 				('review-skip', 2, -9.1, 'skip', '', null),
-				('missing-review', 2, -9.1, 'limit', '', null);
+				('missing-review', 2, -9.1, 'limit', '', null),
+				-- A song the planner called phase 1, which a run built a file for
+				-- and refused, which then appeared on the exceptions page and had
+				-- a decision made about it. Exactly the five songs sitting in the
+				-- real library, and for a while the filter matched none of them.
+				('refused-decided', 1, -13.85, 'limit', 'refused', null);
 		`)
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -186,7 +192,17 @@ var _ = Describe("loudnessRunFilter", func() {
 
 	Describe("phase 2", func() {
 		It("takes only review tracks the client has decided on", func() {
-			Expect(selectedBy(loudness.PhaseReview)).To(Equal([]string{"review-ceiling", "review-limit"}))
+			Expect(selectedBy(loudness.PhaseReview)).
+				To(Equal([]string{"refused-decided", "review-ceiling", "review-limit"}))
+		})
+
+		// The bug this guards: the filter also required phase = 2, on the
+		// assumption that only a review track can carry a decision. Refused
+		// tracks are listed on the exceptions page and are phase 1, so a
+		// decision on one matched nothing - "Apply decisions" ran over zero
+		// songs and reported success.
+		It("applies a decision made on a refused phase 1 track", func() {
+			Expect(selectedBy(loudness.PhaseReview)).To(ContainElement("refused-decided"))
 		})
 
 		It("waits for a decision rather than guessing", func() {

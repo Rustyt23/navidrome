@@ -77,3 +77,48 @@ describe('optionsFor', () => {
     }
   })
 })
+
+// The one-line form used by both the Suggested column and the Final result
+// column. It carries the same claims as the long form and has to break the
+// same way on the same songs - two wordings of one fact drifting apart is how
+// the page came to say "0.00 dB short" about a song 0.91 dB too loud.
+describe('optionsFor short form', () => {
+  it('names the peak cut when there is one', () => {
+    expect(song(-13.85, -1.28)[DECISION_LIMIT].short).toBe(
+      '0.62 dB off the peaks',
+    )
+  })
+
+  it('says volume-only when no limiting happens', () => {
+    expect(song(-11.01, -0.01)[DECISION_LIMIT].short).toBe(
+      'volume only, peaks untouched',
+    )
+  })
+
+  it('does not claim a shortfall a song does not have', () => {
+    // Louder than target, no headroom: gain-to-ceiling cannot move it.
+    expect(song(-11.69, 0.98)[DECISION_CEILING].short).toBe(
+      'no change - same as leaving it alone',
+    )
+  })
+
+  it('reports the real shortfall when the option does move the song', () => {
+    expect(song(-16.56, -1.25)[DECISION_CEILING].short).toBe(
+      '3.36 dB short, audio untouched',
+    )
+  })
+
+  it('gives every option a short form on every song', () => {
+    for (const o of [
+      song(-16.56, -1.25),
+      song(-11.69, 0.98),
+      song(-13.85, -1.28),
+      song(-11.01, -0.01),
+      song(-13.21, 2.43, 128),
+    ]) {
+      for (const d of [DECISION_LIMIT, DECISION_CEILING, DECISION_SKIP]) {
+        expect(o[d].short).toBeTruthy()
+      }
+    }
+  })
+})

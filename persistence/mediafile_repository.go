@@ -408,6 +408,103 @@ func loudnessOutcomeFilter(_ string, value any) Sqlizer {
 	return any
 }
 
+// The rejections rejection() writes in core/loudness, matched by their opening
+// words.
+//
+// This layer does not import core/loudness, so the tie between these prefixes
+// and the strings that produce them is by convention. It fails safe: an error
+// shape not listed here matches no category at all rather than being filed
+// under the wrong one, so a song can go missing from a filtered view but never
+// appears under a cause that is not its own. TestLoudnessReasonFilter pins the
+// real strings so a reworded error breaks a test rather than a page.
+const (
+	rejectedByPeak     = "true peak %"
+	rejectedByFormat   = "output was not format-identical%"
+	rejectedByLoudness = "landed at %"
+)
+
+func LoudnessReasonFilter(reason string) Sqlizer { return loudnessReasonFilter("", reason) }
+
+// Why a song is on the exceptions page.
+//
+// Grouping by cause is what turns that page from a list into a queue: five
+// songs refused for the same reason are one decision, not five, and without
+// this the only way to act on them together is to pick them out by eye and
+// hope none was missed.
+//
+// The categories mirror ReasonField in ui/src/lufs2/Lufs2Fields.jsx, precedence
+// included - a refusal is reported as a refusal even when the row also carries
+// a decision or a processed status. If the two ever disagree the filter selects
+// rows whose visible reason is something else, which is worse than selecting
+// nothing, so they are pinned together by test.
+func loudnessReasonFilter(_ string, value any) Sqlizer {
+	// coalesced because the join is a LEFT one: a song with no audit row at all
+	// has NULL here, and NULL != 'refused' is NULL rather than true, which
+	// would quietly drop those rows from every negated category.
+	action := "coalesce(media_file_loudness.action, '')"
+	status := "coalesce(media_file_loudness.status, '')"
+	refused := Expr(action+" = ?", model.LoudnessActionRefused)
+	notRefused := Expr(action+" <> ?", model.LoudnessActionRefused)
+	errorLike := func(prefix string) Sqlizer {
+		return Like{"coalesce(media_file_loudness.error, '')": prefix}
+	}
+
+	build := func(one string) Sqlizer {
+		switch one {
+		case "peak_over":
+			return And{refused, errorLike(rejectedByPeak)}
+		case "format_changed":
+			return And{refused, errorLike(rejectedByFormat)}
+		case "missed_target":
+			return And{refused, errorLike(rejectedByLoudness)}
+		case "peaks_trimmed":
+			return And{
+				notRefused,
+				Expr(status+" = ?", model.LoudnessStatusProcessed),
+				Expr(action+" = ?", model.LoudnessActionLimited),
+			}
+		case "needs_trade":
+			// What is left once the two handled cases are removed: the song the
+			// engine will not decide for you. Defined by exclusion for the same
+			// reason the level-two filter is - listing the ways in missed one
+			// and left rows belonging to no category at all.
+			return And{
+				notRefused,
+				Or{
+					Expr(status+" <> ?", model.LoudnessStatusProcessed),
+					Expr(action+" <> ?", model.LoudnessActionLimited),
+				},
+			}
+		}
+		return nil
+	}
+
+	var wanted []string
+	switch v := value.(type) {
+	case string:
+		wanted = []string{v}
+	case []string:
+		wanted = v
+	case []any:
+		for _, item := range v {
+			wanted = append(wanted, fmt.Sprint(item))
+		}
+	default:
+		return nil
+	}
+
+	any := Or{}
+	for _, one := range wanted {
+		if clause := build(one); clause != nil {
+			any = append(any, clause)
+		}
+	}
+	if len(any) == 0 {
+		return nil
+	}
+	return any
+}
+
 func mediaFileLufsTagSort() string {
 	return "cast(coalesce(" +
 		"json_extract(tags, '$.loudnorm_final_lufs[0].value'), " +
@@ -511,9 +608,12 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		// on target - and the finer distinction needs the decision alongside,
 		// which the row already carries for display.
 		"loudness_outcome": loudnessOutcomeFilter,
-		"artists_id":       artistFilter,
-		"library_id":       libraryIdFilter,
-		"path":             containsFilter("media_file.path"),
+		// Why a song is listed, so a page of exceptions can be worked one cause
+		// at a time instead of one row at a time.
+		"loudness_reason": loudnessReasonFilter,
+		"artists_id":      artistFilter,
+		"library_id":      libraryIdFilter,
+		"path":            containsFilter("media_file.path"),
 	}
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {

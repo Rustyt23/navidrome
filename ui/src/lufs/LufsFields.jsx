@@ -214,6 +214,39 @@ export const ActionField = (props) => {
   )
 }
 
+// Which songs a person decided about, rather than the engine.
+//
+// Nothing else on this page can tell them apart. A song whose peaks were capped
+// because someone chose "Limit to target" on the exceptions page and a song
+// whose peaks were capped automatically both read "Levelled + peaks capped" -
+// same verdict, same outcome, same colour. The difference matters when
+// answering for the library: one is the engine's judgement and the other is
+// the client's, and only the second has a person's name on it.
+//
+// Deliberately not a colour. Every other chip in this row means "how did it
+// go", and an orange one here - orange being what the exceptions page uses -
+// would read as a problem on a song that is finished and on target. This says
+// who chose, which is a different axis, so it is drawn as an annotation.
+export const DecisionMarkField = (props) => {
+  const classes = useStyles()
+  const translate = useTranslate()
+  const record = useRecordContext(props)
+  const decision = audit(record)?.decision || ''
+  if (!decision) return <span className={classes.same}>-</span>
+  return (
+    <Tooltip title="Chosen by hand on the Exception LUFS page rather than decided by the engine">
+      <Chip
+        size="small"
+        variant="outlined"
+        label={translate(`resources.lufs2.decision.${decision}`, {
+          _: decision,
+        })}
+        className={classes.chip}
+      />
+    </Tooltip>
+  )
+}
+
 export const LufsPairField = (props) => {
   const record = useRecordContext(props)
   const a = audit(record)

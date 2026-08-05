@@ -41,6 +41,7 @@ import {
   DECISION_LIMIT,
   DECISION_SKIP,
 } from './recommendation'
+import { REASON_CHOICES } from './reason'
 import {
   BestWithoutDistortionField,
   CurrentField,
@@ -66,6 +67,18 @@ const COLUMNS_KEY = 'lufs2.v2'
 const Lufs2Filter = (props) => (
   <Filter {...props} variant={'outlined'}>
     <SearchInput source="title" alwaysOn />
+    {/* Alongside the clickable headline in each row rather than instead of it:
+        the headline is how you get here from a song you are looking at, this is
+        how you get here when you already know which cause you want. Both set
+        the same server-side filter, so a selection made after either covers the
+        whole library and not just the page. */}
+    <SelectInput
+      source="loudness_reason"
+      label="Why it is here"
+      emptyText="-- All --"
+      choices={REASON_CHOICES}
+      alwaysOn
+    />
     <SelectInput
       source="loudness_decision"
       label="Decision"
@@ -292,10 +305,14 @@ const Lufs2List = (props) => {
           sortable={false}
         />
       ),
+      // Named for what someone comes to it for. "Decision" answered "what did
+      // I choose", which they already knew - the question the page could not
+      // answer was "and what did that do to the song".
       decision: (
         <DecisionField
           source="decision"
-          label="Decision"
+          label="Final result"
+          settings={settings}
           sortBy="loudness_decision"
         />
       ),

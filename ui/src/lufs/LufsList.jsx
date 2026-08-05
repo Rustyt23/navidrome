@@ -28,6 +28,7 @@ import {
   BitratePairField,
   ChannelsPairField,
   CodecPairField,
+  DecisionMarkField,
   DurationDiffField,
   GainField,
   IntegrityField,
@@ -93,6 +94,19 @@ const LufsFilter = (props) => (
         { id: 'failed', name: 'Could not process' },
       ]}
     />
+    {/* The songs that went through the exceptions page. Not alwaysOn: it
+        answers a question about a handful of songs out of hundreds, so it
+        earns a place in the filter menu rather than a permanent seat. */}
+    <SelectArrayInput
+      source="loudness_decision"
+      label="Chosen by hand"
+      style={{ minWidth: 200 }}
+      choices={[
+        { id: 'limit', name: 'Limit to target' },
+        { id: 'gain_ceiling', name: 'Gain to ceiling' },
+        { id: 'skip', name: 'Leave alone' },
+      ]}
+    />
   </Filter>
 )
 
@@ -145,6 +159,15 @@ const LufsList = (props) => {
         />
       ),
       lufs: <LufsPairField source="lufs" label="LUFS" sortBy="lufs_before" />,
+      // Which songs came off the exceptions page. Sortable, so they group
+      // together rather than having to be hunted for.
+      decision: (
+        <DecisionMarkField
+          source="decision"
+          label="Chosen by hand"
+          sortBy="loudness_decision"
+        />
+      ),
       gain: <GainField source="gain" label="Gain" sortBy="gain_applied" />,
       truePeak: (
         <TruePeakField source="truePeak" label="True Peak" sortBy="tp_before" />

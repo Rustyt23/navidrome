@@ -394,7 +394,20 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 			// separate write that only logs if it fails, and the cost of it
 			// having failed is re-applying a choice the client has just undone.
 			squirrel.Expr("media_file_loudness.restored_at is null"),
-			squirrel.Eq{"media_file_loudness.phase": loudness.PhaseReview},
+			// The decision is the gate, not the phase.
+			//
+			// This used to require phase = 2 as well, on the assumption that a
+			// decision only ever exists on a song the planner sent to review.
+			// That stopped being true once refused songs were listed on the
+			// exceptions page: those are phase 1, a person can decide on them,
+			// and the extra clause then matched nothing at all. "Apply
+			// decisions" started a run, selected zero songs and reported
+			// success - the worst possible way to do nothing.
+			//
+			// Every guard that matters is still here. The decision itself means
+			// a person chose this song, which is what the phase was standing in
+			// for, and skip is excluded below because leaving a song alone is
+			// not work to be done.
 			squirrel.Eq{"media_file_loudness.decision": []string{
 				loudness.DecisionLimit, loudness.DecisionCeiling,
 			}},

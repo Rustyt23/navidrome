@@ -279,6 +279,12 @@ export const optionsFor = (rec) => {
   return {
     [DECISION_LIMIT]: {
       lands: `${fmtLufs(rec.target)} LUFS`,
+      // The compact form, for the two columns that show an outcome in one
+      // line. Derived here rather than beside them so a wording fix reaches
+      // both, and so neither can drift from the long form underneath it.
+      short: limitCuts
+        ? `${fmtMag(rec.peakOverBy)} dB off the peaks`
+        : 'volume only, peaks untouched',
       gain: 'hits the target exactly',
       cost: !limitCuts
         ? 'nothing comes off the peaks - this one is only a volume change'
@@ -289,11 +295,13 @@ export const optionsFor = (rec) => {
     [DECISION_CEILING]: ceilingMoves
       ? {
           lands: `${fmtLufs(rec.loudnessAtCeiling)} LUFS`,
+          short: `${fmtMag(rec.shortfall)} dB short, audio untouched`,
           gain: 'the waveform is not reshaped at all - only the volume moves',
           cost: `it lands ${distanceTo(rec.loudnessAtCeiling, rec.target)}`,
         }
       : {
           lands: `${fmtLufs(rec.lufs)} LUFS`,
+          short: 'no change - same as leaving it alone',
           // One clause, not a gain weighed against a cost, because there is no
           // trade here to weigh. Forcing it into the "X, but Y" shape produced
           // "nothing happens, but it is the same as leaving it alone", which
@@ -305,6 +313,7 @@ export const optionsFor = (rec) => {
         },
     [DECISION_SKIP]: {
       lands: `${fmtLufs(rec.lufs)} LUFS`,
+      short: 'left as it is',
       gain: 'the file is never rewritten, so it keeps the quality it has',
       cost: `it stays ${distanceTo(rec.lufs, rec.target)}`,
     },

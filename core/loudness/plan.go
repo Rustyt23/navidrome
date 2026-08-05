@@ -214,6 +214,41 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 //
 // Returns ok=false when nothing should be done to the file.
 func SpecFor(plan Plan, decision string, source *ffmpeg.FileProbe, target, ceiling float64) (spec ffmpeg.ApplySpec, expectedLUFS float64, ok bool) {
+	// Already where it should be, so there is nothing for anyone to decide.
+	// Checked before the decision, because a decision overrules the planner's
+	// judgement about HOW to correct a song, not the fact that it needs no
+	// correcting - and "limit to target" on a song already at the target is a
+	// re-encode that buys nothing and costs a generation of quality.
+	if plan.Phase == PhaseDone {
+		return ffmpeg.ApplySpec{}, 0, false
+	}
+
+	// A decision outranks the plan, whatever phase the planner arrived at.
+	//
+	// The phase is this package's opinion about how a song should be handled.
+	// The decision is a person overruling it, and there is no reading of "the
+	// client chose Limit to target" under which the answer is to apply a plain
+	// gain instead. This used to be nested inside case PhaseReview, so a
+	// decision recorded on a phase 1 song was silently discarded and the run
+	// repeated the pure gain that had already been refused - the same refusal,
+	// every time, with the client's choice on screen throughout.
+	//
+	// Skip is answered here too. Left to fall through it reached the phase
+	// switch below and a song marked "leave alone" was gained anyway.
+	switch decision {
+	case DecisionLimit:
+		return ffmpeg.ApplySpec{
+			GainDB:        plan.GainToTarget,
+			LimitTruePeak: true,
+			CeilingDB:     ceiling,
+			Source:        source,
+		}, target, true
+	case DecisionCeiling:
+		return gainOnly(plan.TransparentGain, source, plan.LoudnessAtCeiling)
+	case DecisionSkip:
+		return ffmpeg.ApplySpec{}, 0, false
+	}
+
 	switch plan.Phase {
 	case PhaseGain:
 		// SafeGain equals GainToTarget whenever there is headroom for it, and
@@ -228,18 +263,6 @@ func SpecFor(plan Plan, decision string, source *ffmpeg.FileProbe, target, ceili
 			CeilingDB:     ceiling,
 			Source:        source,
 		}, target, true
-	case PhaseReview:
-		switch decision {
-		case DecisionLimit:
-			return ffmpeg.ApplySpec{
-				GainDB:        plan.GainToTarget,
-				LimitTruePeak: true,
-				CeilingDB:     ceiling,
-				Source:        source,
-			}, target, true
-		case DecisionCeiling:
-			return gainOnly(plan.TransparentGain, source, plan.LoudnessAtCeiling)
-		}
 	}
 	return ffmpeg.ApplySpec{}, 0, false
 }

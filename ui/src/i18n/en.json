@@ -425,7 +425,10 @@
         "nullResidual": "Null test residual",
         "analyzedAt": "Analyzed at",
         "originalLufs": "Original LUFS",
-        "report": "Report"
+        "report": "Report",
+        "decision": "Chosen by hand",
+        "loudness_decision": "Chosen by hand",
+        "outcome": "Outcome"
       },
       "status": {
         "not_analyzed": "Not analyzed",

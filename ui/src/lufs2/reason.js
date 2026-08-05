@@ -44,7 +44,20 @@ const list = (parts) =>
     ? parts.join('')
     : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
 
-// explainRefusal turns one engine rejection into a headline and a sentence.
+// The causes a song can be listed under, and the filter values that select
+// them. These are the ids the server's loudness_reason filter understands - the
+// two sets have to stay identical, because a row offering to select "everything
+// like this one" and then selecting something else is worse than not offering.
+export const REASON_PEAK = 'peak_over'
+export const REASON_FORMAT = 'format_changed'
+export const REASON_MISSED = 'missed_target'
+export const REASON_TRIMMED = 'peaks_trimmed'
+export const REASON_TRADE = 'needs_trade'
+
+// explainRefusal turns one engine rejection into a category, a headline and a
+// sentence. A shape this file cannot read gets no category, so it is described
+// but not offered as something to bulk-select: the server would not agree about
+// what "like this one" meant.
 export const explainRefusal = (error) => {
   const text = String(error || '')
 
@@ -52,6 +65,9 @@ export const explainRefusal = (error) => {
   if (both) {
     const [, got, want, peak, ceiling] = both.map(Number)
     return {
+      // rejection() writes this when both checks failed. It opens "landed at",
+      // so the server files it under missed_target and this must agree.
+      id: REASON_MISSED,
       headline: 'The rewrite missed on loudness and peaks',
       detail:
         `The re-encoded copy came out at ${fmtLufs(got)} LUFS instead of ${fmtLufs(want)}, ` +
@@ -66,6 +82,7 @@ export const explainRefusal = (error) => {
     const ceiling = Number(peak[2])
     const over = got - ceiling
     return {
+      id: REASON_PEAK,
       headline: 'Re-encoding pushed the peaks back up',
       detail:
         `Turning the song up worked, but writing it back to MP3 lifted the peaks to ${fmtLufs(got)} dBTP, ` +
@@ -79,6 +96,7 @@ export const explainRefusal = (error) => {
     const got = Number(loudness[1])
     const want = Number(loudness[2])
     return {
+      id: REASON_MISSED,
       headline: 'The rewrite did not land on the target',
       detail:
         `The re-encoded copy measured ${fmtLufs(got)} LUFS instead of ${fmtLufs(want)}, ` +
@@ -93,6 +111,7 @@ export const explainRefusal = (error) => {
       ([, said]) => said,
     )
     return {
+      id: REASON_FORMAT,
       headline: 'The rewrite came back a different file',
       detail:
         (found.length
@@ -104,7 +123,55 @@ export const explainRefusal = (error) => {
   }
 
   return {
+    // Deliberately no id: the server has no category for an error shape this
+    // file does not recognise, so there is nothing honest to select.
+    id: null,
     headline: 'The rewrite was rejected',
     detail: text ? `${text}. ${INTACT}` : INTACT,
   }
 }
+
+// reasonFor answers "why is this song listed", for one row.
+//
+// The precedence is the load-bearing part and it is mirrored in
+// loudnessReasonFilter in persistence/mediafile_repository.go: a refusal is
+// reported as a refusal even when the row also carries a processed status, so a
+// bulk action aimed at trimmed songs can never reach a refused one.
+export const reasonFor = (record, rec) => {
+  const a = record?.loudnessAudit
+  if (a?.action === 'refused') return explainRefusal(a.error)
+
+  if (a?.status === 'processed' && a?.action === 'limited') {
+    const from = a.lufsBefore == null ? null : Number(a.lufsBefore)
+    const to = a.lufsAfter == null ? null : Number(a.lufsAfter)
+    return {
+      id: REASON_TRIMMED,
+      headline: 'Peaks trimmed - done',
+      detail:
+        from != null && to != null
+          ? `${fmtLufs(from)} -> ${fmtLufs(to)} · restorable`
+          : 'restorable',
+      tone: 'ok',
+    }
+  }
+
+  if (!rec) return null
+  return {
+    id: REASON_TRADE,
+    headline: 'Too quiet to fix without a trade',
+    detail:
+      `This song sits ${fmtMag(rec.lufs - rec.target)} dB below the target and its peaks are already ` +
+      `near the limit. Reaching ${fmtLufs(rec.target)} means cutting ${fmtMag(rec.peakOverBy)} dB off them, ` +
+      `which is deep enough to hear on drums and transients.`,
+  }
+}
+
+// What the filter dropdown offers. Same ids, same order the page tends to show
+// them in.
+export const REASON_CHOICES = [
+  { id: REASON_PEAK, name: 'Re-encoding pushed the peaks back up' },
+  { id: REASON_TRADE, name: 'Too quiet to fix without a trade' },
+  { id: REASON_FORMAT, name: 'The rewrite came back a different file' },
+  { id: REASON_MISSED, name: 'The rewrite did not land on the target' },
+  { id: REASON_TRIMMED, name: 'Peaks trimmed - done' },
+]

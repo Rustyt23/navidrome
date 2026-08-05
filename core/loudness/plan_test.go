@@ -434,3 +434,57 @@ func TestPlanStillTrimsQuietlyInsideTheLeaveAloneBand(t *testing.T) {
 			p.Phase, PhaseTrim)
 	}
 }
+
+// A decision is a person overruling the planner, and it has to reach the
+// transform whatever phase the planner arrived at.
+//
+// The five songs that exposed this were all phase 1: planned as a plain gain,
+// built, refused for peaks, listed on the exceptions page, and given a
+// decision. SpecFor read the decision only under case PhaseReview, so it was
+// discarded and the run repeated the same pure gain - and earned the same
+// refusal - with "Limit to target" showing on screen the whole time.
+func TestSpecForHonoursADecisionOnAnyPhase(t *testing.T) {
+	// Window to the Soul: 1.25 dB below target, peaks with almost no room.
+	p := PlanFor(-13.85, -1.28, testTarget, testCeiling, testTolerance, 320)
+	if p.Phase != PhaseGain {
+		t.Fatalf("fixture no longer exercises the bug: phase is %d, wanted %d", p.Phase, PhaseGain)
+	}
+
+	spec, expected, ok := SpecFor(p, DecisionLimit, &ffmpeg.FileProbe{}, testTarget, testCeiling)
+	if !ok {
+		t.Fatal("a decision to limit produced no transform at all")
+	}
+	if !spec.LimitTruePeak {
+		t.Error("limit to target must engage the limiter; without it this is the gain that was already refused")
+	}
+	if math.Abs(spec.GainDB-p.GainToTarget) > 0.001 {
+		t.Errorf("gain %.2f, wanted the full %.2f to the target", spec.GainDB, p.GainToTarget)
+	}
+	if math.Abs(expected-testTarget) > 0.001 {
+		t.Errorf("expected loudness %.2f, wanted the target %.2f", expected, testTarget)
+	}
+
+	// The other choice on the same song: lift it as far as the peaks allow and
+	// reshape nothing.
+	ceilingSpec, _, ok := SpecFor(p, DecisionCeiling, &ffmpeg.FileProbe{}, testTarget, testCeiling)
+	if !ok {
+		t.Fatal("a decision to gain to the ceiling produced no transform")
+	}
+	if ceilingSpec.LimitTruePeak {
+		t.Error("gain to ceiling must not reshape the waveform")
+	}
+}
+
+// "Leave alone" has to mean it on every phase too. Answered only under
+// PhaseReview, a skip on a phase 1 song fell through to the plan and the song
+// was gained anyway - the one outcome the client explicitly ruled out.
+func TestSpecForSkipLeavesTheFileAlone(t *testing.T) {
+	for _, p := range []Plan{
+		PlanFor(-13.85, -1.28, testTarget, testCeiling, testTolerance, 320), // phase 1
+		PlanFor(-16.56, -1.25, testTarget, testCeiling, testTolerance, 320), // phase 2
+	} {
+		if _, _, ok := SpecFor(p, DecisionSkip, &ffmpeg.FileProbe{}, testTarget, testCeiling); ok {
+			t.Errorf("phase %d: a song marked skip was given a transform", p.Phase)
+		}
+	}
+}

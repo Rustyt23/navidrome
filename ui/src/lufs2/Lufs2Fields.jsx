@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { useRecordContext, useTranslate } from 'react-admin'
+import { useListContext, useRecordContext, useTranslate } from 'react-admin'
 import { Chip, Collapse, Link, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import {
@@ -12,7 +12,7 @@ import {
   optionsFor,
   recommendationFor,
 } from './recommendation'
-import { explainRefusal } from './reason'
+import { reasonFor } from './reason'
 
 const useStyles = makeStyles((theme) => ({
   muted: { color: theme.palette.text.secondary },
@@ -46,6 +46,14 @@ const useStyles = makeStyles((theme) => ({
     whiteSpace: 'normal',
   },
   detailRow: { marginBottom: 3 },
+  // Underlined on hover only: eight underlined headlines at once would read as
+  // a page of warnings rather than a page of links.
+  reasonLink: {
+    fontWeight: 600,
+    textAlign: 'left',
+    textDecoration: 'none',
+    '&:hover': { textDecoration: 'underline' },
+  },
   detailKey: { fontWeight: 700 },
 }))
 
@@ -140,17 +148,10 @@ export const OptionCeilingField = (props) => {
 // audit. Everything anyone acts on is the landing loudness and what it costs,
 // so that is what the row says; the four columns still exist behind the column
 // picker for whoever wants to check the working.
-const landing = (rec) => {
-  switch (rec.suggested) {
-    case DECISION_LIMIT:
-      return rec.peakOverBy > 0.005
-        ? `${fmtLufs(rec.target)} LUFS · ${fmtMag(rec.peakOverBy)} dB off the peaks`
-        : `${fmtLufs(rec.target)} LUFS · volume only, peaks untouched`
-    case DECISION_CEILING:
-      return `${fmtLufs(rec.loudnessAtCeiling)} LUFS · ${fmtMag(rec.shortfall)} dB short, audio untouched`
-    default:
-      return `${fmtLufs(rec.lufs)} LUFS · left as it is`
-  }
+const landing = (rec, decision = rec.suggested) => {
+  const outcome = optionsFor(rec)[decision]
+  if (!outcome) return `${fmtLufs(rec.lufs)} LUFS · left as it is`
+  return `${outcome.lands} · ${outcome.short}`
 }
 
 const DECISION_KEY = {
@@ -289,61 +290,68 @@ export const BestWithoutDistortionField = (props) => {
   )
 }
 
-// Why this song is on this page at all. Two things land here and they need
-// different answers: one is a trade for the client to weigh, the other is a
-// file nothing automatic can help with.
+// Why this song is on this page at all, and a way to see everything else here
+// for the same reason.
+//
+// Eight rows with five distinct causes between them is five decisions, not
+// eight, but only if the causes can be separated. Clicking the headline sets
+// the server-side loudness_reason filter, so the selection that follows covers
+// every song with that cause across the whole library rather than the ones that
+// happen to be on this page.
 export const ReasonField = (props) => {
   const classes = useStyles()
   const record = useRecordContext(props)
-  const a = record?.loudnessAudit
-  if (a?.action === 'refused') {
-    const { headline, detail } = explainRefusal(a.error)
-    // Amber, not red. A refusal here means the engine produced a file, judged
-    // it not good enough and threw it away - the song on disk is exactly as it
-    // was. Red says damage was done, which is the opposite of what happened,
-    // and on a page shown to a client that reads as a fault to answer for.
-    return (
-      // The raw engine text stays reachable, because someone eventually has to
-      // debug one of these and the sentence above is deliberately not it.
-      <Tooltip title={a.error || ''}>
-        <span className={classes.wrap}>
-          <span className={classes.warn}>{headline}</span>
-          <span className={`${classes.sub} ${classes.muted}`}>{detail}</span>
-        </span>
-      </Tooltip>
-    )
-  }
-  // Already dealt with, and staying on the list. A song whose peaks were
-  // trimmed is the one kind that leaves this page altered rather than
-  // untouched, so it is exactly what someone would come here to check or undo.
-  if (a?.status === 'processed' && a?.action === 'limited') {
-    const from = a.lufsBefore == null ? null : Number(a.lufsBefore)
-    const to = a.lufsAfter == null ? null : Number(a.lufsAfter)
-    return (
-      <span className={classes.nowrap}>
-        <span className={classes.ok}>Peaks trimmed - done</span>
-        <span className={`${classes.sub} ${classes.muted}`}>
-          {from != null && to != null
-            ? `${fmtLufs(from)} → ${fmtLufs(to)} · restorable`
-            : 'restorable'}
-        </span>
-      </span>
-    )
-  }
+  const { setFilters, filterValues, displayedFilters } = useListContext(props)
   const rec = recommendationFor(record, props.settings)
-  if (!rec) return <span className={classes.muted}>-</span>
-  // Not a failure - a question. The song has no headroom left, so the target
-  // and the untouched waveform cannot both be had, and which one to give up is
-  // the client's call rather than ours.
+  const reason = reasonFor(record, rec)
+
+  const showOnlyThis = useCallback(
+    (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      // displayedFilters passed through rather than dropped: it is what keeps
+      // the filter chips someone has already opened on screen. Clearing it
+      // would fold away the Decision filter mid-review.
+      setFilters(
+        { ...filterValues, loudness_reason: reason?.id },
+        displayedFilters,
+      )
+    },
+    [setFilters, filterValues, displayedFilters, reason?.id],
+  )
+
+  if (!reason) return <span className={classes.muted}>-</span>
+
+  // Amber for a refusal, not red. It means the engine produced a file, judged
+  // it not good enough and threw it away - the song on disk is exactly as it
+  // was. Red says damage was done, which is the opposite of what happened, and
+  // on a page shown to a client that reads as a fault to answer for.
+  const tone = reason.tone === 'ok' ? classes.ok : classes.warn
+  const alreadyFiltered = filterValues?.loudness_reason === reason.id
+
   return (
-    <span className={classes.wrap}>
-      <span className={classes.warn}>Too quiet to fix without a trade</span>
-      <span className={`${classes.sub} ${classes.muted}`}>
-        {`This song sits ${fmtMag(rec.lufs - rec.target)} dB below the target and its peaks are already ` +
-          `near the limit. Reaching ${fmtLufs(rec.target)} means cutting ${fmtMag(rec.peakOverBy)} dB off them, ` +
-          `which is deep enough to hear on drums and transients.`}
+    // The raw engine text stays reachable, because someone eventually has to
+    // debug one of these and the sentence above is deliberately not it.
+    <Tooltip title={record?.loudnessAudit?.error || ''}>
+      <span className={classes.wrap}>
+        {reason.id && !alreadyFiltered ? (
+          <Link
+            component="button"
+            type="button"
+            onClick={showOnlyThis}
+            className={`${classes.reasonLink} ${tone}`}
+            title="Show every song listed for this reason"
+          >
+            {reason.headline}
+          </Link>
+        ) : (
+          <span className={tone}>{reason.headline}</span>
+        )}
+        <span className={`${classes.sub} ${classes.muted}`}>
+          {reason.detail}
+        </span>
       </span>
-    </span>
+    </Tooltip>
   )
 }
 
@@ -351,11 +359,8 @@ export const DecisionField = (props) => {
   const classes = useStyles()
   const translate = useTranslate()
   const record = useRecordContext(props)
-  const decision = record?.loudnessAudit?.decision || ''
-  // A run that produced a file and then threw it away records why. Shown here
-  // because this is where anyone looks when a decision was made and nothing
-  // happened.
-  const rejected = record?.loudnessAudit?.error || ''
+  const a = record?.loudnessAudit
+  const decision = a?.decision || ''
   const styleFor = {
     [DECISION_LIMIT]: classes.limit,
     [DECISION_CEILING]: classes.ceiling,
@@ -373,13 +378,63 @@ export const DecisionField = (props) => {
       )}
     />
   )
-  if (!rejected) return chip
-  return (
-    <Tooltip title={rejected}>
-      <span>
+
+  const rec = recommendationFor(record, props.settings)
+  // Applied, and the file on disk is the result of it. Measured rather than
+  // predicted: once the work is done the estimate is no longer the interesting
+  // number, and showing it beside a file it no longer describes is how a page
+  // starts lying.
+  //
+  // A restored song is excluded: its audit still carries the measurements from
+  // the run, but the file underneath is the original again, so those figures
+  // describe audio that is no longer there.
+  const applied =
+    !a?.restoredAt && a?.lufsAfter != null ? Number(a.lufsAfter) : null
+
+  if (applied != null) {
+    const target = rec?.target ?? -12.6
+    const tolerance = props.settings?.tolerance ?? 0.2
+    const onTarget = Math.abs(applied - target) <= tolerance
+    return (
+      <span className={classes.cell}>
+        <span className={classes.nowrap}>
+          <span
+            className={onTarget ? classes.ok : classes.warn}
+          >{`${fmtLufs(applied)} LUFS`}</span>
+        </span>
+        <span className={`${classes.sub} ${classes.muted}`}>
+          {(a.tpAfter != null
+            ? `peak ${fmtLufs(Number(a.tpAfter))} dBTP · `
+            : '') +
+            (onTarget
+              ? 'done, on target'
+              : `done, ${fmtMag(applied - target)} dB ${applied > target ? 'louder than' : 'below'} ${fmtLufs(target)}`)}
+        </span>
         {chip}
-        <span className={`${classes.sub} ${classes.bad}`}>{rejected}</span>
       </span>
-    </Tooltip>
+    )
+  }
+
+  // Chosen but not run yet, so the honest thing to show is what it will do -
+  // flagged as a forecast, because a bare number here is indistinguishable from
+  // a measurement and this one has not happened.
+  if (decision && rec) {
+    return (
+      <span className={classes.cell}>
+        {chip}
+        <span className={`${classes.sub} ${classes.muted}`}>
+          {`expected: ${landing(rec, decision)}`}
+        </span>
+      </span>
+    )
+  }
+
+  return (
+    <span className={classes.cell}>
+      {chip}
+      <span className={`${classes.sub} ${classes.muted}`}>
+        nothing applied yet
+      </span>
+    </span>
   )
 }
