@@ -24,8 +24,12 @@ type loudnessSummary struct {
 	Songs int64 `json:"songs"`
 	// OnTarget counts songs measuring within tolerance of the target, whether
 	// they had to be changed to get there or were already fine.
+	//
+	// OnTarget, LevelTwo, Exceptions and NotMeasured partition the library: every
+	// song is in exactly one. "Short of target" used to sit alongside them and
+	// did not partition anything - it overlapped both LevelTwo and Exceptions, so
+	// the panel invited adding numbers that double-counted.
 	OnTarget int64 `json:"onTarget"`
-	Short    int64 `json:"short"`
 	// NotMeasured is songs nothing is known about yet - the work still to do.
 	NotMeasured int64 `json:"notMeasured"`
 	// Changed counts songs whose files were rewritten. The difference between
@@ -74,7 +78,6 @@ func (n *Router) loudnessSummaryHandler() http.HandlerFunc {
 
 		summary.Songs = count(present)
 		summary.OnTarget = count(withOutcome("on_target"))
-		summary.Short = count(withOutcome("short"))
 		summary.NotMeasured = count(withOutcome("not_measured"))
 		summary.Changed = count(squirrel.And{present,
 			squirrel.Eq{"media_file_loudness.status": model.LoudnessStatusProcessed}})

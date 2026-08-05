@@ -313,17 +313,21 @@ func LoudnessLevelTwoFilter() Sqlizer {
 	outsideOrdinary := Expr(
 		fmt.Sprintf("abs(%s - ?) > ?", measured), options.TargetLUFS, tolerance)
 
-	return And{
-		withinBand,
-		outsideOrdinary,
-		Or{
-			// The planner decided in advance not to ask.
-			Eq{"media_file_loudness.phase": loudnessPhaseCloseEnough},
-			// Or it tried, could not ship the result, and the track was close
-			// enough that the failure is not worth reporting.
-			Eq{"media_file_loudness.action": model.LoudnessActionRefused},
-		},
+	// Defined as the complement of the exceptions list rather than by
+	// enumerating the ways a track gets here. There turned out to be a third:
+	// a track gained as far as its peaks allowed, accepted, and still a fraction
+	// short. Listing the routes meant that one fell through every category and
+	// the panel silently failed to account for it.
+	//
+	// Built from the exception filter itself so the two cannot drift apart: a
+	// track in this band is level two exactly when nobody has to act on it.
+	sql, args, err := loudnessExceptionFilter("", nil).ToSql()
+	if err != nil {
+		// Nothing usable to negate, so claim nothing rather than claim
+		// everything.
+		return Expr("1 = 0")
 	}
+	return And{withinBand, outsideOrdinary, Expr("not ("+sql+")", args...)}
 }
 
 func loudnessExceptionFilter(_ string, _ any) Sqlizer {

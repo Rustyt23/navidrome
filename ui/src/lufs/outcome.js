@@ -24,13 +24,22 @@ const PHASE_CLOSE_ENOUGH = 4
 // Mirrors leaveAloneToleranceDB in core/loudness.
 const LEVEL_TWO_TOLERANCE = 0.5
 
-// isLevelTwo: held to the wider tolerance rather than corrected.
+// isException mirrors the server's exceptions filter: the songs a person still
+// has to do something about.
+const isException = (audit, offBy) =>
+  audit.phase !== PHASE_CLOSE_ENOUGH &&
+  (!!audit.wasException ||
+    audit.phase === 2 ||
+    (audit.action === 'refused' && offBy > LEVEL_TWO_TOLERANCE) ||
+    !!audit.decision)
+
+// isLevelTwo: outside the ordinary tolerance, within half a decibel, and
+// nobody has to act on it.
 //
-// Two ways in, and they have to be read together or half of them show up as
-// something else. The planner can decide in advance not to ask about a track;
-// or it can try, fail to ship a result, and the track turns out to have been
-// close enough that the failure was not worth reporting. Both end up untouched
-// and near target, which is one state, not two.
+// Defined as "not an exception" rather than by listing the ways a song gets
+// here. Listing them missed one - a song gained as far as its peaks allowed,
+// accepted, and still a fraction short - which then belonged to no category at
+// all and quietly went missing from the library totals.
 export const isLevelTwo = (audit, settings) => {
   if (!audit) return false
   const target = settings?.targetLUFS ?? -12.6
@@ -42,7 +51,7 @@ export const isLevelTwo = (audit, settings) => {
 
   const offBy = Math.abs(now - target)
   if (offBy <= tolerance || offBy > LEVEL_TWO_TOLERANCE) return false
-  return audit.phase === PHASE_CLOSE_ENOUGH || audit.action === 'refused'
+  return !isException(audit, offBy)
 }
 
 // outcomeFor reports where a song ended up relative to the target.
