@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/navidrome/navidrome/log"
 )
 
 // staleReplayGainTags are the tags that describe the OLD level. Carried over
@@ -143,10 +145,49 @@ func (s ApplySpec) filter() string {
 	return strings.Join(chain, ",")
 }
 
+// artDecoderCandidates are tried, in order, when cover art will not copy.
+//
+// JPEG first because it is what mislabelled art almost always turns out to be:
+// taggers write image/png over JPEG bytes far more often than the reverse.
+// Neither can be assumed - forcing mjpeg on genuine PNG art fails exactly the
+// same way in reverse - so both are tried and the file itself settles it.
+var artDecoderCandidates = []string{"mjpeg", "png"}
+
 // Apply writes inputPath to outputPath with the level change applied and every
 // other property preserved: same codec, bitrate, sample rate, bit depth,
 // channel count, metadata, chapters and embedded cover art.
+//
+// Cover art whose declared format is wrong gets a second attempt with the
+// decoder forced. Ten songs in a real library carried an ID3 APIC frame
+// claiming image/png over JPEG bytes; ffmpeg trusted the claim, could not read
+// a PNG header, and left the stream with no dimensions, at which point copying
+// it failed at the muxer and killed the whole conversion. Those songs failed
+// silently on every run. Naming the decoder gets them through, and the art
+// comes out correctly labelled rather than merely surviving.
 func Apply(ctx context.Context, inputPath, outputPath string, spec ApplySpec) error {
+	err := applyOnce(ctx, inputPath, outputPath, spec, "")
+	// Only art that already probed as unreadable earns another attempt. Without
+	// that guard every genuine failure - a full disk, a bad codec, a killed
+	// process - would be paid for three times over.
+	if err == nil || !spec.Source.HasArt || !spec.Source.ArtUndecodable {
+		return err
+	}
+	for _, decoder := range artDecoderCandidates {
+		if retryErr := applyOnce(ctx, inputPath, outputPath, spec, decoder); retryErr == nil {
+			log.Debug(ctx, "Cover art would not copy; forced a decoder that reads it",
+				"path", inputPath, "decoder", decoder)
+			return nil
+		}
+	}
+	// The first error is the one returned: it describes the file as it is,
+	// where the retries describe guesses that were made about it.
+	return err
+}
+
+// applyOnce is one ffmpeg invocation. forceArtDecoder, when set, overrides the
+// decoder ffmpeg picks for the cover art stream - an input option, so it has to
+// precede -i.
+func applyOnce(ctx context.Context, inputPath, outputPath string, spec ApplySpec, forceArtDecoder string) error {
 	cmdPath, err := ffmpegCmd()
 	if err != nil {
 		return err
@@ -159,11 +200,15 @@ func Apply(ctx context.Context, inputPath, outputPath string, spec ApplySpec) er
 		return err
 	}
 
-	args := []string{"-nostdin", "-hide_banner", "-y", "-i", inputPath,
+	args := []string{"-nostdin", "-hide_banner", "-y"}
+	if forceArtDecoder != "" {
+		args = append(args, "-c:v", forceArtDecoder)
+	}
+	args = append(args, "-i", inputPath,
 		"-map", "0:a:0",
 		"-map_metadata", "0",
 		"-map_chapters", "0",
-	}
+	)
 	// Carry the embedded cover art across. It must be mapped AND marked as an
 	// attached picture, otherwise the muxer drops it - which is how artwork
 	// was being destroyed.

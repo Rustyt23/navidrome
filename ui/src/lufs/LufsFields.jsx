@@ -5,6 +5,7 @@ import { Chip, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import { nullFloorFor, reportFor } from './report'
 import { isLevelTwo, outcomeFor } from './outcome'
+import { explainFailure } from './failure'
 
 const useStyles = makeStyles((theme) => ({
   chip: {
@@ -43,6 +44,23 @@ const useStyles = makeStyles((theme) => ({
     gap: 6,
   },
   sub: { fontSize: '0.72rem' },
+  // Wraps, unlike everything else in this row. It is a sentence written to be
+  // read, and a sentence clipped at the column edge is not one.
+  failure: { display: 'block', whiteSpace: 'normal', maxWidth: 300 },
+  failureHeadline: {
+    display: 'block',
+    color: '#ef5350',
+    fontWeight: 600,
+    fontSize: '0.75rem',
+    marginTop: 3,
+  },
+  failureDetail: {
+    display: 'block',
+    fontSize: '0.7rem',
+    lineHeight: 1.45,
+    color: theme.palette.text.secondary,
+    marginTop: 2,
+  },
   reportHeading: {
     fontWeight: 700,
     fontSize: '0.72rem',
@@ -144,7 +162,38 @@ export const VerdictField = (props) => {
       className={`${classes.chip} ${verdictClass(classes, verdict)}`}
     />
   )
-  return a.error ? <Tooltip title={a.error}>{chip}</Tooltip> : chip
+  if (!a.error) return chip
+
+  // Only a song that actually failed gets the explanation. The error column is
+  // general-purpose - it also holds notes about things that went wrong beside
+  // the main job and did not stop it, like a null test that could not run -
+  // and keying off "has any error text" put a red "no readable audio" notice
+  // under ten songs whose own verdict, two inches to the left, said they were
+  // optimised, on target and intact. A row that contradicts itself is worse
+  // than a row that says nothing.
+  //
+  // Everything else keeps the error in the tooltip, where it was before.
+  if (a.status !== 'failed') {
+    return <Tooltip title={a.error}>{chip}</Tooltip>
+  }
+
+  // A song that could not be processed is the one row on this page somebody has
+  // to do something about, and "Could not process" does not say what. The
+  // reason is put on screen rather than in a tooltip: a reason you have to
+  // hover to find is one nobody reads while scanning six hundred rows.
+  //
+  // The engine's own words stay in the tooltip, because whoever debugs this
+  // eventually needs them and the sentence above is deliberately not them.
+  const { headline, detail } = explainFailure(a.error)
+  return (
+    <Tooltip title={a.error}>
+      <span className={classes.failure}>
+        {chip}
+        <span className={classes.failureHeadline}>{headline}</span>
+        <span className={classes.failureDetail}>{detail}</span>
+      </span>
+    </Tooltip>
+  )
 }
 
 // OutcomeField says where the song ended up relative to the target, which is

@@ -8,11 +8,40 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 const (
+	// Quiet, because runCommand merges stdout and stderr: a single warning line
+	// lands in the middle of the JSON and breaks the parse. Files with
+	// mislabelled cover art emit exactly such a line at error level, so raising
+	// the verbosity here to get better messages would stop them probing at all.
 	probeFileCmd = "ffprobe -v quiet -print_format json -show_streams -show_format %s"
+	// Run only after a failure, purely to find out what went wrong. The quiet
+	// probe above reports nothing but an exit status, which told the page
+	// "exit status 1" about a file whose real problem - no audio frames at all -
+	// ffprobe had been perfectly willing to explain.
+	probeReasonCmd = "ffprobe -v error -show_format %s"
 )
+
+// probeFailureReason asks ffprobe why, in its own words.
+//
+// Bounded, because ffmpeg tools can produce screenfuls and this ends up in a
+// database column and on a page. The first lines carry the diagnosis; the rest
+// is banner and stream dumps.
+func probeFailureReason(ctx context.Context, path string) string {
+	args := createFFmpegCommand(probeReasonCmd, path, 0, 0)
+	out, _ := runCommand(ctx, probeTimeout, args[0], args[1:]...)
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > 4 {
+		lines = lines[:4]
+	}
+	return strings.Join(lines, "; ")
+}
 
 // FileProbe is the full container/stream snapshot of one audio file: every
 // property that loudness normalization must leave untouched.
@@ -25,6 +54,18 @@ type FileProbe struct {
 	Duration   float64
 	Size       int64
 	HasArt     bool
+	// ArtUndecodable marks cover art whose declared format does not match its
+	// contents - almost always an ID3 APIC frame that says image/png over
+	// bytes that are actually JPEG.
+	//
+	// ffmpeg believes the declaration, picks the matching decoder, fails to
+	// read a header with it and leaves the stream with no dimensions. Copying
+	// such a stream then fails at the muxer, which needs valid codec
+	// parameters to write the attached-picture header, and takes the whole
+	// conversion down with it. Zero width or height on an art stream is the
+	// tell, and Apply uses it to decide whether forcing a decoder is worth a
+	// second attempt.
+	ArtUndecodable bool
 }
 
 type fullProbeOutput struct {
@@ -45,6 +86,8 @@ type fullProbeStream struct {
 	BitRate          string `json:"bit_rate"`
 	Duration         string `json:"duration"`
 	Channels         int    `json:"channels"`
+	Width            int    `json:"width"`
+	Height           int    `json:"height"`
 	BitsPerSample    int    `json:"bits_per_sample"`
 	BitsPerRawSample string `json:"bits_per_raw_sample"`
 }
@@ -61,6 +104,9 @@ func ProbeFile(ctx context.Context, path string) (*FileProbe, error) {
 	args := createFFmpegCommand(probeFileCmd, path, 0, 0)
 	output, err := runCommand(ctx, probeTimeout, args[0], args[1:]...)
 	if err != nil {
+		if reason := probeFailureReason(ctx, path); reason != "" {
+			return nil, fmt.Errorf("probing %q: %w: %s", path, err, reason)
+		}
 		return nil, fmt.Errorf("probing %q: %w", path, err)
 	}
 
@@ -90,6 +136,9 @@ func ProbeFile(ctx context.Context, path string) (*FileProbe, error) {
 		case "video":
 			// In audio containers a video stream is the embedded cover art
 			res.HasArt = true
+			if s.Width == 0 || s.Height == 0 {
+				res.ArtUndecodable = true
+			}
 		}
 	}
 	if res.Codec == "" {
@@ -159,8 +208,15 @@ func NullResidual(ctx context.Context, beforePath, afterPath string, gainDB floa
 			"[a][b]amerge=inputs=2,pan=mono|c0=c0-c2,astats=metadata=1:reset=0",
 		formatFloat(-gainDB))
 
+	// -vn because this compares audio and nothing else: the filter above only
+	// ever references [0:a] and [1:a]. Without it ffmpeg still decodes both
+	// files' cover art, and art it cannot read takes the whole command down -
+	// exit non-zero, no measurement returned - even though the RMS figure was
+	// computed correctly on the way. Ten songs came back from a real library
+	// optimised, on target and intact, each carrying a null-test failure that
+	// was purely about a picture.
 	args := []string{"-nostdin", "-hide_banner", "-i", beforePath, "-i", afterPath,
-		"-filter_complex", filter, "-f", "null", "-"}
+		"-filter_complex", filter, "-vn", "-f", "null", "-"}
 	// Both files are decoded in full, so allow for the longer of the two.
 	timeout := DecodeTimeout(math.Max(probeDuration(ctx, beforePath), probeDuration(ctx, afterPath)))
 	output, err := runCommand(ctx, timeout, cmdPath, args...)

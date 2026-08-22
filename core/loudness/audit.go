@@ -275,15 +275,32 @@ func MeasureOriginal(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer,
 
 	current, err := Measure(ctx, normalizer, trackPath, target)
 	if err != nil {
-		return &model.LoudnessAudit{
-			MediaFileID: mediaFileID,
-			AnalyzedAt:  time.Now(),
-			Status:      model.LoudnessStatusFailed,
-			Verdict:     model.LoudnessVerdictFailed,
-			Error:       err.Error(),
-		}
+		return FailedAudit(mediaFileID, err)
 	}
 	return analyzedAudit(mediaFileID, current, target, tolerance)
+}
+
+// FailedAudit is the record for a song the engine could not get through at all.
+//
+// It exists so that a hard failure leaves a mark. A run that gave up without
+// writing anything left the song looking untouched: not analysed, not
+// optimised, no error, no count - and picked up again by the next run, to fail
+// the same way for ever. Ten songs in a production library sat in exactly that
+// state, invisible, because ffmpeg could not copy their cover art.
+//
+// The error text is kept verbatim. It is what someone debugging needs, and the
+// UI translates it into something a client can read rather than replacing it.
+func FailedAudit(mediaFileID string, err error) *model.LoudnessAudit {
+	audit := &model.LoudnessAudit{
+		MediaFileID: mediaFileID,
+		AnalyzedAt:  time.Now(),
+		Status:      model.LoudnessStatusFailed,
+		Verdict:     model.LoudnessVerdictFailed,
+	}
+	if err != nil {
+		audit.Error = err.Error()
+	}
+	return audit
 }
 
 // analyzedAudit is the record for a file that was measured and not rewritten:
