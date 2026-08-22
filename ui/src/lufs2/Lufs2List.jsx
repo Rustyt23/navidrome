@@ -16,6 +16,7 @@ import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import { CircularProgress } from '@material-ui/core'
 import {
   BitrateField,
+  DownloadSongsButton,
   List,
   PathField,
   ToggleFieldsMenu,
@@ -105,6 +106,7 @@ const BulkActions = (props) => (
     <SetDecisionButton {...props} decision={DECISION_SKIP} />
     <RecheckButton {...props} />
     <RestoreOriginalButton {...props} />
+    <DownloadSongsButton {...props} />
   </>
 )
 

@@ -22,6 +22,9 @@ type Archiver interface {
 	ZipAlbum(ctx context.Context, id string, format string, bitrate int, w io.Writer) error
 	ZipArtist(ctx context.Context, id string, format string, bitrate int, w io.Writer) error
 	ZipShare(ctx context.Context, id string, w io.Writer) error
+	// ZipMediaFiles archives an arbitrary set of songs, chosen one by one rather
+	// than because they share an album, artist or playlist.
+	ZipMediaFiles(ctx context.Context, ids []string, format string, bitrate int, w io.Writer) error
 	ZipPlaylist(ctx context.Context, id string, format string, bitrate int, w io.Writer) error
 }
 
@@ -98,6 +101,51 @@ func (a *archiver) albumFilename(mf model.MediaFile, format string, isMultiDisc 
 		file = fmt.Sprintf("Disc %02d/%s", mf.DiscNumber, file)
 	}
 	return fmt.Sprintf("%s/%s", str.SanitizeFilename(mf.Album), file)
+}
+
+// ZipMediaFiles archives songs picked out individually.
+//
+// The other Zip* methods start from something that already groups tracks - an
+// album, an artist, a playlist - and read the members out of the database. A
+// hand-picked selection has no such grouping, so the ids are the whole input.
+//
+// They are re-read from the database rather than trusted: an id list arrives
+// from a browser, and the permission checks that decide what a user may see
+// live in the repository. Songs the caller cannot see simply do not come back,
+// so the archive holds what they were allowed to ask for and nothing else.
+//
+// Order follows the id list, because that is the order the person saw on screen
+// and an archive shuffled out of it looks like it fetched the wrong songs.
+func (a *archiver) ZipMediaFiles(ctx context.Context, ids []string, format string, bitrate int, out io.Writer) error {
+	if len(ids) == 0 {
+		return model.ErrNotFound
+	}
+	mfs, err := a.ds.MediaFile(ctx).GetAll(model.QueryOptions{
+		Filters: squirrel.Eq{"media_file.id": ids},
+	})
+	if err != nil {
+		log.Error(ctx, "Error loading media files to archive", "count", len(ids), err)
+		return err
+	}
+	if len(mfs) == 0 {
+		return model.ErrNotFound
+	}
+
+	byID := make(map[string]model.MediaFile, len(mfs))
+	for _, mf := range mfs {
+		byID[mf.ID] = mf
+	}
+	ordered := make(model.MediaFiles, 0, len(mfs))
+	for _, id := range ids {
+		if mf, ok := byID[id]; ok {
+			ordered = append(ordered, mf)
+			delete(byID, id) // a repeated id must not archive the same song twice
+		}
+	}
+
+	log.Debug(ctx, "Zipping selected songs", "requested", len(ids), "found", len(ordered),
+		"format", format, "bitrate", bitrate)
+	return a.zipMediaFiles(ctx, "selection", "selection", format, bitrate, out, ordered, false)
 }
 
 func (a *archiver) ZipShare(ctx context.Context, id string, out io.Writer) error {

@@ -8,6 +8,7 @@ import {
   TextField,
 } from 'react-admin'
 import {
+  DownloadSongsButton,
   DurationField,
   List,
   OptimizeLufsButton,
@@ -127,6 +128,7 @@ const LufsBulkActions = (props) => (
     <AnalyzeLufsButton {...props} />
     <OptimizeLufsButton {...props} />
     <RestoreOriginalButton {...props} />
+    <DownloadSongsButton {...props} />
   </>
 )
 
