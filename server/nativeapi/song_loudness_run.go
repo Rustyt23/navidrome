@@ -47,6 +47,22 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 
 	res, err := loudness.Optimize(ctx, normalizer, trackPath, decision, opts)
 	if err != nil {
+		// Record the failure before giving up. Returning bare left the song with
+		// no audit row at all: not analysed, not optimised, no verdict, and
+		// picked up again by every later run to fail the same way. The only
+		// evidence was a counter in the progress bar, which is gone the moment
+		// the page is reloaded.
+		//
+		// Not written when the run is being cancelled: a track abandoned
+		// mid-stop has not failed, and marking it failed would bury a good
+		// reading under an error the next run would have to clear.
+		if ctx.Err() == nil {
+			recordCtx := context.WithoutCancel(ctx)
+			failed := loudness.FailedAudit(mf.ID, trackPath, err)
+			if putErr := ds.LoudnessAudit(recordCtx).Put(failed); putErr != nil {
+				log.Warn(recordCtx, "Could not save loudness failure record", "id", mf.ID, putErr)
+			}
+		}
 		return res, err
 	}
 

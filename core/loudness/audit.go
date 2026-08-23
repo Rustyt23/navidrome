@@ -442,6 +442,33 @@ func IsLossy(codec string) bool {
 	}
 }
 
+// FailedAudit is the record for a song the engine could not get through.
+//
+// It exists so that a hard failure leaves a mark. optimizeOneTrack used to
+// return bare on error, writing nothing at all, so the song stayed looking
+// untouched: not analysed, not optimised, no error, no verdict - and was picked
+// up again by the next run to fail the same way. The run counted it in a
+// progress bar and the count was the only evidence it ever happened.
+//
+// The verdict separates the two failures that need different answers: a file
+// with no audio in it will never work, and one that broke for some other reason
+// might. See failureVerdict.
+func FailedAudit(mediaFileID, trackPath string, err error) *model.LoudnessAudit {
+	audit := &model.LoudnessAudit{
+		MediaFileID: mediaFileID,
+		AnalyzedAt:  time.Now(),
+		// Not the zero value: phase 0 means PhaseDone, which would file an
+		// unreadable track as finished.
+		Phase:   PhaseUnplanned,
+		Status:  model.LoudnessStatusFailed,
+		Verdict: failureVerdict(trackPath),
+	}
+	if err != nil {
+		audit.Error = err.Error()
+	}
+	return audit
+}
+
 // failureVerdict separates "there is nothing in this file" from "something went
 // wrong reading it".
 //
