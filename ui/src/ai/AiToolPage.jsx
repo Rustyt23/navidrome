@@ -71,6 +71,15 @@ const normalizeMetadataBatchSize = (value) => {
   return Math.min(Math.max(parsed, 1), MAX_METADATA_BATCH_SIZE)
 }
 const DEFAULT_WHISPER_MODEL = 'large-v3'
+// Song ids are asked for in batches so the query string stays well inside the
+// URL length every common server and proxy accepts.
+const RECONCILE_BATCH_SIZE = 100
+// The lyrics job endpoint is polled fast enough to feel live while a job runs
+// and slowly once nothing is happening, instead of a constant 2-second poll
+// that costs ~1,800 needless requests an hour per open tab.
+const LYRICS_JOB_POLL_ACTIVE_MS = 2000
+const LYRICS_JOB_POLL_IDLE_MS = 15000
+const AVAILABLE_SONGS_PAGE_SIZE = 500
 const AUTO_FETCH_ALL_LYRICS_INTERVAL_MS = 10 * 60 * 1000
 const AUTO_FETCH_ALL_METADATA_INTERVAL_MS = 10 * 60 * 1000
 const SERVER_LYRICS_LOADING_ID = 'server-job'
@@ -437,6 +446,50 @@ const normalizeAddedSongs = (songs = []) => {
     byId.set(song.id, { ...(byId.get(song.id) || {}), ...song })
   })
   return [...byId.values()]
+}
+
+// Every write to localStorage goes through here. Browsers throw on a full
+// quota (developer traces and lyrics add up quickly) and in private windows
+// where storage is unavailable, and an uncaught throw inside a state update
+// would take the whole page down. Callers get a boolean instead.
+const writeStoredValue = (key, value) => {
+  try {
+    localStorage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Enter submits, Shift+Enter does not, and a keystroke that is still part of
+// an IME composition is left alone — otherwise typing in Japanese, Chinese or
+// Korean sends the message while the word is still being composed. React's
+// onKeyPress, which this replaces, is deprecated and never saw those cases.
+const isSubmitKey = (event) =>
+  event.key === 'Enter' &&
+  !event.shiftKey &&
+  !event.nativeEvent?.isComposing &&
+  event.keyCode !== 229
+
+const chunkList = (items, size) => {
+  const chunks = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
+}
+
+// A song still needs AI metadata when nothing has filled its AI genre yet.
+// The automatic loop uses this so it never pays for the same song twice; the
+// manual actions deliberately ignore it, because asking for a refetch is an
+// explicit choice.
+const needsAIMetadata = (song) =>
+  isUnknownValue(song?.aiGenre) && isUnknownValue(song?.musicBrainzGenre)
+
+const lyricsStateOf = (song, { fetching = false } = {}) => {
+  if (hasSavedLyrics(song)) return 'available'
+  if (fetching) return 'fetching'
+  return 'missing'
 }
 
 const useStyles = makeStyles((theme) => ({
@@ -1150,6 +1203,40 @@ const useStyles = makeStyles((theme) => ({
     borderRadius: 8,
     border: '1px solid rgba(255, 42, 142, 0.28)',
     background: '#151f2d',
+  },
+  alertBanner: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: theme.spacing(1),
+    marginBottom: theme.spacing(1.5),
+    padding: theme.spacing(1, 1.5),
+    borderRadius: 8,
+    border: '1px solid rgba(255, 42, 142, 0.45)',
+    background: 'rgba(255, 42, 142, 0.12)',
+  },
+  alertBannerWarning: {
+    border: '1px solid rgba(246, 193, 119, 0.5)',
+    background: 'rgba(246, 193, 119, 0.12)',
+  },
+  alertBannerText: {
+    flex: 1,
+    color: '#f7f8fb',
+  },
+  alertBannerClose: {
+    color: '#f7f8fb',
+    padding: theme.spacing(0.25),
+  },
+  emptyTableCell: {
+    padding: theme.spacing(4, 2),
+    textAlign: 'center',
+    borderBottom: 'none',
+  },
+  lyricsStateMuted: {
+    color: theme.palette.text.secondary,
+  },
+  songPickerSearch: {
+    minWidth: 280,
+    flex: '1 1 280px',
   },
   progressHeader: {
     display: 'flex',
@@ -1979,6 +2066,94 @@ const ChatDeveloperTrace = ({ trace, classes }) => {
   )
 }
 
+const JOB_PANEL_LABEL = {
+  lyrics: 'Fetching lyrics',
+  metadata: 'Fetching AI metadata',
+  explicit: 'Classifying explicit content',
+}
+
+const JOB_TIMING_TEXT = {
+  lyrics: {
+    complete: (seconds) =>
+      `Whisper finished fetching lyrics in ${seconds} seconds`,
+    failed: (seconds) =>
+      `Whisper stopped with an error after ${seconds} seconds`,
+    stopped: (seconds) => `Whisper stopped after ${seconds} seconds`,
+    running: (seconds) => `Whisper running for ${seconds} seconds`,
+  },
+  metadata: {
+    complete: (seconds) =>
+      `Finished fetching AI metadata in ${seconds} seconds`,
+    failed: (seconds) =>
+      `AI metadata stopped with an error after ${seconds} seconds`,
+    stopped: (seconds) => `AI metadata stopped after ${seconds} seconds`,
+    running: (seconds) => `AI metadata running for ${seconds} seconds`,
+  },
+  explicit: {
+    complete: (seconds) => `Classified explicit content in ${seconds} seconds`,
+    failed: (seconds) =>
+      `Explicit classification stopped with an error after ${seconds} seconds`,
+    stopped: (seconds) =>
+      `Explicit classification stopped after ${seconds} seconds`,
+    running: (seconds) => `Classifying explicit content for ${seconds} seconds`,
+  },
+}
+
+// The running job's elapsed seconds tick once a second. Keeping that clock
+// inside its own component means the tick repaints this one line of text
+// instead of re-rendering the whole page, including the song table.
+const JobTiming = ({ type, progress }) => {
+  const startedAt = progress?.startedAt || 0
+  const finishedAt = progress?.finishedAt || 0
+  const isRunning = ['running', 'stopping'].includes(progress?.status)
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!isRunning || !startedAt) return undefined
+    setNow(Date.now())
+    const interval = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(interval)
+  }, [isRunning, startedAt])
+
+  if (!progress || !startedAt) return null
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor(((finishedAt || now) - startedAt) / 1000),
+  )
+  const templates = JOB_TIMING_TEXT[type]
+  if (!templates) return null
+  const template = templates[progress.status] || templates.running
+  return <>{` · ${template(elapsedSeconds)}`}</>
+}
+
+// One confirmation dialog for every action that deletes data the user cannot
+// get back by clicking again. `window.confirm` blocks the browser and ignores
+// the app theme, so the page never uses it.
+const ConfirmDialog = ({ request, onCancel, onConfirm }) => (
+  <Dialog
+    open={Boolean(request)}
+    onClose={onCancel}
+    fullWidth
+    maxWidth="xs"
+    aria-labelledby="ai-tool-confirm-title"
+  >
+    {request ? (
+      <>
+        <DialogTitle id="ai-tool-confirm-title">{request.title}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">{request.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button color="secondary" variant="contained" onClick={onConfirm}>
+            {request.confirmLabel || 'Delete'}
+          </Button>
+        </DialogActions>
+      </>
+    ) : null}
+  </Dialog>
+)
+
 const AiToolPage = () => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -1989,7 +2164,12 @@ const AiToolPage = () => {
   const normalChatAbortControllerRef = useRef(null)
   const lyricsAbortControllerRef = useRef(null)
   const metadataAbortControllerRef = useRef(null)
-  const progressTimeoutRefs = useRef({ lyrics: null, metadata: null })
+  const explicitAbortControllerRef = useRef(null)
+  const progressTimeoutRefs = useRef({
+    lyrics: null,
+    metadata: null,
+    explicit: null,
+  })
   const addedSongsRef = useRef([])
   const lyricsLoadingIdRef = useRef('')
   const serverLyricsJobActiveRef = useRef(false)
@@ -1997,12 +2177,15 @@ const AiToolPage = () => {
   const fetchLyricsForSongsRef = useRef(null)
   const fetchAIMetadataForSongsRef = useRef(null)
   const applyLyricsJobStatusRef = useRef(null)
+  const hasPolledLyricsJobRef = useRef(false)
   const [messages, setMessages] = useState([])
   const [prompt, setPrompt] = useState('')
   const [normalMessages, setNormalMessages] = useState([])
   const [normalPrompt, setNormalPrompt] = useState('')
   const [songDialogOpen, setSongDialogOpen] = useState(false)
   const [songsLoading, setSongsLoading] = useState(false)
+  const [songsError, setSongsError] = useState('')
+  const [songSearch, setSongSearch] = useState('')
   const [availableSongs, setAvailableSongs] = useState([])
   const [selectedSongIds, setSelectedSongIds] = useState([])
   const [selectedAddedSongIds, setSelectedAddedSongIds] = useState([])
@@ -2048,6 +2231,9 @@ const AiToolPage = () => {
     }
   })
   const [toolError, setToolError] = useState('')
+  const [storageWarning, setStorageWarning] = useState('')
+  const [confirmRequest, setConfirmRequest] = useState(null)
+  const [openingLyricsSongId, setOpeningLyricsSongId] = useState('')
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [chatFrame, setChatFrame] = useState(defaultChatFrame)
@@ -2144,11 +2330,11 @@ const AiToolPage = () => {
   const [jobProgresses, setJobProgresses] = useState({
     lyrics: null,
     metadata: null,
+    explicit: null,
   })
   const [isLyricsProgressHidden, setIsLyricsProgressHidden] = useState(false)
   const [isMetadataProgressHidden, setIsMetadataProgressHidden] =
     useState(false)
-  const [progressClock, setProgressClock] = useState(() => Date.now())
   const [isRAGControlsOpen, setIsRAGControlsOpen] = useState(false)
   const [isSongToolsOpen, setIsSongToolsOpen] = useState(true)
   const [modelStatuses, setModelStatuses] = useState(() =>
@@ -2191,6 +2377,16 @@ const AiToolPage = () => {
   const [ragSearchCount, setRAGSearchCount] = useState(0)
   const [isSearchingRAG, setIsSearchingRAG] = useState(false)
   const [ragSearchError, setRAGSearchError] = useState('')
+
+  // Anything that deletes data the user cannot recreate with one more click
+  // goes through this dialog, so a mis-click on a menu never destroys lyrics
+  // or fetched metadata.
+  const cancelConfirmation = () => setConfirmRequest(null)
+  const acceptConfirmation = () => {
+    const action = confirmRequest?.onConfirm
+    setConfirmRequest(null)
+    if (action) void action()
+  }
 
   const parsedRAGIndexLimit = Number(ragIndexLimit)
   const isRAGIndexLimitValid =
@@ -2318,10 +2514,6 @@ const AiToolPage = () => {
     if (!ragStatus?.enabled || !ragStatus?.vectorDbOnline || isClearingRAG)
       return
     const collection = ragStatus.collection || 'the configured collection'
-    const confirmed = window.confirm(
-      `Clear all indexed RAG data from ${collection}? This only deletes the vector index; your Navidrome songs and files stay untouched.`,
-    )
-    if (!confirmed) return
 
     setIsClearingRAG(true)
     setRAGIndexMessage('')
@@ -2343,6 +2535,19 @@ const AiToolPage = () => {
     } finally {
       setIsClearingRAG(false)
     }
+  }
+
+  const confirmClearRAGIndex = () => {
+    if (!ragStatus?.enabled || !ragStatus?.vectorDbOnline || isClearingRAG)
+      return
+    setConfirmRequest({
+      title: 'Clear indexed songs?',
+      message: `This removes everything indexed in ${
+        ragStatus.collection || 'the configured collection'
+      }. Only the vector index is deleted — your Navidrome songs and files stay untouched, and you can reindex at any time.`,
+      confirmLabel: 'Clear index',
+      onConfirm: clearRAGIndex,
+    })
   }
 
   const openRAGDocuments = async () => {
@@ -2497,25 +2702,44 @@ const AiToolPage = () => {
     [addedSongs],
   )
 
+  // The picker filters as the user types so a real library stays usable, and
+  // "select all" then means "all the rows I can currently see".
+  const visibleAvailableSongs = useMemo(() => {
+    const needle = songSearch.trim().toLowerCase()
+    if (!needle) return availableSongs
+    return availableSongs.filter((song) =>
+      [song.title, song.artist, song.album, song.genre]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(needle)),
+    )
+  }, [availableSongs, songSearch])
+
   const selectableSongIds = useMemo(
     () =>
-      availableSongs
+      visibleAvailableSongs
         .filter((song) => !addedSongIdSet.has(song.id))
         .map((song) => song.id),
-    [availableSongs, addedSongIdSet],
+    [visibleAvailableSongs, addedSongIdSet],
+  )
+
+  const selectedSongIdSet = useMemo(
+    () => new Set(selectedSongIds),
+    [selectedSongIds],
   )
 
   const selectedSelectableSongCount = selectableSongIds.filter((id) =>
-    selectedSongIds.includes(id),
+    selectedSongIdSet.has(id),
   ).length
 
+  // Selections survive a change of search text, so this stays over the whole
+  // loaded list rather than only the rows currently visible.
   const selectedSongs = useMemo(
     () =>
       availableSongs.filter(
         (song) =>
-          selectedSongIds.includes(song.id) && !addedSongIdSet.has(song.id),
+          selectedSongIdSet.has(song.id) && !addedSongIdSet.has(song.id),
       ),
-    [availableSongs, selectedSongIds, addedSongIdSet],
+    [availableSongs, selectedSongIdSet, addedSongIdSet],
   )
 
   const selectedAddedSongIdSet = useMemo(
@@ -2581,32 +2805,12 @@ const AiToolPage = () => {
   const lyricsJobProgress = jobProgresses.lyrics
   const lyricsProgressStatus = lyricsJobProgress?.status
   const metadataProgressStatus = jobProgresses.metadata?.status
-  const lyricsProgressStartedAt = lyricsJobProgress?.startedAt
   const currentLyricsFetchingSongId =
     lyricsLoadingId === SERVER_LYRICS_LOADING_ID
       ? ['running', 'stopping'].includes(lyricsProgressStatus)
         ? lyricsJobProgress?.currentSongId || ''
         : ''
       : lyricsLoadingId
-  const lyricsElapsedSeconds = lyricsJobProgress?.startedAt
-    ? Math.max(
-        0,
-        Math.floor(
-          ((lyricsJobProgress.finishedAt || progressClock) -
-            lyricsJobProgress.startedAt) /
-            1000,
-        ),
-      )
-    : 0
-  const lyricsTimingText = !lyricsJobProgress
-    ? ''
-    : lyricsJobProgress.status === 'complete'
-      ? `Whisper finished fetching lyrics in ${lyricsElapsedSeconds} seconds`
-      : lyricsJobProgress.status === 'failed'
-        ? `Whisper stopped with an error after ${lyricsElapsedSeconds} seconds`
-        : lyricsJobProgress.status === 'stopped'
-          ? `Whisper stopped after ${lyricsElapsedSeconds} seconds`
-          : `Whisper running for ${lyricsElapsedSeconds} seconds`
   const isLyricsJobRunning = Boolean(lyricsLoadingId)
 
   const selectedModelStatus = modelStatuses.find(
@@ -2751,22 +2955,43 @@ const AiToolPage = () => {
     )
   }
 
+  // A song without lyrics has usually not been fetched yet, so the cell says
+  // so instead of the old blanket "Failed", which made an untouched library
+  // look broken. Clicking "Available" loads the saved text, and the button
+  // reports that load rather than sitting silent.
   const renderLyricsState = (song) => {
-    if (hasSavedLyrics(song)) {
+    const state = lyricsStateOf(song, {
+      fetching: lyricsFetchingSongIdSet.has(song?.id),
+    })
+    if (state === 'available') {
+      const opening = openingLyricsSongId === song.id
       return (
         <Button
           size="small"
           color="primary"
+          disabled={opening}
+          title={`Show saved lyrics for ${song.title || 'this song'}`}
           onClick={(event) => {
             event.stopPropagation()
-            showLyrics(song)
+            void showLyrics(song)
           }}
         >
-          Available
+          {opening ? 'Opening…' : 'Available'}
         </Button>
       )
     }
-    return <Typography component="span">Failed</Typography>
+    if (state === 'fetching') {
+      return (
+        <Typography component="span" className={classes.lyricsStateMuted}>
+          Fetching…
+        </Typography>
+      )
+    }
+    return (
+      <Typography component="span" className={classes.lyricsStateMuted}>
+        Not fetched
+      </Typography>
+    )
   }
 
   const genreTraceSourceLabel = (source) =>
@@ -2774,7 +2999,7 @@ const AiToolPage = () => {
 
   const renderFetchedGenre = (song, source) => {
     const value = source === 'itunes' ? song.musicBrainzGenre : song.aiGenre
-    if (!value) return '-'
+    if (!value) return '—'
     const sourceLabel = genreTraceSourceLabel(source)
     return (
       <Button
@@ -2980,6 +3205,11 @@ const AiToolPage = () => {
   }
 
   const isColumnVisible = (column) => visibleColumns[column] !== false
+  // Used by the empty-state row so its message spans the table, whichever
+  // columns the user has chosen to show.
+  const visibleColumnCount = AI_TOOL_COLUMNS.filter((column) =>
+    isColumnVisible(column.id),
+  ).length
   const allConfidenceColumnsVisible =
     CONFIDENCE_COLUMN_IDS.every(isColumnVisible)
   const someConfidenceColumnsVisible =
@@ -3007,17 +3237,28 @@ const AiToolPage = () => {
     [addedSongs],
   )
 
+  // The single place the song queue is written to storage. Every action just
+  // updates state and this effect saves the result, so no state updater does
+  // I/O and no write can throw where React cannot recover from it.
   useEffect(() => {
     const normalized = normalizeAddedSongs(addedSongs)
     if (normalized.length !== addedSongs.length) {
       setAddedSongs(normalized)
       return
     }
-    localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(normalized))
+    const saved = writeStoredValue(
+      ADDED_SONGS_STORAGE_KEY,
+      JSON.stringify(normalized),
+    )
+    setStorageWarning(
+      saved
+        ? ''
+        : 'Browser storage is full, so this song list will not survive a page reload. Remove some songs, or clear fetched metadata, to free space.',
+    )
   }, [addedSongs])
 
   useEffect(() => {
-    localStorage.setItem(DEFAULT_AI_PROVIDER_STORAGE_KEY, defaultProvider)
+    writeStoredValue(DEFAULT_AI_PROVIDER_STORAGE_KEY, defaultProvider)
     if (!chatProviderOverridden) {
       setChatProvider(defaultProvider)
     }
@@ -3027,32 +3268,29 @@ const AiToolPage = () => {
   }, [defaultProvider, chatProviderOverridden, normalChatProviderOverridden])
 
   useEffect(() => {
-    localStorage.setItem(
+    writeStoredValue(
       AUTO_FETCH_ALL_LYRICS_STORAGE_KEY,
       isAutoFetchAllLyricsEnabled ? 'true' : 'false',
     )
   }, [isAutoFetchAllLyricsEnabled])
 
   useEffect(() => {
-    localStorage.setItem(METADATA_AI_PROVIDER_STORAGE_KEY, metadataProvider)
+    writeStoredValue(METADATA_AI_PROVIDER_STORAGE_KEY, metadataProvider)
   }, [metadataProvider])
 
   useEffect(() => {
-    localStorage.setItem(
-      METADATA_BATCH_SIZE_STORAGE_KEY,
-      String(metadataBatchSize),
-    )
+    writeStoredValue(METADATA_BATCH_SIZE_STORAGE_KEY, String(metadataBatchSize))
   }, [metadataBatchSize])
 
   useEffect(() => {
-    localStorage.setItem(
+    writeStoredValue(
       AUTO_FETCH_ALL_METADATA_STORAGE_KEY,
       isAutoFetchAllMetadataEnabled ? 'true' : 'false',
     )
   }, [isAutoFetchAllMetadataEnabled])
 
   useEffect(() => {
-    localStorage.setItem(
+    writeStoredValue(
       AI_TOOL_COLUMNS_STORAGE_KEY,
       JSON.stringify(visibleColumns),
     )
@@ -3124,21 +3362,6 @@ const AiToolPage = () => {
   }, [explicitClassifyingSongIds])
 
   useEffect(() => {
-    if (
-      !lyricsProgressStatus ||
-      !['running', 'stopping'].includes(lyricsProgressStatus)
-    )
-      return
-
-    setProgressClock(Date.now())
-    const interval = window.setInterval(
-      () => setProgressClock(Date.now()),
-      1000,
-    )
-    return () => window.clearInterval(interval)
-  }, [lyricsProgressStartedAt, lyricsProgressStatus])
-
-  useEffect(() => {
     if (!isChatOpen || !chatMessagesRef.current) return
 
     const messagesEl = chatMessagesRef.current
@@ -3158,6 +3381,7 @@ const AiToolPage = () => {
       normalChatAbortControllerRef.current?.abort()
       lyricsAbortControllerRef.current?.abort()
       metadataAbortControllerRef.current?.abort()
+      explicitAbortControllerRef.current?.abort()
       Object.values(progressTimeoutRefs.current).forEach((timeout) => {
         if (timeout !== null) window.clearTimeout(timeout)
       })
@@ -3176,50 +3400,66 @@ const AiToolPage = () => {
     let active = true
     const reconcileAddedSongs = async () => {
       try {
-        const query = addedSongs
-          .map((song) => `id=${encodeURIComponent(song.id)}`)
-          .join('&')
-        const { json } = await httpClient(`/api/song?${query}`)
-        const currentSongs = new Map(
-          (json || []).map((song) => [song.id, song]),
+        const songs = addedSongsRef.current
+        // One `id=` per song in a single query string overflows the URL limit
+        // of servers and proxies (commonly 8 KB) once the queue grows past a
+        // few hundred songs, and the whole reconcile then fails. Ask in
+        // batches so a long queue stays in sync.
+        const responses = await Promise.all(
+          chunkList(
+            songs.map((song) => song.id),
+            RECONCILE_BATCH_SIZE,
+          ).map((ids) =>
+            httpClient(
+              `/api/song?${ids
+                .map((id) => `id=${encodeURIComponent(id)}`)
+                .join('&')}`,
+            ),
+          ),
         )
-        const nextSongs = addedSongs
-          .filter((song) => currentSongs.has(song.id))
-          .map((song) => {
-            const current = currentSongs.get(song.id)
-            // Locally fetched values win because they are the freshest, but
-            // fall back to what the server stored so genres survive a browser
-            // data wipe instead of silently disappearing. The server calls the
-            // iTunes column itunesGenre; the page still calls it
-            // musicBrainzGenre.
-            return {
-              ...song,
-              ...current,
-              aiGenre: song.aiGenre || current.aiGenre || '',
-              aiSubgenre: song.aiSubgenre || current.aiSubgenre || '',
-              spotifyGenre: song.spotifyGenre || current.spotifyGenre || '',
-              musicBrainzGenre:
-                song.musicBrainzGenre || current.itunesGenre || '',
-              metadataConfidence: {
-                ...(song.metadataConfidence || {}),
-                genre:
-                  song.metadataConfidence?.genre ||
-                  current.genreConfidence ||
-                  0,
-              },
-            }
-          })
-
-        if (
-          active &&
-          JSON.stringify(nextSongs) !== JSON.stringify(addedSongs)
-        ) {
-          setAddedSongs(nextSongs)
-          localStorage.setItem(
-            ADDED_SONGS_STORAGE_KEY,
-            JSON.stringify(nextSongs),
-          )
-        }
+        if (!active) return
+        const currentSongs = new Map(
+          responses.flatMap(({ json }) =>
+            (json || []).map((song) => [song.id, song]),
+          ),
+        )
+        // Merged against the queue as it stands when the reply lands, not the
+        // snapshot taken before the request. A lyrics or metadata fetch that
+        // finishes while this request is in flight would otherwise be undone
+        // by stale data.
+        setAddedSongs((prev) => {
+          const nextSongs = prev
+            .filter((song) => currentSongs.has(song.id))
+            .map((song) => {
+              const current = currentSongs.get(song.id)
+              // Locally fetched values win because they are the freshest, but
+              // fall back to what the server stored so genres survive a browser
+              // data wipe instead of silently disappearing. The server calls the
+              // iTunes column itunesGenre; the page still calls it
+              // musicBrainzGenre.
+              return {
+                ...song,
+                ...current,
+                aiGenre: song.aiGenre || current.aiGenre || '',
+                aiSubgenre: song.aiSubgenre || current.aiSubgenre || '',
+                spotifyGenre: song.spotifyGenre || current.spotifyGenre || '',
+                musicBrainzGenre:
+                  song.musicBrainzGenre || current.itunesGenre || '',
+                metadataConfidence: {
+                  ...(song.metadataConfidence || {}),
+                  genre:
+                    song.metadataConfidence?.genre ||
+                    current.genreConfidence ||
+                    0,
+                },
+              }
+            })
+          // Returning the same array when nothing moved lets React skip the
+          // re-render instead of looping on a new object every time.
+          return JSON.stringify(nextSongs) === JSON.stringify(prev)
+            ? prev
+            : nextSongs
+        })
       } catch {
         // Keep the local queue if the API is temporarily unavailable.
       }
@@ -3229,15 +3469,16 @@ const AiToolPage = () => {
     return () => {
       active = false
     }
-  }, [addedSongIds, addedSongs])
+    // Only the set of queued song ids should trigger a reconcile. Depending on
+    // the song objects themselves re-ran this request after every locally
+    // fetched lyric and every metadata batch, so a queue of N songs cost N
+    // extra round trips over the whole enrichment run.
+  }, [addedSongIds])
 
   const changeDeveloperTrace = (enabled) => {
     setDeveloperTraceEnabled(enabled)
-    try {
-      localStorage.setItem(AI_CHAT_DEVELOPER_TRACE_STORAGE_KEY, String(enabled))
-    } catch {
-      // The switch still works for this page session if storage is unavailable.
-    }
+    // The switch still works for this page session if storage is unavailable.
+    writeStoredValue(AI_CHAT_DEVELOPER_TRACE_STORAGE_KEY, String(enabled))
   }
 
   const sendMessage = async () => {
@@ -3452,24 +3693,35 @@ const AiToolPage = () => {
       setNormalChatFrame,
     )
 
-  const openAddSongsDialog = async () => {
-    setSongDialogOpen(true)
-    setSelectedSongIds((current) =>
-      current.filter((id) => !addedSongIdSet.has(id)),
-    )
-    if (availableSongs.length) return
-
+  // Loads the library page shown in the picker. A failure used to leave an
+  // empty table and an unhandled rejection, so the reason is surfaced in the
+  // dialog with a retry instead.
+  const loadAvailableSongs = async () => {
     setSongsLoading(true)
+    setSongsError('')
     try {
       const { data } = await dataProvider.getList('song', {
-        pagination: { page: 1, perPage: 200 },
+        pagination: { page: 1, perPage: AVAILABLE_SONGS_PAGE_SIZE },
         sort: { field: 'title', order: 'ASC' },
         filter: {},
       })
       setAvailableSongs(data || [])
+    } catch (err) {
+      setAvailableSongs([])
+      setSongsError(err?.message || 'Could not load songs from your library')
     } finally {
       setSongsLoading(false)
     }
+  }
+
+  const openAddSongsDialog = async () => {
+    setSongDialogOpen(true)
+    setSongSearch('')
+    setSelectedSongIds((current) =>
+      current.filter((id) => !addedSongIdSet.has(id)),
+    )
+    if (availableSongs.length) return
+    await loadAvailableSongs()
   }
 
   const toggleSong = (songId) => {
@@ -3495,7 +3747,6 @@ const AiToolPage = () => {
       const existing = new Set(prev.map((song) => song.id))
       const uniqueNew = selectedSongs.filter((song) => !existing.has(song.id))
       const nextSongs = normalizeAddedSongs([...prev, ...uniqueNew])
-      localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
       return nextSongs
     })
     setSelectedSongIds([])
@@ -3521,7 +3772,6 @@ const AiToolPage = () => {
   const removeSong = (songId) => {
     setAddedSongs((prev) => {
       const nextSongs = prev.filter((song) => song.id !== songId)
-      localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
       return nextSongs
     })
     setSelectedAddedSongIds((prev) => prev.filter((id) => id !== songId))
@@ -3533,7 +3783,6 @@ const AiToolPage = () => {
     const selected = new Set(selectedAddedIds)
     setAddedSongs((prev) => {
       const nextSongs = prev.filter((song) => !selected.has(song.id))
-      localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
       return nextSongs
     })
     setSelectedAddedSongIds([])
@@ -3550,11 +3799,10 @@ const AiToolPage = () => {
     removeSong(song.id)
   }
 
-  const startProgress = (type, songs) => {
+  const startProgress = (type, songs, { indeterminate = false } = {}) => {
     if (type === 'lyrics') setIsLyricsProgressHidden(false)
     if (type === 'metadata') setIsMetadataProgressHidden(false)
     const startedAt = Date.now()
-    setProgressClock(startedAt)
     setJobProgresses((prev) => ({
       ...prev,
       [type]: {
@@ -3563,6 +3811,7 @@ const AiToolPage = () => {
         done: 0,
         total: songs.length,
         status: 'running',
+        indeterminate,
         startedAt,
         finishedAt: null,
       },
@@ -3586,7 +3835,6 @@ const AiToolPage = () => {
 
   const finishProgress = (type, total) => {
     const finishedAt = Date.now()
-    setProgressClock(finishedAt)
     setJobProgresses((prev) => ({
       ...prev,
       [type]: {
@@ -3616,7 +3864,6 @@ const AiToolPage = () => {
 
   const stopProgress = (type) => {
     const finishedAt = Date.now()
-    setProgressClock(finishedAt)
     setJobProgresses((prev) => ({
       ...prev,
       [type]: prev[type]
@@ -3650,7 +3897,6 @@ const AiToolPage = () => {
       const nextSongs = prev.map((song) =>
         completedIDs.has(song.id) ? { ...song, lyrics: 'saved' } : song,
       )
-      localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
       return nextSongs
     })
   }
@@ -3676,7 +3922,6 @@ const AiToolPage = () => {
     const finishedAt = status.finishedAt
       ? new Date(status.finishedAt).getTime()
       : null
-    setProgressClock(Date.now())
     setJobProgresses((prev) => ({
       ...prev,
       lyrics: {
@@ -3718,6 +3963,21 @@ const AiToolPage = () => {
   applyLyricsJobStatusRef.current = applyLyricsJobStatus
 
   const stopFetchJob = async (type) => {
+    if (type === 'explicit') {
+      explicitAbortControllerRef.current?.abort()
+      setJobProgresses((prev) => ({
+        ...prev,
+        explicit: prev.explicit
+          ? {
+              ...prev.explicit,
+              currentTitle: 'Stopping…',
+              status: 'stopping',
+            }
+          : prev.explicit,
+      }))
+      return
+    }
+
     if (type === 'metadata') {
       metadataAbortControllerRef.current?.abort()
       setJobProgresses((prev) => ({
@@ -3805,7 +4065,6 @@ const AiToolPage = () => {
         const nextSongs = prev.map((item) =>
           item.id === song.id ? { ...item, lyrics: 'saved' } : item,
         )
-        localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
         return nextSongs
       })
       updateProgress('lyrics', song, 1, 1)
@@ -3921,13 +4180,26 @@ const AiToolPage = () => {
       }
     }
 
-    refreshLyricsJobStatus()
-    const interval = window.setInterval(refreshLyricsJobStatus, 2000)
+    // Only the first run asks straight away. Re-running this effect purely to
+    // change the cadence must not fire an extra request, because a status read
+    // that lands before the server has registered a job the page just started
+    // reports "idle" and would wipe the progress the POST reply gave us.
+    if (!hasPolledLyricsJobRef.current) {
+      hasPolledLyricsJobRef.current = true
+      refreshLyricsJobStatus()
+    }
+    // Fast while a job is running so the progress bar feels live, slow when
+    // nothing is happening. A constant 2-second poll spent about 1,800
+    // requests an hour on an idle tab.
+    const interval = window.setInterval(
+      refreshLyricsJobStatus,
+      isLyricsJobRunning ? LYRICS_JOB_POLL_ACTIVE_MS : LYRICS_JOB_POLL_IDLE_MS,
+    )
     return () => {
       active = false
       window.clearInterval(interval)
     }
-  }, [])
+  }, [isLyricsJobRunning])
 
   const deleteLyricsForSongs = async (songs) => {
     const songsToDelete = songs.filter(
@@ -3953,7 +4225,6 @@ const AiToolPage = () => {
             ? { ...song, lyrics: '', lyricsText: '' }
             : song,
         )
-        localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
         return nextSongs
       })
       if (explicitReasonSong && deletedIDs.has(explicitReasonSong.id)) {
@@ -3973,10 +4244,33 @@ const AiToolPage = () => {
     }
   }
 
+  // Deleting lyrics removes them on the server, and the only way back is
+  // another Whisper run, so it always asks first.
+  const confirmDeleteLyricsForSongs = (songs) => {
+    const songsToDelete = songs.filter(
+      (song) =>
+        hasSavedLyrics(song) &&
+        !lyricsFetchingSongIdSet.has(song.id) &&
+        !explicitClassifyingSongIdSet.has(song.id),
+    )
+    if (!songsToDelete.length || isDeletingLyrics) return
+    const count = songsToDelete.length
+    setConfirmRequest({
+      title: 'Delete saved lyrics?',
+      message:
+        count === 1
+          ? `The saved lyrics for “${songsToDelete[0].title || 'this song'}” will be deleted from the server. Fetching them again means another Whisper run.`
+          : `The saved lyrics for ${count} songs will be deleted from the server. Fetching them again means another Whisper run.`,
+      confirmLabel: count === 1 ? 'Delete lyrics' : `Delete ${count} lyrics`,
+      onConfirm: () => deleteLyricsForSongs(songsToDelete),
+    })
+  }
+
   const showLyrics = async (song) => {
-    if (!song?.id) return
+    if (!song?.id || openingLyricsSongId) return
 
     setToolError('')
+    setOpeningLyricsSongId(song.id)
     try {
       const { json: payload } = await httpClient(
         `/api/ai/songs/${song.id}/lyrics`,
@@ -3990,6 +4284,8 @@ const AiToolPage = () => {
     } catch (err) {
       removeStaleSongOnNotFound(err, song)
       setToolError(err?.message || 'Could not load lyrics')
+    } finally {
+      setOpeningLyricsSongId('')
     }
   }
 
@@ -4008,7 +4304,7 @@ const AiToolPage = () => {
     const excluded = parseExplicitWordList(explicitExcludedWords)
     setExplicitIncludedWords(included.join(', '))
     setExplicitExcludedWords(excluded.join(', '))
-    localStorage.setItem(
+    const saved = writeStoredValue(
       EXPLICIT_WORD_RULES_STORAGE_KEY,
       JSON.stringify({
         version: EXPLICIT_WORD_RULES_VERSION,
@@ -4016,6 +4312,11 @@ const AiToolPage = () => {
         excluded,
       }),
     )
+    if (!saved) {
+      setToolError(
+        'These word rules apply now but could not be saved, so they will reset when the page reloads.',
+      )
+    }
     setExplicitRulesOpen(false)
   }
 
@@ -4035,13 +4336,20 @@ const AiToolPage = () => {
       .map((song) => song.id)
     if (!songIds.length || isClassifyingExplicit) return
 
+    const abortController = new AbortController()
+    explicitAbortControllerRef.current = abortController
     setToolError('')
     setIsClassifyingExplicit(true)
     explicitClassifyingSongIdsRef.current = new Set(songIds)
     setExplicitClassifyingSongIds(songIds)
+    // The server classifies the whole selection in one call, so there is no
+    // per-song count to report. The panel still shows that work is happening
+    // and offers a Stop, instead of leaving a long run looking frozen.
+    startProgress('explicit', songs, { indeterminate: true })
     try {
       const { json: payload } = await httpClient('/api/ai/classify-explicit', {
         method: 'POST',
+        signal: abortController.signal,
         body: JSON.stringify({
           songIds,
           provider: EXPLICIT_AI_PROVIDER,
@@ -4073,12 +4381,20 @@ const AiToolPage = () => {
             },
           }
         })
-        localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
         return nextSongs
       })
+      finishProgress('explicit', songIds.length)
     } catch (err) {
-      setToolError(err?.message || 'Could not classify explicit content')
+      if (abortController.signal.aborted || err?.name === 'AbortError') {
+        stopProgress('explicit')
+      } else {
+        setToolError(err?.message || 'Could not classify explicit content')
+        setJobProgresses((prev) => ({ ...prev, explicit: null }))
+      }
     } finally {
+      if (explicitAbortControllerRef.current === abortController) {
+        explicitAbortControllerRef.current = null
+      }
       setIsClassifyingExplicit(false)
       explicitClassifyingSongIdsRef.current = new Set()
       setExplicitClassifyingSongIds([])
@@ -4163,10 +4479,6 @@ const AiToolPage = () => {
               },
             }
           })
-          localStorage.setItem(
-            ADDED_SONGS_STORAGE_KEY,
-            JSON.stringify(nextSongs),
-          )
           return nextSongs
         })
         done += batch.length
@@ -4201,11 +4513,14 @@ const AiToolPage = () => {
   useEffect(() => {
     if (!isAutoFetchAllMetadataEnabled) return undefined
 
+    // Only songs that still have no fetched genre. The automatic loop used to
+    // re-send every queued song to the AI every ten minutes, so a finished
+    // queue kept spending tokens on answers it already had. Asking for a
+    // refetch by hand still re-runs everything.
     const runMetadataCheck = () => {
-      void fetchAIMetadataForSongsRef.current?.(
-        addedSongsRef.current,
-        metadataProvider,
-      )
+      const pending = addedSongsRef.current.filter(needsAIMetadata)
+      if (!pending.length) return
+      void fetchAIMetadataForSongsRef.current?.(pending, metadataProvider)
     }
 
     runMetadataCheck()
@@ -4273,7 +4588,6 @@ const AiToolPage = () => {
               }
             : song,
         )
-        localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
         return nextSongs
       })
     } catch (err) {
@@ -4317,7 +4631,6 @@ const AiToolPage = () => {
         const nextSongs = prev.map((song) =>
           targetIds.has(song.id) ? { ...song, ...column.clear(song) } : song,
         )
-        localStorage.setItem(ADDED_SONGS_STORAGE_KEY, JSON.stringify(nextSongs))
         return nextSongs
       })
     } catch (err) {
@@ -4325,6 +4638,50 @@ const AiToolPage = () => {
     } finally {
       setIsClearingMetadata(false)
     }
+  }
+
+  const confirmClearFetchedMetadata = () => {
+    if (
+      !selectedAddedSongs.length ||
+      isClearingMetadata ||
+      isFetchingMetadata ||
+      metadataAbortControllerRef.current
+    )
+      return
+    const count = selectedAddedSongs.length
+    setConfirmRequest({
+      title: 'Clear fetched metadata?',
+      message: `Every genre, confidence score and developer trace this page fetched for ${count} ${
+        count === 1 ? 'song' : 'songs'
+      } will be cleared here and on the server. Tags that came from your own files are left alone, and fetching again costs another AI run.`,
+      confirmLabel: 'Clear metadata',
+      onConfirm: clearFetchedMetadata,
+    })
+  }
+
+  // Clearing one column for the whole queue is the one clear that can reach
+  // songs the user never selected, so that variant asks first.
+  const confirmClearColumnMetadata = (
+    columnId,
+    songs,
+    { all = false } = {},
+  ) => {
+    const column = CLEARABLE_COLUMNS[columnId]
+    if (!column || !songs.length) return
+    if (!all) {
+      void clearColumnMetadata(columnId, songs)
+      return
+    }
+    setConfirmRequest({
+      title: `Clear ${column.label} for every song?`,
+      message: `The fetched ${column.label} will be cleared for all ${songs.length} ${
+        songs.length === 1 ? 'song' : 'songs'
+      } in this list${
+        column.persisted ? ', on the server as well as here' : ''
+      }. Other columns are not touched.`,
+      confirmLabel: `Clear ${column.label}`,
+      onConfirm: () => clearColumnMetadata(columnId, songs),
+    })
   }
 
   const runExplicitAction = async () => {
@@ -4343,7 +4700,7 @@ const AiToolPage = () => {
     } else if (action === 'showLyrics') {
       await showLyrics(song)
     } else if (action === 'deleteLyrics') {
-      await deleteLyricsForSongs([song])
+      confirmDeleteLyricsForSongs([song])
     } else if (action === 'fetchMetadata') {
       await fetchAIMetadataForSongs([song], metadataProvider)
     } else if (action === 'removeSong') {
@@ -4359,6 +4716,33 @@ const AiToolPage = () => {
 
       <Card>
         <CardContent>
+          {/* Failures used to print as a line of small text under the table,
+              where a user working at the top of the page never saw them. */}
+          {toolError ? (
+            <Box className={classes.alertBanner} role="alert">
+              <Typography variant="body2" className={classes.alertBannerText}>
+                {toolError}
+              </Typography>
+              <IconButton
+                size="small"
+                aria-label="Dismiss error"
+                className={classes.alertBannerClose}
+                onClick={() => setToolError('')}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          ) : null}
+          {storageWarning ? (
+            <Box
+              className={`${classes.alertBanner} ${classes.alertBannerWarning}`}
+              role="status"
+            >
+              <Typography variant="body2" className={classes.alertBannerText}>
+                {storageWarning}
+              </Typography>
+            </Box>
+          ) : null}
           <Box className={classes.providerToolbar}>
             <Typography variant="h6">
               {translate('menu.aiTool.importSong', { _: 'Import song' })}
@@ -4720,7 +5104,7 @@ const AiToolPage = () => {
                         size="small"
                         variant="outlined"
                         color="primary"
-                        onClick={clearRAGIndex}
+                        onClick={confirmClearRAGIndex}
                         disabled={
                           !ragStatus?.enabled ||
                           !ragStatus?.vectorDbOnline ||
@@ -4765,8 +5149,8 @@ const AiToolPage = () => {
                         onChange={(event) =>
                           setRAGSearchQuery(event.target.value)
                         }
-                        onKeyPress={(event) => {
-                          if (event.key === 'Enter') searchRAGSongs()
+                        onKeyDown={(event) => {
+                          if (isSubmitKey(event)) searchRAGSongs()
                         }}
                         placeholder="Test RAG search"
                       />
@@ -5159,7 +5543,7 @@ const AiToolPage = () => {
                 className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemDanger}`}
                 onClick={() => {
                   setExplicitMenuAnchorEl(null)
-                  void deleteLyricsForSongs(selectedAddedSongs)
+                  confirmDeleteLyricsForSongs(selectedAddedSongs)
                 }}
                 disabled={
                   selectedSongsAvailableForLyricsDeletion.length === 0 ||
@@ -5367,7 +5751,7 @@ const AiToolPage = () => {
                 className={`${classes.songToolsMenuItem} ${classes.songToolsMenuItemDanger}`}
                 onClick={() => {
                   setMetadataMenuAnchorEl(null)
-                  void clearFetchedMetadata()
+                  confirmClearFetchedMetadata()
                 }}
                 disabled={
                   !selectedAddedIds.length ||
@@ -5387,7 +5771,7 @@ const AiToolPage = () => {
             </Menu>
           </Box>
 
-          {['lyrics', 'metadata'].map((type) => {
+          {['lyrics', 'metadata', 'explicit'].map((type) => {
             const progress = jobProgresses[type]
             if (
               !progress ||
@@ -5399,26 +5783,39 @@ const AiToolPage = () => {
               ? Math.round((progress.done / progress.total) * 100)
               : 0
             const running =
-              type === 'lyrics' ? isLyricsJobRunning : isFetchingMetadata
+              type === 'lyrics'
+                ? isLyricsJobRunning
+                : type === 'metadata'
+                  ? isFetchingMetadata
+                  : isClassifyingExplicit
             return (
-              <Box className={classes.progressPanel} key={type}>
+              <Box
+                className={classes.progressPanel}
+                key={type}
+                role="status"
+                aria-live="polite"
+              >
                 <Box className={classes.progressHeader}>
                   <Typography variant="body2" className={classes.progressText}>
-                    {type === 'lyrics'
-                      ? 'Fetching lyrics'
-                      : 'Fetching AI metadata'}
-                    : {progress.currentTitle}
+                    {JOB_PANEL_LABEL[type]}: {progress.currentTitle}
                   </Typography>
                   <Box className={classes.progressActions}>
                     <Typography
                       variant="body2"
                       className={classes.progressMeta}
                     >
-                      {progress.done}/{progress.total} done,{' '}
-                      {Math.max(progress.total - progress.done, 0)} left
-                      {type === 'lyrics' && lyricsTimingText
-                        ? ` · ${lyricsTimingText}`
-                        : ''}
+                      {progress.indeterminate &&
+                      progress.status === 'running' ? (
+                        `${progress.total} ${
+                          progress.total === 1 ? 'song' : 'songs'
+                        } in progress`
+                      ) : (
+                        <>
+                          {progress.done}/{progress.total} done,{' '}
+                          {Math.max(progress.total - progress.done, 0)} left
+                        </>
+                      )}
+                      <JobTiming type={type} progress={progress} />
                     </Typography>
                     {running ? (
                       <Button
@@ -5436,7 +5833,11 @@ const AiToolPage = () => {
                 </Box>
                 <LinearProgress
                   className={classes.progressBar}
-                  variant="determinate"
+                  variant={
+                    progress.indeterminate && progress.status === 'running'
+                      ? 'indeterminate'
+                      : 'determinate'
+                  }
                   value={progressValue}
                 />
               </Box>
@@ -5444,7 +5845,7 @@ const AiToolPage = () => {
           })}
 
           <Box className={classes.tableWrap}>
-            <Table size="small">
+            <Table size="small" aria-label="Added songs">
               <TableHead>
                 <TableRow>
                   <TableCell padding="checkbox">
@@ -5571,6 +5972,9 @@ const AiToolPage = () => {
                   >
                     <TableCell padding="checkbox">
                       <Checkbox
+                        inputProps={{
+                          'aria-label': `Select ${song.title || 'song'}`,
+                        }}
                         checked={selectedAddedSongIdSet.has(song.id)}
                         onChange={() => toggleAddedSong(song.id)}
                       />
@@ -5625,7 +6029,7 @@ const AiToolPage = () => {
                     ) : null}
                     {isColumnVisible('spotifyGenre') ? (
                       <TableCell className={valueClass(song, 'spotifyGenre')}>
-                        {song.spotifyGenre || '-'}
+                        {song.spotifyGenre || '—'}
                       </TableCell>
                     ) : null}
                     {isColumnVisible('musicBrainzGenre') ? (
@@ -5642,7 +6046,7 @@ const AiToolPage = () => {
                     ) : null}
                     {isColumnVisible('aiSubgenre') ? (
                       <TableCell className={valueClass(song, 'aiSubgenre')}>
-                        {song.aiSubgenre || '-'}
+                        {song.aiSubgenre || '—'}
                       </TableCell>
                     ) : null}
                     {isColumnVisible('genreConfidence') ? (
@@ -5672,14 +6076,26 @@ const AiToolPage = () => {
                     </TableCell>
                   </TableRow>
                 ))}
+                {addedSongs.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={visibleColumnCount + 2}
+                      className={classes.emptyTableCell}
+                    >
+                      <Typography variant="body2">
+                        No songs added yet.
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        Use <strong>Add songs</strong> in Song tools to pick
+                        tracks from your library, then fetch lyrics, genres and
+                        explicit ratings for them here.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
               </TableBody>
             </Table>
           </Box>
-          {toolError ? (
-            <Typography color="error" variant="body2">
-              {toolError}
-            </Typography>
-          ) : null}
         </CardContent>
       </Card>
 
@@ -5742,7 +6158,7 @@ const AiToolPage = () => {
           onClick={() => {
             const { columnId } = clearColumnMenu
             setClearColumnMenu(null)
-            void clearColumnMetadata(columnId, selectedAddedSongs)
+            confirmClearColumnMetadata(columnId, selectedAddedSongs)
           }}
         >
           <DeleteOutlineIcon fontSize="small" />
@@ -5758,7 +6174,7 @@ const AiToolPage = () => {
           onClick={() => {
             const { columnId } = clearColumnMenu
             setClearColumnMenu(null)
-            void clearColumnMetadata(columnId, addedSongs)
+            confirmClearColumnMetadata(columnId, addedSongs, { all: true })
           }}
         >
           <DeleteOutlineIcon fontSize="small" />
@@ -5834,9 +6250,11 @@ const AiToolPage = () => {
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            {`DeepSeek V3.2 will analyze the saved lyrics for ${
-              explicitDialogSongs.length
-            } ${explicitDialogSongs.length === 1 ? 'song' : 'songs'}.`}
+            {`${aiProviderLabel(
+              EXPLICIT_AI_PROVIDER,
+            )} will analyze the saved lyrics for ${explicitDialogSongs.length} ${
+              explicitDialogSongs.length === 1 ? 'song' : 'songs'
+            }.`}
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -5913,6 +6331,7 @@ const AiToolPage = () => {
                 className={classes.chatClose}
                 variant="outlined"
                 onClick={() => setIsChatExpanded((prev) => !prev)}
+                aria-label={isChatExpanded ? 'Collapse chat' : 'Expand chat'}
                 title={isChatExpanded ? 'Collapse chat' : 'Expand chat'}
               >
                 <AspectRatioIcon fontSize="small" />
@@ -5921,9 +6340,10 @@ const AiToolPage = () => {
                 className={classes.chatClose}
                 variant="outlined"
                 onClick={() => setIsChatOpen(false)}
+                aria-label="Close chat"
                 title="Close chat"
               >
-                x
+                <CloseIcon fontSize="small" />
               </Button>
             </Box>
           </Box>
@@ -6069,15 +6489,21 @@ const AiToolPage = () => {
             </TextField>
             <TextField
               fullWidth
+              multiline
+              maxRows={5}
               className={classes.chatInput}
               variant="outlined"
               size="small"
               value={prompt}
+              inputProps={{ 'aria-label': 'Ask RAG about your library' }}
               onChange={(event) => setPrompt(event.target.value)}
-              onKeyPress={(event) => {
-                if (event.key === 'Enter') sendMessage()
+              onKeyDown={(event) => {
+                if (isSubmitKey(event)) {
+                  event.preventDefault()
+                  void sendMessage()
+                }
               }}
-              placeholder="Ask RAG about your library..."
+              placeholder="Ask RAG about your library… (Shift+Enter for a new line)"
             />
             <Button
               className={
@@ -6167,6 +6593,11 @@ const AiToolPage = () => {
                 className={classes.chatClose}
                 variant="outlined"
                 onClick={() => setIsNormalChatExpanded((prev) => !prev)}
+                aria-label={
+                  isNormalChatExpanded
+                    ? 'Collapse normal chat'
+                    : 'Expand normal chat'
+                }
                 title={
                   isNormalChatExpanded
                     ? 'Collapse normal chat'
@@ -6179,9 +6610,10 @@ const AiToolPage = () => {
                 className={classes.chatClose}
                 variant="outlined"
                 onClick={() => setIsNormalChatOpen(false)}
+                aria-label="Close normal chat"
                 title="Close normal chat"
               >
-                x
+                <CloseIcon fontSize="small" />
               </Button>
             </Box>
           </Box>
@@ -6297,15 +6729,21 @@ const AiToolPage = () => {
             </TextField>
             <TextField
               fullWidth
+              multiline
+              maxRows={5}
               className={classes.chatInput}
               variant="outlined"
               size="small"
               value={normalPrompt}
+              inputProps={{ 'aria-label': 'Ask AI anything' }}
               onChange={(event) => setNormalPrompt(event.target.value)}
-              onKeyPress={(event) => {
-                if (event.key === 'Enter') sendNormalMessage()
+              onKeyDown={(event) => {
+                if (isSubmitKey(event)) {
+                  event.preventDefault()
+                  void sendNormalMessage()
+                }
               }}
-              placeholder="Ask AI anything..."
+              placeholder="Ask AI anything… (Shift+Enter for a new line)"
             />
             <Button
               className={
@@ -6599,19 +7037,73 @@ const AiToolPage = () => {
         onClose={() => setSongDialogOpen(false)}
         fullWidth
         maxWidth="lg"
+        aria-labelledby="ai-tool-add-songs-title"
       >
-        <DialogTitle>
+        <DialogTitle id="ai-tool-add-songs-title">
           {translate('menu.aiTool.addSongs', { _: 'Add songs' })}
         </DialogTitle>
-        <DialogContent>
+        <DialogContent dividers>
+          <Box
+            display="flex"
+            alignItems="center"
+            mb={2}
+            style={{ gap: 8, flexWrap: 'wrap' }}
+          >
+            <TextField
+              className={classes.songPickerSearch}
+              size="small"
+              variant="outlined"
+              label="Search your library"
+              placeholder="Title, artist, album or genre"
+              value={songSearch}
+              disabled={songsLoading}
+              inputProps={{ 'aria-label': 'Search your library' }}
+              onChange={(event) => setSongSearch(event.target.value)}
+            />
+            <Button
+              size="small"
+              variant="outlined"
+              color="primary"
+              onClick={loadAvailableSongs}
+              disabled={songsLoading}
+            >
+              {songsLoading ? 'Refreshing…' : 'Refresh library'}
+            </Button>
+            <Typography variant="body2" color="textSecondary">
+              {songsLoading
+                ? ''
+                : `Showing ${visibleAvailableSongs.length} of ${availableSongs.length} loaded songs${
+                    availableSongs.length >= AVAILABLE_SONGS_PAGE_SIZE
+                      ? ` (first ${AVAILABLE_SONGS_PAGE_SIZE} by title)`
+                      : ''
+                  }`}
+            </Typography>
+          </Box>
           {songsLoading ? (
-            <Typography>
-              {translate('menu.retailPlayer.loading', {
-                _: 'Loading devices…',
-              })}
+            <Box display="flex" justifyContent="center" p={3}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : songsError ? (
+            <Box>
+              <Typography color="error" variant="body2" paragraph>
+                {songsError}
+              </Typography>
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={loadAvailableSongs}
+              >
+                Retry
+              </Button>
+            </Box>
+          ) : visibleAvailableSongs.length === 0 ? (
+            <Typography variant="body2" color="textSecondary">
+              {songSearch.trim()
+                ? 'No songs in your library match that search.'
+                : 'No songs were found in your library.'}
             </Typography>
           ) : (
-            <Table size="small">
+            <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
                   <TableCell padding="checkbox">
@@ -6661,7 +7153,7 @@ const AiToolPage = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {availableSongs.map((song) => {
+                {visibleAvailableSongs.map((song) => {
                   const alreadyAdded = addedSongIdSet.has(song.id)
                   return (
                     <TableRow
@@ -6675,9 +7167,11 @@ const AiToolPage = () => {
                             'aria-label': `Select ${song.title || 'song'}`,
                           }}
                           checked={
-                            !alreadyAdded && selectedSongIds.includes(song.id)
+                            !alreadyAdded && selectedSongIdSet.has(song.id)
                           }
                           disabled={alreadyAdded}
+                          onChange={() => toggleSong(song.id)}
+                          onClick={(event) => event.stopPropagation()}
                         />
                       </TableCell>
                       <TableCell>
@@ -6693,7 +7187,7 @@ const AiToolPage = () => {
                       <TableCell>{renderLyricsState(song)}</TableCell>
                       <TableCell>{formatDuration(song.duration)}</TableCell>
                       <TableCell>{song.genre || ''}</TableCell>
-                      <TableCell>{song.aiGenre || '-'}</TableCell>
+                      <TableCell>{song.aiGenre || '—'}</TableCell>
                     </TableRow>
                   )
                 })}
@@ -6903,9 +7397,10 @@ const AiToolPage = () => {
         onClose={() => setLyricsDialogOpen(false)}
         fullWidth
         maxWidth="md"
+        aria-labelledby="ai-tool-lyrics-title"
       >
-        <DialogTitle>{lyricsDialogTitle}</DialogTitle>
-        <DialogContent>
+        <DialogTitle id="ai-tool-lyrics-title">{lyricsDialogTitle}</DialogTitle>
+        <DialogContent dividers>
           <Typography style={{ whiteSpace: 'pre-wrap' }}>
             {lyricsText ||
               translate('menu.aiTool.noLyrics', {
@@ -6919,6 +7414,12 @@ const AiToolPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <ConfirmDialog
+        request={confirmRequest}
+        onCancel={cancelConfirmation}
+        onConfirm={acceptConfirmation}
+      />
     </Box>
   )
 }

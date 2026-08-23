@@ -95,6 +95,39 @@ const renderPage = (
   )
 }
 
+const renderPageWithoutSelection = (
+  handlers = {},
+  { queuedSongs = null } = {},
+) => {
+  // The shared test localStorage stub has no removeItem, so an empty queue is
+  // expressed as an empty list.
+  localStorage.setItem('aiToolAddedSongs', JSON.stringify(queuedSongs || []))
+  mockHttpClient.mockImplementation((url, options = {}) => {
+    if (url === '/api/ai/status') {
+      return Promise.resolve({
+        json: { services: [], whisperModel: 'large-v3' },
+      })
+    }
+    if (url === '/api/ai/rag/status') {
+      return Promise.resolve({ json: defaultRAGStatus })
+    }
+    if (url.startsWith('/api/song?')) {
+      return Promise.resolve({ json: queuedSongs || [] })
+    }
+    const handler = Object.entries(handlers).find(([path]) =>
+      url.startsWith(path),
+    )
+    if (handler) return handler[1](url, options)
+    return Promise.resolve({ json: {} })
+  })
+
+  render(
+    <MemoryRouter initialEntries={['/ai-tool']}>
+      <AiToolPage />
+    </MemoryRouter>,
+  )
+}
+
 const openRAGControls = async () => {
   const toggle = await screen.findByRole('button', {
     name: /RAG controls/,
@@ -525,8 +558,7 @@ describe('AiToolPage AI actions', () => {
     ).toBeInTheDocument()
   })
 
-  it('clears the indexed RAG collection after confirmation', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('clears the indexed RAG collection only after confirmation', async () => {
     const requests = []
     renderPage('/api/ai/rag/index', (_url, options) => {
       requests.push(options.method)
@@ -542,10 +574,26 @@ describe('AiToolPage AI actions', () => {
     await waitFor(() => expect(button).toBeEnabled())
     fireEvent.click(button)
 
-    await waitFor(() => expect(requests).toEqual(['DELETE']))
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Clear all indexed RAG data from test_songs? This only deletes the vector index; your Navidrome songs and files stay untouched.',
+    // Nothing is deleted until the dialog is accepted.
+    expect(requests).toEqual([])
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Clear indexed songs?',
+    })
+    expect(
+      within(dialog).getByText(/your Navidrome songs and files stay untouched/),
+    ).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(requests).toEqual([])
+
+    fireEvent.click(button)
+    fireEvent.click(
+      within(
+        await screen.findByRole('dialog', { name: 'Clear indexed songs?' }),
+      ).getByRole('button', { name: 'Clear index' }),
     )
+
+    await waitFor(() => expect(requests).toEqual(['DELETE']))
     expect(
       await screen.findByText(
         'Cleared indexed songs from test_songs. Reindex when ready.',
@@ -558,7 +606,6 @@ describe('AiToolPage AI actions', () => {
         ),
       ).toHaveLength(2),
     )
-    confirmSpy.mockRestore()
   })
 
   it('opens the Qdrant collection and indexed songs table', async () => {
@@ -754,7 +801,7 @@ describe('AiToolPage AI actions', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
     const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
     fireEvent.change(
-      within(ragDialog).getByPlaceholderText('Ask RAG about your library...'),
+      within(ragDialog).getByLabelText('Ask RAG about your library'),
       {
         target: { value: 'What should I play?' },
       },
@@ -794,7 +841,7 @@ describe('AiToolPage AI actions', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
     const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
     fireEvent.change(
-      within(ragDialog).getByPlaceholderText('Ask RAG about your library...'),
+      within(ragDialog).getByLabelText('Ask RAG about your library'),
       { target: { value: 'songs with the words thank you in it' } },
     )
     fireEvent.click(within(ragDialog).getByTitle('Send RAG message'))
@@ -863,7 +910,7 @@ describe('AiToolPage AI actions', () => {
     expect(localStorage.getItem('aiToolChatDeveloperTrace')).toBe('true')
 
     fireEvent.change(
-      within(ragDialog).getByPlaceholderText('Ask RAG about your library...'),
+      within(ragDialog).getByLabelText('Ask RAG about your library'),
       { target: { value: 'Show bright songs' } },
     )
     fireEvent.click(within(ragDialog).getByTitle('Send RAG message'))
@@ -917,9 +964,7 @@ describe('AiToolPage AI actions', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
     const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
-    const input = within(ragDialog).getByPlaceholderText(
-      'Ask RAG about your library...',
-    )
+    const input = within(ragDialog).getByLabelText('Ask RAG about your library')
 
     fireEvent.change(input, { target: { value: 'Show upbeat rock songs' } })
     fireEvent.click(within(ragDialog).getByTitle('Send RAG message'))
@@ -950,10 +995,9 @@ describe('AiToolPage AI actions', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open AI Chat' }))
     const normalDialog = await screen.findByRole('dialog', { name: 'AI Chat' })
-    fireEvent.change(
-      within(normalDialog).getByPlaceholderText('Ask AI anything...'),
-      { target: { value: 'How are you?' } },
-    )
+    fireEvent.change(within(normalDialog).getByLabelText('Ask AI anything'), {
+      target: { value: 'How are you?' },
+    })
     fireEvent.click(within(normalDialog).getByTitle('Send normal message'))
 
     expect(
@@ -978,7 +1022,7 @@ describe('AiToolPage AI actions', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
     const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
     fireEvent.change(
-      within(ragDialog).getByPlaceholderText('Ask RAG about your library...'),
+      within(ragDialog).getByLabelText('Ask RAG about your library'),
       {
         target: { value: 'Hi' },
       },
@@ -1470,12 +1514,22 @@ describe('AiToolPage AI actions', () => {
 
     clickExplicitAction('Delete Lyrics')
 
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Delete saved lyrics?',
+    })
+    expect(requests).toEqual([])
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete 2 lyrics' }),
+    )
+
     await waitFor(() => expect(requests).toHaveLength(2))
     expect(requests).toEqual([
       { url: '/api/ai/songs/song-1/lyrics', method: 'DELETE' },
       { url: '/api/ai/songs/song-2/lyrics', method: 'DELETE' },
     ])
-    await waitFor(() => expect(screen.getAllByText('Failed')).toHaveLength(2))
+    await waitFor(() =>
+      expect(screen.getAllByText('Not fetched')).toHaveLength(2),
+    )
   })
 
   it('deletes lyrics for an individual song from its row actions', async () => {
@@ -1494,8 +1548,17 @@ describe('AiToolPage AI actions', () => {
       await screen.findByRole('menuitem', { name: 'Delete Lyrics' }),
     )
 
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Delete saved lyrics?',
+    })
+    expect(within(dialog).getByText(/“First song”/)).toBeInTheDocument()
+    expect(requests).toEqual([])
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete lyrics' }),
+    )
+
     await waitFor(() => expect(requests).toEqual(['DELETE']))
-    expect(await screen.findByText('Failed')).toBeInTheDocument()
+    expect(await screen.findByText('Not fetched')).toBeInTheDocument()
   })
 
   it('fetches row metadata with the saved provider without prompting again', async () => {
@@ -2081,6 +2144,14 @@ describe('AiToolPage AI actions', () => {
 
     clickMetadataAction('Clear Fetched Metadata')
 
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Clear fetched metadata?',
+    })
+    expect(requests).toEqual([])
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Clear metadata' }),
+    )
+
     await waitFor(() => expect(requests).toHaveLength(1))
     // Fetched genres are stored server-side, so the bulk clear must clear them
     // there as well as in the browser.
@@ -2287,5 +2358,241 @@ describe('AiToolPage AI actions', () => {
     expect(
       await screen.findByRole('button', { name: 'Add songs' }),
     ).toBeVisible()
+  })
+  it('explains the empty queue instead of showing a bare table', async () => {
+    renderPageWithoutSelection()
+
+    expect(await screen.findByText('No songs added yet.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/pick\s+tracks from your library/i),
+    ).toBeInTheDocument()
+  })
+
+  it('says lyrics are not fetched rather than failed', async () => {
+    renderPageWithoutSelection({}, { queuedSongs: songs })
+
+    await waitFor(() =>
+      expect(screen.getAllByText('Not fetched')).toHaveLength(2),
+    )
+    expect(screen.queryByText('Failed')).not.toBeInTheDocument()
+  })
+
+  it('filters the library picker and can reload it', async () => {
+    mockGetList.mockResolvedValue({
+      data: [
+        { id: 'song-1', title: 'First song', artist: 'Artist' },
+        { id: 'song-9', title: 'Deep cut', artist: 'Another band' },
+      ],
+    })
+    renderPageWithoutSelection()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add songs' }))
+    expect(await screen.findByText('Deep cut')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Search your library'), {
+      target: { value: 'another band' },
+    })
+
+    expect(screen.getByText('Deep cut')).toBeInTheDocument()
+    expect(screen.queryByText('First song')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Search your library'), {
+      target: { value: 'nothing matches this' },
+    })
+    expect(
+      screen.getByText('No songs in your library match that search.'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh library' }))
+    await waitFor(() => expect(mockGetList).toHaveBeenCalledTimes(2))
+  })
+
+  it('reports a library that will not load and offers a retry', async () => {
+    mockGetList.mockRejectedValueOnce(new Error('Library is offline'))
+    mockGetList.mockResolvedValueOnce({ data: songs })
+    renderPageWithoutSelection()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add songs' }))
+
+    expect(await screen.findByText('Library is offline')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText('First song')).toBeInTheDocument()
+    expect(screen.queryByText('Library is offline')).not.toBeInTheDocument()
+  })
+
+  it('warns instead of crashing when browser storage is full', async () => {
+    // The queue is seeded first; only the writes the page makes afterwards hit
+    // the full-storage error.
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify(songs))
+    mockHttpClient.mockImplementation((url) => {
+      if (url === '/api/ai/status') {
+        return Promise.resolve({
+          json: { services: [], whisperModel: 'large-v3' },
+        })
+      }
+      if (url === '/api/ai/rag/status') {
+        return Promise.resolve({ json: defaultRAGStatus })
+      }
+      if (url.startsWith('/api/song?')) return Promise.resolve({ json: songs })
+      return Promise.resolve({ json: {} })
+    })
+    const setItem = vi
+      .spyOn(localStorage, 'setItem')
+      .mockImplementation((key) => {
+        if (key === 'aiToolAddedSongs') {
+          const error = new Error('QuotaExceededError')
+          error.name = 'QuotaExceededError'
+          throw error
+        }
+      })
+
+    try {
+      render(
+        <MemoryRouter initialEntries={['/ai-tool']}>
+          <AiToolPage />
+        </MemoryRouter>,
+      )
+
+      expect(await screen.findByText(/Browser storage is full/)).toBeVisible()
+      // The queue itself still renders, so the page keeps working.
+      expect(screen.getByText('First song')).toBeInTheDocument()
+    } finally {
+      setItem.mockRestore()
+    }
+  })
+
+  it('shows a dismissible banner when an action fails', async () => {
+    renderPage('/api/ai/fetch-metadata', () =>
+      Promise.reject(new Error('The AI provider is unreachable')),
+    )
+
+    clickMetadataAction('Fetch AI Metadata')
+
+    const banner = await screen.findByRole('alert')
+    expect(
+      within(banner).getByText('The AI provider is unreachable'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      within(banner).getByRole('button', { name: 'Dismiss error' }),
+    )
+
+    await waitFor(() =>
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument(),
+    )
+  })
+
+  it('skips songs that already have a fetched genre when auto-fetching', async () => {
+    localStorage.setItem(
+      'aiToolAddedSongs',
+      JSON.stringify([{ ...songs[0], aiGenre: 'Indie rock' }, { ...songs[1] }]),
+    )
+    const requests = []
+    renderPage('/api/ai/fetch-metadata', (_url, options = {}) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({ json: { songs: [] } })
+    })
+
+    const metadataMenu = openMetadataActions()
+    fireEvent.click(
+      within(metadataMenu).getByRole('checkbox', {
+        name: 'Fetch All Song Metadata',
+      }),
+    )
+
+    // Only the song without a genre is sent, so a finished queue stops
+    // spending tokens on answers it already has.
+    await waitFor(() =>
+      expect(requests.map((request) => request.songIds)).toEqual([['song-2']]),
+    )
+  })
+
+  it('shows progress for explicit classification and can stop it', async () => {
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify(songsWithLyrics))
+    const signals = []
+    renderPage('/api/ai/classify-explicit', createAbortableRequest(signals))
+
+    clickExplicitAction('Classify Explicit')
+    fireEvent.click(await screen.findByRole('button', { name: 'Classify' }))
+
+    expect(await screen.findByText(/2 songs in progress/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/^Classifying explicit content:/),
+    ).toBeInTheDocument()
+
+    // The Classify dialog is still fading out and keeps the page behind it
+    // hidden from role queries, so reach the Stop button by its text.
+    fireEvent.click(screen.getByText('Stop').closest('button'))
+
+    await waitFor(() => expect(signals[0].aborted).toBe(true))
+    expect(await screen.findByText(/Stopped/)).toBeInTheDocument()
+  })
+
+  it('asks the server for a long queue in batches', async () => {
+    const manySongs = Array.from({ length: 250 }, (_, index) => ({
+      id: `song-${index + 1}`,
+      title: `Song ${index + 1}`,
+      artist: 'Artist',
+    }))
+    localStorage.setItem('aiToolAddedSongs', JSON.stringify(manySongs))
+    mockHttpClient.mockImplementation((url) => {
+      if (url === '/api/ai/status') {
+        return Promise.resolve({
+          json: { services: [], whisperModel: 'large-v3' },
+        })
+      }
+      if (url === '/api/ai/rag/status') {
+        return Promise.resolve({ json: defaultRAGStatus })
+      }
+      if (url.startsWith('/api/song?')) {
+        const ids = [...new URLSearchParams(url.split('?')[1]).getAll('id')]
+        return Promise.resolve({
+          json: ids.map((id) => manySongs.find((song) => song.id === id)),
+        })
+      }
+      return Promise.resolve({ json: {} })
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/ai-tool']}>
+        <AiToolPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      const songRequests = mockHttpClient.mock.calls
+        .map(([url]) => url)
+        .filter((url) => url.startsWith('/api/song?'))
+      expect(songRequests).toHaveLength(3)
+      // No single URL may carry the whole queue, or it overflows the server's
+      // URL limit and the reconcile silently stops working.
+      songRequests.forEach((url) => expect(url.length).toBeLessThan(4000))
+    })
+  })
+
+  it('sends chat on Enter but keeps Shift+Enter for a new line', async () => {
+    const requests = []
+    renderPage('/api/ai/chat', (_url, options = {}) => {
+      requests.push(JSON.parse(options.body))
+      return Promise.resolve({ json: { response: 'Answer', sources: [] } })
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open RAG' }))
+    const ragDialog = await screen.findByRole('dialog', { name: 'RAG' })
+    const input = within(ragDialog).getByLabelText('Ask RAG about your library')
+
+    fireEvent.change(input, { target: { value: 'First line' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    expect(requests).toEqual([])
+
+    // A keystroke still inside an IME composition must not submit either.
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(requests).toEqual([])
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0].message).toBe('First line')
   })
 })
