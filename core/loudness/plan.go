@@ -144,6 +144,27 @@ type Plan struct {
 	PLR float64
 }
 
+// maxAutomaticGainDB is the largest lift this will apply without being asked.
+//
+// There was no limit at all: the plan simply requested whatever the distance to
+// the target happened to be, so a recording at -40 LUFS was handed +27 dB. That
+// is not a correction, it is turning a room's noise floor into the loudest thing
+// on the record, and nothing in the verification catches it - the result is
+// exactly as loud as it was told to be.
+//
+// 20 dB because no commercial master lives below -32.6 LUFS. Broadcast sits at
+// -23, the quietest classical and jazz masters reach about -27, and a track
+// past this line is not a quiet mix - it is a recording the target was never
+// written for.
+//
+// The gain is NOT clamped. Clamping was tried and is worse than the disease:
+// GainToTarget feeds the predicted peak, the phase decision and the expected
+// result, so capping it makes the plan understate how far the song is from
+// target, mis-file it, and then fail its own verification - leaving the file
+// untouched with a confusing reason. The distance stays honest and the track is
+// routed to review instead, where a person sees the real number and decides.
+const maxAutomaticGainDB = 20.0
+
 // PlanFor works out what can be done with a track.
 //
 // The arithmetic is simple and exact: a constant gain moves both the loudness
@@ -156,7 +177,15 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 	p.PLR = truePeak - lufs
 	p.GainToTarget = target - lufs
 	p.PredictedPeak = truePeak + p.GainToTarget
-	p.TransparentGain = ceiling - truePeak
+	// Less the allowance for what re-encoding puts back on the peak. Without it
+	// this promised headroom the finished file did not have, and the track was
+	// planned as transparently fixable, encoded, measured over the ceiling and
+	// then rebuilt or thrown away.
+	// Not floored at zero. A negative value is meaningful here: it says the peak
+	// is already so close to the ceiling that staying safe means turning the
+	// track DOWN, and it is used as an upper bound below, where clamping it to
+	// zero would quietly permit a gain the peaks cannot take.
+	p.TransparentGain = ceiling - truePeak - ffmpeg.PeakSpringBack(sourceBitRate)
 	p.LoudnessAtCeiling = lufs + p.TransparentGain
 	p.Shortfall = target - p.LoudnessAtCeiling
 	if p.Shortfall < 0 {
@@ -182,11 +211,17 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 	// never planned to spend headroom it does not need.
 	p.SafeGain = math.Min(wanted, p.TransparentGain)
 	if math.Abs(landsAt(p.SafeGain)-target) > tolerance {
-		p.SafeGain = math.Min(wanted, math.Max(ceiling, fallbackCeilingDB)-truePeak)
+		p.SafeGain = math.Min(wanted,
+			math.Max(ceiling, fallbackCeilingDB)-truePeak-ffmpeg.PeakSpringBack(sourceBitRate))
 	}
 	p.SafeLoudness = landsAt(p.SafeGain)
 
 	switch {
+	// Checked before everything else: a lift this large is a question about the
+	// recording, not a peak problem, and the answer does not depend on where its
+	// peaks happen to sit.
+	case p.GainToTarget > maxAutomaticGainDB:
+		p.Phase = PhaseReview
 	case math.Abs(lufs-target) <= tolerance:
 		p.Phase = PhaseDone
 	case math.Abs(p.SafeLoudness-target) <= tolerance:

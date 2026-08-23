@@ -108,6 +108,11 @@ func auditWith(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaF
 	if current == nil {
 		measured, err := Measure(ctx, normalizer, trackPath, target)
 		if err != nil {
+			// PhaseUnplanned, not the zero value. Phase 0 means PhaseDone -
+			// "already on target, never needs opening" - so a file nothing could
+			// be read from was recorded as finished, and every place that reads
+			// the phase directly agreed with it.
+			audit.Phase = PhaseUnplanned
 			audit.Status = model.LoudnessStatusFailed
 			audit.Verdict = model.LoudnessVerdictFailed
 			audit.Error = err.Error()
@@ -142,9 +147,13 @@ func auditWith(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaF
 
 	original, err := Measure(ctx, normalizer, backup, target)
 	if err != nil {
-		// The processed file measured fine, so keep it as the before snapshot
-		// rather than losing the measurement entirely.
-		recordBefore(audit, current)
+		// Deliberately no before-snapshot. The only file that measured is the
+		// normalized one, and recording that as the song's "before" is a lie
+		// that survives: it says the track always sounded the way it sounds
+		// now, and a later restore trusts it to describe the file being put
+		// back. Left empty, Put keeps whatever real measurement is already
+		// stored - which is the untouched original, taken when the backup was
+		// still readable.
 		audit.Status = model.LoudnessStatusFailed
 		audit.Verdict = model.LoudnessVerdictFailed
 		audit.Error = fmt.Sprintf("reading backup: %v", err)
@@ -278,9 +287,12 @@ func MeasureOriginal(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer,
 		return &model.LoudnessAudit{
 			MediaFileID: mediaFileID,
 			AnalyzedAt:  time.Now(),
-			Status:      model.LoudnessStatusFailed,
-			Verdict:     model.LoudnessVerdictFailed,
-			Error:       err.Error(),
+			// See Audit: phase 0 is PhaseDone, so leaving it at its zero value
+			// files an unreadable track as finished.
+			Phase:   PhaseUnplanned,
+			Status:  model.LoudnessStatusFailed,
+			Verdict: model.LoudnessVerdictFailed,
+			Error:   err.Error(),
 		}
 	}
 	return analyzedAudit(mediaFileID, current, target, tolerance)
@@ -440,11 +452,29 @@ func IsLossy(codec string) bool {
 // high enough to check the clean end, which failed the noisy one. The noisy end
 // is the client's worst material, so that is where the false alarms landed.
 //
-//	PROVISIONAL. The lossless figure and the mid-range are measured; the values
-//	at the two lossy extremes are interpolated from them and from the gain-only
-//	rewrites recorded in verdict_test.go (-39.0 and -41.6). Replace them with
-//	real numbers using cmd/measure-null-floor, which rewrites a sample of the
-//	library at each bitrate with no gain at all and reports the floor it finds.
+//	STILL PROVISIONAL, and deliberately unchanged. The lossless figure and the
+//	mid-range are measured; the two lossy extremes are interpolated from them and
+//	from the gain-only rewrites in verdict_test.go (-39.0 and -41.6).
+//
+//	cmd/measure-null-floor was run against the development library and reported:
+//
+//	  <=160k    n=1  worst -38.9 dB  ->  suggested floor -30 dB  (currently -25)
+//	  161-256k  no files
+//	  >256k     n=6  worst -55.3 dB  ->  suggested floor -50 dB  (currently -35)
+//
+//	Both suggestions are stricter than what is in force, which means the current
+//	values are safe - they will not fail a clean rewrite. They were left alone
+//	anyway, because one file in a bucket is not a measurement and six from a
+//	single already-normalized source is not a distribution. Tightening a safety
+//	threshold on that evidence would start flagging real files as reshaped with
+//	nothing to back it up.
+//
+//	To finish this, run against the client's own library, which is large enough
+//	and varied enough to answer it:
+//
+//	  go run ./cmd/measure-null-floor -dir /path/to/music -per-bucket 30
+//
+//	Then replace the four nullResidual*DB constants with what it reports.
 func NullResidualThreshold(codec string, bitRate int) float64 {
 	if !IsLossy(codec) {
 		return nullResidualSafeLosslessDB

@@ -901,11 +901,45 @@ func (r *mediaFileRepository) UpdateLoudnessTags(id string, lufs float64) error 
 	}
 	mf.Tags[model.TagName("loudnorm_final_lufs")] = []string{fmt.Sprintf("%.2f", lufs)}
 
+	// updated_at is deliberately not touched, for the same reason
+	// UpdateAudioProperties leaves it alone: it is the scanner's record of when
+	// it last read the FILE, and this writes to the row without reading
+	// anything.
+	//
+	// Moving it forward here was worse than untidy. Both callers run just after
+	// the file on disk was replaced, so the stamp always landed later than the
+	// new file's timestamp - and the scanner decides a file needs re-reading
+	// with info.ModTime().After(dbTrack.UpdatedAt). Every normalized or
+	// restored song therefore looked older than its own row and was skipped by
+	// every incremental scan from then on, leaving the row describing a file
+	// that no longer existed until somebody ran a full scan.
 	upd := Update(r.tableName).
 		Set("tags", marshalTags(mf.Tags)).
-		Set("updated_at", time.Now()).
 		Where(Eq{"id": id})
 	_, err = r.executeSQL(upd)
+	return err
+}
+
+// ClearReplayGain removes the volume correction a song used to carry.
+//
+// ReplayGain tags say "play me this much quieter". Normalizing a song makes
+// them wrong - the correction they describe has already been applied to the
+// audio - so Apply strips them from the file on the way out. The copy in this
+// row is a different thing entirely, and it survived: the Subsonic API sends it
+// to every client and the built-in web player reads it too, so a
+// ReplayGain-enabled player took an already-normalized song and quietened it
+// again by the old amount. Silent in every report, plainly audible in the room.
+func (r *mediaFileRepository) ClearReplayGain(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	upd := Update(r.tableName).
+		Set("rg_track_gain", nil).
+		Set("rg_track_peak", nil).
+		Set("rg_album_gain", nil).
+		Set("rg_album_peak", nil).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(upd)
 	return err
 }
 

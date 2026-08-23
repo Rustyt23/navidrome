@@ -52,6 +52,12 @@ const rewriteCost = (bitRate) =>
 //
 // Zero above 224k was not measured at all. Nothing is the one value that cannot
 // fail safe, so a small allowance stands in until it is.
+//
+// Mirrors PeakSpringBack in core/ffmpeg, which the planner now uses too. The
+// two were different by accident rather than design: this page allowed for
+// spring-back from the day it was written and the engine did not, so the page
+// called a track unreachable while the plan called it transparently fixable,
+// and the encode settled it the expensive way. Both must move together.
 const peakSpringBack = (bitRate) => {
   if (!bitRate) return 0.5 // unknown: assume the worst rather than promise the best
   if (bitRate <= 160) return 0.5

@@ -77,7 +77,36 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 	// folder is an inbox for files arriving from outside; these files are already
 	// in the library, so there was nothing there to ingest.
 	if res.Changed {
-		updateSongLoudnessTag(recordCtx, ds.MediaFile(recordCtx), mf.ID, res.NewLUFS)
+		repo := ds.MediaFile(recordCtx)
+		updateSongLoudnessTag(recordCtx, repo, mf.ID, res.NewLUFS)
+
+		// The row still describes the file as it was before the rewrite. The
+		// scanner would normally correct that on its next pass, but it decides
+		// a file is worth re-reading by comparing timestamps, and nothing here
+		// moves the file's - so left alone the row stays wrong indefinitely.
+		if res.AfterSet != nil && res.AfterSet.Probe != nil {
+			p := res.AfterSet.Probe
+			if err := repo.UpdateAudioProperties(mf.ID, model.AudioFileProperties{
+				BitRate:    p.BitRate,
+				SampleRate: p.SampleRate,
+				BitDepth:   p.BitDepth,
+				Channels:   p.Channels,
+				Duration:   float32(p.Duration),
+				Size:       p.Size,
+			}); err != nil {
+				log.Warn(recordCtx, "Could not update song properties after optimise", "id", mf.ID, err)
+			}
+		}
+
+		// The one correction on this page that a listener can hear. The old
+		// ReplayGain values describe a level this song no longer has, and they
+		// are handed to every client and to the built-in player, which then
+		// quietens an already-normalized track by the old amount - undoing the
+		// work on every playback. Apply strips them from the file; this strips
+		// them from the row.
+		if err := repo.ClearReplayGain(mf.ID); err != nil {
+			log.Warn(recordCtx, "Could not clear stale ReplayGain after optimise", "id", mf.ID, err)
+		}
 	}
 	return res, nil
 }

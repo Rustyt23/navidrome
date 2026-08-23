@@ -201,9 +201,17 @@ const DefaultLoudnessNormalizationTolerance = 0.2
 const DefaultLoudnessNormalizationTruePeak = -0.5
 
 type loudnessNormalizationOptions struct {
-	Enabled     bool
-	TargetLUFS  float64
-	TruePeak    float64
+	Enabled    bool
+	TargetLUFS float64
+	TruePeak   float64
+	// LRA is passed to ffmpeg's loudnorm filter when measuring and is reported
+	// back with the settings, but no decision anywhere reads it: what gets
+	// applied to a file is decided by TargetLUFS and TruePeak alone.
+	//
+	// Kept because loudnorm requires the parameter and because the measured
+	// loudness range is shown per track on the LUFS page. Changing it will not
+	// change what happens to any song - said here so nobody spends an afternoon
+	// tuning a number that does nothing.
 	LRA         float64
 	Tolerance   float64
 	Parallelism int

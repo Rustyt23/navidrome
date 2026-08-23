@@ -469,6 +469,9 @@ type MediaFileRepository interface {
 	// the file on disk, for the one case that replaces a file outside the
 	// scanner: putting a stored original back.
 	UpdateAudioProperties(id string, props AudioFileProperties) error
+	// ClearReplayGain drops the stored volume correction for a song whose audio
+	// has just been normalized, so no player applies it a second time.
+	ClearReplayGain(id string) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
 	UpdateCoverPath(id string, coverPath string) error
 	UpdateSpotifyMetadata(id string, confidence *float64, match *string, artist *string, spotifyURL *string) error

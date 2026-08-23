@@ -55,13 +55,50 @@ func (r *loudnessAuditRepository) Put(audit *model.LoudnessAudit) error {
 	// itself an exception: a fresh analysis of a track that has since been fixed
 	// carries false, and writing that would erase the history the column exists
 	// to keep. Omitting the column leaves whatever is already stored.
+	// A record with no measurement in it must not erase the one that is stored.
+	//
+	// Every failure path builds a fresh audit and leaves the measurement fields
+	// at their zero values, so a single transient error - a decode timeout, a
+	// drive unmounted for a moment - used to write lufs_before = NULL,
+	// codec_before = '', size_before = 0 straight over a good row. The before
+	// snapshot is the only record of what the song originally was, and once the
+	// backup is deleted it cannot be taken again.
+	//
+	// Expressed as what a failure may write rather than what it must not.
+	// Listing the columns to skip meant every column added later was silently
+	// opted in to being destroyed, and the first version of this missed the
+	// after-snapshot and the phase for exactly that reason.
+	//
+	// Keyed on the record calling itself a failure and carrying no measurement.
+	// Keying on the missing measurement alone was wrong: plenty of legitimate
+	// records - a re-analysis that found nothing wrong, a decision being
+	// recorded - carry no before-snapshot either, and blocking those froze the
+	// phase and action of any track they touched.
+	//
+	// Inserts are unaffected: a brand new row has nothing to protect and writes
+	// everything it has, which is how a never-measured track still gets its
+	// failure recorded.
+	keepStoredMeasurements := audit.Status == model.LoudnessStatusFailed && audit.LufsBefore == nil
+
+	// What a failed attempt legitimately knows: that it happened, when, and why
+	// it did not work. Everything else describes the song, which it did not
+	// manage to look at.
+	failureColumns := map[string]bool{
+		"status": true, "verdict": true, "error": true,
+		"analyzed_at": true, "has_backup": true,
+	}
+
 	updateValues := make(map[string]any, len(values))
 	for k, v := range values {
 		if k == "decision" || (k == "was_exception" && !audit.WasException) {
 			continue
 		}
+		if keepStoredMeasurements && !failureColumns[k] {
+			continue
+		}
 		updateValues[k] = v
 	}
+
 	update := Update(r.tableName).SetMap(updateValues).Where(Eq{"media_file_id": audit.MediaFileID})
 	count, err := r.executeSQL(update)
 	if err != nil {

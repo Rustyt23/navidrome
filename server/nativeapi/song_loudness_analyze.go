@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"runtime"
 	"strings"
@@ -166,6 +167,7 @@ func (n *Router) stopLoudnessAnalyzeHandler() http.HandlerFunc {
 // LUFS pages. Audio files, backups, and media-file metadata are untouched.
 func (n *Router) clearLoudnessAnalyzeResults() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		w.Header().Set("Content-Type", "application/json")
 		loudnessAnalyze.stopMu.Lock()
 		libraryLoudness.stopMu.Lock()
@@ -179,15 +181,45 @@ func (n *Router) clearLoudnessAnalyzeResults() http.HandlerFunc {
 			})
 			return
 		}
-		count, err := n.ds.LoudnessAudit(r.Context()).Clear()
+		// Copy it before destroying it.
+		//
+		// This wipes every measurement in the library and there is no undo. A
+		// copy costs a second and turns an irreversible click into a reversible
+		// one; without it the only safety net was whatever snapshot happened to
+		// exist already, which the same button's aftermath then aged out of the
+		// keep-window.
+		//
+		// A failure here does not block the clear. The button was pressed on
+		// purpose, and refusing to do the thing that was asked because the
+		// courtesy backup did not work would be its own surprise - but it is
+		// said plainly in the response so nobody assumes a copy exists.
+		var savedTo string
+		if dir := loudnessAuditDbFolder(ctx, n.ds); dir != "" {
+			keep := conf.Server.Scanner.LoudnessNormalization.AuditDbKeep
+			if snapshot, snapErr := n.ds.LoudnessAudit(ctx).Snapshot(dir, keep); snapErr != nil {
+				if !errors.Is(snapErr, model.ErrNoLoudnessAuditData) {
+					log.Warn(ctx, "Could not copy LUFS data before clearing it", "folder", dir, snapErr)
+				}
+			} else {
+				savedTo = snapshot.File
+				log.Info(ctx, "LUFS data copied before clearing", "file", snapshot.File, "rows", snapshot.Rows)
+			}
+		}
+
+		count, err := n.ds.LoudnessAudit(ctx).Clear()
 		if err != nil {
-			log.Error(r.Context(), "Could not clear LUFS analysis data", err)
+			log.Error(ctx, "Could not clear LUFS analysis data", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		message := "LUFS analysis data cleared"
+		if savedTo != "" {
+			message += " - a copy was saved to " + savedTo + " first"
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cleared": count,
-			"message": "LUFS analysis data cleared",
+			"cleared":  count,
+			"snapshot": savedTo,
+			"message":  message,
 		})
 	}
 }
@@ -304,6 +336,21 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 					loudnessAnalyze.cancelled.Add(1)
 					log.Debug(ctx, "LUFS analysis: track abandoned on stop", "path", mf.Path)
 					continue
+				}
+				// A sweep must not cancel a restore.
+				//
+				// restored_at is what stops the next optimise run from
+				// re-normalizing a song somebody deliberately put back. A fresh
+				// audit carries no such mark, and Put writes every column, so a
+				// whole-library analysis silently cleared it for every restored
+				// song in the library - and the next run undid every restore.
+				//
+				// Only carried forward on a sweep. Re-analysing one track by
+				// hand is someone looking at that track and asking for it to be
+				// reconsidered, and clearing the mark there is the documented
+				// intent.
+				if payload.All && mf.LoudnessAudit != nil && mf.LoudnessAudit.RestoredAt != nil {
+					audit.RestoredAt = mf.LoudnessAudit.RestoredAt
 				}
 				if err := n.ds.LoudnessAudit(ctx).Put(audit); err != nil {
 					log.Warn(ctx, "LUFS analysis: could not save audit record", "id", mf.ID, err)

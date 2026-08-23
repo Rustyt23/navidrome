@@ -153,10 +153,24 @@ func NullResidual(ctx context.Context, beforePath, afterPath string, gainDB floa
 		return 0, err
 	}
 
+	// Both channels, kept as a stereo pair rather than folded into one.
+	//
+	// This used to be pan=mono|c0=c0-c2, which is L(before) - L(after): the
+	// right channel was never looked at. Anything that changed only on the
+	// right nulled perfectly and was reported as untouched - a 6 dB shift in
+	// one channel measured as digital silence.
+	//
+	// A stereo pan rather than summing both differences into one mono channel,
+	// because astats then reports an Overall figure across the two and that
+	// figure is the same one the thresholds were calibrated against. Summing
+	// would have added roughly 3 dB to every result and quietly moved every
+	// threshold with it. Measured on a test pair: a change in both channels
+	// reads -65.838 here against -65.836 for the old filter, while a
+	// right-channel-only change goes from -inf to -68.85.
 	filter := fmt.Sprintf(
 		"[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a];"+
 			"[1:a]volume=%sdB,aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[b];"+
-			"[a][b]amerge=inputs=2,pan=mono|c0=c0-c2,astats=metadata=1:reset=0",
+			"[a][b]amerge=inputs=2,pan=stereo|c0=c0-c2|c1=c1-c3,astats=metadata=1:reset=0",
 		formatFloat(-gainDB))
 
 	args := []string{"-nostdin", "-hide_banner", "-i", beforePath, "-i", afterPath,
@@ -169,7 +183,7 @@ func NullResidual(ctx context.Context, beforePath, afterPath string, gainDB floa
 	}
 
 	// astats reports each channel and then an "Overall" block; the last match is
-	// the overall figure for the merged difference signal.
+	// the overall figure across both difference channels.
 	matches := astatsRMSRe.FindAllStringSubmatch(string(output), -1)
 	if len(matches) == 0 {
 		return 0, fmt.Errorf("null residual: RMS level not found in ffmpeg output")

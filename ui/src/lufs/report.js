@@ -82,6 +82,27 @@ export const reportFor = (record, settings) => {
   const minor = []
   const unchanged = []
 
+  // Shipped above the configured ceiling because that ceiling could not be
+  // reached.
+  //
+  // The engine records this as OptimizeResult.CeilingRelaxed and then throws it
+  // away - nothing writes it to the audit, so a file resting at -0.12 dBTP
+  // against a -0.50 target looked identical to a clean one on every page. It is
+  // derived here instead of stored, because the finished peak and the
+  // configured ceiling are both already on the record and their relationship
+  // IS the flag.
+  //
+  // Not a fault, and deliberately not in the "needs attention" bucket: the file
+  // still cannot clip, which is what the ceiling exists to guarantee. What it
+  // gives up is part of the reserve held back for whatever handles the file
+  // next, and that is worth being able to see and count.
+  if (has(a.tpAfter) && n(a.tpAfter) > ceiling + 0.005) {
+    minor.push(
+      `Shipped at ${f2(a.tpAfter)} dBTP, above the ${f2(ceiling)} target - ` +
+        `that ceiling was not reachable on this source. Still below 0, so it cannot clip.`,
+    )
+  }
+
   // The intended change.
   let intended = null
   if (has(a.lufsBefore) && has(a.lufsAfter)) {

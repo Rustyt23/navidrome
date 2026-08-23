@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -164,6 +165,17 @@ func parseLoudnormFloat(value, name string) (float64, error) {
 	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return 0, fmt.Errorf("invalid %s value %q: %w", name, value, err)
+	}
+	// ParseFloat accepts "inf", "-inf" and "nan", and ffmpeg prints "-inf" for
+	// a digitally silent file. Left through, the distance to the target becomes
+	// +Inf and every later comparison silently misbehaves: NaN compares false
+	// against everything, so a track falls past every branch it should have
+	// matched, and a decision to limit would hand ffmpeg volume=+InfdB.
+	//
+	// Refused rather than clamped. A file that measures as silence has nothing
+	// to normalize, and inventing a number for it would only hide that.
+	if math.IsInf(parsed, 0) || math.IsNaN(parsed) {
+		return 0, fmt.Errorf("%s measured as %q, which is not a usable level", name, value)
 	}
 	return parsed, nil
 }

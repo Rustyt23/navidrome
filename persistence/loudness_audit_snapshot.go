@@ -203,9 +203,17 @@ func (r *loudnessAuditRepository) Snapshot(dir string, keep int) (*model.Loudnes
 	return snapshot, nil
 }
 
-// pruneSnapshots keeps the newest `keep` and removes the rest. A keep of zero or
-// less keeps everything: someone who has not chosen a limit should not silently
-// get one that deletes their history.
+// pruneSnapshots keeps the newest `keep`, and always keeps the fullest one.
+//
+// A keep of zero or less keeps everything: someone who has not chosen a limit
+// should not silently get one that deletes their history.
+//
+// The fullest copy is spared regardless of age, because counting alone is not a
+// safety net. Clearing the analysis and then making a handful of small runs
+// pushes the copy holding the real library out of the window purely by being
+// older, and the one file worth having is the first to go. Age is a reasonable
+// way to choose between comparable copies; it is a terrible way to choose
+// between six hundred rows and four.
 func (r *loudnessAuditRepository) pruneSnapshots(dir string, keep int) {
 	if keep <= 0 {
 		return
@@ -214,7 +222,17 @@ func (r *loudnessAuditRepository) pruneSnapshots(dir string, keep int) {
 	if err != nil || len(stored) <= keep {
 		return
 	}
-	for _, old := range stored[keep:] {
+
+	fullest := 0
+	for i, s := range stored {
+		if s.Rows > stored[fullest].Rows {
+			fullest = i
+		}
+	}
+	for i, old := range stored {
+		if i < keep || i == fullest {
+			continue
+		}
 		_ = os.Remove(old.Path)
 	}
 }

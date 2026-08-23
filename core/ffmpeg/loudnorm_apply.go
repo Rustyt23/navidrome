@@ -55,6 +55,40 @@ const (
 // whose ceiling leaves no room for the difference it then fails on every run,
 // for ever. Bitrates between the measured points take the more expensive
 // neighbour's figure, so the estimate is never optimistic.
+// PeakSpringBack is how far above the arithmetic a finished file's true peak
+// lands, for a plain gain with no limiting.
+//
+// An mp3 does not store samples, it stores a recipe for rebuilding them. The
+// rebuilt waveform is close but not identical, and some reconstructed points
+// land higher than the ones they replaced. The coarser the recipe, the further.
+//
+// Upper bounds, not averages, and that is the point. An allowance that is right
+// on average is wrong for a safety margin: it has to hold for the worst file,
+// not the typical one. Measured on a real library, two 128k tracks sprang back
+// 0.24 and 0.42 dB.
+//
+// The planner ignored this entirely and worked from a bare ceiling - truePeak,
+// while the exceptions page had allowed for it since it was written. The two
+// disagreed by design: the plan called tracks transparently fixable, the encode
+// came back over the ceiling, and the file was rebuilt a second time against
+// the fallback ceiling or refused outright. Every one of those cost a full
+// encode to learn something the page already knew.
+//
+// Mirrored in ui/src/lufs2/recommendation.js. Both must move together.
+func PeakSpringBack(bitRate int) float64 {
+	switch {
+	case bitRate <= 0:
+		// Unknown: assume the worst rather than promise headroom that is not there.
+		return 0.5
+	case bitRate <= 160:
+		return 0.5
+	case bitRate <= 256:
+		return 0.3
+	default:
+		return 0.15
+	}
+}
+
 func RewriteLoudnessCost(bitRate int) float64 {
 	switch {
 	case bitRate <= 0:
