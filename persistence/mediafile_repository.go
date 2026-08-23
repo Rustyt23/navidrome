@@ -547,25 +547,43 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		// column, which is the only place anyone reads these names - a filter
 		// missing an outcome the column displays is worse than useless, because
 		// the rows are visibly there and cannot be narrowed to.
+		// Two of the values this accepts are not stored in the verdict column at
+		// all - they are worked out from the rest of the record, and the column
+		// picker offers them because the page displays them. Left unmapped they
+		// would match nothing, which reads as "no such songs" rather than "this
+		// filter does not work".
 		"loudness_verdict": func(_ string, value any) Sqlizer {
 			var stored []string
-			refused := false
+			refused, needsDecision := false, false
 			for _, v := range filterStrings(value) {
-				if v == leftAsIsVerdict {
+				switch v {
+				case leftAsIsVerdict:
 					refused = true
-					continue
+				case needsDecisionVerdict:
+					needsDecision = true
+				default:
+					stored = append(stored, v)
 				}
-				stored = append(stored, v)
 			}
-			byAction := Eq{"media_file_loudness.action": model.LoudnessActionRefused}
-			switch {
-			case refused && len(stored) > 0:
-				return Or{Eq{"media_file_loudness.verdict": stored}, byAction}
-			case refused:
-				return byAction
-			default:
-				return eqFilter("media_file_loudness.verdict", value)
+			any := Or{}
+			if len(stored) > 0 {
+				any = append(any, Eq{"media_file_loudness.verdict": stored})
 			}
+			if refused {
+				any = append(any, Eq{"media_file_loudness.action": model.LoudnessActionRefused})
+			}
+			if needsDecision {
+				// Exactly the songs the exceptions page lists, and only while
+				// nothing has resolved them - the same test the column applies.
+				any = append(any, And{
+					Eq{"media_file_loudness.verdict": ""},
+					LoudnessExceptionFilter(),
+				})
+			}
+			if len(any) == 0 {
+				return nil
+			}
+			return any
 		},
 		"loudness_status": func(_ string, value any) Sqlizer {
 			return eqFilter("media_file_loudness.status", value)
@@ -628,6 +646,11 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 // derived from the action rather than stored as a verdict, so it needs its own
 // handling wherever a verdict is filtered on.
 const leftAsIsVerdict = "left_as_is"
+
+// needsDecisionVerdict is displayed, never stored: it means "on the exceptions
+// page and nothing has resolved it yet". Mirrors verdictOf in
+// ui/src/lufs/LufsFields.jsx.
+const needsDecisionVerdict = "needs_decision"
 
 // filterStrings normalises whatever a filter value arrives as - one value, or
 // several from a multi-select - into a plain list.

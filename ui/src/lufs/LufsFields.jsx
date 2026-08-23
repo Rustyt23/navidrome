@@ -4,7 +4,8 @@ import { useRecordContext, useTranslate } from 'react-admin'
 import { Chip, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import { nullFloorFor, reportFor } from './report'
-import { isLevelTwo, outcomeFor } from './outcome'
+import { isException, isLevelTwo, offByFor, outcomeFor } from './outcome'
+import { verdictReason } from './verdictReason'
 
 const useStyles = makeStyles((theme) => ({
   chip: {
@@ -101,7 +102,11 @@ const verdictClass = (classes, verdict) => {
       return classes.warn
     case 'reencoded':
     case 'failed':
+    case 'no_audio':
       return classes.bad
+    // Amber: something is outstanding, which is exactly what amber is for here.
+    case 'needs_decision':
+      return classes.warn
     default:
       return classes.neutral
   }
@@ -114,12 +119,25 @@ const verdictClass = (classes, verdict) => {
 // verdict for it would mean a column and a migration to say the same thing.
 const LEFT_AS_IS = 'left_as_is'
 const LEVEL_TWO = 'level_two'
+// A song on the Exception LUFS page is waiting on a person, and until now said
+// so nowhere: six of them showed an empty cell, and the rest showed "Left
+// as-is", which describes what happened to the file rather than what is
+// outstanding. Both read as finished.
+const NEEDS_DECISION = 'needs_decision'
 // Held to the wider tolerance, and said before "left as-is": a refusal that
 // was never worth reporting reads as an unexplained shrug otherwise, and the
 // tracks the planner never opened had no verdict at all - a blank cell where
 // the reason should be.
 const verdictOf = (a, settings) => {
   if (isLevelTwo(a, settings)) return LEVEL_TWO
+  // Before the stored verdict, but only while nothing has been resolved. A song
+  // that was an exception and has since been corrected keeps its real verdict -
+  // the exceptions list latches on purpose, so membership alone does not mean
+  // there is still something to decide.
+  if (a && !a.verdict) {
+    const offBy = offByFor(a, settings)
+    if (offBy !== null && isException(a, offBy)) return NEEDS_DECISION
+  }
   if (a?.verdict) return a.verdict
   if (a?.action === 'refused') return LEFT_AS_IS
   return ''
@@ -144,7 +162,11 @@ export const VerdictField = (props) => {
       className={`${classes.chip} ${verdictClass(classes, verdict)}`}
     />
   )
-  return a.error ? <Tooltip title={a.error}>{chip}</Tooltip> : chip
+  // Every verdict explains itself on hover, not just the ones that went wrong.
+  // A four-word label is what keeps this table readable; the sentence behind it
+  // is what stops someone having to ask.
+  const why = verdictReason(a, props.settings, verdict)
+  return why ? <Tooltip title={why}>{chip}</Tooltip> : chip
 }
 
 // OutcomeField says where the song ended up relative to the target, which is

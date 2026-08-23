@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -114,7 +115,7 @@ func auditWith(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaF
 			// the phase directly agreed with it.
 			audit.Phase = PhaseUnplanned
 			audit.Status = model.LoudnessStatusFailed
-			audit.Verdict = model.LoudnessVerdictFailed
+			audit.Verdict = failureVerdict(trackPath)
 			audit.Error = err.Error()
 			return audit
 		}
@@ -291,7 +292,7 @@ func MeasureOriginal(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer,
 			// files an unreadable track as finished.
 			Phase:   PhaseUnplanned,
 			Status:  model.LoudnessStatusFailed,
-			Verdict: model.LoudnessVerdictFailed,
+			Verdict: failureVerdict(trackPath),
 			Error:   err.Error(),
 		}
 	}
@@ -441,6 +442,45 @@ func IsLossy(codec string) bool {
 	}
 }
 
+// failureVerdict separates "there is nothing in this file" from "something went
+// wrong reading it".
+//
+// An empty file is not a failure to retry - it is a download that never
+// finished, and every future run will fail on it identically. Saying so on the
+// page is the difference between a row somebody keeps re-running and a row
+// somebody knows to re-fetch. Checked by size rather than by parsing ffmpeg's
+// complaint, because the size is unambiguous and the wording is not.
+func failureVerdict(trackPath string) string {
+	if st, err := os.Stat(trackPath); err == nil && st.Size() == 0 {
+		return model.LoudnessVerdictNoAudio
+	}
+	return model.LoudnessVerdictFailed
+}
+
+// durationToleranceFor is how much the length of a rewritten file may differ
+// from the original before it counts as a different recording.
+//
+// A compressed format does not store a length, it stores blocks: an mp3 frame
+// holds 1152 samples, about 26 ms, and the file length is however many frames
+// it takes to cover the audio. Re-encoding can land on a different frame count
+// for reasons that have nothing to do with the audio - a header the original
+// lacked, padding rounded differently - so a lossy rewrite drifts by tens of
+// milliseconds as a matter of course.
+//
+// 0.05 s was tight enough to reject files that were perfectly fine. Two songs
+// in a real library were refused for this and nothing else. 0.1 s still cannot
+// hide a real edit - a missing frame, a truncated tail - and is four frames of
+// slack on the format that needs it.
+//
+// Lossless keeps the tighter figure: it stores samples, so its length is exact
+// and any drift at all means something happened.
+func durationToleranceFor(codec string) float64 {
+	if IsLossy(codec) {
+		return 0.1
+	}
+	return 0.05
+}
+
 // NullResidualThreshold returns the level below which the leftover from a null
 // test is codec noise rather than a change to the audio.
 //
@@ -540,7 +580,7 @@ func IntegrityIssues(before, after *Measurement) []string {
 	if b.Channels != a.Channels {
 		issues = append(issues, fmt.Sprintf("channels %d->%d", b.Channels, a.Channels))
 	}
-	if math.Abs(b.Duration-a.Duration) > 0.05 {
+	if math.Abs(b.Duration-a.Duration) > durationToleranceFor(b.Codec) {
 		issues = append(issues, "duration changed")
 	}
 	if b.HasArt && !a.HasArt {

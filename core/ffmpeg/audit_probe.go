@@ -25,6 +25,17 @@ type FileProbe struct {
 	Duration   float64
 	Size       int64
 	HasArt     bool
+	// ArtUndecodable marks cover art whose declared format does not match its
+	// contents - almost always an ID3 APIC frame that says image/png over bytes
+	// that are actually JPEG.
+	//
+	// ffmpeg believes the declaration, picks the matching decoder, fails to read
+	// a header with it and leaves the stream with no dimensions. Copying such a
+	// stream then fails at the muxer, which needs valid codec parameters to
+	// write the attached-picture header, and takes the whole conversion down
+	// with it - over a picture, on a song whose audio is perfect. Zero width or
+	// height on an art stream is the tell.
+	ArtUndecodable bool
 }
 
 type fullProbeOutput struct {
@@ -45,6 +56,8 @@ type fullProbeStream struct {
 	BitRate          string `json:"bit_rate"`
 	Duration         string `json:"duration"`
 	Channels         int    `json:"channels"`
+	Width            int    `json:"width"`
+	Height           int    `json:"height"`
 	BitsPerSample    int    `json:"bits_per_sample"`
 	BitsPerRawSample string `json:"bits_per_raw_sample"`
 }
@@ -90,6 +103,9 @@ func ProbeFile(ctx context.Context, path string) (*FileProbe, error) {
 		case "video":
 			// In audio containers a video stream is the embedded cover art
 			res.HasArt = true
+			if s.Width == 0 || s.Height == 0 {
+				res.ArtUndecodable = true
+			}
 		}
 	}
 	if res.Codec == "" {

@@ -71,6 +71,8 @@ const LufsFilter = (props) => (
         { id: 'rewrite_costly', name: 'Differs from original' },
         { id: 'reencoded', name: 'Quality lost' },
         { id: 'left_as_is', name: 'Left as-is' },
+        { id: 'needs_decision', name: 'Needs decision' },
+        { id: 'no_audio', name: 'No audio in file' },
         { id: 'failed', name: 'Could not process' },
       ]}
     />

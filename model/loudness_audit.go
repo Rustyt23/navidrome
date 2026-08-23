@@ -30,6 +30,12 @@ const (
 	LoudnessVerdictRewriteCostly = "rewrite_costly"
 	LoudnessVerdictReencoded     = "reencoded" // codec/bitrate/rate/depth/channels/art degraded
 	LoudnessVerdictFailed        = "failed"
+	// LoudnessVerdictNoAudio: the file holds no playable audio at all - almost
+	// always a download that was truncated or never finished. Kept apart from
+	// "failed" because the two need different answers: a failure may be worth
+	// retrying, an empty file never is. No amount of re-running fixes it; the
+	// song has to be fetched again from its source.
+	LoudnessVerdictNoAudio = "no_audio"
 )
 
 // How the loudness change was applied.

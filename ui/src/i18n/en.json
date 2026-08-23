@@ -444,7 +444,9 @@
         "reencoded": "Quality lost",
         "failed": "Could not process",
         "left_as_is": "Left as-is",
-        "level_two": "Level 2 tolerance"
+        "level_two": "Level 2 tolerance",
+        "needs_decision": "Needs decision",
+        "no_audio": "No audio in file"
       },
       "action": {
         "gain": "Volume only",

@@ -19,6 +19,16 @@ export const OUTCOME_SHORT_SOURCE = 'short_source_limited'
 export const OUTCOME_NOT_ATTEMPTED = 'not_attempted'
 export const OUTCOME_LEVEL_TWO = 'level_two'
 
+// offByFor is the distance from target a song currently sits at, using whatever
+// it measures now: lufsAfter once rewritten, lufsBefore while only measured.
+export const offByFor = (audit, settings) => {
+  const target = settings?.targetLUFS ?? -12.6
+  const now = has(audit?.lufsAfter)
+    ? Number(audit.lufsAfter)
+    : Number(audit?.lufsBefore)
+  return has(now) ? Math.abs(now - target) : null
+}
+
 // Mirrors PhaseCloseEnough in core/loudness.
 const PHASE_CLOSE_ENOUGH = 4
 // Mirrors leaveAloneToleranceDB in core/loudness.
@@ -26,7 +36,7 @@ const LEVEL_TWO_TOLERANCE = 0.5
 
 // isException mirrors the server's exceptions filter: the songs a person still
 // has to do something about.
-const isException = (audit, offBy) =>
+export const isException = (audit, offBy) =>
   audit.phase !== PHASE_CLOSE_ENOUGH &&
   (!!audit.wasException ||
     audit.phase === 2 ||

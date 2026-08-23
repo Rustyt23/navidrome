@@ -159,6 +159,45 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 			_ = os.Remove(fallbackPath)
 		}
 	}()
+	// A produced file whose peaks are correct but whose loudness landed a little
+	// short of the target is kept aside too.
+	//
+	// The strict window is +/-0.2, and a result outside it used to be deleted -
+	// leaving the song at its ORIGINAL loudness, which was usually further from
+	// the target than the file just thrown away. Measured on a real library: 24
+	// tracks refused this way, and for 21 of them the discarded version was
+	// closer to target than what was kept. One was left 1.95 dB out when the
+	// deleted file was 0.25 dB out.
+	//
+	// The wider band is the same leaveAloneToleranceDB the rest of the system
+	// already uses to mean "near enough that nobody would act on it". It was
+	// simply never consulted here, because the file was in the bin before
+	// anything asked.
+	var nearPath string
+	var nearAfter *Measurement
+	var nearGain float64
+	defer func() {
+		if nearPath != "" {
+			_ = os.Remove(nearPath)
+		}
+	}()
+	keepAsNearMiss := func(path string, after *Measurement, gain float64) bool {
+		offBy := math.Abs(after.LUFS - opts.Target.IntegratedLUFS)
+		if offBy > leaveAloneToleranceDB {
+			return false
+		}
+		// Closest to target wins, so extra attempts can only improve on it.
+		if nearAfter != nil &&
+			offBy >= math.Abs(nearAfter.LUFS-opts.Target.IntegratedLUFS) {
+			return false
+		}
+		if nearPath != "" {
+			_ = os.Remove(nearPath)
+		}
+		nearPath, nearAfter, nearGain = path, after, gain
+		return true
+	}
+
 	keepAsFallback := func(path string, after *Measurement, gain float64) bool {
 		if !acceptableAsFallback(after.TruePeak, fallbackCeiling) {
 			return false
@@ -230,9 +269,14 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 			break
 		}
 
-		// Only the ceiling was missed, so this file is still a usable outcome if
-		// the ceiling proves unreachable. Everything else is discarded.
-		if !(loudnessOK && keepAsFallback(out, after, spec.GainDB)) {
+		// Two kinds of near-miss are worth keeping rather than deleting: one that
+		// only missed the ceiling (usable if the ceiling proves unreachable), and
+		// one whose peaks are correct and whose loudness is inside the wider
+		// band. Everything else is discarded.
+		switch {
+		case loudnessOK && keepAsFallback(out, after, spec.GainDB):
+		case peakOK && keepAsNearMiss(out, after, spec.GainDB):
+		default:
 			_ = os.Remove(out)
 		}
 
@@ -277,6 +321,20 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 		log.Debug(ctx, "Loudness: ceiling unreachable, accepted against the fallback",
 			"path", trackPath, "truePeak", fallbackAfter.TruePeak,
 			"ceiling", ceiling, "fallbackCeiling", fallbackCeiling)
+	}
+
+	// Peaks correct, loudness a little short of target. Shipping this beats
+	// deleting it and leaving the song where it started, which was usually
+	// further out than the file being deleted. It reports itself short on the
+	// page - visible, and restorable - rather than vanishing into a refusal.
+	if accepted == "" && nearPath != "" {
+		accepted, nearPath = nearPath, ""
+		res.AfterSet = nearAfter
+		res.NewLUFS = nearAfter.LUFS
+		res.GainDB = nearGain
+		res.Rejected = ""
+		log.Debug(ctx, "Loudness: kept a result short of target rather than discarding it",
+			"path", trackPath, "landed", nearAfter.LUFS, "target", opts.Target.IntegratedLUFS)
 	}
 
 	if accepted == "" {
