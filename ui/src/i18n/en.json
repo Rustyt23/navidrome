@@ -68,7 +68,8 @@
       "notifications": {
         "lufsOptimiseStarted": "Optimising %{count} song(s). You can carry on working - progress and a stop button are on the LUFS page.",
         "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{skipped} skipped, %{failed} failed.",
-        "lufsRestored": "Restore complete: %{restored} restored, %{skipped} had no stored original, %{failed} failed."
+        "lufsRestored": "Restore complete: %{restored} restored, %{skipped} had no stored original, %{failed} failed.",
+        "downloadTooMany": "Too many songs selected to download at once: %{count}. Please select %{max} or fewer."
       }
     },
     "album": {

@@ -22,6 +22,9 @@ type songLoudnessPayload struct {
 func (n *Router) addSongLoudnessRoute(r chi.Router) {
 	r.Put("/song/loudness", n.optimizeSongLoudness())
 	r.Post("/song/loudness/restore", n.restoreSongLoudness())
+	// Not a loudness route, but it lives on the same selection toolbars and
+	// there is nowhere better for it yet.
+	r.Get("/song/download", n.downloadSongs())
 	r.Get("/song/loudness/restore", n.restoreLoudnessStatusHandler())
 	r.Post("/song/loudness/restore/stop", n.stopRestoreLoudnessHandler())
 	r.Get("/song/loudness/backups", n.loudnessBackupReport())
