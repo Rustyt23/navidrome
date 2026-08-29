@@ -170,7 +170,7 @@ type scannerOptions struct {
 	GenreSeparators       string // Deprecated: Use Tags.genre.Split instead
 	GroupAlbumReleases    bool   // Deprecated: Use PID.Album instead
 	FollowSymlinks        bool   // Whether to follow symlinks when scanning directories
-	PurgeMissing          string // Values: "never", "always", "full"
+	PurgeMissing          string // Values: "never", "always", "full"sdkvn 
 }
 
 // DefaultLoudnessNormalizationTolerance is the fallback tolerance (in LU) used

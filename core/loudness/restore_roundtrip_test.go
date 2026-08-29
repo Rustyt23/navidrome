@@ -18,6 +18,11 @@ import (
 // writeQuietTestMP3 makes a real file that is genuinely off target, so the
 // optimiser has something to do: a tone 15 dB down measures around -18 LUFS
 // with peaks nowhere near the ceiling, which is the plain constant-gain case.
+//
+// -8dB rather than -15: that measured -37 LUFS, which needs a 24 dB lift and now
+// routes to review as a recording nobody should amplify unasked. -8dB lands at
+// -30 LUFS, still far below target and still a plain gain, but within the range
+// a real master can occupy.
 func writeQuietTestMP3(t *testing.T, path string, seconds float64) {
 	t.Helper()
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
@@ -28,7 +33,7 @@ func writeQuietTestMP3(t *testing.T, path string, seconds float64) {
 	}
 	cmd := exec.Command("ffmpeg", "-y", "-nostdin", "-hide_banner", "-f", "lavfi",
 		"-i", fmt.Sprintf("sine=frequency=440:duration=%g", seconds),
-		"-af", "volume=-15dB",
+		"-af", "volume=-8dB",
 		"-c:a", "libmp3lame", "-b:a", "192k", "-ar", "44100", "-ac", "2", path)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generating test audio: %v: %s", err, out)
