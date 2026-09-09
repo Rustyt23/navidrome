@@ -3337,11 +3337,33 @@ const AiToolPage = () => {
       }
     }
 
+    // Every refresh makes the server probe six external services - both Gemma
+    // endpoints, Whisper, two Gemini models and Bedrock - so a page left open
+    // on a background tab was spending thousands of provider requests a day,
+    // one of them billable, reporting status to nobody.
+    //
+    // Polling therefore pauses while the tab is hidden. Coming back refreshes
+    // immediately rather than waiting out the remaining interval, so a
+    // returning user still sees current status instead of a value that could
+    // be half a minute stale.
+    const isHidden = () => typeof document !== 'undefined' && document.hidden
+
+    const pollStatuses = () => {
+      if (isHidden()) return
+      refreshStatuses()
+    }
+
+    const handleVisibilityChange = () => {
+      if (!isHidden()) refreshStatuses()
+    }
+
     refreshStatuses()
-    const interval = window.setInterval(refreshStatuses, 30000)
+    const interval = window.setInterval(pollStatuses, 30000)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       active = false
       window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 

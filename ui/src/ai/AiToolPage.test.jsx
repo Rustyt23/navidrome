@@ -2595,4 +2595,52 @@ describe('AiToolPage AI actions', () => {
     await waitFor(() => expect(requests).toHaveLength(1))
     expect(requests[0].message).toBe('First line')
   })
+
+  // Each status refresh costs six external provider probes server-side, so a
+  // backgrounded tab quietly polling them is a real bill, not just noise.
+  describe('status polling while the tab is hidden', () => {
+    const setHidden = (hidden) => {
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        get: () => hidden,
+      })
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        get: () => false,
+      })
+    })
+
+    const countStatusCalls = () =>
+      mockHttpClient.mock.calls.filter(([url]) => url === '/api/ai/status')
+        .length
+
+    it('stops polling provider status while the tab is hidden', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      renderPageWithoutSelection()
+      await waitFor(() => expect(countStatusCalls()).toBe(1))
+
+      setHidden(true)
+      const afterHiding = countStatusCalls()
+
+      await vi.advanceTimersByTimeAsync(90000)
+      expect(countStatusCalls()).toBe(afterHiding)
+    })
+
+    it('refreshes immediately when the tab becomes visible again', async () => {
+      renderPageWithoutSelection()
+      await waitFor(() => expect(countStatusCalls()).toBe(1))
+
+      setHidden(true)
+      const afterHiding = countStatusCalls()
+
+      // Back on screen: status must be current, not up to 30s stale.
+      setHidden(false)
+      await waitFor(() => expect(countStatusCalls()).toBe(afterHiding + 1))
+    })
+  })
 })
