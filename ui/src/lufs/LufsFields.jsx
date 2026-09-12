@@ -136,7 +136,8 @@ const verdictOf = (a, settings) => {
   // there is still something to decide.
   if (a && !a.verdict) {
     const offBy = offByFor(a, settings)
-    if (offBy !== null && isException(a, offBy)) return NEEDS_DECISION
+    if (offBy !== null && isException(a, offBy, settings?.truePeak))
+      return NEEDS_DECISION
   }
   if (a?.verdict) return a.verdict
   if (a?.action === 'refused') return LEFT_AS_IS

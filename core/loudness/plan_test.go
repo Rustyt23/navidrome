@@ -13,6 +13,30 @@ const (
 	testTolerance = 0.5
 )
 
+// These cases are also exercised by the UI preview tests: the description must
+// show the same signed gain and the same no-op conditions as the server.
+func TestGainToCeilingPreviewContract(t *testing.T) {
+	for _, tc := range []struct {
+		name                                  string
+		lufs, peak, tolerance, gain, expected float64
+		changed                               bool
+	}{
+		{"turn down unsafe peaks", -14, 0.2, 0.2, -0.85, -14.85, true},
+		{"turn up with headroom", -16.56, -1.25, 0.2, 0.6, -15.96, true},
+		{"already within configured tolerance", -12.9, -2, 0.4, 0, 0, false},
+		{"tiny adjustment", -14, -0.6, 0.2, 0, 0, false},
+		{"on target but unsafe peaks", -12.6, 0.2, 0.2, -0.85, -13.45, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := PlanFor(tc.lufs, tc.peak, -12.6, -0.5, tc.tolerance, 320)
+			spec, expected, ok := SpecFor(plan, DecisionCeiling, &ffmpeg.FileProbe{BitRate: 320}, -12.6, -0.5)
+			if ok != tc.changed || math.Abs(spec.GainDB-tc.gain) > 1e-9 || math.Abs(expected-tc.expected) > 1e-9 || spec.LimitTruePeak {
+				t.Fatalf("gain=%v expected=%v apply=%v limit=%v", spec.GainDB, expected, ok, spec.LimitTruePeak)
+			}
+		})
+	}
+}
+
 func TestPlanForClassifiesByHeadroom(t *testing.T) {
 	cases := []struct {
 		name      string

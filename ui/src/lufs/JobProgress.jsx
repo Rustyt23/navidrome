@@ -37,11 +37,20 @@ const eta = (processed, total, startedAt) => {
 export const JobProgress = ({ label, status, detail }) => {
   const classes = useStyles()
   if (!status?.running) {
-    return status?.error ? (
-      <Typography role="alert" color="error">
-        {status.error}
-      </Typography>
-    ) : null
+    return (
+      <>
+        {status?.error && (
+          <Typography role="alert" color="error">
+            {status.error}
+          </Typography>
+        )}
+        {!!status?.rejected && (
+          <Typography role="alert" color="error">
+            {`${status.rejected} rejected; working audio unchanged. Review the LUFS exceptions for details.`}
+          </Typography>
+        )}
+      </>
+    )
   }
 
   const processed = status.processed || 0

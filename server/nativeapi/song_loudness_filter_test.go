@@ -43,9 +43,10 @@ var _ = Describe("loudnessRunFilter", func() {
 	selectedBy := func(phase int) []string { return selectedWith(phase, nil) }
 
 	BeforeEach(func() {
-		oldCeiling := conf.Server.Scanner.LoudnessNormalization.TruePeak
+		oldOptions := conf.Server.Scanner.LoudnessNormalization
+		conf.Server.Scanner.LoudnessNormalization.TargetLUFS = -12.6
 		conf.Server.Scanner.LoudnessNormalization.TruePeak = -0.5
-		DeferCleanup(func() { conf.Server.Scanner.LoudnessNormalization.TruePeak = oldCeiling })
+		DeferCleanup(func() { conf.Server.Scanner.LoudnessNormalization = oldOptions })
 		var err error
 		db, err = sql.Open("sqlite3", ":memory:")
 		Expect(err).ToNot(HaveOccurred())
@@ -57,6 +58,7 @@ var _ = Describe("loudnessRunFilter", func() {
 				media_file_id text primary key,
 				phase integer not null default -1,
 				lufs_before real,
+				lufs_after real,
 				tp_before real,
 				tp_after real,
 				decision text not null default '',
@@ -167,6 +169,80 @@ var _ = Describe("loudnessRunFilter", func() {
 			// same file would reach the same refusal - on every run, for ever.
 			// A fresh analysis clears the mark and it is tried again.
 			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("refused"))
+		})
+	})
+
+	// A song rewritten once that landed a fraction short, with safe peaks, is
+	// finished. Its re-planned phase still says a little gain remains, and a
+	// sweep that believed it rewrote the file again on every run.
+	Describe("a song already rewritten to near enough", func() {
+		rewrite := func(lufsBefore, tpBefore, lufsAfter, tpAfter float64) {
+			_, err := db.Exec(`update media_file_loudness set phase = ?, action = 'limited',
+				lufs_before = ?, tp_before = ?, lufs_after = ?, tp_after = ? where media_file_id = 'gain'`,
+				loudness.PhaseGain, lufsBefore, tpBefore, lufsAfter, tpAfter)
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		It("is not rewritten again by a sweep", func() {
+			rewrite(-13.0, -1.09, -12.94, -1.82)
+			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("gain"))
+		})
+
+		It("is still processed when picked out by hand", func() {
+			rewrite(-13.0, -1.09, -12.94, -1.82)
+			Expect(selectedWith(loudness.PhaseGain, []string{"gain"})).To(Equal([]string{"gain"}))
+		})
+
+		It("does not reapply a stored decision to an accepted near miss", func() {
+			rewrite(-13.0, -1.09, -12.94, -1.82)
+			for _, decision := range []string{loudness.DecisionLimit, loudness.DecisionCeiling} {
+				_, err := db.Exec("update media_file_loudness set decision = ? where media_file_id = 'gain'", decision)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(selectedBy(loudness.PhaseReview)).ToNot(ContainElement("gain"))
+				Expect(selectedWith(loudness.PhaseReview, []string{"gain"})).To(Equal([]string{"gain"}))
+			}
+		})
+
+		It("still applies decisions when the output needs correction", func() {
+			_, err := db.Exec("update media_file_loudness set decision = 'limit' where media_file_id = 'gain'")
+			Expect(err).ToNot(HaveOccurred())
+			for _, result := range [][2]float64{{-13.2, -1.2}, {-12.94, -0.4}} {
+				rewrite(-16.0, -4.0, result[0], result[1])
+				Expect(selectedBy(loudness.PhaseReview)).To(ContainElement("gain"))
+			}
+			rewrite(-13.0, -1.09, -12.94, -1.82)
+			conf.Server.Scanner.LoudnessNormalization.TargetLUFS = -14
+			Expect(selectedBy(loudness.PhaseReview)).To(ContainElement("gain"))
+		})
+
+		It("does not treat a reanalysed original as an accepted decision", func() {
+			rewrite(-12.9, -1.5, -12.9, -1.5)
+			_, err := db.Exec("update media_file_loudness set decision = 'limit' where media_file_id = 'gain'")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(selectedBy(loudness.PhaseReview)).To(ContainElement("gain"))
+		})
+
+		It("is revisited when it landed further out than the leave-alone band", func() {
+			rewrite(-16.0, -4.0, -13.2, -1.2)
+			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("gain"))
+		})
+
+		It("is revisited when its peaks are over the ceiling", func() {
+			rewrite(-13.0, -1.09, -12.94, -0.4)
+			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("gain"))
+		})
+
+		It("is revisited when the target has moved away from it", func() {
+			rewrite(-13.0, -1.09, -12.94, -1.82)
+			conf.Server.Scanner.LoudnessNormalization.TargetLUFS = -14
+			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("gain"))
+		})
+
+		// Restored, then analysed again: recorded as processed, but the after
+		// snapshot is the original itself. Re-analysing asks for it to be done.
+		It("does not count a restored original that was analysed again", func() {
+			rewrite(-12.9, -1.5, -12.9, -1.5)
+			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("gain"))
 		})
 	})
 

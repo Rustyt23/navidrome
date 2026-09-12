@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,7 @@ var _ = Describe("LUFS job controls", func() {
 		libraryLoudness.total.Store(0)
 		libraryLoudness.processed.Store(0)
 		libraryLoudness.normalized.Store(0)
+		libraryLoudness.rejected.Store(0)
 		libraryLoudness.skipped.Store(0)
 		libraryLoudness.failed.Store(0)
 		libraryLoudness.inFlight.Store(0)
@@ -48,6 +50,29 @@ var _ = Describe("LUFS job controls", func() {
 
 	BeforeEach(resetJobs)
 	AfterEach(resetJobs)
+
+	It("reports rejected results separately in the finished job status", func() {
+		libraryLoudness.recordOutcome(loudness.OptimizeResult{Changed: true}, nil)
+		libraryLoudness.recordOutcome(loudness.OptimizeResult{Rejected: "true peak exceeds ceiling"}, nil)
+		libraryLoudness.recordOutcome(loudness.OptimizeResult{}, nil)
+		libraryLoudness.recordOutcome(loudness.OptimizeResult{}, errors.New("read failed"))
+		libraryLoudness.recordOutcome(loudness.OptimizeResult{}, context.Canceled)
+		// Audio changed but recording failed: failure takes precedence.
+		libraryLoudness.recordOutcome(loudness.OptimizeResult{Changed: true}, errors.New("audit save failed"))
+
+		w := httptest.NewRecorder()
+		(&Router{}).libraryLoudnessStatusHandler()(w, httptest.NewRequest(http.MethodGet, "/", nil))
+		var status map[string]any
+		Expect(json.Unmarshal(w.Body.Bytes(), &status)).To(Succeed())
+		Expect(status).To(HaveKeyWithValue("normalized", float64(1)))
+		Expect(status).To(HaveKeyWithValue("rejected", float64(1)))
+		Expect(status).To(HaveKeyWithValue("skipped", float64(1)))
+		Expect(status).To(HaveKeyWithValue("failed", float64(2)))
+		Expect(status).To(HaveKeyWithValue("cancelled", float64(1)))
+		Expect(status).To(HaveKeyWithValue("processed", float64(5)))
+		Expect(status).To(HaveKeyWithValue("running", false))
+		libraryLoudness.lastError.set("")
+	})
 
 	// Puts a job into the state a real run would be in, without starting one.
 	armLibraryRun := func() context.Context {

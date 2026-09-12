@@ -161,7 +161,8 @@ const LufsListActions = ({
   const optimiseDetail = libraryStatus?.running
     ? [
         `${libraryStatus.normalized || 0} changed`,
-        `${libraryStatus.skipped || 0} already fine`,
+        `${libraryStatus.rejected || 0} rejected`,
+        `${libraryStatus.skipped || 0} skipped`,
         `${libraryStatus.failed || 0} failed`,
         libraryStatus.cancelled
           ? `${libraryStatus.cancelled} left for next run`

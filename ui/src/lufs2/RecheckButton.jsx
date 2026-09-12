@@ -81,10 +81,12 @@ export const RecheckButton = ({ selectedIds, onDone }) => {
         stopFollowing.current = null
         setBusy(false)
         notify('resources.lufs2.notifications.rechecked', {
-          type: json?.failed ? 'warning' : 'info',
+          type:
+            json?.failed || json?.rejected || json?.error ? 'warning' : 'info',
           messageArgs: {
             changed: json?.normalized || 0,
             skipped: json?.skipped || 0,
+            rejected: json?.rejected || 0,
             failed: json?.failed || 0,
           },
         })

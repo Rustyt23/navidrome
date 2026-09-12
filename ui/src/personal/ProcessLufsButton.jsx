@@ -43,7 +43,7 @@ export const ProcessLufsButton = () => {
   }
 
   const progress = status?.running
-    ? ` (${status.processed || 0} processed, ${status.normalized || 0} normalized, ${status.skipped || 0} skipped, ${status.failed || 0} failed)`
+    ? ` (${status.processed || 0} processed, ${status.normalized || 0} normalized, ${status.rejected || 0} rejected, ${status.skipped || 0} skipped, ${status.failed || 0} failed)`
     : ''
 
   return (

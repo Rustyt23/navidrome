@@ -56,6 +56,10 @@ const (
 // fixing whatever its loudness already was.
 const leaveAloneToleranceDB = 0.5
 
+// LeaveAloneToleranceDB is leaveAloneToleranceDB for the run filter, which
+// judges the same band in SQL.
+const LeaveAloneToleranceDB = leaveAloneToleranceDB
+
 // model repeats PhaseReview as model.LoudnessPhaseReview, because it cannot
 // import this package. Fail the build here if the two ever drift apart.
 const _ = uint(PhaseReview - model.LoudnessPhaseReview)

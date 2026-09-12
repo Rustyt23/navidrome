@@ -162,7 +162,7 @@ const Lufs2Actions = ({
     ? status
     : starting
       ? { running: true, processed: 0, total: 0 }
-      : null
+      : status
   return (
     <TopToolbar {...rest}>
       <JobProgress
@@ -170,7 +170,7 @@ const Lufs2Actions = ({
         status={progress}
         detail={
           status?.running
-            ? `${status.normalized || 0} changed · ${status.failed || 0} failed`
+            ? `${status.normalized || 0} changed · ${status.rejected || 0} rejected · ${status.skipped || 0} skipped · ${status.failed || 0} failed`
             : starting
               ? 'starting…'
               : undefined
@@ -212,12 +212,13 @@ const Lufs2List = (props) => {
       setStarting(false)
       notify('resources.lufs2.notifications.runFinished', {
         type:
-          final?.failed || final?.error || final?.cancelled
+          final?.failed || final?.rejected || final?.error || final?.cancelled
             ? 'warning'
             : 'info',
         messageArgs: {
           changed: final?.normalized || 0,
           skipped: final?.skipped || 0,
+          rejected: final?.rejected || 0,
           failed: final?.failed || 0,
           cancelled: final?.cancelled || 0,
           remaining: Math.max(

@@ -11,7 +11,7 @@
 // would only be a slower copy of this arithmetic that could fall out of step
 // with it.
 
-import { currentMeasurement } from './currentMeasurement'
+import { currentMeasurement, measuredNumber } from './currentMeasurement'
 
 export const OUTCOME_ON_TARGET = 'on_target'
 export const OUTCOME_SHORT_BY_CHOICE = 'short_by_choice'
@@ -33,13 +33,23 @@ const PHASE_CLOSE_ENOUGH = 4
 const LEVEL_TWO_TOLERANCE = 0.5
 
 // isException mirrors the server's exceptions filter: the songs a person still
-// has to do something about.
-export const isException = (audit, offBy) =>
-  audit.phase !== PHASE_CLOSE_ENOUGH &&
-  (!!audit.wasException ||
-    audit.phase === 2 ||
-    (audit.action === 'refused' && offBy > LEVEL_TWO_TOLERANCE) ||
-    !!audit.decision)
+// has to do something about. Peaks over the ceiling count once the engine has
+// had its go - a rewritten file still over, or a refusal left over - but not
+// on a song that has only been measured, which the next run will handle.
+export const isException = (audit, offBy, truePeak = -0.5) => {
+  const rewrittenPeak = measuredNumber(audit.tpAfter)
+  if (rewrittenPeak !== null && rewrittenPeak > truePeak) return true
+  const { peak } = currentMeasurement(audit)
+  if (audit.action === 'refused' && peak !== null && peak > truePeak)
+    return true
+  return (
+    audit.phase !== PHASE_CLOSE_ENOUGH &&
+    (!!audit.wasException ||
+      audit.phase === 2 ||
+      (audit.action === 'refused' && offBy > LEVEL_TWO_TOLERANCE) ||
+      !!audit.decision)
+  )
+}
 
 // isLevelTwo: outside the ordinary tolerance, within half a decibel, and
 // nobody has to act on it.
@@ -58,7 +68,7 @@ export const isLevelTwo = (audit, settings) => {
 
   const offBy = Math.abs(now - target)
   if (offBy <= tolerance || offBy > LEVEL_TWO_TOLERANCE) return false
-  return !isException(audit, offBy)
+  return !isException(audit, offBy, settings?.truePeak)
 }
 
 // outcomeFor reports where a song ended up relative to the target.

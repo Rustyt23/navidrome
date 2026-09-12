@@ -31,6 +31,7 @@ type libraryLoudnessJob struct {
 	total      atomic.Int64
 	processed  atomic.Int64
 	normalized atomic.Int64
+	rejected   atomic.Int64
 	skipped    atomic.Int64
 	failed     atomic.Int64
 	// inFlight is how many tracks are open right now. It is what makes stopping
@@ -76,6 +77,7 @@ type libraryLoudnessStatus struct {
 	Total      int64  `json:"total"`
 	Processed  int64  `json:"processed"`
 	Normalized int64  `json:"normalized"`
+	Rejected   int64  `json:"rejected"`
 	Skipped    int64  `json:"skipped"`
 	Failed     int64  `json:"failed"`
 	InFlight   int64  `json:"inFlight"`
@@ -114,6 +116,7 @@ func (n *Router) beginLibraryLoudness(ctx context.Context, phase int, ids []stri
 	libraryLoudness.total.Store(0)
 	libraryLoudness.processed.Store(0)
 	libraryLoudness.normalized.Store(0)
+	libraryLoudness.rejected.Store(0)
 	libraryLoudness.skipped.Store(0)
 	libraryLoudness.failed.Store(0)
 	libraryLoudness.inFlight.Store(0)
@@ -234,6 +237,7 @@ func currentLibraryLoudnessStatus(msg string) libraryLoudnessStatus {
 		Total:      libraryLoudness.total.Load(),
 		Processed:  libraryLoudness.processed.Load(),
 		Normalized: libraryLoudness.normalized.Load(),
+		Rejected:   libraryLoudness.rejected.Load(),
 		Skipped:    libraryLoudness.skipped.Load(),
 		Failed:     libraryLoudness.failed.Load(),
 		InFlight:   libraryLoudness.inFlight.Load(),
@@ -297,25 +301,19 @@ func (n *Router) runLibraryLoudness(ctx context.Context, phase int, ids []string
 				libraryLoudness.inFlight.Add(1)
 				res, err := optimizeOneTrack(ctx, n.ds, normalizer, &mf)
 				libraryLoudness.inFlight.Add(-1)
+				libraryLoudness.recordOutcome(res, err)
 				switch {
 				case errors.Is(err, context.Canceled) && !res.Changed:
 					// Abandoned when the grace period ran out. The file was not
 					// touched and no audit was written, so the next run selects
 					// it again - it is postponed, not lost, and counting it as
 					// processed or failed would misreport both.
-					libraryLoudness.cancelled.Add(1)
 					log.Debug(ctx, "LUFS run: track abandoned on stop", "path", mf.Path)
-					continue
 				case err != nil:
-					libraryLoudness.failed.Add(1)
-					libraryLoudness.lastError.set(err.Error())
 					log.Warn(ctx, "LUFS run: could not optimise track", "path", mf.Path, err)
-				case res.Changed:
-					libraryLoudness.normalized.Add(1)
-				default:
-					libraryLoudness.skipped.Add(1)
+				case res.Rejected != "":
+					log.Warn(ctx, "LUFS run: result rejected; audio unchanged", "path", mf.Path, "reason", res.Rejected)
 				}
-				libraryLoudness.processed.Add(1)
 			}
 		}()
 	}
@@ -352,12 +350,33 @@ dispatch:
 
 	log.Info(ctx, "LUFS run finished", "phase", phase, "processed", libraryLoudness.processed.Load(),
 		"normalized", libraryLoudness.normalized.Load(), "skipped", libraryLoudness.skipped.Load(),
+		"rejected", libraryLoudness.rejected.Load(),
 		"failed", libraryLoudness.failed.Load(), "cancelled", libraryLoudness.cancelled.Load(),
 		"elapsed", time.Since(start))
 
 	// The run has just rewritten files and the records describing them. Copy
 	// those records somewhere the data directory cannot take with it.
 	snapshotLoudnessAudit(context.WithoutCancel(ctx), n.ds, "optimisation run finished")
+}
+
+// Each completed attempt belongs to one outcome. A rejected candidate leaves
+// the working audio unchanged, but must not be reported as a harmless skip.
+func (j *libraryLoudnessJob) recordOutcome(res loudness.OptimizeResult, err error) {
+	switch {
+	case errors.Is(err, context.Canceled) && !res.Changed:
+		j.cancelled.Add(1)
+		return
+	case err != nil:
+		j.failed.Add(1)
+		j.lastError.set(err.Error())
+	case res.Changed:
+		j.normalized.Add(1)
+	case res.Rejected != "":
+		j.rejected.Add(1)
+	default:
+		j.skipped.Add(1)
+	}
+	j.processed.Add(1)
 }
 
 // countLoudnessTargets counts how many tracks this run will actually touch, so
@@ -384,6 +403,11 @@ func (n *Router) countLoudnessTargets(ctx context.Context, phase int, ids []stri
 // current as the last analysis: neither a change of tolerance nor a file
 // replaced on disk updates it, so re-run Analyze after either. Phase 2 covers
 // only tracks the client has given a decision for.
+// rewrittenByDB is how far an after snapshot must sit from the original for the
+// file to count as rewritten. Measuring identical audio twice gives identical
+// numbers, and any real rewrite moves the loudness or the peak by more than this.
+const rewrittenByDB = 0.01
+
 func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 	notMissing := squirrel.Eq{"media_file.missing": false}
 	// An explicit selection overrides the planner. Every other clause below
@@ -419,6 +443,7 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 			squirrel.Eq{"media_file_loudness.decision": []string{
 				loudness.DecisionLimit, loudness.DecisionCeiling,
 			}},
+			loudnessNotAlreadyNearTarget(),
 		}
 	}
 	// A track with no audit row at all joins as NULL, which no comparison
@@ -443,10 +468,35 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 			loudness.PhaseUnplanned, loudness.PhaseCloseEnough, conf.Server.Scanner.LoudnessNormalization.TruePeak),
 		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and media_file_loudness.lufs_before is not null and coalesce(coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) <= ?, false))",
 			loudness.PhaseUnplanned, loudness.PhaseDone, conf.Server.Scanner.LoudnessNormalization.TruePeak),
+		// A song already rewritten that landed near enough, with safe peaks, is
+		// finished. Its phase is re-planned from the result and still says a
+		// fraction of gain remains, so every sweep used to rewrite it again - one
+		// more codec generation each run, to chase a difference nobody can hear.
+		// Measured on a real library: two 128 kbps MP3s, limited, landed 0.34 and
+		// 0.28 dB short and would have been rebuilt on every sweep.
+		//
+		// "Rewritten" is read from the snapshots rather than the status. A
+		// restored song that is analysed again is recorded as processed too, but
+		// its after snapshot equals its original, and re-analysing is how someone
+		// asks for that one to be done again.
+		loudnessNotAlreadyNearTarget(),
 		// A track whose last attempt was built and then rejected is left out.
 		// Nothing about it or the settings has changed since, so rebuilding the
 		// same file would reach the same refusal - on every run, for ever.
 		// Re-analysing clears the mark and the track is tried again.
 		squirrel.Expr("coalesce(media_file_loudness.action, '') <> ?", model.LoudnessActionRefused),
 	}
+}
+
+// Shared by ordinary sweeps and Apply decisions. Explicitly selected IDs bypass
+// this guard so the client can still request a retry of an accepted near miss.
+func loudnessNotAlreadyNearTarget() squirrel.Sqlizer {
+	return squirrel.Expr(`not (
+		media_file_loudness.lufs_after is not null and media_file_loudness.tp_after is not null
+		and abs(media_file_loudness.lufs_after - ?) <= ?
+		and media_file_loudness.tp_after <= ?
+		and (abs(media_file_loudness.lufs_after - coalesce(media_file_loudness.lufs_before, media_file_loudness.lufs_after)) >= ?
+			or abs(media_file_loudness.tp_after - coalesce(media_file_loudness.tp_before, media_file_loudness.tp_after)) >= ?))`,
+		conf.Server.Scanner.LoudnessNormalization.TargetLUFS, loudness.LeaveAloneToleranceDB,
+		conf.Server.Scanner.LoudnessNormalization.TruePeak, rewrittenByDB, rewrittenByDB)
 }

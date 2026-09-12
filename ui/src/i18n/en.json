@@ -67,7 +67,7 @@
       },
       "notifications": {
         "lufsOptimiseStarted": "Optimising %{count} song(s). You can carry on working - progress and a stop button are on the LUFS page.",
-        "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{skipped} skipped, %{failed} failed.",
+        "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{rejected} rejected, %{skipped} skipped, %{failed} failed.",
         "lufsRestored": "Restore complete: %{restored} restored, %{skipped} had no stored original, %{failed} failed.",
         "downloadTooMany": "Too many songs selected to download at once: %{count}. Please select %{max} or fewer."
       }
@@ -681,8 +681,8 @@
       },
       "notifications": {
         "decisionSaved": "Decision saved for %{smart_count} song |||| Decision saved for %{smart_count} songs",
-        "runFinished": "Run finished: %{changed} changed, %{skipped} skipped, %{failed} failed, %{cancelled} cancelled, %{remaining} not started",
-        "rechecked": "Checked again: %{changed} fixed, %{skipped} still stuck, %{failed} failed"
+        "runFinished": "Run finished: %{changed} changed, %{rejected} rejected, %{skipped} skipped, %{failed} failed, %{cancelled} cancelled, %{remaining} not started",
+        "rechecked": "Checked again: %{changed} changed, %{rejected} rejected, %{skipped} skipped, %{failed} failed"
       }
     }
   },

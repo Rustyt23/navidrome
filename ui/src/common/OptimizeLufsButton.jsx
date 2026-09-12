@@ -66,10 +66,12 @@ export const OptimizeLufsButton = ({
         stopFollowing.current = null
         setSaving(false)
         notify('resources.song.notifications.lufsOptimized', {
-          type: json?.failed ? 'warning' : 'info',
+          type:
+            json?.failed || json?.rejected || json?.error ? 'warning' : 'info',
           messageArgs: {
             normalized: json?.normalized || 0,
             skipped: json?.skipped || 0,
+            rejected: json?.rejected || 0,
             failed: json?.failed || 0,
           },
         })

@@ -217,10 +217,10 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 			res.Rejected = rejection(after, expectedLUFS, ceiling, loudnessOK, peakOK)
 			break
 		}
-		if !peakOK && !spec.LimitTruePeak {
-			// Peaks came out over the ceiling on a transform that does not
-			// limit. Reducing the gain would break the loudness it was chosen
-			// for, so there is nothing further to try.
+		if !peakOK && !spec.LimitTruePeak && !mayTrimSpringBack(decision, peakOver) {
+			// Peaks came out over the ceiling on a transform that must not limit.
+			// Reducing the gain would break the loudness it was chosen for, so
+			// there is nothing further to try.
 			res.Rejected = fmt.Sprintf("true peak %.2f dBTP exceeds the %.2f dBTP ceiling",
 				after.TruePeak, ceiling)
 			break
@@ -231,7 +231,16 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 		}
 
 		// Feed the measured misses back in and try again.
-		if !peakOK {
+		switch {
+		case !peakOK && !spec.LimitTruePeak:
+			// A plain gain the plan left room for, pushed over the ceiling by
+			// re-encoding. Take the overshoot off with the limiter - the same
+			// inaudible trim PhaseTrim applies - rather than refuse the track.
+			// The limiter holds the ceiling now, so the gain needs no cap.
+			spec.LimitTruePeak = true
+			spec.CeilingDB = ceiling
+			maxGain = math.Inf(1)
+		case !peakOK:
 			spec.CeilingDB -= peakOver + peakRetryHeadroomDB
 		}
 		if !loudnessOK {
@@ -285,6 +294,17 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 func peakWithinCeiling(truePeak, ceiling float64) bool {
 	return !math.IsNaN(truePeak) && !math.IsInf(truePeak, 0) &&
 		!math.IsNaN(ceiling) && !math.IsInf(ceiling, 0) && truePeak <= ceiling
+}
+
+// mayTrimSpringBack reports whether a gain-only result whose peaks landed over
+// the ceiling may be retried with the limiter.
+//
+// Measured on a real library: a track planned at -0.55 dBTP came back from the
+// encoder at -0.42 and was refused outright, although taking 0.08 dB off one
+// transient is inaudible. Not when the client chose "gain to ceiling" - that
+// option is, by definition, the one that leaves the audio unlimited.
+func mayTrimSpringBack(decision string, peakOver float64) bool {
+	return decision != DecisionCeiling && peakOver <= audibleShaveDB
 }
 
 // rejection explains, in the audit record, why a produced file was thrown away.

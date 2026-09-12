@@ -340,12 +340,28 @@ func loudnessExceptionFilter(_ string, _ any) Sqlizer {
 	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
 	// Far enough from target that the attempt was worth making, so its failure
 	// is worth reporting.
+	//
+	// Bracketed because it is ANDed with the refusal. Without them SQL read
+	// "refused and unmeasured, or more than half a decibel out", which listed
+	// every song more than half a decibel from target whether or not anything
+	// had been refused - after Analyse, most of a library.
 	worthListing := Expr(
-		fmt.Sprintf("%s is null or abs(%s - ?) > ?", measured, measured),
+		fmt.Sprintf("(%s is null or abs(%s - ?) > ?)", measured, measured),
 		options.TargetLUFS, loudnessLeaveAloneToleranceDB)
 
 	return Or{
-		Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) > ?", options.TruePeak),
+		// A peak over the ceiling needs a person only once the engine has had
+		// its go: a rewritten file still over it - older runs accepted some
+		// against a relaxed ceiling - or a refusal that left the original's peaks
+		// over it, however near target, since that is no comfort to a file that
+		// clips. A song that has only been measured is not an exception yet.
+		// Most commercial masters peak above the ceiling, so listing them between
+		// Analyse and Optimise filled the page with songs the next run would fix.
+		Expr("media_file_loudness.tp_after > ?", options.TruePeak),
+		And{
+			Eq{"media_file_loudness.action": model.LoudnessActionRefused},
+			Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) > ?", options.TruePeak),
+		},
 		And{
 			// Never list a track the engine deliberately left alone.
 			NotEq{"media_file_loudness.phase": loudnessPhaseCloseEnough},

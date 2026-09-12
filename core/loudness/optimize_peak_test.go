@@ -99,7 +99,8 @@ func TestOptimizeEnforcesPeakCeilingBeforeReplacingAudio(t *testing.T) {
 		wantChanged  bool
 		wantAttempts int
 	}{
-		{"gain rejects even 0.01 above ceiling", -18, -8, -12.6, []float64{-0.49}, false, 1},
+		{"gain never accepts even 0.01 above ceiling", -18, -8, -12.6, []float64{-0.49}, false, 3},
+		{"gain overshoot is trimmed by the limiter", -18, -8, -12.6, []float64{-0.42, -0.6}, true, 2},
 		{"limiter never falls back", -12.6, 1, -12.6, []float64{-0.4, -0.2, -0.1}, false, 3},
 		{"unsafe near miss is not kept", -12.6, 1, -12.9, []float64{-0.1}, false, 3},
 		{"limiter retries until peak is safe", -12.6, 1, -12.6, []float64{-0.4, -0.6}, true, 2},
@@ -139,5 +140,29 @@ func TestOptimizeEnforcesPeakCeilingBeforeReplacingAudio(t *testing.T) {
 				t.Fatalf("temporary outputs left behind: %v", files)
 			}
 		})
+	}
+}
+
+// "Gain to ceiling" is the client choosing no limiting, so an overshoot there
+// is refused rather than trimmed.
+func TestGainToCeilingDecisionIsNeverLimited(t *testing.T) {
+	library, backups := t.TempDir(), t.TempDir()
+	track := filepath.Join(library, "song.mp3")
+	writeQuietTestMP3(t, track, 2)
+	original := digest(t, track)
+	n := &peakSequenceNormalizer{
+		before: ffmpeg.LoudnessAnalysis{InputIntegrated: -18, InputTruePeak: -3},
+		after:  []ffmpeg.LoudnessAnalysis{{InputIntegrated: -15.5, InputTruePeak: -0.42}, {InputIntegrated: -15.5, InputTruePeak: -0.6}},
+	}
+	res, err := Optimize(context.Background(), n, track, DecisionCeiling, OptimizeOptions{
+		Target:    ffmpeg.LoudnessTarget{IntegratedLUFS: -12.6, TruePeak: -0.5, LRA: 11},
+		Tolerance: 0.2, Backup: true, LibraryPath: library, BackupFolder: backups, MediaFileID: "track-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Changed || res.Attempts != 1 || res.Rejected == "" || digest(t, track) != original {
+		t.Fatalf("gain to ceiling was retried with a limiter: changed=%v attempts=%d rejection=%q",
+			res.Changed, res.Attempts, res.Rejected)
 	}
 }

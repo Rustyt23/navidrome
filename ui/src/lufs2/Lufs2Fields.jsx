@@ -120,22 +120,17 @@ export const OptionLimitField = (props) => {
   )
 }
 
-// Leave the audio untouched and accept a quieter result. This always lands
-// short of the target - that is what put the track on this page - so it is
-// never shown as a clean outcome.
+// Show the same signed volume change as the decision description.
 export const OptionCeilingField = (props) => {
   const classes = useStyles()
   const record = useRecordContext(props)
   const rec = recommendationFor(record, props.settings)
   if (!rec) return <span className={classes.muted}>-</span>
+  const option = optionsFor(rec)[DECISION_CEILING]
   return (
     <span className={classes.nowrap}>
-      <span className={classes.warn}>
-        {`${fmtLufs(rec.loudnessAtCeiling)} LUFS`}
-      </span>
-      <span className={`${classes.sub} ${classes.muted}`}>
-        {`${fmtDb(-rec.shortfall)} dB quieter`}
-      </span>
+      <span className={classes.warn}>{option.lands}</span>
+      <span className={`${classes.sub} ${classes.muted}`}>{option.short}</span>
     </span>
   )
 }

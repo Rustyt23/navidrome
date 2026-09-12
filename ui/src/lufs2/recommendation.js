@@ -153,17 +153,13 @@ export const recommendationFor = (record, settings) => {
   const predictedPeakEncoded = predictedPeak + springBack
   const peakOverBy = Math.max(0, predictedPeakEncoded - ceiling)
 
-  // The most we can lift it without pushing peaks past the ceiling - again
-  // measured on what ships, so the allowance is spent here rather than
-  // discovered afterwards.
-  //
-  // The shortfall this leaves and the cut the other option needs are the same
-  // number, necessarily: both are the headroom the track does not have.
-  //
-  // It floors at zero: a track whose peaks already leave no room cannot be
-  // lifted at all, and a negative "gain" here would be an offer to turn the
-  // song down in the name of making it louder.
-  const transparentGain = Math.max(0, ceiling - peak - springBack)
+  // Match PlanFor/SpecFor: gain-to-ceiling can turn a song DOWN. The server
+  // skips songs already on target with safe peaks, and volume changes <0.1 dB.
+  const plannedCeilingGain = ceiling - peak - springBack
+  const alreadyDone =
+    Math.abs(lufs - target) <= (settings?.tolerance ?? 0.2) && peak <= ceiling
+  const transparentGain =
+    alreadyDone || Math.abs(plannedCeilingGain) < 0.1 ? 0 : plannedCeilingGain
   const loudnessAtCeiling = lufs + transparentGain
   const shortfall = Math.max(0, target - loudnessAtCeiling)
 
@@ -270,11 +266,8 @@ const distanceTo = (lufs, target) => {
 // costs, because an option with only an upside reads as the obvious answer and
 // none of these are obvious.
 export const optionsFor = (rec) => {
-  // A track whose peaks already leave no room cannot be turned up at all, so
-  // "gain to ceiling" is not a third option there - it is "leave alone" under
-  // another name. Offering it as though the volume moves invites someone to
-  // pick it expecting a different result from the row above.
-  const ceilingMoves = rec.transparentGain > 0.005
+  const ceilingMoves = rec.transparentGain !== 0
+  const ceilingChange = `${fmtMag(rec.transparentGain)} dB ${rec.transparentGain < 0 ? 'quieter' : 'louder'}`
   // And with no peak problem to solve, "limit to target" does no limiting: it
   // is a plain volume change. Describing that as "0.00 dB off the peaks is
   // inaudible" is technically true and tells nobody what will happen.
@@ -298,22 +291,15 @@ export const optionsFor = (rec) => {
     },
     [DECISION_CEILING]: ceilingMoves
       ? {
-          lands: `${fmtLufs(rec.loudnessAtCeiling)} LUFS`,
-          short: `${fmtMag(rec.shortfall)} dB short, audio untouched`,
-          gain: 'the waveform is not reshaped at all - only the volume moves',
-          cost: `it lands ${distanceTo(rec.loudnessAtCeiling, rec.target)}`,
+          lands: `about ${fmtLufs(rec.loudnessAtCeiling)} LUFS`,
+          short: `${ceilingChange}, no limiting`,
+          gain: `turns the song ${ceilingChange} to keep peaks under the ceiling without limiting`,
+          cost: `rewrites the file; aims for ${distanceTo(rec.loudnessAtCeiling, rec.target)}. Encoding can shift the result; unsafe output is rejected`,
         }
       : {
           lands: `${fmtLufs(rec.lufs)} LUFS`,
           short: 'no change - same as leaving it alone',
-          // One clause, not a gain weighed against a cost, because there is no
-          // trade here to weigh. Forcing it into the "X, but Y" shape produced
-          // "nothing happens, but it is the same as leaving it alone", which
-          // reads as two different answers to the same question.
-          sole:
-            rec.lufs > rec.target
-              ? `this song is already ${distanceTo(rec.lufs, rec.target)}, and this option only turns songs up - so it does nothing`
-              : `the peaks leave no room to turn this one up at all, so it does exactly what leaving it alone does`,
+          sole: 'the song already meets the target and peak limit, or the planned volume change is below 0.10 dB; the server leaves the file unchanged',
         },
     [DECISION_SKIP]: {
       lands: `${fmtLufs(rec.lufs)} LUFS`,
