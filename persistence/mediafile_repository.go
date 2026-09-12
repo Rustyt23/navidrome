@@ -327,7 +327,12 @@ func LoudnessLevelTwoFilter() Sqlizer {
 		// everything.
 		return Expr("1 = 0")
 	}
-	return And{withinBand, outsideOrdinary, Expr("not ("+sql+")", args...)}
+	return And{withinBand, outsideOrdinary, loudnessPeakSafeFilter(), Expr("not ("+sql+")", args...)}
+}
+
+func loudnessPeakSafeFilter() Sqlizer {
+	return Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) <= ?",
+		conf.Server.Scanner.LoudnessNormalization.TruePeak)
 }
 
 func loudnessExceptionFilter(_ string, _ any) Sqlizer {
@@ -339,14 +344,17 @@ func loudnessExceptionFilter(_ string, _ any) Sqlizer {
 		fmt.Sprintf("%s is null or abs(%s - ?) > ?", measured, measured),
 		options.TargetLUFS, loudnessLeaveAloneToleranceDB)
 
-	return And{
-		// Never list a track the engine deliberately left alone.
-		NotEq{"media_file_loudness.phase": loudnessPhaseCloseEnough},
-		Or{
-			Eq{"media_file_loudness.was_exception": true},
-			Eq{"media_file_loudness.phase": model.LoudnessPhaseReview},
-			And{Eq{"media_file_loudness.action": model.LoudnessActionRefused}, worthListing},
-			NotEq{"media_file_loudness.decision": ""},
+	return Or{
+		Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) > ?", options.TruePeak),
+		And{
+			// Never list a track the engine deliberately left alone.
+			NotEq{"media_file_loudness.phase": loudnessPhaseCloseEnough},
+			Or{
+				Eq{"media_file_loudness.was_exception": true},
+				Eq{"media_file_loudness.phase": model.LoudnessPhaseReview},
+				And{Eq{"media_file_loudness.action": model.LoudnessActionRefused}, worthListing},
+				NotEq{"media_file_loudness.decision": ""},
+			},
 		},
 	}
 }
@@ -370,8 +378,8 @@ func loudnessOutcomeFilter(_ string, value any) Sqlizer {
 	build := func(one string) Sqlizer {
 		switch one {
 		case "on_target":
-			return Expr(fmt.Sprintf("%s is not null and abs(%s - ?) <= ?", measured, measured),
-				options.TargetLUFS, tolerance)
+			return And{loudnessPeakSafeFilter(), Expr(fmt.Sprintf("%s is not null and abs(%s - ?) <= ?", measured, measured),
+				options.TargetLUFS, tolerance)}
 		case "short":
 			return Expr(fmt.Sprintf("%s is not null and abs(%s - ?) > ?", measured, measured),
 				options.TargetLUFS, tolerance)

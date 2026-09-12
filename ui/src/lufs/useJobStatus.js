@@ -153,22 +153,30 @@ export const useJobStatus = (url) => {
   const follow = useCallback(
     (onSettled) => {
       let stopped = false
+      let timer
+      // A request sent before the POST may still be in flight and describe
+      // the previous run. Wait for it, then ask for a fresh status.
+      const oldRequest = getStore(url).inFlight
       const tick = () => {
+        if (stopped) return
         poll().then((json) => {
           if (stopped) return
-          if (json && !json.running) {
+          if (json?.running === false) {
             onSettled?.(json)
             return
           }
-          setTimeout(tick, FOLLOW_INTERVAL_MS)
+          timer = setTimeout(tick, FOLLOW_INTERVAL_MS)
         })
       }
-      setTimeout(tick, WATCH_INTERVAL_MS)
+      Promise.resolve(oldRequest).then(() => {
+        if (!stopped) timer = setTimeout(tick, WATCH_INTERVAL_MS)
+      })
       return () => {
         stopped = true
+        clearTimeout(timer)
       }
     },
-    [poll],
+    [poll, url],
   )
 
   return { status, poll, watch, follow }

@@ -48,8 +48,8 @@ func TestAuditFromOptimizeReusesTheRunsMeasurements(t *testing.T) {
 	res := OptimizeResult{
 		Changed:       true,
 		BackupCreated: true,
-		BeforeSet:     testMeasurement(-15.20, -3.10, 7.0),
-		AfterSet:      testMeasurement(-12.58, -0.48, 7.0),
+		BeforeSet:     testMeasurement(-15.20, -4.62, 7.0),
+		AfterSet:      testMeasurement(-12.58, -2.00, 7.0),
 	}
 	audit := AuditFromOptimize(context.Background(), normalizer, "track-1", libraryPath, trackPath,
 		res, auditTestTarget, testTolerance, backupFolder)

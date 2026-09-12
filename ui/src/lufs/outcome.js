@@ -11,7 +11,7 @@
 // would only be a slower copy of this arithmetic that could fall out of step
 // with it.
 
-const has = (v) => v !== null && v !== undefined && !Number.isNaN(Number(v))
+import { currentMeasurement } from './currentMeasurement'
 
 export const OUTCOME_ON_TARGET = 'on_target'
 export const OUTCOME_SHORT_BY_CHOICE = 'short_by_choice'
@@ -23,10 +23,8 @@ export const OUTCOME_LEVEL_TWO = 'level_two'
 // it measures now: lufsAfter once rewritten, lufsBefore while only measured.
 export const offByFor = (audit, settings) => {
   const target = settings?.targetLUFS ?? -12.6
-  const now = has(audit?.lufsAfter)
-    ? Number(audit.lufsAfter)
-    : Number(audit?.lufsBefore)
-  return has(now) ? Math.abs(now - target) : null
+  const { lufs: now } = currentMeasurement(audit)
+  return now !== null ? Math.abs(now - target) : null
 }
 
 // Mirrors PhaseCloseEnough in core/loudness.
@@ -54,10 +52,9 @@ export const isLevelTwo = (audit, settings) => {
   if (!audit) return false
   const target = settings?.targetLUFS ?? -12.6
   const tolerance = settings?.tolerance ?? 0.2
-  const now = has(audit.lufsAfter)
-    ? Number(audit.lufsAfter)
-    : Number(audit.lufsBefore)
-  if (!has(now)) return false
+  const { lufs: now, peak } = currentMeasurement(audit)
+  if (now === null || peak === null || peak > (settings?.truePeak ?? -0.5))
+    return false
 
   const offBy = Math.abs(now - target)
   if (offBy <= tolerance || offBy > LEVEL_TWO_TOLERANCE) return false
@@ -77,8 +74,8 @@ export const outcomeFor = (record, settings) => {
   const target = settings?.targetLUFS ?? -12.6
   const tolerance = settings?.tolerance ?? 0.2
 
-  const now = has(a.lufsAfter) ? Number(a.lufsAfter) : Number(a.lufsBefore)
-  if (!has(now)) return null
+  const { lufs: now, peak } = currentMeasurement(a)
+  if (now === null) return null
 
   const offBy = Math.abs(now - target)
   // Reported to two places against a tolerance held to one: a song 0.249 from
@@ -87,6 +84,18 @@ export const outcomeFor = (record, settings) => {
   const detail = `${offBy.toFixed(2)} dB from ${target.toFixed(2)}`
 
   const base = { offBy, now }
+
+  if (peak === null || peak > (settings?.truePeak ?? -0.5)) {
+    return {
+      ...base,
+      id: OUTCOME_NOT_ATTEMPTED,
+      tone: 'warn',
+      detail:
+        peak === null
+          ? `${detail} - true peak not measured`
+          : `${detail} - true peak exceeds the configured ceiling`,
+    }
+  }
 
   if (offBy <= tolerance) {
     return { ...base, id: OUTCOME_ON_TARGET, tone: 'good', detail }

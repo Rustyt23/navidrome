@@ -681,7 +681,7 @@
       },
       "notifications": {
         "decisionSaved": "Decision saved for %{smart_count} song |||| Decision saved for %{smart_count} songs",
-        "runFinished": "Decisions applied: %{changed} changed, %{skipped} skipped, %{failed} failed",
+        "runFinished": "Run finished: %{changed} changed, %{skipped} skipped, %{failed} failed, %{cancelled} cancelled, %{remaining} not started",
         "rechecked": "Checked again: %{changed} fixed, %{skipped} still stuck, %{failed} failed"
       }
     }

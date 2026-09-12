@@ -34,6 +34,7 @@ export const RecheckButton = ({ selectedIds, onDone }) => {
   const [busy, setBusy] = useState(false)
   const count = selectedIds?.length || 0
   const { follow } = useJobStatus(LIBRARY_URL)
+  const { follow: followAnalysis } = useJobStatus(ANALYZE_URL)
   const stopFollowing = useRef(null)
 
   useEffect(() => () => stopFollowing.current?.(), [])
@@ -41,20 +42,27 @@ export const RecheckButton = ({ selectedIds, onDone }) => {
   // The measuring pass runs in the background, so the retry has to wait for it
   // to finish rather than start on top of it.
   const untilAnalyzeSettles = useCallback(() => {
-    return new Promise((resolve) => {
-      let attempts = 0
-      const check = () => {
-        httpClient(ANALYZE_URL)
-          .then(({ json }) => {
-            attempts += 1
-            if ((json && !json.running) || attempts >= 600) return resolve()
-            setTimeout(check, 500)
-          })
-          .catch(() => resolve())
-      }
-      setTimeout(check, 400)
+    return new Promise((resolve, reject) => {
+      stopFollowing.current = followAnalysis((json) => {
+        stopFollowing.current = null
+        if (
+          json.error ||
+          json.failed ||
+          json.cancelled ||
+          json.processed < json.total
+        ) {
+          reject(
+            new Error(
+              json.error ||
+                'Analysis did not finish successfully. Review the results before retrying.',
+            ),
+          )
+        } else {
+          resolve()
+        }
+      })
     })
-  }, [])
+  }, [followAnalysis])
 
   const handleClick = useCallback(async () => {
     if (!count || busy) return

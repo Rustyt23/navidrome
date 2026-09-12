@@ -26,6 +26,7 @@ import (
 // seeing what is happening. It is a background job now, like the optimisation
 // run and the analysis sweep, and reports itself the same way.
 type restoreLoudnessJob struct {
+	lastError loudnessJobError
 	running   atomic.Bool
 	stopping  atomic.Bool
 	startedAt atomic.Int64
@@ -59,6 +60,7 @@ type restoreLoudnessStatus struct {
 	InFlight  int64  `json:"inFlight"`
 	Cancelled int64  `json:"cancelled"`
 	Message   string `json:"message,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 func currentRestoreLoudnessStatus(msg string) restoreLoudnessStatus {
@@ -73,6 +75,7 @@ func currentRestoreLoudnessStatus(msg string) restoreLoudnessStatus {
 		InFlight:  restoreLoudness.inFlight.Load(),
 		Cancelled: restoreLoudness.cancelled.Load(),
 		Message:   msg,
+		Error:     restoreLoudness.lastError.get(),
 	}
 	if ts := restoreLoudness.startedAt.Load(); ts > 0 {
 		st.StartedAt = time.Unix(ts, 0).Format(time.RFC3339)
@@ -91,6 +94,7 @@ func beginRestoreLoudness(ctx context.Context, total int) (context.Context, bool
 		return nil, false
 	}
 	restoreLoudness.stopping.Store(false)
+	restoreLoudness.lastError.set("")
 	restoreLoudness.stop = make(chan struct{})
 	restoreLoudness.startedAt.Store(time.Now().Unix())
 	restoreLoudness.total.Store(int64(total))
@@ -312,36 +316,47 @@ func (n *Router) restoreOneSong(ctx context.Context, normalizer ffmpeg.LoudnessN
 	// the request that asked has gone: losing the record of a change that did
 	// happen is worse than doing the work twice.
 	recordCtx := context.WithoutCancel(ctx)
-	repo := n.ds.MediaFile(recordCtx)
-	audits := n.ds.LoudnessAudit(recordCtx)
+	err = saveLoudnessRecord(recordCtx, n.ds, id, func(recordCtx context.Context, tx model.DataStore) error {
+		repo := tx.MediaFile(recordCtx)
+		audits := tx.LoudnessAudit(recordCtx)
 
-	if err := audits.Put(res.Audit); err != nil {
-		log.Warn(recordCtx, "Restored the song but could not update its audit record", "id", id, err)
-	}
-	// Put deliberately preserves the client's decision, but a decision that has
-	// just been undone must not be reapplied by the next phase 2 run.
-	if err := audits.SetDecision(id, loudness.DecisionPending); err != nil {
-		log.Warn(recordCtx, "Restored the song but could not clear its decision", "id", id, err)
-	}
-	updateSongLoudnessTag(recordCtx, repo, id, res.LUFS)
-
-	// The song's own row still describes the file that was just replaced. Left
-	// alone it reports the normalized size and bitrate until some later scan
-	// happens to notice, so the library disagrees with the disk in the one place
-	// a person is most likely to look.
-	if res.Probe != nil {
-		if err := repo.UpdateAudioProperties(id, model.AudioFileProperties{
-			BitRate:    res.Probe.BitRate,
-			SampleRate: res.Probe.SampleRate,
-			BitDepth:   res.Probe.BitDepth,
-			Channels:   res.Probe.Channels,
-			Duration:   float32(res.Probe.Duration),
-			Size:       res.Probe.Size,
-		}); err != nil {
-			log.Warn(recordCtx, "Restored the song but could not refresh its stored details", "id", id, err)
+		if err := audits.Put(res.Audit); err != nil {
+			return err
 		}
-	}
+		// Put deliberately preserves the client's decision, but a decision that has
+		// just been undone must not be reapplied by the next phase 2 run.
+		if err := audits.SetDecision(id, loudness.DecisionPending); err != nil {
+			return err
+		}
+		if err := repo.UpdateLoudnessTags(id, res.LUFS); err != nil {
+			return err
+		}
 
-	log.Info(recordCtx, "Restored original song", "id", id, "path", trackPath, "lufs", res.LUFS)
+		// The song's own row still describes the file that was just replaced. Left
+		// alone it reports the normalized size and bitrate until some later scan
+		// happens to notice, so the library disagrees with the disk in the one place
+		// a person is most likely to look.
+		if res.Probe != nil {
+			if err := repo.UpdateAudioProperties(id, model.AudioFileProperties{
+				BitRate:    res.Probe.BitRate,
+				SampleRate: res.Probe.SampleRate,
+				BitDepth:   res.Probe.BitDepth,
+				Channels:   res.Probe.Channels,
+				Duration:   float32(res.Probe.Duration),
+				Size:       res.Probe.Size,
+			}); err != nil {
+				return err
+			}
+		}
+
+		log.Info(recordCtx, "Restored original song", "id", id, "path", trackPath, "lufs", res.LUFS)
+		return nil
+	})
+	if err != nil {
+		restoreLoudness.lastError.set(err.Error())
+		restoreLoudness.failed.Add(1)
+		log.Warn(recordCtx, "Restored audio but could not save its records", "id", id, err)
+		return
+	}
 	restoreLoudness.restored.Add(1)
 }

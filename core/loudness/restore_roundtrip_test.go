@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -15,9 +16,35 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
+type failedRestoreMeasurement struct{}
+
+func (failedRestoreMeasurement) AnalyzeLoudness(context.Context, string, ffmpeg.LoudnessTarget) (*ffmpeg.LoudnessAnalysis, error) {
+	return nil, errors.New("measurement interrupted")
+}
+
+func TestRestoreMeasurementFailureLeavesWorkingAudioUnchanged(t *testing.T) {
+	library, backups := t.TempDir(), t.TempDir()
+	track := filepath.Join(library, "song.mp3")
+	writeQuietTestMP3(t, track, 2)
+	if err := ffmpeg.BackupOriginal(track, 0o644, library, backups, "song-1"); err != nil {
+		t.Fatal(err)
+	}
+	// A different working recording makes accidental replacement observable.
+	writeQuietTestMP3(t, track, 3)
+	working := digest(t, track)
+	_, err := Restore(context.Background(), failedRestoreMeasurement{}, "song-1", library, track, nil,
+		ffmpeg.LoudnessTarget{IntegratedLUFS: -12.6, TruePeak: -0.5, LRA: 11}, 0.2, backups)
+	if err == nil {
+		t.Fatal("expected a measurement failure")
+	}
+	if digest(t, track) != working {
+		t.Fatal("restoration replaced audio before its measurement succeeded")
+	}
+}
+
 // writeQuietTestMP3 makes a real file that is genuinely off target, so the
-// optimiser has something to do: a tone 15 dB down measures around -18 LUFS
-// with peaks nowhere near the ceiling, which is the plain constant-gain case.
+// optimiser has something to do without exceeding the automatic gain limit.
+// FFmpeg's sine source already peaks around -18 dBFS before this attenuation.
 func writeQuietTestMP3(t *testing.T, path string, seconds float64) {
 	t.Helper()
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
@@ -28,7 +55,7 @@ func writeQuietTestMP3(t *testing.T, path string, seconds float64) {
 	}
 	cmd := exec.Command("ffmpeg", "-y", "-nostdin", "-hide_banner", "-f", "lavfi",
 		"-i", fmt.Sprintf("sine=frequency=440:duration=%g", seconds),
-		"-af", "volume=-15dB",
+		"-af", "volume=-5dB",
 		"-c:a", "libmp3lame", "-b:a", "192k", "-ar", "44100", "-ac", "2", path)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generating test audio: %v: %s", err, out)
@@ -280,6 +307,12 @@ func TestRestoreAfterASecondOptimiseStillReturnsTheFirstOriginal(t *testing.T) {
 	if err != nil || !first.Changed {
 		t.Fatalf("first optimise did not change the file: %v (rejected %q)", err, first.Rejected)
 	}
+	// A renamed song must still resolve the first original by permanent id.
+	renamed := filepath.Join(library, "Renamed song.mp3")
+	if err := os.Rename(track, renamed); err != nil {
+		t.Fatal(err)
+	}
+	track = renamed
 	// Push it off target again so there is something for a second pass to do.
 	off := filepath.Join(library, "off.mp3")
 	cmd := exec.Command("ffmpeg", "-y", "-nostdin", "-hide_banner", "-i", track,
@@ -294,6 +327,9 @@ func TestRestoreAfterASecondOptimiseStillReturnsTheFirstOriginal(t *testing.T) {
 	second, err := Optimize(ctx, normalizer, track, DecisionPending, opts)
 	if err != nil {
 		t.Fatalf("second optimise: %v", err)
+	}
+	if !second.Changed {
+		t.Fatalf("second optimise did not exercise replacement: phase %d, rejected %q", second.Phase, second.Rejected)
 	}
 	if second.BackupCreated {
 		t.Error("the second pass overwrote the stored original")

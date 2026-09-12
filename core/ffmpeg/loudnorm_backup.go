@@ -90,17 +90,47 @@ func LegacyLoudnessBackupPath(backupFolder, libraryPath, trackPath string) strin
 // whether it is really this song's original is settled before anything is
 // overwritten with it, not here.
 func FindLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath string) string {
+	path, _ := findLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath)
+	return path
+}
+
+// The filename is descriptive; only the permanent id identifies the original.
+// Mutation callers must propagate lookup failures, especially multiple originals
+// left by older versions, rather than backing up or restoring the wrong file.
+func findLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath string) (string, error) {
 	if path := LoudnessBackupPath(backupFolder, libraryPath, mediaFileID, trackPath); path != "" {
-		if fileExists(path) == nil {
-			return path
+		entries, err := os.ReadDir(filepath.Dir(path))
+		if err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("reading original backups: %w", err)
+		}
+		prefix := backupIDComponent(mediaFileID) + "__"
+		var found string
+		for _, entry := range entries {
+			if !strings.HasPrefix(entry.Name(), prefix) {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return "", fmt.Errorf("checking original backup: %w", err)
+			}
+			if !info.Mode().IsRegular() {
+				return "", fmt.Errorf("original backup %q is not a regular file", entry.Name())
+			}
+			if found != "" {
+				return "", fmt.Errorf("multiple original backups for song %s; resolve them before processing or restoring", mediaFileID)
+			}
+			found = filepath.Join(filepath.Dir(path), entry.Name())
+		}
+		if found != "" {
+			return found, nil
 		}
 	}
 	if path := LegacyLoudnessBackupPath(backupFolder, libraryPath, trackPath); path != "" {
 		if fileExists(path) == nil {
-			return path
+			return path, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // BackupOriginal stores an untouched copy of trackPath before it is replaced.
@@ -116,7 +146,11 @@ func BackupOriginal(trackPath string, mode os.FileMode, libraryPath, backupFolde
 	// Any stored original for this song counts, wherever an earlier version put
 	// it. What must not happen is a second copy being taken of a file that has
 	// already been rewritten.
-	if FindLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath) != "" {
+	stored, err := findLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath)
+	if err != nil {
+		return err
+	}
+	if stored != "" {
 		return nil
 	}
 
@@ -134,7 +168,10 @@ func BackupOriginal(trackPath string, mode os.FileMode, libraryPath, backupFolde
 // is to undo something. The copy is atomic for the reason the backup was - a
 // crash part way through must not leave a truncated file where the song is.
 func RestoreOriginal(trackPath, libraryPath, backupFolder, mediaFileID string) error {
-	backup := FindLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath)
+	backup, err := findLoudnessBackup(backupFolder, libraryPath, mediaFileID, trackPath)
+	if err != nil {
+		return err
+	}
 	if backup == "" {
 		return fmt.Errorf("no stored original for %s", trackPath)
 	}

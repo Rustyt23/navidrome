@@ -179,7 +179,7 @@ export const OutcomeField = (props) => {
   const translate = useTranslate()
   const record = useRecordContext(props)
   const outcome = outcomeFor(record, props.settings)
-  if (!outcome) return <span className={classes.same}>-</span>
+  if (!outcome) return <span className={classes.same}>Not measured</span>
 
   const tone =
     outcome.tone === 'good'
@@ -272,6 +272,8 @@ export const DecisionMarkField = (props) => {
 export const LufsPairField = (props) => {
   const record = useRecordContext(props)
   const a = audit(record)
+  if (!has(a?.lufsBefore) && !has(a?.lufsAfter))
+    return <span>Not measured</span>
   return <Pair before={num(a?.lufsBefore)} after={num(a?.lufsAfter)} />
 }
 
@@ -286,7 +288,7 @@ export const OriginalLufsField = (props) => {
   const record = useRecordContext(props)
   const a = audit(record)
   if (!has(a?.lufsBefore)) {
-    return <span className={classes.same}>-</span>
+    return <span className={classes.same}>Not measured</span>
   }
   const fromBackup = a.status === 'processed' && a.hasBackup
   return (

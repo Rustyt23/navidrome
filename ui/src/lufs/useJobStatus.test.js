@@ -111,4 +111,77 @@ describe('useJobStatus', () => {
 
     expect(settled).toMatchObject({ normalized: 4, skipped: 1, failed: 0 })
   })
+
+  it('never announces completion because time passed or a status request failed', async () => {
+    vi.useFakeTimers()
+    respondWith({ running: true, normalized: 1, total: 5 })
+    const url = freshUrl()
+    const { result, unmount } = renderHook(() => useJobStatus(url))
+    const done = vi.fn()
+    let stop
+    await act(async () => {
+      stop = result.current.follow(done)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000)
+    })
+    expect(done).not.toHaveBeenCalled()
+    httpClient.mockRejectedValue(new Error('offline'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000)
+    })
+    expect(done).not.toHaveBeenCalled()
+    respondWith({ running: false, normalized: 3, failed: 1, skipped: 1 })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(done).toHaveBeenCalledTimes(1)
+    expect(done).toHaveBeenCalledWith({
+      running: false,
+      normalized: 3,
+      failed: 1,
+      skipped: 1,
+    })
+    stop()
+    unmount()
+  })
+
+  it('ignores an idle response from a request sent before the job started', async () => {
+    vi.useFakeTimers()
+    let releaseOld
+    httpClient.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseOld = resolve
+        }),
+    )
+    const url = freshUrl()
+    const { result, unmount } = renderHook(() => useJobStatus(url))
+    const done = vi.fn()
+    const stop = result.current.follow(done)
+    respondWith({ running: true })
+    await act(async () => {
+      releaseOld({ json: { running: false } })
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(done).not.toHaveBeenCalled()
+    stop()
+    unmount()
+  })
+
+  it('stops following when its caller leaves', async () => {
+    vi.useFakeTimers()
+    const url = freshUrl()
+    const { result, unmount } = renderHook(() => useJobStatus(url))
+    const done = vi.fn()
+    const stop = result.current.follow(done)
+    stop()
+    unmount()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(done).not.toHaveBeenCalled()
+  })
 })

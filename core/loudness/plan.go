@@ -205,15 +205,8 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 	wanted := p.GainToTarget + p.RewriteCost
 	landsAt := func(gain float64) float64 { return lufs + gain - p.RewriteCost }
 
-	// The configured ceiling comes first and is used wherever it reaches the
-	// target. Only when holding to it would miss does the plan reach into the
-	// fallback ceiling - the same order the optimiser applies, so a track is
-	// never planned to spend headroom it does not need.
+	// Never spend headroom above the configured ceiling to reach the target.
 	p.SafeGain = math.Min(wanted, p.TransparentGain)
-	if math.Abs(landsAt(p.SafeGain)-target) > tolerance {
-		p.SafeGain = math.Min(wanted,
-			math.Max(ceiling, fallbackCeilingDB)-truePeak-ffmpeg.PeakSpringBack(sourceBitRate))
-	}
 	p.SafeLoudness = landsAt(p.SafeGain)
 
 	switch {
@@ -222,7 +215,7 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 	// peaks happen to sit.
 	case p.GainToTarget > maxAutomaticGainDB:
 		p.Phase = PhaseReview
-	case math.Abs(lufs-target) <= tolerance:
+	case math.Abs(lufs-target) <= tolerance && peakWithinCeiling(truePeak, ceiling):
 		p.Phase = PhaseDone
 	case math.Abs(p.SafeLoudness-target) <= tolerance:
 		p.Phase = PhaseGain
@@ -230,7 +223,7 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 		// The level alone cannot get there, but the peaks only have to come
 		// down by an amount nobody can hear. Nothing is gained by asking.
 		p.Phase = PhaseTrim
-	case math.Abs(lufs-target) <= leaveAloneToleranceDB:
+	case math.Abs(lufs-target) <= leaveAloneToleranceDB && peakWithinCeiling(truePeak, ceiling):
 		// Reaching the target from here needs a decision, and the track is
 		// already close enough that the decision is not worth asking for.
 		p.Phase = PhaseCloseEnough

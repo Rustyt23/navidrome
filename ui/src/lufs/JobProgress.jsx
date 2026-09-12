@@ -36,7 +36,13 @@ const eta = (processed, total, startedAt) => {
 // matters when a run takes days.
 export const JobProgress = ({ label, status, detail }) => {
   const classes = useStyles()
-  if (!status?.running) return null
+  if (!status?.running) {
+    return status?.error ? (
+      <Typography role="alert" color="error">
+        {status.error}
+      </Typography>
+    ) : null
+  }
 
   const processed = status.processed || 0
   const total = status.total || 0
@@ -62,6 +68,11 @@ export const JobProgress = ({ label, status, detail }) => {
   return (
     <Tooltip title={remaining || ''}>
       <div className={classes.root}>
+        {status.error && (
+          <Typography role="alert" color="error">
+            {status.error}
+          </Typography>
+        )}
         <div className={classes.line}>
           <Typography variant="caption" color="textSecondary">
             {text}

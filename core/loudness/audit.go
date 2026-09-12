@@ -76,6 +76,10 @@ func Measure(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, path str
 	if err != nil {
 		return nil, err
 	}
+	if analysis == nil || math.IsNaN(analysis.InputIntegrated) || math.IsInf(analysis.InputIntegrated, 0) ||
+		math.IsNaN(analysis.InputTruePeak) || math.IsInf(analysis.InputTruePeak, 0) {
+		return nil, fmt.Errorf("loudness or true peak could not be measured")
+	}
 	return &Measurement{
 		Probe:    probe,
 		LUFS:     analysis.InputIntegrated,

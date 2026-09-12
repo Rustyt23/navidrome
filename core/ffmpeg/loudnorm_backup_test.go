@@ -129,6 +129,56 @@ func TestBackupOriginalFailsWithNoLocation(t *testing.T) {
 	}
 }
 
+func TestBackupSurvivesRenamingAndNeverStoresAProcessedReplacement(t *testing.T) {
+	library, backups := t.TempDir(), t.TempDir()
+	track := filepath.Join(library, "Old name.mp3")
+	renamed := filepath.Join(library, "New name.mp3")
+	writeFile(t, track, "first untouched original")
+	if err := BackupOriginal(track, 0o644, library, backups, "song-1"); err != nil {
+		t.Fatal(err)
+	}
+	stored := FindLoudnessBackup(backups, library, "song-1", track)
+	writeFile(t, track, "processed once")
+	if err := os.Rename(track, renamed); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindLoudnessBackup(backups, library, "song-1", renamed); got != stored {
+		t.Fatalf("renaming lost the original: got %q, want %q", got, stored)
+	}
+	if err := BackupOriginal(renamed, 0o644, library, backups, "song-1"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, renamed, "processed twice")
+	if err := RestoreOriginal(renamed, library, backups, "song-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, renamed); got != "first untouched original" {
+		t.Fatalf("restored the wrong generation: %q", got)
+	}
+	entries, err := os.ReadDir(filepath.Dir(stored))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("a second original was created: %v, %v", entries, err)
+	}
+}
+
+func TestAmbiguousOriginalsCannotBeOverwrittenOrRestored(t *testing.T) {
+	library, backups := t.TempDir(), t.TempDir()
+	track := filepath.Join(library, "Current.mp3")
+	writeFile(t, track, "current audio")
+	for _, name := range []string{"First.mp3", "Second.mp3"} {
+		writeFile(t, LoudnessBackupPath(backups, library, "song-1", name), name)
+	}
+	if err := BackupOriginal(track, 0o644, library, backups, "song-1"); err == nil {
+		t.Fatal("must not create another original when existing backups are ambiguous")
+	}
+	if err := RestoreOriginal(track, library, backups, "song-1"); err == nil {
+		t.Fatal("must not choose an arbitrary original")
+	}
+	if got := readFile(t, track); got != "current audio" {
+		t.Fatalf("changed audio despite ambiguous backups: %q", got)
+	}
+}
+
 func TestFindLoudnessBackup(t *testing.T) {
 	base := t.TempDir()
 	lib := filepath.Join(base, "music")

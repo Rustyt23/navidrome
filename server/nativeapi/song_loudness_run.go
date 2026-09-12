@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -59,9 +60,10 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 		if ctx.Err() == nil {
 			recordCtx := context.WithoutCancel(ctx)
 			failed := loudness.FailedAudit(mf.ID, trackPath, err)
-			if putErr := ds.LoudnessAudit(recordCtx).Put(failed); putErr != nil {
-				log.Warn(recordCtx, "Could not save loudness failure record", "id", mf.ID, putErr)
-			}
+			putErr := saveLoudnessRecord(recordCtx, ds, mf.ID, func(ctx context.Context, tx model.DataStore) error {
+				return tx.LoudnessAudit(ctx).Put(failed)
+			})
+			err = errors.Join(err, putErr)
 		}
 		return res, err
 	}
@@ -78,53 +80,58 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 	// those rather than decoding the same files again.
 	audit := loudness.AuditFromOptimize(recordCtx, normalizer, mf.ID, mf.LibraryPath, trackPath, res,
 		opts.Target, opts.Tolerance, opts.BackupFolder)
-	if err := ds.LoudnessAudit(recordCtx).Put(audit); err != nil {
-		log.Warn(recordCtx, "Could not save loudness audit record", "id", mf.ID, err)
-	}
+	err = saveLoudnessRecord(recordCtx, ds, mf.ID, func(recordCtx context.Context, tx model.DataStore) error {
+		if err := tx.LoudnessAudit(recordCtx).Put(audit); err != nil {
+			return err
+		}
 
-	// Nothing outside the library is touched. Loudness normalization rewrites the
-	// song in place, keeps its original in the backup folder and records the
-	// audit - and stops there.
-	//
-	// It used to also copy the result into SyncFolder/mp3 and hand that copy to
-	// gcsync, which uploaded it and then moved it into the music folder under its
-	// basename alone - leaving a flattened duplicate of every normalized song at
-	// the library root, which the next scan indexed as a new track. The sync
-	// folder is an inbox for files arriving from outside; these files are already
-	// in the library, so there was nothing there to ingest.
-	if res.Changed {
-		repo := ds.MediaFile(recordCtx)
-		updateSongLoudnessTag(recordCtx, repo, mf.ID, res.NewLUFS)
+		// Nothing outside the library is touched. Loudness normalization rewrites the
+		// song in place, keeps its original in the backup folder and records the
+		// audit - and stops there.
+		//
+		// It used to also copy the result into SyncFolder/mp3 and hand that copy to
+		// gcsync, which uploaded it and then moved it into the music folder under its
+		// basename alone - leaving a flattened duplicate of every normalized song at
+		// the library root, which the next scan indexed as a new track. The sync
+		// folder is an inbox for files arriving from outside; these files are already
+		// in the library, so there was nothing there to ingest.
+		if res.Changed {
+			repo := tx.MediaFile(recordCtx)
+			if err := repo.UpdateLoudnessTags(mf.ID, res.NewLUFS); err != nil {
+				return err
+			}
 
-		// The row still describes the file as it was before the rewrite. The
-		// scanner would normally correct that on its next pass, but it decides
-		// a file is worth re-reading by comparing timestamps, and nothing here
-		// moves the file's - so left alone the row stays wrong indefinitely.
-		if res.AfterSet != nil && res.AfterSet.Probe != nil {
-			p := res.AfterSet.Probe
-			if err := repo.UpdateAudioProperties(mf.ID, model.AudioFileProperties{
-				BitRate:    p.BitRate,
-				SampleRate: p.SampleRate,
-				BitDepth:   p.BitDepth,
-				Channels:   p.Channels,
-				Duration:   float32(p.Duration),
-				Size:       p.Size,
-			}); err != nil {
-				log.Warn(recordCtx, "Could not update song properties after optimise", "id", mf.ID, err)
+			// The row still describes the file as it was before the rewrite. The
+			// scanner would normally correct that on its next pass, but it decides
+			// a file is worth re-reading by comparing timestamps, and nothing here
+			// moves the file's - so left alone the row stays wrong indefinitely.
+			if res.AfterSet != nil && res.AfterSet.Probe != nil {
+				p := res.AfterSet.Probe
+				if err := repo.UpdateAudioProperties(mf.ID, model.AudioFileProperties{
+					BitRate:    p.BitRate,
+					SampleRate: p.SampleRate,
+					BitDepth:   p.BitDepth,
+					Channels:   p.Channels,
+					Duration:   float32(p.Duration),
+					Size:       p.Size,
+				}); err != nil {
+					return err
+				}
+			}
+
+			// The one correction on this page that a listener can hear. The old
+			// ReplayGain values describe a level this song no longer has, and they
+			// are handed to every client and to the built-in player, which then
+			// quietens an already-normalized track by the old amount - undoing the
+			// work on every playback. Apply strips them from the file; this strips
+			// them from the row.
+			if err := repo.ClearReplayGain(mf.ID); err != nil {
+				return err
 			}
 		}
-
-		// The one correction on this page that a listener can hear. The old
-		// ReplayGain values describe a level this song no longer has, and they
-		// are handed to every client and to the built-in player, which then
-		// quietens an already-normalized track by the old amount - undoing the
-		// work on every playback. Apply strips them from the file; this strips
-		// them from the row.
-		if err := repo.ClearReplayGain(mf.ID); err != nil {
-			log.Warn(recordCtx, "Could not clear stale ReplayGain after optimise", "id", mf.ID, err)
-		}
-	}
-	return res, nil
+		return nil
+	})
+	return res, err
 }
 
 type loudnessDecisionPayload struct {
@@ -160,6 +167,12 @@ func (n *Router) setLoudnessDecision() http.HandlerFunc {
 			http.Error(w, "ids are required", http.StatusBadRequest)
 			return
 		}
+		release, busy := claimLoudnessFileWork(&loudnessAuditWork)
+		if busy != "" {
+			http.Error(w, "Wait for "+busy+" before changing decisions", http.StatusConflict)
+			return
+		}
+		defer release()
 
 		repo := n.ds.LoudnessAudit(ctx)
 		updated := 0

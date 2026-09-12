@@ -10,11 +10,13 @@
 // same measurement for a song that was only ever analysed, never rewritten. A
 // tag is still read for songs this server has never looked at, which may carry
 // one written by whatever produced them.
+import { currentMeasurement } from '../lufs/currentMeasurement'
+
 const auditLufs = (song) => {
   const audit = song?.loudnessAudit
   if (!audit) return null
-  const value = audit.lufsAfter ?? audit.lufsBefore
-  return value === null || value === undefined ? null : Number(value).toFixed(2)
+  const { lufs } = currentMeasurement(audit)
+  return lufs === null ? 'Not measured' : lufs.toFixed(2)
 }
 
 const tagLufs = (song) => {

@@ -185,7 +185,10 @@ const LufsListActions = ({
     <TopToolbar className={`${className || ''} ${classes.toolbar}`} {...rest}>
       {(libraryStatus?.running ||
         analyzeStatus?.running ||
-        restoreStatus?.running) && (
+        restoreStatus?.running ||
+        libraryStatus?.error ||
+        analyzeStatus?.error ||
+        restoreStatus?.error) && (
         <div className={classes.row}>
           <JobProgress
             label="Optimising"

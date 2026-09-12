@@ -23,6 +23,7 @@ import (
 // file: it only records what each track currently is, which is the only way to
 // capture the "before" state of tracks that have not been processed yet.
 type loudnessAnalyzeJob struct {
+	lastError loudnessJobError
 	running   atomic.Bool
 	stopping  atomic.Bool
 	startedAt atomic.Int64
@@ -52,6 +53,7 @@ type loudnessAnalyzeStatus struct {
 	InFlight  int64  `json:"inFlight"`
 	Cancelled int64  `json:"cancelled"`
 	Message   string `json:"message,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 type loudnessAnalyzePayload struct {
@@ -75,6 +77,7 @@ func currentLoudnessAnalyzeStatus(msg string) loudnessAnalyzeStatus {
 		InFlight:  loudnessAnalyze.inFlight.Load(),
 		Cancelled: loudnessAnalyze.cancelled.Load(),
 		Message:   msg,
+		Error:     loudnessAnalyze.lastError.get(),
 	}
 	if ts := loudnessAnalyze.startedAt.Load(); ts > 0 {
 		st.StartedAt = time.Unix(ts, 0).Format(time.RFC3339)
@@ -103,6 +106,7 @@ func beginLoudnessAnalyze(ctx context.Context) (context.Context, bool) {
 		return nil, false
 	}
 	loudnessAnalyze.stopping.Store(false)
+	loudnessAnalyze.lastError.set("")
 	loudnessAnalyze.stop = make(chan struct{})
 	loudnessAnalyze.inFlight.Store(0)
 	loudnessAnalyze.cancelled.Store(0)
@@ -169,18 +173,16 @@ func (n *Router) clearLoudnessAnalyzeResults() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		w.Header().Set("Content-Type", "application/json")
-		loudnessAnalyze.stopMu.Lock()
-		libraryLoudness.stopMu.Lock()
-		defer loudnessAnalyze.stopMu.Unlock()
-		defer libraryLoudness.stopMu.Unlock()
 		// A restore counts too: it writes the very record this would delete.
-		if busy := loudnessFileWorkBusy(); busy != "" {
+		release, busy := claimLoudnessFileWork(&loudnessAuditWork)
+		if busy != "" {
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"message": "Stop " + busy + " before clearing analysis data",
 			})
 			return
 		}
+		defer release()
 		// Copy it before destroying it.
 		//
 		// This wipes every measurement in the library and there is no undo. A
@@ -283,6 +285,7 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 		total, err := n.countAnalyzeTargets(ctx, payload)
 		if err != nil {
 			log.Error(ctx, "LUFS analysis: could not read media files", err)
+			loudnessAnalyze.lastError.set(err.Error())
 			return
 		}
 		loudnessAnalyze.total.Store(total)
@@ -291,6 +294,7 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 		selected, err = n.collectAnalyzeTargets(ctx, payload)
 		if err != nil {
 			log.Error(ctx, "LUFS analysis: could not read media files", err)
+			loudnessAnalyze.lastError.set(err.Error())
 			return
 		}
 		loudnessAnalyze.total.Store(int64(len(selected)))
@@ -352,10 +356,14 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 				if payload.All && mf.LoudnessAudit != nil && mf.LoudnessAudit.RestoredAt != nil {
 					audit.RestoredAt = mf.LoudnessAudit.RestoredAt
 				}
-				if err := n.ds.LoudnessAudit(ctx).Put(audit); err != nil {
+				saveErr := saveLoudnessRecord(ctx, n.ds, mf.ID, func(ctx context.Context, tx model.DataStore) error {
+					return tx.LoudnessAudit(ctx).Put(audit)
+				})
+				if err := saveErr; err != nil {
 					log.Warn(ctx, "LUFS analysis: could not save audit record", "id", mf.ID, err)
+					loudnessAnalyze.lastError.set(err.Error())
 				}
-				if audit.Status == model.LoudnessStatusFailed {
+				if saveErr != nil || audit.Status == model.LoudnessStatusFailed {
 					loudnessAnalyze.failed.Add(1)
 				}
 				if done := loudnessAnalyze.processed.Add(1); done%100 == 0 {
@@ -376,6 +384,7 @@ func (n *Router) runLoudnessAnalyze(ctx context.Context, payload loudnessAnalyze
 	if payload.All {
 		if err := n.eachLibraryAnalyzeTarget(ctx, payload, dispatch); err != nil {
 			log.Error(ctx, "LUFS analysis: could not read media files", err)
+			loudnessAnalyze.lastError.set(err.Error())
 		}
 	} else {
 		for _, mf := range selected {

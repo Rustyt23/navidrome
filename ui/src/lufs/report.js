@@ -45,11 +45,6 @@ const DURATION_AUDIBLE_LOSSY = 0.1
 const DURATION_AUDIBLE_LOSSLESS = 0.05
 const DURATION_NOISE = 0.001
 
-// Mirrors fallbackCeilingDB in core/loudness: where a degraded source cannot
-// hold the configured ceiling, this is as high as its peak may ship. Still
-// below 0, so the file cannot clip either way.
-const FALLBACK_CEILING = -0.1
-
 // The null test measures how much of the file changed, by energy. Rewriting a
 // lossy file costs a generation of codec noise and lands at -39 to -47 dB on
 // real music; a lossless round trip leaves almost nothing. Audio that was
@@ -82,24 +77,12 @@ export const reportFor = (record, settings) => {
   const minor = []
   const unchanged = []
 
-  // Shipped above the configured ceiling because that ceiling could not be
-  // reached.
-  //
-  // The engine records this as OptimizeResult.CeilingRelaxed and then throws it
-  // away - nothing writes it to the audit, so a file resting at -0.12 dBTP
-  // against a -0.50 target looked identical to a clean one on every page. It is
-  // derived here instead of stored, because the finished peak and the
-  // configured ceiling are both already on the record and their relationship
-  // IS the flag.
-  //
-  // Not a fault, and deliberately not in the "needs attention" bucket: the file
-  // still cannot clip, which is what the ceiling exists to guarantee. What it
-  // gives up is part of the reserve held back for whatever handles the file
-  // next, and that is worth being able to see and count.
-  if (has(a.tpAfter) && n(a.tpAfter) > ceiling + 0.005) {
-    minor.push(
-      `Shipped at ${f2(a.tpAfter)} dBTP, above the ${f2(ceiling)} target - ` +
-        `that ceiling was not reachable on this source. Still below 0, so it cannot clip.`,
+  // Older outputs may have been accepted under a relaxed policy. They need
+  // attention whenever they exceed today's configured ceiling.
+  if (has(a.tpAfter) && n(a.tpAfter) > ceiling) {
+    significant.push(
+      `True peak ${f2(a.tpAfter)} dBTP exceeds the ${f2(ceiling)} ceiling. Recheck this song.` +
+        (n(a.tpAfter) > 0 ? ' The file can clip.' : ''),
     )
   }
 
@@ -260,26 +243,8 @@ export const reportFor = (record, settings) => {
   if (has(a.tpBefore) && has(a.tpAfter)) {
     const moved = n(a.tpAfter) - n(a.tpBefore)
     const expected = has(a.gainApplied) ? n(a.gainApplied) : moved
-    if (n(a.tpAfter) > 0) {
-      significant.push(
-        `True peak ${f2(a.tpAfter)} dBTP — above 0, the file can clip`,
-      )
-      // Above the lowest ceiling the engine will ever accept. `+ 0.1` used to
-      // sit here, which made this `> 0` - identical to the branch above, so it
-      // never ran and a file shipped past the fallback was reported as a minor
-      // note. The engine's own check is a hard bound with no slack, and this
-      // mirrors it.
-    } else if (n(a.tpAfter) > FALLBACK_CEILING) {
-      significant.push(
-        `True peak ${f2(a.tpAfter)} dBTP is above the ${f2(ceiling)} ceiling`,
-      )
-    } else if (n(a.tpAfter) > ceiling + 0.1) {
-      // A degraded source whose codec pushes the peak back up further than
-      // limiting can pull it down. The audio is unaffected and it still cannot
-      // clip; what is smaller is the reserve left for later handling.
-      minor.push(
-        `True peak ${f2(a.tpAfter)} dBTP — above the ${f2(ceiling)} ceiling, which this file could not hold, but still clear of clipping`,
-      )
+    if (n(a.tpAfter) > ceiling) {
+      // Already reported above, including when the original peak is unknown.
     } else if (a.action === 'limited') {
       // Nothing to add: the capping is already reported under what was
       // applied, with its depth and its reason. Saying it again here as a

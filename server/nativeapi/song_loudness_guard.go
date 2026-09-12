@@ -31,10 +31,15 @@ import (
 // covers, so libraryLoudness speaks for both.
 var loudnessFileWorkMu sync.Mutex
 
+// Short audit mutations reserve the same access as the background jobs.
+var loudnessAuditWork atomic.Bool
+
 // loudnessFileWorkInProgress names the operation currently working on library
 // songs, or "" when none is. Callers must hold loudnessFileWorkMu.
 func loudnessFileWorkInProgress() string {
 	switch {
+	case loudnessAuditWork.Load():
+		return "a LUFS audit update"
 	case libraryLoudness.running.Load():
 		return "a LUFS optimisation run"
 	case loudnessAnalyze.running.Load():

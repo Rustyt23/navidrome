@@ -13,6 +13,7 @@ import {
   recommendationFor,
 } from './recommendation'
 import { reasonFor } from './reason'
+import { currentMeasurement } from '../lufs/currentMeasurement'
 
 const useStyles = makeStyles((theme) => ({
   muted: { color: theme.palette.text.secondary },
@@ -92,13 +93,12 @@ export const HeadroomField = (props) => {
 export const CurrentField = (props) => {
   const classes = useStyles()
   const record = useRecordContext(props)
-  const rec = recommendationFor(record, props.settings)
-  if (!rec) return <span className={classes.muted}>-</span>
+  const { lufs, peak } = currentMeasurement(record?.loudnessAudit)
   return (
     <span className={classes.nowrap}>
-      {`${fmtLufs(rec.lufs)} LUFS`}
+      {lufs === null ? 'Not measured' : `${fmtLufs(lufs)} LUFS`}
       <span className={`${classes.sub} ${classes.muted}`}>
-        {`peak ${fmtLufs(rec.peak)} dBTP`}
+        {peak === null ? 'peak: Not measured' : `peak ${fmtLufs(peak)} dBTP`}
       </span>
     </span>
   )
@@ -394,7 +394,9 @@ export const DecisionField = (props) => {
   if (applied != null) {
     const target = rec?.target ?? -12.6
     const tolerance = props.settings?.tolerance ?? 0.2
-    const onTarget = Math.abs(applied - target) <= tolerance
+    const { peak } = currentMeasurement(a)
+    const peakOK = peak !== null && peak <= (props.settings?.truePeak ?? -0.5)
+    const onTarget = Math.abs(applied - target) <= tolerance && peakOK
     return (
       <span className={classes.cell}>
         <span className={classes.nowrap}>
@@ -406,9 +408,11 @@ export const DecisionField = (props) => {
           {(a.tpAfter != null
             ? `peak ${fmtLufs(Number(a.tpAfter))} dBTP · `
             : '') +
-            (onTarget
-              ? 'done, on target'
-              : `done, ${fmtMag(applied - target)} dB ${applied > target ? 'louder than' : 'below'} ${fmtLufs(target)}`)}
+            (!peakOK
+              ? 'peak safety needs checking'
+              : onTarget
+                ? 'done, on target'
+                : `done, ${fmtMag(applied - target)} dB ${applied > target ? 'louder than' : 'below'} ${fmtLufs(target)}`)}
         </span>
         {chip}
       </span>

@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"runtime"
 	"strings"
@@ -22,6 +23,7 @@ import (
 // Only one run at a time. It is started by turning "Optimise all LUFS" on and
 // stopped by turning it off.
 type libraryLoudnessJob struct {
+	lastError  loudnessJobError
 	running    atomic.Bool
 	stopping   atomic.Bool
 	phase      atomic.Int64
@@ -79,6 +81,7 @@ type libraryLoudnessStatus struct {
 	InFlight   int64  `json:"inFlight"`
 	Cancelled  int64  `json:"cancelled"`
 	Message    string `json:"message,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // beginLibraryLoudness starts a run unless one is already going. Returns false
@@ -104,6 +107,7 @@ func (n *Router) beginLibraryLoudness(ctx context.Context, phase int, ids []stri
 		return false
 	}
 	libraryLoudness.phase.Store(int64(phase))
+	libraryLoudness.lastError.set("")
 	libraryLoudness.stopping.Store(false)
 	libraryLoudness.stop = make(chan struct{})
 	libraryLoudness.startedAt.Store(time.Now().Unix())
@@ -235,6 +239,7 @@ func currentLibraryLoudnessStatus(msg string) libraryLoudnessStatus {
 		InFlight:   libraryLoudness.inFlight.Load(),
 		Cancelled:  libraryLoudness.cancelled.Load(),
 		Message:    msg,
+		Error:      libraryLoudness.lastError.get(),
 	}
 	if ts := libraryLoudness.startedAt.Load(); ts > 0 {
 		st.StartedAt = time.Unix(ts, 0).Format(time.RFC3339)
@@ -273,6 +278,7 @@ func (n *Router) runLibraryLoudness(ctx context.Context, phase int, ids []string
 	cursor, err := n.ds.MediaFile(ctx).GetCursor(model.QueryOptions{Filters: loudnessRunFilter(phase, ids)})
 	if err != nil {
 		log.Error(ctx, "LUFS run: could not read media files", err)
+		libraryLoudness.lastError.set(err.Error())
 		return
 	}
 
@@ -292,7 +298,7 @@ func (n *Router) runLibraryLoudness(ctx context.Context, phase int, ids []string
 				res, err := optimizeOneTrack(ctx, n.ds, normalizer, &mf)
 				libraryLoudness.inFlight.Add(-1)
 				switch {
-				case err != nil && ctx.Err() != nil:
+				case errors.Is(err, context.Canceled) && !res.Changed:
 					// Abandoned when the grace period ran out. The file was not
 					// touched and no audit was written, so the next run selects
 					// it again - it is postponed, not lost, and counting it as
@@ -302,6 +308,7 @@ func (n *Router) runLibraryLoudness(ctx context.Context, phase int, ids []string
 					continue
 				case err != nil:
 					libraryLoudness.failed.Add(1)
+					libraryLoudness.lastError.set(err.Error())
 					log.Warn(ctx, "LUFS run: could not optimise track", "path", mf.Path, err)
 				case res.Changed:
 					libraryLoudness.normalized.Add(1)
@@ -318,6 +325,7 @@ dispatch:
 	for mf, err := range cursor {
 		if err != nil {
 			log.Error(ctx, "LUFS run aborted: error reading media files", err)
+			libraryLoudness.lastError.set(err.Error())
 			break
 		}
 		if libraryLoudness.stopping.Load() {
@@ -429,10 +437,12 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 		// Deliberately left alone: near enough to target that correcting it is
 		// not worth what it would cost. Retrying it every sweep would spend a
 		// full encode per run to arrive at the same conclusion.
-		squirrel.Expr("coalesce(media_file_loudness.phase, ?) <> ?",
-			loudness.PhaseUnplanned, loudness.PhaseCloseEnough),
-		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and media_file_loudness.lufs_before is not null)",
-			loudness.PhaseUnplanned, loudness.PhaseDone),
+		// Older audits called tracks done based on LUFS alone, and some were
+		// accepted against a relaxed ceiling. Revisit those on the next sweep.
+		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and coalesce(coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) <= ?, false))",
+			loudness.PhaseUnplanned, loudness.PhaseCloseEnough, conf.Server.Scanner.LoudnessNormalization.TruePeak),
+		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and media_file_loudness.lufs_before is not null and coalesce(coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) <= ?, false))",
+			loudness.PhaseUnplanned, loudness.PhaseDone, conf.Server.Scanner.LoudnessNormalization.TruePeak),
 		// A track whose last attempt was built and then rejected is left out.
 		// Nothing about it or the settings has changed since, so rebuilding the
 		// same file would reach the same refusal - on every run, for ever.

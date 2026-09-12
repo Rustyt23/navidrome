@@ -164,60 +164,19 @@ func TestNullResidualThresholdSeparatesRewritingFromReshaping(t *testing.T) {
 	}
 }
 
-// The fallback ceiling exists for one situation only: a source so degraded that
-// re-encoding pushes its true peak back up further than limiting can pull it
-// down. It must never become a general loosening of the ceiling.
-func TestFallbackCeilingNeverRisesAboveClipping(t *testing.T) {
-	if fallbackCeilingDB >= 0 {
-		t.Fatalf("fallback ceiling %.2f allows clipping", fallbackCeilingDB)
-	}
-	// The fallback is the loosest bound in the whole pipeline, so the highest
-	// peak that can ship is whatever it accepts. Nothing at or above zero may
-	// get through it, whatever the ceiling is set to.
-	if acceptableAsFallback(0, fallbackCeilingDB) {
-		t.Error("a file peaking at 0 dBTP was accepted; that is where clipping starts")
-	}
-	if !acceptableAsFallback(fallbackCeilingDB, fallbackCeilingDB) {
-		t.Error("a file sitting exactly on the fallback was refused")
-	}
-}
-
-func TestFallbackCeilingNeverLoosensAConfiguredCeilingThatIsAlreadyHigher(t *testing.T) {
-	// math.Max is what Optimize applies. A ceiling already above the fallback
-	// must not be relaxed further - there would be nothing left to relax into.
-	for _, configured := range []float64{-0.1, 0.0} {
-		if got := math.Max(configured, fallbackCeilingDB); got != configured {
-			t.Errorf("ceiling %.2f relaxed to %.2f; it should stand", configured, got)
+// A target loudness never licenses exceeding the client's peak ceiling.
+func TestConfiguredPeakCeilingIsAHardBound(t *testing.T) {
+	for _, ceiling := range []float64{-3, -1.5, -0.5} {
+		for _, peak := range []float64{ceiling - 1, ceiling} {
+			if !peakWithinCeiling(peak, ceiling) {
+				t.Errorf("peak %g should satisfy ceiling %g", peak, ceiling)
+			}
 		}
-	}
-	if got := math.Max(-0.5, fallbackCeilingDB); got != fallbackCeilingDB {
-		t.Errorf("ceiling -0.5 should be able to fall back to %.2f, got %.2f",
-			fallbackCeilingDB, got)
-	}
-}
-
-// The fallback is the last line before the reserve above the peak is gone, so
-// the bound is hard. Any slack added here raises what the project ships by
-// exactly that much.
-func TestFallbackAcceptanceIsAHardBound(t *testing.T) {
-	fb := fallbackCeilingDB
-
-	if !acceptableAsFallback(-0.37, fb) {
-		t.Error("refused a file comfortably inside the fallback")
-	}
-	if !acceptableAsFallback(fb, fb) {
-		t.Error("refused a file sitting exactly on the fallback")
-	}
-	if acceptableAsFallback(fb+0.05, fb) {
-		t.Errorf("accepted %.2f, which is above the %.2f fallback", fb+0.05, fb)
-	}
-	// The specific mistake this guards: the configured ceiling allows
-	// truePeakToleranceDB of measurement slack, and carrying that habit into
-	// the fallback would raise what ships by exactly that much. At the current
-	// floor it would put files at 0 dBTP, which is clipping.
-	if acceptableAsFallback(fb+truePeakToleranceDB, fb) {
-		t.Errorf("measurement slack is being added to the fallback; files could ship at %.2f",
-			fb+truePeakToleranceDB)
+		for _, peak := range []float64{ceiling + 0.01, ceiling + 0.1, -0.1, 0, 1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+			if peakWithinCeiling(peak, ceiling) {
+				t.Errorf("accepted peak %g above/invalid for ceiling %g", peak, ceiling)
+			}
+		}
 	}
 }
 
@@ -289,28 +248,6 @@ func TestInferActionReadsThePeakInOneDirectionOnly(t *testing.T) {
 	sprangUp := testMeasurement(-12.6, -1.36, 3.7) // 1.30 above the same gain
 	if got := inferAction(audit, before, sprangUp, 0.39); got != model.LoudnessActionGain {
 		t.Errorf("peak sprang up: action = %q, want %q - nothing in the chain raises peaks", got, model.LoudnessActionGain)
-	}
-}
-
-// The floor sits where the measurements put it, not where judgement would.
-// These are the peaks real refused tracks came out at, and there is a clean gap
-// between the last safe one and the first that clips. Moving the floor down
-// rescues nothing; moving it up ships audio that clips.
-func TestFallbackFloorSitsInTheGapTheMeasurementsFound(t *testing.T) {
-	rescued := []float64{-0.17, -0.15, -0.14, -0.11, -0.11}
-	clipping := []float64{0.01, 0.10, 0.21, 0.33, 0.39}
-
-	for _, peak := range rescued {
-		if !acceptableAsFallback(peak, fallbackCeilingDB) {
-			t.Errorf("floor %.2f refuses a track at %.2f, which is safe and on target",
-				fallbackCeilingDB, peak)
-		}
-	}
-	for _, peak := range clipping {
-		if acceptableAsFallback(peak, fallbackCeilingDB) {
-			t.Errorf("floor %.2f accepts a track at %.2f, which is at or above zero",
-				fallbackCeilingDB, peak)
-		}
 	}
 }
 

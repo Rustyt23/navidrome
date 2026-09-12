@@ -53,11 +53,8 @@ func Restore(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFil
 		return RestoreResult{}, err
 	}
 
-	if err := ffmpeg.RestoreOriginal(trackPath, libraryPath, backupFolder, mediaFileID); err != nil {
-		return RestoreResult{}, err
-	}
-	// The file on disk is now a byte-for-byte copy of the one just probed, so
-	// that probe describes it exactly - no need to read it again.
+	// Prepare the record before replacing audio. A failed measurement must
+	// leave both the working file and its record untouched.
 	restoredAt := time.Now()
 
 	// The stored snapshot may be carried over only when it is a measurement of
@@ -68,20 +65,24 @@ func Restore(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFil
 	if previous != nil && previous.LufsBefore != nil && previous.HasBackup {
 		audit := revertedAudit(previous, target, tolerance)
 		audit.RestoredAt = &restoredAt
+		if err := ffmpeg.RestoreOriginal(trackPath, libraryPath, backupFolder, mediaFileID); err != nil {
+			return RestoreResult{}, err
+		}
 		return RestoreResult{LUFS: *audit.LufsBefore, Audit: audit, Probe: stored}, nil
 	}
 
-	// Nothing trustworthy to rebuild the record from, so measure what is now on
-	// disk. One pass, not a full audit: the file was just copied from the stored
-	// original, so comparing the two would only measure them against themselves.
-	measured, err := Measure(ctx, normalizer, trackPath, target)
+	// Measure the stored original before copying it into the library.
+	measured, err := Measure(ctx, normalizer, backup, target)
 	if err != nil {
-		return RestoreResult{}, fmt.Errorf("restored, but could not measure the result: %w", err)
+		return RestoreResult{}, fmt.Errorf("could not measure the original; nothing was restored: %w", err)
 	}
 	audit := analyzedAudit(mediaFileID, measured, target, tolerance)
 	// The original is still stored, so the track can be restored again.
 	audit.HasBackup = true
 	audit.RestoredAt = &restoredAt
+	if err := ffmpeg.RestoreOriginal(trackPath, libraryPath, backupFolder, mediaFileID); err != nil {
+		return RestoreResult{}, err
+	}
 	return RestoreResult{LUFS: *audit.LufsBefore, Audit: audit, Probe: measured.Probe}, nil
 }
 

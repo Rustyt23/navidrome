@@ -107,6 +107,12 @@ func (n *Router) loudnessAuditDbSnapshot() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		w.Header().Set("Content-Type", "application/json")
+		release, busy := claimLoudnessFileWork(&loudnessAuditWork)
+		if busy != "" {
+			http.Error(w, "Wait for "+busy+" before copying LUFS audit data", http.StatusConflict)
+			return
+		}
+		defer release()
 
 		dir := loudnessAuditDbFolder(ctx, n.ds)
 		if dir == "" {
@@ -160,13 +166,15 @@ func (n *Router) loudnessAuditDbRestore() http.HandlerFunc {
 			_ = json.NewDecoder(r.Body).Decode(&payload)
 		}
 
-		if busy := loudnessFileWorkBusy(); busy != "" {
+		release, busy := claimLoudnessFileWork(&loudnessAuditWork)
+		if busy != "" {
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"message": "Stop " + busy + " before restoring LUFS audit data",
 			})
 			return
 		}
+		defer release()
 
 		repo := n.ds.LoudnessAudit(ctx)
 		dir := loudnessAuditDbFolder(ctx, n.ds)

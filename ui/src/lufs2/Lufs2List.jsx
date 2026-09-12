@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button as RaButton,
   Datagrid,
@@ -211,17 +211,29 @@ const Lufs2List = (props) => {
     (final) => {
       setStarting(false)
       notify('resources.lufs2.notifications.runFinished', {
-        type: final?.failed ? 'warning' : 'info',
+        type:
+          final?.failed || final?.error || final?.cancelled
+            ? 'warning'
+            : 'info',
         messageArgs: {
           changed: final?.normalized || 0,
           skipped: final?.skipped || 0,
           failed: final?.failed || 0,
+          cancelled: final?.cancelled || 0,
+          remaining: Math.max(
+            0,
+            (final?.total || 0) -
+              (final?.processed || 0) -
+              (final?.cancelled || 0),
+          ),
         },
       })
     },
     [notify],
   )
-  const { status, watch } = useLibraryStatus()
+  const { status, follow } = useLibraryStatus()
+  const stopFollowing = useRef(null)
+  useEffect(() => () => stopFollowing.current?.(), [])
   const { status: analyzeStatus } = useAnalyzeStatus()
 
   useEffect(() => {
@@ -380,11 +392,10 @@ const Lufs2List = (props) => {
         setStarting(false)
         return
       }
-      // watch always settles, so the spinner cannot be left running by a run
-      // that finished before it was ever seen going.
-      watch(report)
+      stopFollowing.current?.()
+      stopFollowing.current = follow(report)
     },
-    [watch, report],
+    [follow, report],
   )
 
   return (

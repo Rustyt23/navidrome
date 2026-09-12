@@ -5,6 +5,7 @@ import (
 
 	"github.com/Masterminds/squirrel"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/loudness"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -42,6 +43,9 @@ var _ = Describe("loudnessRunFilter", func() {
 	selectedBy := func(phase int) []string { return selectedWith(phase, nil) }
 
 	BeforeEach(func() {
+		oldCeiling := conf.Server.Scanner.LoudnessNormalization.TruePeak
+		conf.Server.Scanner.LoudnessNormalization.TruePeak = -0.5
+		DeferCleanup(func() { conf.Server.Scanner.LoudnessNormalization.TruePeak = oldCeiling })
 		var err error
 		db, err = sql.Open("sqlite3", ":memory:")
 		Expect(err).ToNot(HaveOccurred())
@@ -53,6 +57,8 @@ var _ = Describe("loudnessRunFilter", func() {
 				media_file_id text primary key,
 				phase integer not null default -1,
 				lufs_before real,
+				tp_before real,
+				tp_after real,
 				decision text not null default '',
 				action text not null default '',
 				restored_at datetime
@@ -95,6 +101,7 @@ var _ = Describe("loudnessRunFilter", func() {
 				-- a decision made about it. Exactly the five songs sitting in the
 				-- real library, and for a while the filter matched none of them.
 				('refused-decided', 1, -13.85, 'limit', 'refused', null);
+			update media_file_loudness set tp_before = -2 where media_file_id = 'done';
 		`)
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -111,6 +118,25 @@ var _ = Describe("loudnessRunFilter", func() {
 		})
 
 		It("skips tracks already measured as on target", func() {
+			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("done"))
+		})
+
+		It("revisits completed tracks with unsafe or unknown current peaks", func() {
+			for _, phase := range []int{loudness.PhaseDone, loudness.PhaseCloseEnough} {
+				for _, peak := range []any{nil, -0.49, 1.0} {
+					_, err := db.Exec("update media_file_loudness set phase = ?, tp_before = ?, tp_after = null where media_file_id = 'done'", phase, peak)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("done"))
+				}
+			}
+		})
+
+		It("uses the processed peak instead of the original peak", func() {
+			_, err := db.Exec("update media_file_loudness set tp_before = -2, tp_after = -0.1 where media_file_id = 'done'")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("done"))
+			_, err = db.Exec("update media_file_loudness set tp_before = 1, tp_after = -0.5 where media_file_id = 'done'")
+			Expect(err).ToNot(HaveOccurred())
 			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("done"))
 		})
 

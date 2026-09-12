@@ -162,7 +162,9 @@ func (s ApplySpec) filter() string {
 	chain := []string{fmt.Sprintf("volume=%sdB", formatFloat(s.GainDB))}
 	if s.LimitTruePeak {
 		limit := dbToLinear(s.CeilingDB - limiterHeadroom(s.Source.BitRate))
-		limiter := fmt.Sprintf("alimiter=limit=%s:level=disabled:attack=5:release=50",
+		// Compensate lookahead and flush its final samples at EOF. Without this,
+		// the output is delayed by the attack time and its tail is discarded.
+		limiter := fmt.Sprintf("alimiter=limit=%s:level=disabled:attack=5:release=50:latency=1",
 			formatFloat(limit))
 
 		if up := oversampleRate(s.Source.SampleRate); up > s.Source.SampleRate {

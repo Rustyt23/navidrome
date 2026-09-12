@@ -3,6 +3,8 @@
 // out, before touching it, whether the target is reachable without altering
 // the audio - and if not, precisely what each option would cost.
 
+import { currentMeasurement } from '../lufs/currentMeasurement'
+
 export const DECISION_PENDING = ''
 export const DECISION_LIMIT = 'limit'
 export const DECISION_CEILING = 'gain_ceiling'
@@ -16,10 +18,6 @@ export const DECISION_SKIP = 'skip'
 // confined to the tip and begins softening the attack of every drum hit, and at
 // that point the choice is a real one rather than a formality.
 export const AUDIBLE_SHAVE_DB = 3.0
-
-// The highest a finished file may peak. Mirrors fallbackCeilingDB in
-// core/loudness: still below zero, so nothing can clip.
-const SAFE_PEAK = -0.1
 
 // What a rewrite costs a source of this bitrate in loudness, before any gain is
 // applied. Measured, not estimated: sources were rewritten at their own bitrate
@@ -79,9 +77,9 @@ const peakSpringBack = (bitRate) => {
 // The result is an estimate. It is exact on a clean source, where the peak
 // follows the gain to within a couple of hundredths. On a degraded one the peak
 // can jump unpredictably as the gain rises, so the real ceiling may be lower.
-const bestWithoutDistortion = (lufs, peak, target, bitRate) => {
+const bestWithoutDistortion = (lufs, peak, target, ceiling, bitRate) => {
   const cost = rewriteCost(bitRate)
-  const headroom = SAFE_PEAK - peakSpringBack(bitRate) - peak
+  const headroom = ceiling - peakSpringBack(bitRate) - peak
   const gain = Math.min(target - lufs + cost, headroom)
   const lands = lufs + gain - cost
 
@@ -123,13 +121,13 @@ export const recommendationFor = (record, settings) => {
   const audit = record?.loudnessAudit
   const target = settings?.targetLUFS ?? -12.6
   const ceiling = settings?.truePeak ?? -0.5
-  if (!audit || audit.lufsBefore == null || audit.tpBefore == null) {
+  const current = currentMeasurement(audit)
+  if (current.lufs === null || current.peak === null) {
     return null
   }
 
-  const lufs = Number(audit.lufsBefore)
-  const peak = Number(audit.tpBefore)
-  const bitRate = Number(audit.bitrateBefore || record?.bitRate || 0)
+  const { lufs, peak } = current
+  const bitRate = Number(current.bitRate || record?.bitRate || 0)
   const springBack = peakSpringBack(bitRate)
 
   // What it would take to hit the target, and where the peaks would land.
@@ -169,7 +167,7 @@ export const recommendationFor = (record, settings) => {
   const loudnessAtCeiling = lufs + transparentGain
   const shortfall = Math.max(0, target - loudnessAtCeiling)
 
-  const best = bestWithoutDistortion(lufs, peak, target, bitRate)
+  const best = bestWithoutDistortion(lufs, peak, target, ceiling, bitRate)
 
   return {
     lufs,

@@ -19,33 +19,8 @@ const (
 	maxOptimizeAttempts = 3
 	// maxDriftCorrectionDB guards against feeding back a wild measurement.
 	maxDriftCorrectionDB = 1.5
-	// truePeakToleranceDB: how far over the ceiling a finished file may sit
-	// before it is rejected. Only measurement noise belongs in here.
-	truePeakToleranceDB = 0.1
-
-	// fallbackCeilingDB is the highest true peak a file may ship at when the
-	// configured ceiling turns out to be physically unreachable.
-	//
-	// Re-encoding pushes the true peak back up, and on a badly degraded source
-	// it pushes it up further than any amount of limiting can pull it down -
-	// clamping harder distorts the waveform more, which the encoder then
-	// reconstructs worse. For such a track the choice is not between a safe
-	// peak and an unsafe one, it is between landing slightly above the ceiling
-	// and not reaching the target at all.
-	//
-	// It keeps what actually matters: the file still cannot clip, because
-	// clipping starts at 0. What is given up is part of the reserve held back
-	// for whatever handles the file next, and only on the few tracks that
-	// cannot do better.
-	//
-	// -0.1 is where the measurements put the floor rather than where judgement
-	// would. Across a real library the refused peaks landed at -0.17, -0.15,
-	// -0.14, -0.11, -0.11 and then +0.01, +0.10, +0.21, +0.33, +0.39: a clean
-	// gap with nothing in it between -0.11 and zero. So no value below this
-	// rescues one more track, and every value above it ships audio that clips.
-	// A track that cannot reach even here has a peak past zero, which no
-	// ceiling can fix - it needs a better source file.
-	fallbackCeilingDB = -0.1
+	// peakRetryHeadroomDB is extra clearance on a retry, never acceptance slack.
+	peakRetryHeadroomDB = 0.1
 )
 
 // OptimizeOptions carries the target, the safety limits and where backups go.
@@ -88,10 +63,6 @@ type OptimizeResult struct {
 	// "an original is expected", which is the conservative reading: a caller
 	// that does not set it gets the path that goes and looks for the stored file.
 	BackupSkipped bool
-	// CeilingRelaxed reports that the configured ceiling could not be reached
-	// and the file was accepted against fallbackCeilingDB instead. The audio is
-	// unaffected; only the headroom left above the peak is smaller.
-	CeilingRelaxed bool
 }
 
 // Optimize brings one track to the target loudness without altering anything
@@ -146,21 +117,8 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 		}
 	}()
 
-	// A produced file that lands on target but sits above the ceiling is kept
-	// aside rather than thrown away, in case the ceiling turns out to be
-	// unreachable. The lowest-peaked such file wins, so relaxing the ceiling
-	// never costs more headroom than it has to.
-	fallbackCeiling := math.Max(opts.Target.TruePeak, fallbackCeilingDB)
-	var fallbackPath string
-	var fallbackAfter *Measurement
-	var fallbackGain float64
-	defer func() {
-		if fallbackPath != "" {
-			_ = os.Remove(fallbackPath)
-		}
-	}()
 	// A produced file whose peaks are correct but whose loudness landed a little
-	// short of the target is kept aside too.
+	// short of the target is kept aside.
 	//
 	// The strict window is +/-0.2, and a result outside it used to be deleted -
 	// leaving the song at its ORIGINAL loudness, which was usually further from
@@ -198,31 +156,12 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 		return true
 	}
 
-	keepAsFallback := func(path string, after *Measurement, gain float64) bool {
-		if !acceptableAsFallback(after.TruePeak, fallbackCeiling) {
-			return false
-		}
-		if fallbackAfter != nil && after.TruePeak >= fallbackAfter.TruePeak {
-			return false
-		}
-		if fallbackPath != "" {
-			_ = os.Remove(fallbackPath)
-		}
-		fallbackPath, fallbackAfter, fallbackGain = path, after, gain
-		return true
-	}
-
 	// Without a limiter the only way to hold a ceiling is to not exceed it in
 	// the first place, so the gain may never rise above the largest one that
 	// keeps the peaks under it - however the retry feedback pushes.
-	//
-	// The bound is the fallback ceiling rather than the configured one. What
-	// ships is still decided by the acceptance checks below, which are stricter;
-	// stopping the gain at the configured ceiling only meant a track that could
-	// have reached the target never produced a file to judge.
 	maxGain := math.Inf(1)
 	if !spec.LimitTruePeak {
-		maxGain = fallbackCeiling - before.TruePeak
+		maxGain = opts.Target.TruePeak - before.TruePeak
 	}
 	ceiling := opts.Target.TruePeak
 
@@ -259,7 +198,7 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 		miss := expectedLUFS - after.LUFS
 		peakOver := after.TruePeak - ceiling
 		loudnessOK := math.Abs(miss) <= opts.Tolerance
-		peakOK := peakOver <= truePeakToleranceDB
+		peakOK := peakWithinCeiling(after.TruePeak, ceiling)
 
 		if loudnessOK && peakOK {
 			accepted = out
@@ -269,14 +208,8 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 			break
 		}
 
-		// Two kinds of near-miss are worth keeping rather than deleting: one that
-		// only missed the ceiling (usable if the ceiling proves unreachable), and
-		// one whose peaks are correct and whose loudness is inside the wider
-		// band. Everything else is discarded.
-		switch {
-		case loudnessOK && keepAsFallback(out, after, spec.GainDB):
-		case peakOK && keepAsNearMiss(out, after, spec.GainDB):
-		default:
+		// Only preserve near misses whose measured peaks satisfy the ceiling.
+		if !peakOK || !keepAsNearMiss(out, after, spec.GainDB) {
 			_ = os.Remove(out)
 		}
 
@@ -299,28 +232,11 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 
 		// Feed the measured misses back in and try again.
 		if !peakOK {
-			spec.CeilingDB -= peakOver + truePeakToleranceDB
+			spec.CeilingDB -= peakOver + peakRetryHeadroomDB
 		}
 		if !loudnessOK {
 			spec.GainDB = math.Min(spec.GainDB+miss, maxGain)
 		}
-	}
-
-	// The ceiling was not reachable. On a degraded source that is a property of
-	// the codec rather than of the music: re-encoding pushes the peak back up,
-	// and clamping harder only makes it worse. Shipping the best attempt - on
-	// target, still unable to clip - beats leaving the track short of target,
-	// and nothing about the audio differs between the two.
-	if accepted == "" && fallbackPath != "" {
-		accepted, fallbackPath = fallbackPath, ""
-		res.AfterSet = fallbackAfter
-		res.NewLUFS = fallbackAfter.LUFS
-		res.GainDB = fallbackGain
-		res.CeilingRelaxed = true
-		res.Rejected = ""
-		log.Debug(ctx, "Loudness: ceiling unreachable, accepted against the fallback",
-			"path", trackPath, "truePeak", fallbackAfter.TruePeak,
-			"ceiling", ceiling, "fallbackCeiling", fallbackCeiling)
 	}
 
 	// Peaks correct, loudness a little short of target. Shipping this beats
@@ -364,15 +280,11 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 	return res, nil
 }
 
-// acceptableAsFallback reports whether a produced file may ship against the
-// fallback ceiling rather than the configured one.
-//
-// The bound is hard: no measurement slack is added, unlike at the configured
-// ceiling. This is the last line before the reserve above the peak is gone, and
-// the slack has already been spent reaching it. Adding it again here would let
-// files ship 0.1 dB higher than the fallback promises.
-func acceptableAsFallback(truePeak, fallbackCeiling float64) bool {
-	return truePeak <= fallbackCeiling
+// peakWithinCeiling requires a finite measurement at or below the configured
+// ceiling. No fallback or measurement slack is allowed to raise this bound.
+func peakWithinCeiling(truePeak, ceiling float64) bool {
+	return !math.IsNaN(truePeak) && !math.IsInf(truePeak, 0) &&
+		!math.IsNaN(ceiling) && !math.IsInf(ceiling, 0) && truePeak <= ceiling
 }
 
 // rejection explains, in the audit record, why a produced file was thrown away.
