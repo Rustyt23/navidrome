@@ -31,6 +31,29 @@ const eta = (processed, total, startedAt) => {
   return `about ${hours} h left`
 }
 
+// ERROR_CHARS is as much of a job error as the page shows: about one line.
+const ERROR_CHARS = 160
+
+// shortError is the first line of an error, cut to about one line of text.
+//
+// A song stopped part way used to put its whole ffmpeg log here - a page of
+// progress numbers in red. The server now sends a short message, but records
+// written before that, and any unusually long reason, are still cut here.
+const shortError = (message) => {
+  const firstLine = String(message).split('\n')[0].trim()
+  if (firstLine.length <= ERROR_CHARS) return firstLine
+  const cut = firstLine.slice(0, ERROR_CHARS)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${(lastSpace > ERROR_CHARS / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
+}
+
+// The full text stays one hover away, for whoever needs to read all of it.
+const JobError = ({ message }) => (
+  <Typography role="alert" color="error" title={String(message)}>
+    {shortError(message)}
+  </Typography>
+)
+
 // JobProgress shows how far a long run has got. Counting the work up front
 // means this is a real fraction rather than an open-ended counter, which
 // matters when a run takes days.
@@ -39,11 +62,7 @@ export const JobProgress = ({ label, status, detail }) => {
   if (!status?.running) {
     return (
       <>
-        {status?.error && (
-          <Typography role="alert" color="error">
-            {status.error}
-          </Typography>
-        )}
+        {status?.error && <JobError message={status.error} />}
         {!!status?.rejected && (
           <Typography role="alert" color="error">
             {`${status.rejected} rejected; working audio unchanged. Review the LUFS exceptions for details.`}
@@ -77,11 +96,7 @@ export const JobProgress = ({ label, status, detail }) => {
   return (
     <Tooltip title={remaining || ''}>
       <div className={classes.root}>
-        {status.error && (
-          <Typography role="alert" color="error">
-            {status.error}
-          </Typography>
-        )}
+        {status.error && <JobError message={status.error} />}
         <div className={classes.line}>
           <Typography variant="caption" color="textSecondary">
             {text}
@@ -105,6 +120,10 @@ export const JobProgress = ({ label, status, detail }) => {
       </div>
     </Tooltip>
   )
+}
+
+JobError.propTypes = {
+  message: PropTypes.string.isRequired,
 }
 
 JobProgress.propTypes = {

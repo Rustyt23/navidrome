@@ -255,6 +255,21 @@ func (m *MockMediaFileRepo) GetMissingAndMatching(libId int) (model.MediaFileCur
 	}, nil
 }
 
+// GetCursor streams what GetAll returns. Like GetAll, it ignores filters.
+func (m *MockMediaFileRepo) GetCursor(options ...model.QueryOptions) (model.MediaFileCursor, error) {
+	mfs, err := m.GetAll(options...)
+	if err != nil {
+		return nil, err
+	}
+	return func(yield func(model.MediaFile, error) bool) {
+		for _, mf := range mfs {
+			if !yield(mf, nil) {
+				return
+			}
+		}
+	}, nil
+}
+
 func (m *MockMediaFileRepo) CountAll(opts ...model.QueryOptions) (int64, error) {
 	if m.Err {
 		return 0, errors.New("error")

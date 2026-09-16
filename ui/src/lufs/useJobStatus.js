@@ -179,7 +179,22 @@ export const useJobStatus = (url) => {
     [poll, url],
   )
 
-  return { status, poll, watch, follow }
+  // publish shares a status the caller already holds - the reply to the request
+  // that started a job - so every progress bar shows the job at once instead of
+  // at the first poll, which a restore of a few songs can finish before. Only a
+  // running status is taken: the next poll is the authority on anything else.
+  const publish = useCallback(
+    (json) => {
+      if (!json?.running) return
+      const store = getStore(url)
+      store.status = json
+      store.listeners.forEach((listener) => listener(json))
+      syncTimer(store)
+    },
+    [url],
+  )
+
+  return { status, poll, watch, follow, publish }
 }
 
 export default useJobStatus

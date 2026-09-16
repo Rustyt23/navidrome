@@ -39,6 +39,30 @@ describe('useJobStatus', () => {
     expect(result.current.status.processed).toBe(3)
   })
 
+  // A restore of a few songs can finish before the first poll, so the button
+  // hands the start reply to every progress bar straight away.
+  it('shows a published running status to every component at once', async () => {
+    const url = freshUrl()
+    respondWith({ running: false })
+    const bar = renderHook(() => useJobStatus(url))
+    const button = renderHook(() => useJobStatus(url))
+    await bar.waitFor(() => bar.result.current.status !== null)
+
+    act(() => {
+      button.result.current.publish({ running: false, total: 9 })
+    })
+    expect(bar.result.current.status.running).toBe(false)
+
+    act(() => {
+      button.result.current.publish({ running: true, total: 9, processed: 0 })
+    })
+    expect(bar.result.current.status).toEqual({
+      running: true,
+      total: 9,
+      processed: 0,
+    })
+  })
+
   // The bug this sharing exists to fix: a component that starts a job used to
   // update only its own copy, so the list that draws the progress bar never
   // learned a run was going.

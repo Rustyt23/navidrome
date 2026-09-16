@@ -57,6 +57,17 @@ const restoreSongLoudness = async (ids) => {
   return { data: response?.json || {} }
 }
 
+// No selection: the server puts back every stored original not already
+// restored. started is false when there was nothing to restore.
+const restoreAllSongLoudness = async () => {
+  const response = await httpClient(`${REST_URL}/song/loudness/restore/all`, {
+    method: 'POST',
+    headers: new Headers({ Accept: 'application/json' }),
+  })
+
+  return { data: response?.json || {}, started: response?.status === 202 }
+}
+
 const isAdmin = () => {
   const role = localStorage.getItem('role')
   return role === 'admin'
@@ -154,7 +165,11 @@ const mapResource = (resource, params) => {
       params = applyLibraryFilter(resource, params)
 
       // The LUFS page is a different view over the same media files
-      if (resource === 'covertart' || resource === 'lufs' || resource === 'lufs2') {
+      if (
+        resource === 'covertart' ||
+        resource === 'lufs' ||
+        resource === 'lufs2'
+      ) {
         return ['song', params]
       }
 
@@ -180,10 +195,10 @@ const handleUserLibraryAssociation = async (userId, libraryIds) => {
   }
 
   try {
-  await httpClient(`${REST_URL}/user/${userId}/library`, {
-    method: 'PUT',
-    body: JSON.stringify({ libraryIds }),
-  })
+    await httpClient(`${REST_URL}/user/${userId}/library`, {
+      method: 'PUT',
+      body: JSON.stringify({ libraryIds }),
+    })
   } catch (error) {
     console.error('Error setting user libraries:', error) //eslint-disable-line no-console
     throw error
@@ -308,7 +323,11 @@ const wrapperDataProvider = {
       if (resource === 'playlist' || resource === 'folder') {
         const parentId =
           (params?.data?.folderId ?? params?.data?.parentId ?? '') || ''
-        emitFoldersChanged({ type: 'create', resource, targetParentId: parentId })
+        emitFoldersChanged({
+          type: 'create',
+          resource,
+          targetParentId: parentId,
+        })
       }
       return res
     })
@@ -324,7 +343,11 @@ const wrapperDataProvider = {
   },
   deleteMany: (resource, params) => {
     const [r, p] = mapResource(resource, params)
-    if (r.endsWith('/tracks') || resource === 'missing' || resource === 'folder') {
+    if (
+      r.endsWith('/tracks') ||
+      resource === 'missing' ||
+      resource === 'folder'
+    ) {
       return callDeleteMany(r, p)
     }
     return dataProvider.deleteMany(r, p)
@@ -347,12 +370,13 @@ const wrapperDataProvider = {
   },
   optimizeSongLoudness,
   restoreSongLoudness,
+  restoreAllSongLoudness,
 
   setPlaylistFolder: ({ playlistId, targetFolderId, sourceParentId }) => {
     return httpClient(`${REST_URL}/playlist/${playlistId}/folder`, {
       method: 'PATCH',
       body: JSON.stringify({
-        folderId: targetFolderId
+        folderId: targetFolderId,
       }),
     }).then(() => {
       emitFoldersChanged({
@@ -369,7 +393,7 @@ const wrapperDataProvider = {
     return httpClient(`${REST_URL}/folder/${folderId}/parent`, {
       method: 'PATCH',
       body: JSON.stringify({
-        parentId: targetParentId
+        parentId: targetParentId,
       }),
     }).then(({ json }) => {
       emitFoldersChanged({

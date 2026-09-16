@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/core/loudness"
@@ -191,27 +192,80 @@ func (n *Router) restoreSongLoudness() http.HandlerFunc {
 			http.Error(w, "ids are required", http.StatusBadRequest)
 			return
 		}
+		n.startRestoreJob(ctx, w, ids)
+	}
+}
 
-		// Restoring a song something else is in the middle of rewriting would
-		// have the two racing for the same file, and whichever finished last
-		// would win - which for a restore means it silently does not stick.
-		runCtx, ok := beginRestoreLoudness(ctx, len(ids))
-		if !ok {
-			busy := loudnessFileWorkBusy()
-			if busy == "" {
-				busy = "another LUFS job"
+// restoreAllSongLoudness puts back every stored original, with no selection.
+//
+// The songs are the ones whose original is stored and whose file is not already
+// that original - restoring those would only copy a file over itself. A restore
+// mark is cleared whenever a song is optimised again, so it reliably says the
+// file on disk is the original. Everything after the selection is the ordinary
+// restore job: same progress, same stop button, same checks before any file is
+// overwritten.
+func (n *Router) restoreAllSongLoudness() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		w.Header().Set("Content-Type", "application/json")
+
+		var ids []string
+		cursor, err := n.ds.MediaFile(ctx).GetCursor(model.QueryOptions{Filters: loudnessRestoreAllFilter()})
+		if err == nil {
+			for mf, cursorErr := range cursor {
+				if cursorErr != nil {
+					err = cursorErr
+					break
+				}
+				ids = append(ids, mf.ID)
 			}
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(currentRestoreLoudnessStatus(
-				busy + " is in progress - wait for it to finish before restoring"))
+		}
+		if err != nil {
+			log.Error(ctx, "LUFS restore all: could not read media files", err)
+			http.Error(w, "could not read the songs to restore", http.StatusInternalServerError)
 			return
 		}
-
-		go n.runRestoreLoudness(runCtx, ids)
-
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(currentRestoreLoudnessStatus("Restore started"))
+		if len(ids) == 0 {
+			_ = json.NewEncoder(w).Encode(restoreLoudnessStatus{
+				Message: "No song has a stored original that is not already restored",
+			})
+			return
+		}
+		n.startRestoreJob(ctx, w, ids)
 	}
+}
+
+// loudnessRestoreAllFilter selects the songs "Restore all originals" puts back.
+func loudnessRestoreAllFilter() squirrel.Sqlizer {
+	return squirrel.And{
+		squirrel.Eq{"media_file.missing": false},
+		squirrel.Eq{"media_file_loudness.has_backup": true},
+		squirrel.Expr("media_file_loudness.restored_at is null"),
+	}
+}
+
+// startRestoreJob hands ids to the background restore job and answers 202, or
+// 409 naming whatever already holds the library.
+func (n *Router) startRestoreJob(ctx context.Context, w http.ResponseWriter, ids []string) {
+	// Restoring a song something else is in the middle of rewriting would
+	// have the two racing for the same file, and whichever finished last
+	// would win - which for a restore means it silently does not stick.
+	runCtx, ok := beginRestoreLoudness(ctx, len(ids))
+	if !ok {
+		busy := loudnessFileWorkBusy()
+		if busy == "" {
+			busy = "another LUFS job"
+		}
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(currentRestoreLoudnessStatus(
+			busy + " is in progress - wait for it to finish before restoring"))
+		return
+	}
+
+	go n.runRestoreLoudness(runCtx, ids)
+
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(currentRestoreLoudnessStatus("Restore started"))
 }
 
 func (n *Router) runRestoreLoudness(ctx context.Context, ids []string) {
@@ -275,12 +329,24 @@ dispatch:
 	}
 }
 
+// countRestoreFailure counts a song that was not restored - as stopped rather
+// than failed when the restore was being stopped. A song abandoned that way was
+// only being checked or measured: the file is copied last, so nothing on disk
+// changed, and it can simply be restored again.
+func countRestoreFailure(ctx context.Context) {
+	if ctx.Err() != nil {
+		restoreLoudness.cancelled.Add(1)
+		return
+	}
+	restoreLoudness.failed.Add(1)
+}
+
 func (n *Router) restoreOneSong(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer,
 	id string, target ffmpeg.LoudnessTarget, tolerance float64, backupFolder string) {
 	mf, err := n.ds.MediaFile(ctx).Get(id)
 	if err != nil {
 		log.Warn(ctx, "LUFS restore: could not read media file", "id", id, err)
-		restoreLoudness.failed.Add(1)
+		countRestoreFailure(ctx)
 		return
 	}
 	if mf.Path == "" || mf.LibraryPath == "" {
@@ -308,7 +374,7 @@ func (n *Router) restoreOneSong(ctx context.Context, normalizer ffmpeg.LoudnessN
 		previous, target, tolerance, backupFolder)
 	if err != nil {
 		log.Warn(ctx, "Could not restore original song", "id", id, "path", trackPath, err)
-		restoreLoudness.failed.Add(1)
+		countRestoreFailure(ctx)
 		return
 	}
 

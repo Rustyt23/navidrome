@@ -54,7 +54,7 @@ func (e *ffmpeg) AnalyzeLoudness(ctx context.Context, path string, target Loudne
 	args := analyzeLoudnessArgs(path, filter)
 	output, err := runCommand(ctx, unknownDurationTimeout, cmdPath, args...)
 	if err != nil {
-		return nil, fmt.Errorf("analyzing loudness: %w: %s", err, string(output))
+		return nil, commandError("analyzing loudness", err, output)
 	}
 	analysis, err := parseLoudnessAnalysis(output)
 	if err != nil {

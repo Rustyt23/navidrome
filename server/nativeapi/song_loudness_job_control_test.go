@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/core/loudness"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
@@ -310,6 +311,66 @@ var _ = Describe("LUFS job controls", func() {
 
 			// The job owns the library until it ends, however long that takes.
 			Eventually(func() bool { return restoreLoudness.running.Load() }).Should(BeFalse())
+		})
+
+		It("restores every restorable song without a selection", func() {
+			ds := &tests.MockDataStore{}
+			repo := ds.MediaFile(GinkgoT().Context()).(*tests.MockMediaFileRepo)
+			repo.SetData(model.MediaFiles{{ID: "song-1"}, {ID: "song-2"}})
+
+			handler := (&Router{ds: ds}).restoreAllSongLoudness()
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/song/loudness/restore/all", nil))
+
+			Expect(response.Code).To(Equal(http.StatusAccepted))
+			var status restoreLoudnessStatus
+			Expect(json.Unmarshal(response.Body.Bytes(), &status)).To(Succeed())
+			Expect(status.Total).To(Equal(int64(2)))
+			Eventually(func() bool { return restoreLoudness.running.Load() }).Should(BeFalse())
+		})
+
+		It("starts nothing when no song has an original to put back", func() {
+			handler := (&Router{ds: &tests.MockDataStore{}}).restoreAllSongLoudness()
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/song/loudness/restore/all", nil))
+
+			Expect(response.Code).To(Equal(http.StatusOK))
+			Expect(response.Body.String()).To(ContainSubstring("No song has a stored original"))
+			Expect(restoreLoudness.running.Load()).To(BeFalse())
+		})
+
+		// Stop gives songs in flight a grace period and then cancels them. One
+		// caught that way was only being checked: nothing was copied, so it is
+		// reported as stopped, and a real problem still reads as failed.
+		It("counts a song abandoned by a stop as stopped, not failed", func() {
+			router := &Router{ds: &tests.MockDataStore{}}
+			target := ffmpeg.LoudnessTarget{IntegratedLUFS: -12.6, TruePeak: -0.5, LRA: 11}
+			normalizer := ffmpeg.NewLoudnessNormalizer()
+
+			router.restoreOneSong(GinkgoT().Context(), normalizer, "not-in-library", target, 0.2, "")
+			Expect(restoreLoudness.failed.Load()).To(Equal(int64(1)))
+			Expect(restoreLoudness.cancelled.Load()).To(BeZero())
+
+			stopped, cancel := context.WithCancel(GinkgoT().Context())
+			cancel()
+			router.restoreOneSong(stopped, normalizer, "not-in-library", target, 0.2, "")
+			Expect(restoreLoudness.failed.Load()).To(Equal(int64(1)))
+			Expect(restoreLoudness.cancelled.Load()).To(Equal(int64(1)))
+		})
+
+		It("refuses to restore all while another job holds the library", func() {
+			ds := &tests.MockDataStore{}
+			repo := ds.MediaFile(GinkgoT().Context()).(*tests.MockMediaFileRepo)
+			repo.SetData(model.MediaFiles{{ID: "song-1"}})
+			_, ok := beginLoudnessAnalyze(GinkgoT().Context())
+			Expect(ok).To(BeTrue())
+
+			handler := (&Router{ds: ds}).restoreAllSongLoudness()
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/song/loudness/restore/all", nil))
+
+			Expect(response.Code).To(Equal(http.StatusConflict))
+			Expect(response.Body.String()).To(ContainSubstring("a LUFS analysis"))
 		})
 
 		It("tells the caller which job is holding the library", func() {

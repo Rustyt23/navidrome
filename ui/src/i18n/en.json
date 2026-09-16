@@ -69,6 +69,7 @@
         "lufsOptimiseStarted": "Optimising %{count} song(s). You can carry on working - progress and a stop button are on the LUFS page.",
         "lufsOptimized": "LUFS optimization complete: %{normalized} optimized, %{rejected} rejected, %{skipped} skipped, %{failed} failed.",
         "lufsRestored": "Restore complete: %{restored} restored, %{skipped} had no stored original, %{failed} failed.",
+        "lufsRestoreStopped": "Restore stopped: %{restored} restored, %{skipped} had no stored original, %{failed} failed, %{notRestored} not restored.",
         "downloadTooMany": "Too many songs selected to download at once: %{count}. Please select %{max} or fewer."
       }
     },
@@ -469,6 +470,7 @@
         "openExceptions": "Exception LUFS",
         "saveAuditDb": "Backup LUFS data",
         "restoreAuditDb": "Restore LUFS data",
+        "restoreAll": "Restore all originals",
         "stopRestore": "Stop restore"
       },
       "clear": {
@@ -484,7 +486,8 @@
         "orphanedBackupsMoved": "Moved %{moved} orphaned backups to %{folder}",
         "auditDbSaved": "LUFS data backed up: %{rows} records saved to %{file}",
         "auditDbRestored": "LUFS data restored: %{restored} records back, %{removed} removed, %{skipped} skipped (song no longer in the library)",
-        "noAuditDb": "There are no LUFS data backups yet - one is written automatically when a job finishes"
+        "noAuditDb": "There are no LUFS data backups yet - one is written automatically when a job finishes",
+        "nothingToRestore": "No song has a stored original that is not already restored"
       },
       "originalFromBackup": "Measured from the stored original, before any processing",
       "originalFromFile": "The file has never been rewritten, so this is its original loudness",
@@ -497,6 +500,10 @@
       "nullAltered": "More of this file differs from the original than re-encoding at this bitrate explains (floor %{floor} dB)",
       "confirmRestore": "Put the untouched original back for %{smart_count} song |||| Put the untouched originals back for %{smart_count} songs",
       "confirmOrphanCleanup": "%{count} of %{total} stored originals no longer match any song in the library (%{size}). They will be moved into a dated folder next to the backups, not deleted.\n\n%{list}",
+      "restoreAll": {
+        "title": "Restore all original songs?",
+        "body": "Every song that has a stored original, and is not already restored, is put back exactly as it was before LUFS optimisation. All loudness changes on those songs are undone. Songs without a stored original are not touched. An 'Optimise all LUFS' run will leave restored songs alone afterwards. Progress and a stop button appear at the top of this page."
+      },
       "restoreAuditDb": {
         "title": "Restore LUFS data?",
         "content": "This replaces the LUFS records with the backup taken on %{when} (%{file}, %{rows} records). Any analysis done since then is discarded. Songs, audio backups, playlists, play counts and ratings are not affected."

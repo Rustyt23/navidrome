@@ -262,7 +262,7 @@ func applyOnce(ctx context.Context, inputPath, outputPath string, spec ApplySpec
 
 	output, err := runCommand(ctx, DecodeTimeout(spec.Source.Duration), cmdPath, args...)
 	if err != nil {
-		return fmt.Errorf("applying gain: %w: %s", err, string(output))
+		return commandError("applying gain", err, output)
 	}
 	return nil
 }

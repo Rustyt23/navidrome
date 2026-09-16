@@ -27,6 +27,7 @@ import { useLibraryStatus } from '../lufs/useLibraryStatus'
 import { useAnalyzeStatus } from '../lufs/useAnalyzeStatus'
 import RecheckButton from './RecheckButton'
 import { RestoreOriginalButton } from '../lufs/RestoreOriginalButton'
+import { RestoreProgress } from '../lufs/RestoreProgress'
 import JobProgress from '../lufs/JobProgress'
 import {
   GainField,
@@ -177,6 +178,7 @@ const Lufs2Actions = ({
         }
       />
       <JobProgress label="Measuring" status={analyzeStatus} />
+      <RestoreProgress />
       <RunPhase2Button
         status={status}
         starting={starting}

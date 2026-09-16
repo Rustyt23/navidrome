@@ -23,7 +23,9 @@ import { BackupCleanupButton } from './BackupCleanupButton'
 import { RestoreAuditDbButton, SaveAuditDbButton } from './AuditDbButtons'
 import { ANALYZE_URL } from './useAnalyzeStatus'
 import { LIBRARY_URL } from './useLibraryStatus'
-import { RESTORE_URL, useRestoreStatus } from './useRestoreStatus'
+import { useRestoreStatus } from './useRestoreStatus'
+import { RestoreAllOriginalsButton } from './RestoreOriginalButton'
+import { RestoreProgress } from './RestoreProgress'
 
 const useStyles = makeStyles((theme) => ({
   toolbar: {
@@ -139,9 +141,8 @@ const LufsListActions = ({
   const classes = useStyles()
   const { total } = useListContext()
   // Read here rather than passed down like the other two: a restore is started
-  // from the selection toolbar, which is a different component, so this is the
-  // only place that can draw its progress. The shared store means both see the
-  // same job.
+  // from the selection toolbar, a different component. It only decides whether
+  // the progress row shows; RestoreProgress draws the restore itself.
   const { status: restoreStatus } = useRestoreStatus()
 
   // Open unless it was closed before. A control panel that hides itself the
@@ -174,13 +175,6 @@ const LufsListActions = ({
   const analyzeDetail = analyzeStatus?.running
     ? `${analyzeStatus.failed || 0} failed`
     : undefined
-  const restoreDetail = restoreStatus?.running
-    ? [
-        `${restoreStatus.restored || 0} restored`,
-        `${restoreStatus.skipped || 0} nothing stored`,
-        `${restoreStatus.failed || 0} failed`,
-      ].join(' · ')
-    : undefined
 
   return (
     <TopToolbar className={`${className || ''} ${classes.toolbar}`} {...rest}>
@@ -201,11 +195,7 @@ const LufsListActions = ({
             status={analyzeStatus}
             detail={analyzeDetail}
           />
-          <JobProgress
-            label="Restoring"
-            status={restoreStatus}
-            detail={restoreDetail}
-          />
+          <RestoreProgress />
           {libraryStatus?.running && (
             <StopLufsJobButton
               url={`${LIBRARY_URL}/stop`}
@@ -220,13 +210,6 @@ const LufsListActions = ({
               label="resources.lufs.actions.stopAnalysis"
               disabled={analyzeStatus?.stopping}
               onStopped={onAnalyzeStarted}
-            />
-          )}
-          {restoreStatus?.running && (
-            <StopLufsJobButton
-              url={`${RESTORE_URL}/stop`}
-              label="resources.lufs.actions.stopRestore"
-              disabled={restoreStatus?.stopping}
             />
           )}
         </div>
@@ -287,6 +270,9 @@ const LufsListActions = ({
               <AnalyzeLufsButton
                 all
                 onStarted={onAnalyzeStarted}
+                disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
+              />
+              <RestoreAllOriginalsButton
                 disabled={!!analyzeStatus?.running || !!libraryStatus?.running}
               />
             </div>

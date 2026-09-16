@@ -195,7 +195,7 @@ func NullResidual(ctx context.Context, beforePath, afterPath string, gainDB floa
 	timeout := DecodeTimeout(math.Max(probeDuration(ctx, beforePath), probeDuration(ctx, afterPath)))
 	output, err := runCommand(ctx, timeout, cmdPath, args...)
 	if err != nil {
-		return 0, fmt.Errorf("measuring null residual: %w: %s", err, string(output))
+		return 0, commandError("measuring null residual", err, output)
 	}
 
 	// astats reports each channel and then an "Overall" block; the last match is

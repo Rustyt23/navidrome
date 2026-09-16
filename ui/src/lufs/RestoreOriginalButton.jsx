@@ -13,6 +13,31 @@ import {
 import RestoreIcon from '@material-ui/icons/Restore'
 import { useRestoreStatus } from './useRestoreStatus'
 
+// notifyRestoreResult reports a finished restore. A restore that was stopped
+// says so, with how many songs it did not get to - "complete" would claim the
+// whole selection was dealt with.
+const notifyRestoreResult = (notify, final) => {
+  const restored = final?.restored || 0
+  const skipped = final?.skipped || 0
+  const failed = final?.failed || 0
+  const notRestored = Math.max(
+    0,
+    (final?.total || 0) - restored - skipped - failed,
+  )
+  const stopped = notRestored > 0 || !!final?.cancelled
+  notify(
+    stopped
+      ? 'resources.song.notifications.lufsRestoreStopped'
+      : 'resources.song.notifications.lufsRestored',
+    {
+      type: failed || stopped ? 'warning' : 'info',
+      messageArgs: stopped
+        ? { restored, skipped, failed, notRestored }
+        : { restored, skipped, failed },
+    },
+  )
+}
+
 // RestoreOriginalButton puts the client's untouched originals back.
 //
 // This is what the backups exist for. Nothing is re-encoded: the file stored
@@ -33,7 +58,7 @@ export const RestoreOriginalButton = ({ resource, selectedIds, disabled }) => {
   // the outcome arrives by following that job rather than by waiting on the
   // request. A big selection used to hold the request open for minutes with
   // nothing to show, which reads as a hung page.
-  const { status, follow } = useRestoreStatus()
+  const { status, follow, publish } = useRestoreStatus()
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -46,20 +71,15 @@ export const RestoreOriginalButton = ({ resource, selectedIds, disabled }) => {
     }
     setSaving(true)
     try {
-      await dataProvider.restoreSongLoudness(selectedIds)
+      const { data } = await dataProvider.restoreSongLoudness(selectedIds)
+      // The progress bar shows "0 of N" from the reply itself.
+      publish(data)
       // The selection is cleared as soon as the job owns the work: leaving it
       // highlighted invites a second press, which would only be refused.
       unselectAll(resource)
 
       follow((final) => {
-        notify('resources.song.notifications.lufsRestored', {
-          type: final?.failed ? 'warning' : 'info',
-          messageArgs: {
-            restored: final?.restored || 0,
-            skipped: final?.skipped || 0,
-            failed: final?.failed || 0,
-          },
-        })
+        notifyRestoreResult(notify, final)
         refresh({ hard: true })
       })
     } catch (error) {
@@ -74,6 +94,7 @@ export const RestoreOriginalButton = ({ resource, selectedIds, disabled }) => {
     dataProvider,
     follow,
     notify,
+    publish,
     refresh,
     resource,
     saving,
@@ -107,6 +128,86 @@ export const RestoreOriginalButton = ({ resource, selectedIds, disabled }) => {
       />
     </>
   )
+}
+
+// RestoreAllOriginalsButton puts back every stored original in the library,
+// with no selection. The server picks the songs - every one with a stored
+// original that is not already restored - and runs the same restore job, so
+// progress and the stop button appear exactly as for a selection.
+export const RestoreAllOriginalsButton = ({ disabled }) => {
+  const translate = useTranslate()
+  const notify = useNotify()
+  const refresh = useRefresh()
+  const dataProvider = useDataProvider()
+  const { permissions } = usePermissions()
+  const { status, follow, publish } = useRestoreStatus()
+  const [confirming, setConfirming] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const handleConfirm = useCallback(async () => {
+    setConfirming(false)
+    if (saving) {
+      return
+    }
+    setSaving(true)
+    try {
+      const { data, started } = await dataProvider.restoreAllSongLoudness()
+      if (!started) {
+        notify(
+          data?.message || 'resources.lufs.notifications.nothingToRestore',
+          {
+            type: 'info',
+          },
+        )
+        return
+      }
+      publish(data)
+      follow((final) => {
+        notifyRestoreResult(notify, final)
+        refresh({ hard: true })
+      })
+    } catch (error) {
+      notify(
+        error?.body?.message || error?.message || 'ra.notification.http_error',
+        { type: 'warning' },
+      )
+    } finally {
+      setSaving(false)
+    }
+  }, [dataProvider, follow, notify, publish, refresh, saving])
+
+  if (permissions !== 'admin') {
+    return null
+  }
+
+  return (
+    <>
+      <RaButton
+        onClick={() => setConfirming(true)}
+        label={translate('resources.lufs.actions.restoreAll')}
+        disabled={saving || !!status?.running || disabled}
+      >
+        <RestoreIcon />
+      </RaButton>
+      <Confirm
+        isOpen={confirming}
+        loading={saving}
+        title={translate('resources.lufs.restoreAll.title')}
+        content={translate('resources.lufs.restoreAll.body')}
+        confirm={translate('resources.lufs.actions.restoreAll')}
+        onConfirm={handleConfirm}
+        onClose={() => setConfirming(false)}
+      />
+    </>
+  )
+}
+
+RestoreAllOriginalsButton.propTypes = {
+  disabled: PropTypes.bool,
+}
+
+RestoreAllOriginalsButton.defaultProps = {
+  disabled: false,
 }
 
 RestoreOriginalButton.propTypes = {
