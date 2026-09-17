@@ -137,7 +137,6 @@ type spotifyMetadataJob struct {
 	mu               sync.RWMutex
 	status           spotifyMetadataStatus
 	client           *http.Client
-	entries          map[string]spotifyConfidenceEntry
 	coverMisses      sync.Map
 	artistGenreCache sync.Map
 	token            string
