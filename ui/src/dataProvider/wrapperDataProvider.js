@@ -93,6 +93,7 @@ const applyLibraryFilter = (resource, params) => {
     'song',
     'lufs',
     'lufs2',
+    'silence',
     'artist',
     'playlistTrack',
     'tag',
@@ -137,6 +138,7 @@ const mapResource = (resource, params) => {
     case 'covertart':
     case 'lufs':
     case 'lufs2':
+    case 'silence':
     case 'artist':
     case 'tag': {
       params.filter = params.filter || {}
@@ -148,13 +150,24 @@ const mapResource = (resource, params) => {
       // missing songs elsewhere deliberately. Listing them here inflates every
       // count on the page and makes "select all" queue work that can only fail.
       // The runs already skip them; this makes the page agree.
-      if (resource === 'lufs' || resource === 'lufs2') {
+      // The silence page is held to the same rule, for the same reason: a song
+      // whose file is gone cannot be measured or trimmed.
+      if (
+        resource === 'lufs' ||
+        resource === 'lufs2' ||
+        resource === 'silence'
+      ) {
         params.filter.missing = false
       }
       params = applyLibraryFilter(resource, params)
 
-      // The LUFS page is a different view over the same media files
-      if (resource === 'covertart' || resource === 'lufs' || resource === 'lufs2') {
+      // The LUFS and silence pages are different views over the same media files
+      if (
+        resource === 'covertart' ||
+        resource === 'lufs' ||
+        resource === 'lufs2' ||
+        resource === 'silence'
+      ) {
         return ['song', params]
       }
 
