@@ -147,11 +147,20 @@ func (db *MockDataStore) Discovery(ctx context.Context) model.DiscoveryRepositor
 		if db.RealDS != nil {
 			db.MockedDiscovery = db.RealDS.Discovery(ctx)
 		} else {
-			db.MockedDiscovery = struct{ model.DiscoveryRepository }{}
+			db.MockedDiscovery = discoveryRepoStub{}
 		}
 	}
 	return db.MockedDiscovery
 }
+
+// discoveryRepoStub answers the lookup GetEntityByID makes while walking the
+// entity types, without standing up a whole discovery repository. The bare
+// embedded interface that used to sit here panicked instead, which took out any
+// test whose code path reached GetEntityByID. Every other method is still nil,
+// so a test that needs more has to set MockedDiscovery itself.
+type discoveryRepoStub struct{ model.DiscoveryRepository }
+
+func (discoveryRepoStub) Get(string) (*model.Discovery, error) { return nil, model.ErrNotFound }
 
 func (db *MockDataStore) PlaylistFolder(ctx context.Context) model.PlaylistFolderRepository {
 	if db.MockedPlaylistFolder == nil {

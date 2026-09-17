@@ -430,9 +430,18 @@ var _ = Describe("folder_entry", func() {
 					Expect(entry.isOutdated()).To(BeFalse())
 				})
 
-				It("returns true when hash has changed", func() {
+				It("returns true when the hash has changed and mod time advanced", func() {
+					entry.modTime = now.Add(1 * time.Minute)
 					entry.numPlaylists = 10 // Change something to change the hash
 					Expect(entry.isOutdated()).To(BeTrue())
+				})
+
+				It("returns false when the hash changed but mod time did not advance", func() {
+					// A quick scan trusts the folder's mod time and never reaches
+					// the hash, which is what keeps it quick. A change that leaves
+					// mod time alone is picked up by the next full scan instead.
+					entry.numPlaylists = 10 // Change something to change the hash
+					Expect(entry.isOutdated()).To(BeFalse())
 				})
 
 				It("returns true when prevHash is empty", func() {
@@ -517,8 +526,11 @@ var _ = Describe("folder_entry", func() {
 			Expect(folder.ImageFiles).To(HaveLen(1))
 			Expect(folder.Hash).To(Equal(entry.hash()))
 
-			// Modify folder and verify it becomes outdated
+			// Modify folder and verify it becomes outdated. Adding a file bumps
+			// the folder's mod time on a real filesystem, and a quick scan looks
+			// at that before it will consult the hash.
 			entry.audioFiles["track3.mp3"] = &fakeDirEntry{name: "track3.mp3"}
+			entry.modTime = entry.updTime.Add(1 * time.Minute)
 			Expect(entry.isOutdated()).To(BeTrue())
 		})
 	})

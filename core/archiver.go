@@ -219,7 +219,9 @@ func (a *archiver) playlistFilename(mf model.MediaFile, format string, idx int) 
 	if format != "" && format != "raw" {
 		ext = format
 	}
-	return fmt.Sprintf("%s - %s.%s", str.SanitizeFilename(mf.Artist), str.SanitizeFilename(mf.Title), ext)
+	// The track number keeps the playlist's own order readable once the zip is
+	// extracted, where entries otherwise sort alphabetically by artist.
+	return fmt.Sprintf("%02d - %s - %s.%s", idx+1, str.SanitizeFilename(mf.Artist), str.SanitizeFilename(mf.Title), ext)
 }
 
 func (a *archiver) addFileToZip(ctx context.Context, z *zip.Writer, mf model.MediaFile, format string, bitrate int, filename string) error {

@@ -204,7 +204,10 @@ var _ = Describe("newSyncedPlaylist", func() {
 		pls, err := s.newSyncedPlaylist(tmpDir, "test.m3u")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(pls.Name).To(Equal("test"))
-		Expect(pls.Comment).To(Equal("Auto-imported from 'test.m3u'"))
+		// Imported playlists start with a blank comment on purpose: the comment
+		// is user-editable metadata in this fork, so an auto-generated note
+		// would be sitting in a field the user is expected to own.
+		Expect(pls.Comment).To(BeEmpty())
 		Expect(pls.Public).To(BeFalse())
 		Expect(pls.Path).To(Equal(filepath.Join(tmpDir, "test.m3u")))
 		Expect(pls.Sync).To(BeTrue())

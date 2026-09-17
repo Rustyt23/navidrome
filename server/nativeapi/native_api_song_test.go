@@ -61,19 +61,22 @@ var _ = Describe("Song Endpoints", func() {
 		// Create test songs
 		testSongs = model.MediaFiles{
 			{
-				ID:        "song-1",
-				Title:     "Test Song 1",
-				Artist:    "Test Artist 1",
-				Album:     "Test Album 1",
-				AlbumID:   "album-1",
-				ArtistID:  "artist-1",
-				Duration:  180.5,
-				BitRate:   320,
-				Path:      "/music/song1.mp3",
-				Suffix:    "mp3",
-				Size:      5242880,
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				ID:    "song-1",
+				Title: "Test Song 1",
+				// Artwork is only advertised for songs that actually have it, so
+				// the song covering that path has to carry cover art.
+				HasCoverArt: true,
+				Artist:      "Test Artist 1",
+				Album:       "Test Album 1",
+				AlbumID:     "album-1",
+				ArtistID:    "artist-1",
+				Duration:    180.5,
+				BitRate:     320,
+				Path:        "/music/song1.mp3",
+				Suffix:      "mp3",
+				Size:        5242880,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
 			},
 			{
 				ID:        "song-2",
@@ -144,6 +147,9 @@ var _ = Describe("Song Endpoints", func() {
 				Expect(response[0].ArtworkURL).To(ContainSubstring(consts.URLPathPublicImages))
 				Expect(response[1].ID).To(Equal("song-2"))
 				Expect(response[1].Title).To(Equal("Test Song 2"))
+				// A song with no cover art must not be handed a URL that would
+				// only resolve to a placeholder.
+				Expect(response[1].ArtworkURL).To(BeEmpty())
 			})
 
 			It("handles repository errors gracefully", func() {

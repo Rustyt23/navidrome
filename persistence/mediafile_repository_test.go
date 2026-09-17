@@ -850,7 +850,12 @@ var _ = Describe("MediaRepository", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updated.Album).To(Equal("Real Album"))
 			Expect(updated.Year).To(Equal(2014))
-			Expect(updated.Genre).To(Equal("Rock"))
+			// Genre is read back from the file's own tags, not from the genre
+			// column, so fetched metadata cannot overwrite what the file says.
+			// Fetched genres are kept per source in ai_genre/spotify_genre/
+			// itunes_genre instead. This song carries no genre tag, so it stays
+			// empty even though the column was written for sorting.
+			Expect(updated.Genre).To(BeEmpty())
 		})
 	})
 
