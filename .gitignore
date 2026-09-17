@@ -14,6 +14,9 @@ playlist
 /iTunes*.xml
 /tmp
 data/*
+/qdrant_storage/
+/lyrics/*
+!/lyrics/.gitkeep
 vendor/*/
 wiki
 TODO.md

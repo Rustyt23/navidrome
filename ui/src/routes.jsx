@@ -4,6 +4,9 @@ import Personal from './personal/Personal'
 import RetailPlayerDashboard from './retailPlayer/RetailPlayerDashboard'
 import RetailPlayerDeviceManagement from './retailPlayer/RetailPlayerDeviceManagement'
 import PublicRetailPlayer from './retailPlayer/PublicRetailPlayer'
+import AiToolPage from './ai/AiToolPage'
+import PlaylistAiToolPage from './ai/PlaylistAiToolPage'
+import AiDashboardPage from './ai/AiDashboardPage'
 
 const routes = [
   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
@@ -42,6 +45,19 @@ const routes = [
     path="/player/:deviceSlug"
     render={() => <PublicRetailPlayer />}
     key={'public-retailplayer-device'}
+  />,
+  <Route exact path="/ai-tool" render={() => <AiToolPage />} key={'ai-tool'} />,
+  <Route
+    exact
+    path="/ai-dashboard"
+    render={() => <AiDashboardPage />}
+    key={'ai-dashboard'}
+  />,
+  <Route
+    exact
+    path="/playlist-ai-tool"
+    render={() => <PlaylistAiToolPage />}
+    key={'playlist-ai-tool'}
   />,
 ]
 

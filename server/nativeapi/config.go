@@ -32,6 +32,9 @@ var sensitiveFieldsFullMask = []string{
 	"PasswordEncryptionKey",
 	"Prometheus.Password",
 	"RetailPlayer.APIKey",
+	"GeminiAPIKey",
+	"AWSBearerTokenBedrock",
+	"GemmaAPIKey",
 }
 
 type configResponse struct {

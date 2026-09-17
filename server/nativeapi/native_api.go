@@ -78,6 +78,7 @@ type Router struct {
 	songTracker            *retailPlayerSongTracker
 	metadataJob            *musicBrainzMetadataJob
 	spotifyJob             *spotifyMetadataJob
+	lyricsJob              *lyricsFetchJob
 	retailPlayerRefreshing atomic.Bool
 }
 
@@ -97,6 +98,7 @@ func New(ds model.DataStore, streamer stream.MediaStreamer, share core.Share, pl
 		songTracker:   newRetailPlayerSongTracker(),
 		metadataJob:   newMusicBrainzMetadataJob(),
 		spotifyJob:    newSpotifyMetadataJob(),
+		lyricsJob:     newLyricsFetchJob(),
 	}
 	r.ensureCoverCacheDir()
 	r.preloadRetailPlayerDeviceMappings()
@@ -193,8 +195,11 @@ func (api *Router) routes() http.Handler {
 		api.addKeepAliveRoute(r)
 		api.addInsightsRoute(r)
 		api.addRetailPlayerPrivateRoutes(r)
+		api.addAIChatRoute(r)
+		api.addPlaylistDraftRoutes(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
+			api.addRAGAdminRoute(r)
 			api.addInspectRoute(r)
 			api.addConfigRoute(r)
 			api.addUserLibraryRoute(r)

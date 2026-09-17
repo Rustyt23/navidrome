@@ -148,7 +148,13 @@ func (s *playlists) Delete(ctx context.Context, id string) error {
 		}
 	}
 
-	return s.ds.Playlist(ctx).Delete(id)
+	if err := s.ds.Playlist(ctx).Delete(id); err != nil {
+		return err
+	}
+	// Remove any missing-track notifications recorded for this playlist so they
+	// don't linger after the playlist is gone.
+	clearMissingPlaylistTracks(ctx, pls.Path)
+	return nil
 }
 
 func (s *playlists) Update(ctx context.Context, playlistID string,

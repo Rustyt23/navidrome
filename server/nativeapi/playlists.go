@@ -15,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/utils/req"
 )
 
@@ -62,6 +63,17 @@ func createPlaylist(ds model.DataStore, pls playlists.Playlists) http.HandlerFun
 			rest.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid request payload")
 			return
 		}
+		// owner_id is NOT NULL with a foreign key to user(id). The raw persistence
+		// repository does not populate it from context (only the service's
+		// savePlaylist does), so it must be set here or the insert fails with
+		// "FOREIGN KEY constraint failed". The remaining server-managed fields are
+		// cleared so they cannot be injected through the create payload.
+		usr, _ := request.UserFrom(r.Context())
+		entity.OwnerID = usr.ID
+		entity.Path = ""
+		entity.UploadedImage = ""
+		entity.ExternalImageURL = ""
+		entity.EvaluatedAt = nil
 		entity.Sync = true
 		id, err := rp.Save(entity)
 		if err == rest.ErrPermissionDenied {
@@ -72,9 +84,12 @@ func createPlaylist(ds model.DataStore, pls playlists.Playlists) http.HandlerFun
 			rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// The playlist now exists in the database. Mirroring it to a .m3u file is a
+		// best-effort side effect (it can fail when PlaylistsPath is unset, on a
+		// read-only path, etc.); such a failure must not make creation appear to
+		// fail, or the client aborts before adding the selected tracks.
 		if err := syncPlaylist(pls, r.Context(), id); err != nil {
-			rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
-			return
+			log.Warn(r.Context(), "Playlist created but could not be mirrored to disk", "id", id, err)
 		}
 		rest.RespondWithJSON(w, http.StatusOK, &map[string]string{"id": id})
 	}
@@ -165,9 +180,9 @@ func deleteFromPlaylist(pls playlists.Playlists) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Removal is already persisted; the .m3u mirror is best-effort.
 		if err := syncPlaylist(pls, r.Context(), playlistId); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			log.Warn(r.Context(), "Tracks removed but playlist could not be mirrored to disk", "playlistId", playlistId, err)
 		}
 		writeDeleteManyResponse(w, r, ids)
 	}
@@ -213,9 +228,10 @@ func addToPlaylist(pls playlists.Playlists) http.HandlerFunc {
 		}
 		count += c
 
+		// Tracks are already persisted; the .m3u mirror is best-effort and must not
+		// fail the request (see createPlaylist).
 		if err := syncPlaylist(pls, r.Context(), playlistId); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			log.Warn(r.Context(), "Tracks added but playlist could not be mirrored to disk", "playlistId", playlistId, err)
 		}
 
 		// Must return an object with an ID, to satisfy ReactAdmin `create` call
@@ -261,9 +277,9 @@ func reorderItem(pls playlists.Playlists) http.HandlerFunc {
 			return
 		}
 
+		// Reorder is already persisted; the .m3u mirror is best-effort.
 		if err := syncPlaylist(pls, r.Context(), playlistId); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			log.Warn(r.Context(), "Track reordered but playlist could not be mirrored to disk", "playlistId", playlistId, err)
 		}
 
 		_, err = w.Write(fmt.Appendf(nil, `{"id":"%d"}`, id)) //nolint:gosec

@@ -18,6 +18,7 @@ import SpeakerGroupIcon from '@material-ui/icons/SpeakerGroup'
 import ChevronRightIcon from '@material-ui/icons/ChevronRight'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import FolderIcon from '@material-ui/icons/Folder'
+import ExtensionIcon from '@material-ui/icons/Extension'
 import { useHistory, useLocation } from 'react-router-dom'
 import { BiCog } from 'react-icons/bi'
 import SubMenu from './SubMenu'
@@ -149,68 +150,68 @@ const useStyles = makeStyles((theme) => {
       }),
       paddingBottom: (props) => (props.addPadding ? '80px' : '20px'),
     },
-  open: {
-    width: 240,
-  },
-  closed: {
-    width: 55,
-  },
-  active: {
-    color: theme.palette.text.primary,
-    fontWeight: 'bold',
-  },
-  retailPlayerSubItem: {
-    paddingTop: theme.spacing(0.5),
-    paddingBottom: theme.spacing(0.5),
-    fontSize: theme.typography.pxToRem(13),
-    '& .RaMenuItemLink-primaryText': {
+    open: {
+      width: 240,
+    },
+    closed: {
+      width: 55,
+    },
+    active: {
+      color: theme.palette.text.primary,
+      fontWeight: 'bold',
+    },
+    retailPlayerSubItem: {
+      paddingTop: theme.spacing(0.5),
+      paddingBottom: theme.spacing(0.5),
       fontSize: theme.typography.pxToRem(13),
+      '& .RaMenuItemLink-primaryText': {
+        fontSize: theme.typography.pxToRem(13),
+      },
     },
-  },
-  folderItem: {
-    paddingTop: theme.spacing(0),
-    paddingBottom: theme.spacing(0),
-    minHeight: 0,
-    fontSize: theme.typography.pxToRem(14),
-    '& .MuiListItemIcon-root': {
-      minWidth: theme.spacing(4),
-    },
-
-  '& .MuiListItemIcon-root svg': {
-    fontSize: theme.typography.pxToRem(16), 
-   },
-
-    '& .MuiTypography-body1': {
-      lineHeight: 1.2,
+    folderItem: {
+      paddingTop: theme.spacing(0),
+      paddingBottom: theme.spacing(0),
+      minHeight: 0,
       fontSize: theme.typography.pxToRem(14),
-      color: theme.palette.common.white,
+      '& .MuiListItemIcon-root': {
+        minWidth: theme.spacing(4),
+      },
+
+      '& .MuiListItemIcon-root svg': {
+        fontSize: theme.typography.pxToRem(16),
+      },
+
+      '& .MuiTypography-body1': {
+        lineHeight: 1.2,
+        fontSize: theme.typography.pxToRem(14),
+        color: theme.palette.common.white,
+      },
     },
-  },
-  folderChildren: {
-    '& > *': {
-      width: '100%',
+    folderChildren: {
+      '& > *': {
+        width: '100%',
+      },
     },
-  },
-  deviceItem: {
-    paddingTop: theme.spacing(0.5),
-    paddingBottom: theme.spacing(0.5),
-    minHeight: 0,
-    fontSize: theme.typography.pxToRem(12),
-    '& .RaMenuItemLink-icon': {
-      minWidth: theme.spacing(4),
-      color: theme.palette.common.white,
+    deviceItem: {
+      paddingTop: theme.spacing(0.5),
+      paddingBottom: theme.spacing(0.5),
+      minHeight: 0,
+      fontSize: theme.typography.pxToRem(12),
+      '& .RaMenuItemLink-icon': {
+        minWidth: theme.spacing(4),
+        color: theme.palette.common.white,
+      },
+      '& .RaMenuItemLink-primaryText': {
+        color: theme.palette.primary.main,
+      },
+      '& .MuiTypography-body2': {
+        lineHeight: 1.2,
+      },
+      [theme.breakpoints.down('xs')]: {
+        paddingTop: theme.spacing(0.25),
+        paddingBottom: theme.spacing(0.25),
+      },
     },
-    '& .RaMenuItemLink-primaryText': {
-      color: theme.palette.primary.main,
-    },
-    '& .MuiTypography-body2': {
-      lineHeight: 1.2,
-    },
-    [theme.breakpoints.down('xs')]: {
-      paddingTop: theme.spacing(0.25),
-      paddingBottom: theme.spacing(0.25),
-    },
-  },
     deviceIcon: {
       color: theme.palette.common.white,
       fontSize: theme.typography.pxToRem(16),
@@ -380,21 +381,17 @@ const Menu = ({ dense = false }) => {
           />
         )
       }),
-    [
-      classes,
-      dense,
-      handleDeviceDrop,
-      openFolders,
-      open,
-      theme,
-      toggleFolder,
-    ],
+    [classes, dense, handleDeviceDrop, openFolders, open, theme, toggleFolder],
   )
 
   const renderRetailPlayerDevices = () => {
     if (retailDevicesLoading) {
       return (
-        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
+        <MenuItem
+          dense={dense}
+          disabled
+          className={classes.retailPlayerSubItem}
+        >
           {translate('menu.retailPlayer.loading', { _: 'Loading devices…' })}
         </MenuItem>
       )
@@ -402,7 +399,11 @@ const Menu = ({ dense = false }) => {
 
     if (retailDevicesError) {
       return (
-        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
+        <MenuItem
+          dense={dense}
+          disabled
+          className={classes.retailPlayerSubItem}
+        >
           {translate('menu.retailPlayer.error', {
             _: 'Unable to load devices',
           })}
@@ -412,7 +413,11 @@ const Menu = ({ dense = false }) => {
 
     if (!retailTree.length) {
       return (
-        <MenuItem dense={dense} disabled className={classes.retailPlayerSubItem}>
+        <MenuItem
+          dense={dense}
+          disabled
+          className={classes.retailPlayerSubItem}
+        >
           {translate('menu.retailPlayer.empty', { _: 'No devices available' })}
         </MenuItem>
       )
@@ -420,6 +425,17 @@ const Menu = ({ dense = false }) => {
 
     return renderRetailPlayerNodes(retailTree)
   }
+
+  const renderAiToolMenuItem = () => (
+    <MenuItemLink
+      to="/ai-tool"
+      activeClassName={classes.active}
+      primaryText={translate('menu.aiTool.name', { _: 'Ai-Matters' })}
+      leftIcon={<ExtensionIcon />}
+      sidebarIsOpen={open}
+      dense={dense}
+    />
+  )
 
   const renderRetailPlayerMenu = () => (
     <SubMenu
@@ -460,6 +476,7 @@ const Menu = ({ dense = false }) => {
       {config.devSidebarPlaylists && open ? (
         <>
           {renderRetailPlayerMenu()}
+          {renderAiToolMenuItem()}
           <Divider />
           <DiscoverySubMenu
             state={state}
@@ -478,8 +495,13 @@ const Menu = ({ dense = false }) => {
       ) : (
         <>
           {renderRetailPlayerMenu()}
-          {resources.filter(subItems('discovery')).map(renderResourceMenuItemLink)}
-          {resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)}
+          {renderAiToolMenuItem()}
+          {resources
+            .filter(subItems('discovery'))
+            .map(renderResourceMenuItemLink)}
+          {resources
+            .filter(subItems('playlist'))
+            .map(renderResourceMenuItemLink)}
         </>
       )}
     </div>

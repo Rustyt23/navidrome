@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	. "github.com/onsi/ginkgo/v2"
@@ -275,6 +276,81 @@ var _ = Describe("Configuration", func() {
 			conf.Load(true)
 
 			Expect(conf.Server.EnforceNonRootUser).To(BeTrue())
+		})
+	})
+
+	Describe("RAG configuration", func() {
+		It("enables RAG with local Qdrant defaults", func() {
+			conf.Load(true)
+
+			Expect(conf.Server.EnableRAG).To(BeTrue())
+			Expect(conf.Server.RAGVectorURL).To(Equal("http://localhost:6333"))
+			Expect(conf.Server.RAGCollection).To(Equal("navidrome_songs"))
+			Expect(conf.Server.RAGTopK).To(Equal(20))
+			Expect(conf.Server.RAGMinScore).To(Equal(0.5))
+			Expect(conf.Server.RAGQdrantTimeout).To(Equal(15 * time.Second))
+			Expect(conf.Server.RAGEmbeddingTimeout).To(Equal(60 * time.Second))
+			Expect(conf.Server.RAGRetryMax).To(Equal(2))
+			Expect(conf.Server.RAGRetryBackoff).To(Equal(250 * time.Millisecond))
+			Expect(conf.Server.RAGOffline).To(BeFalse())
+		})
+
+		It("loads ND_ environment variables", func() {
+			GinkgoT().Setenv("ND_ENABLERAG", "true")
+			GinkgoT().Setenv("ND_RAGVECTORURL", "http://vector.test:6333")
+			GinkgoT().Setenv("ND_RAGCOLLECTION", "test_songs")
+			GinkgoT().Setenv("ND_RAGTOPK", "12")
+			GinkgoT().Setenv("ND_RAGMINSCORE", "0.65")
+			GinkgoT().Setenv("ND_RAGQDRANTTIMEOUT", "25s")
+			GinkgoT().Setenv("ND_RAGEMBEDDINGTIMEOUT", "90s")
+			GinkgoT().Setenv("ND_RAGRETRYMAX", "4")
+			GinkgoT().Setenv("ND_RAGRETRYBACKOFF", "500ms")
+			GinkgoT().Setenv("ND_RAGOFFLINE", "true")
+
+			conf.InitConfig("", true)
+			conf.Load(true)
+
+			Expect(conf.Server.EnableRAG).To(BeTrue())
+			Expect(conf.Server.RAGVectorURL).To(Equal("http://vector.test:6333"))
+			Expect(conf.Server.RAGCollection).To(Equal("test_songs"))
+			Expect(conf.Server.RAGTopK).To(Equal(12))
+			Expect(conf.Server.RAGMinScore).To(Equal(0.65))
+			Expect(conf.Server.RAGQdrantTimeout).To(Equal(25 * time.Second))
+			Expect(conf.Server.RAGEmbeddingTimeout).To(Equal(90 * time.Second))
+			Expect(conf.Server.RAGRetryMax).To(Equal(4))
+			Expect(conf.Server.RAGRetryBackoff).To(Equal(500 * time.Millisecond))
+			Expect(conf.Server.RAGOffline).To(BeTrue())
+		})
+	})
+
+	Describe("Gemma 3:4b configuration", func() {
+		It("does not embed a private API URL in the defaults", func() {
+			conf.Load(true)
+			Expect(conf.Server.Gemma4APIURL).To(BeEmpty())
+		})
+
+		It("loads ND_GEMMA4APIURL", func() {
+			GinkgoT().Setenv("ND_GEMMA4APIURL", "http://gemma4.test/api/generate")
+			conf.InitConfig("", true)
+			conf.Load(true)
+			Expect(conf.Server.Gemma4APIURL).To(Equal("http://gemma4.test/api/generate"))
+		})
+	})
+
+	Describe("Whisper configuration", func() {
+		It("uses the default model and lyrics folder", func() {
+			conf.Load(true)
+			Expect(conf.Server.WhisperModel).To(Equal("large-v3"))
+			Expect(conf.Server.WhisperLyricsFolder).To(Equal("./lyrics"))
+		})
+
+		It("loads Whisper environment variables", func() {
+			GinkgoT().Setenv("ND_WHISPERMODEL", "small")
+			GinkgoT().Setenv("ND_WHISPERLYRICSFOLDER", "/tmp/lyrics")
+			conf.InitConfig("", true)
+			conf.Load(true)
+			Expect(conf.Server.WhisperModel).To(Equal("small"))
+			Expect(conf.Server.WhisperLyricsFolder).To(Equal("/tmp/lyrics"))
 		})
 	})
 

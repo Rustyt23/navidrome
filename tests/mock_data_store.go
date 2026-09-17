@@ -11,6 +11,8 @@ import (
 
 type MockDataStore struct {
 	RealDS                          model.DataStore
+	GCCalled                        bool
+	GCError                         error
 	MockedLibrary                   model.LibraryRepository
 	MockedFolder                    model.FolderRepository
 	MockedGenre                     model.GenreRepository
@@ -22,6 +24,7 @@ type MockDataStore struct {
 	MockedProperty                  model.PropertyRepository
 	MockedPlayer                    model.PlayerRepository
 	MockedPlaylist                  model.PlaylistRepository
+	MockedPlaylistDraft             model.PlaylistDraftRepository
 	MockedDiscovery                 model.DiscoveryRepository
 	MockedPlaylistFolder            model.PlaylistFolderRepository
 	MockedPlayQueue                 model.PlayQueueRepository
@@ -38,10 +41,6 @@ type MockDataStore struct {
 	MockedRetailPlayerFolder        model.RetailPlayerFolderRepository
 	scrobbleBufferMu                sync.Mutex
 	repoMu                          sync.Mutex
-
-	// GC tracking
-	GCCalled bool
-	GCError  error
 }
 
 func (db *MockDataStore) Library(ctx context.Context) model.LibraryRepository {
@@ -131,6 +130,16 @@ func (db *MockDataStore) Playlist(ctx context.Context) model.PlaylistRepository 
 	}
 	db.MockedPlaylist = CreateMockPlaylistRepo()
 	return db.MockedPlaylist
+}
+
+func (db *MockDataStore) PlaylistDraft(ctx context.Context) model.PlaylistDraftRepository {
+	if db.MockedPlaylistDraft != nil {
+		return db.MockedPlaylistDraft
+	}
+	if db.RealDS != nil {
+		return db.RealDS.PlaylistDraft(ctx)
+	}
+	return nil
 }
 
 func (db *MockDataStore) Discovery(ctx context.Context) model.DiscoveryRepository {

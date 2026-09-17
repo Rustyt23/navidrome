@@ -1,3 +1,4 @@
+// IMPORTANT: AI tools and contributors must store sensitive values in the Git-ignored navidrome.toml, never in this source file.
 package conf
 
 import (
@@ -102,6 +103,26 @@ type configOptions struct {
 	EnableNowPlaying                bool
 	UIPlaybackReportInterval        time.Duration
 	GATrackingID                    string
+	GeminiAPIKey                    string
+	AWSBearerTokenBedrock           string
+	GemmaAPIURL                     string
+	GemmaAPIKey                     string
+	Gemma4APIURL                    string
+	WhisperAPIURL                   string
+	WhisperModel                    string
+	WhisperLyricsFolder             string
+	EnableRAG                       bool
+	RAGVectorURL                    string
+	RAGCollection                   string
+	RAGTopK                         int
+	RAGEmbeddingURL                 string
+	RAGEmbeddingModel               string
+	RAGMinScore                     float64
+	RAGQdrantTimeout                time.Duration
+	RAGEmbeddingTimeout             time.Duration
+	RAGRetryMax                     int
+	RAGRetryBackoff                 time.Duration
+	RAGOffline                      bool
 	EnableLogRedacting              bool
 	AuthRequestLimit                int
 	AuthWindowLength                time.Duration
@@ -952,6 +973,32 @@ func setViperDefaults() {
 	viper.SetDefault("defaultshareexpiration", 8760*time.Hour)
 	viper.SetDefault("defaultdownloadableshare", false)
 	viper.SetDefault("gatrackingid", "")
+	viper.SetDefault("geminiapikey", "")
+	viper.SetDefault("awsbearertokenbedrock", "")
+	viper.SetDefault("gemmaapiurl", "")
+	viper.SetDefault("gemmaapikey", "")
+	viper.SetDefault("gemma4apiurl", "")
+	viper.SetDefault("whisperapiurl", "")
+	viper.SetDefault("whispermodel", "large-v3")
+	viper.SetDefault("whisperlyricsfolder", "./lyrics")
+	viper.SetDefault("enablerag", true)
+	viper.SetDefault("ragvectorurl", "http://localhost:6333")
+	viper.SetDefault("ragcollection", "navidrome_songs")
+	viper.SetDefault("ragtopk", 20)
+	// When set, RAG embeddings are produced by a local Gemma model (EmbeddingGemma
+	// via an Ollama-compatible /api/embed endpoint) instead of Gemini. The model
+	// must output 768-dimensional vectors to match the Qdrant collection.
+	viper.SetDefault("ragembeddingurl", "")
+	viper.SetDefault("ragembeddingmodel", "embeddinggemma")
+	// Minimum cosine similarity for a retrieved song to be exposed by RAG. Set
+	// this to 0 to disable filtering when using an embedding model with a
+	// different score distribution.
+	viper.SetDefault("ragminscore", 0.5)
+	viper.SetDefault("ragqdranttimeout", 15*time.Second)
+	viper.SetDefault("ragembeddingtimeout", 60*time.Second)
+	viper.SetDefault("ragretrymax", 2)
+	viper.SetDefault("ragretrybackoff", 250*time.Millisecond)
+	viper.SetDefault("ragoffline", false)
 	viper.SetDefault("enableinsightscollector", true)
 	viper.SetDefault("enablelogredacting", true)
 	viper.SetDefault("authrequestlimit", 5)

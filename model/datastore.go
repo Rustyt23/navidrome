@@ -29,6 +29,7 @@ type DataStore interface {
 	Genre(ctx context.Context) GenreRepository
 	Tag(ctx context.Context) TagRepository
 	Playlist(ctx context.Context) PlaylistRepository
+	PlaylistDraft(ctx context.Context) PlaylistDraftRepository
 	Discovery(ctx context.Context) DiscoveryRepository
 	PlaylistFolder(ctx context.Context) PlaylistFolderRepository
 	PlayQueue(ctx context.Context) PlayQueueRepository

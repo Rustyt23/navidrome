@@ -193,6 +193,125 @@ func (m *MockMediaFileRepo) UpdateCoverPath(id string, coverPath string) error {
 	return nil
 }
 
+func (m *MockMediaFileRepo) ClearAIMetadata(id string, album bool, year bool, explicit bool) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		if album {
+			mf.Album = "[Unknown Album]"
+		}
+		if year {
+			mf.Year = 0
+		}
+		if explicit {
+			mf.ExplicitStatus = ""
+		}
+		return nil
+	}
+	return model.ErrNotFound
+}
+
+func (m *MockMediaFileRepo) UpdateAIGenreMetadata(id string, meta model.AIGenreMetadata) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	mf, ok := m.Data[id]
+	if !ok {
+		return model.ErrNotFound
+	}
+	if meta.AiGenre != nil {
+		mf.AiGenre = *meta.AiGenre
+	}
+	if meta.AiSubgenre != nil {
+		mf.AiSubgenre = *meta.AiSubgenre
+	}
+	if meta.SpotifyGenre != nil {
+		mf.SpotifyGenre = *meta.SpotifyGenre
+	}
+	if meta.ITunesGenre != nil {
+		mf.ITunesGenre = *meta.ITunesGenre
+	}
+	if meta.GenreConfidence != nil {
+		mf.GenreConfidence = *meta.GenreConfidence
+	}
+	return nil
+}
+
+func (m *MockMediaFileRepo) ClearAIGenreMetadata(id string, fields model.AIGenreFields) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	mf, ok := m.Data[id]
+	if !ok {
+		return model.ErrNotFound
+	}
+	if fields.AiGenre {
+		mf.AiGenre = ""
+	}
+	if fields.AiSubgenre {
+		mf.AiSubgenre = ""
+	}
+	if fields.SpotifyGenre {
+		mf.SpotifyGenre = ""
+	}
+	if fields.ITunesGenre {
+		mf.ITunesGenre = ""
+	}
+	if fields.GenreConfidence || fields.AiGenre || fields.SpotifyGenre || fields.ITunesGenre {
+		mf.GenreConfidence = 0
+	}
+	return nil
+}
+
+func (m *MockMediaFileRepo) UpdateMissingMetadata(id string, album *string, year *int, genre *string, recordingMBID *string, releaseMBID *string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	mf, ok := m.Data[id]
+	if !ok {
+		return model.ErrNotFound
+	}
+	if album != nil {
+		mf.Album = *album
+	}
+	if year != nil {
+		mf.Year = *year
+	}
+	if genre != nil {
+		mf.Genre = *genre
+	}
+	if recordingMBID != nil {
+		mf.MbzRecordingID = *recordingMBID
+	}
+	if releaseMBID != nil {
+		mf.MbzReleaseID = *releaseMBID
+	}
+	return nil
+}
+
+func (m *MockMediaFileRepo) UpdateLyrics(id string, lyrics string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		mf.Lyrics = lyrics
+		return nil
+	}
+	return model.ErrNotFound
+}
+
+func (m *MockMediaFileRepo) UpdateExplicitStatus(id string, explicitStatus string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	if mf, ok := m.Data[id]; ok {
+		mf.ExplicitStatus = explicitStatus
+		return nil
+	}
+	return model.ErrNotFound
+}
+
 func (m *MockMediaFileRepo) IncPlayCount(id string, timestamp time.Time) error {
 	if m.Err {
 		return errors.New("error")

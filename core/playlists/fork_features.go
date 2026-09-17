@@ -85,40 +85,97 @@ func (s *playlists) ensurePlaylistFolder(ctx context.Context, playlistPath strin
 	return nil, nil
 }
 
+// missingTracksDBFile returns the path to the side database that records
+// playlist entries which could not be resolved to a library file, or "" when
+// no data folder is configured.
+func missingTracksDBFile() string {
+	if conf.Server.DataFolder.String() == "" {
+		return ""
+	}
+	return filepath.Join(conf.Server.DataFolder.String(), "missing_tracks.db")
+}
+
+func openMissingTracksDB(dbFile string) (*sql.DB, error) {
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
+	return sql.Open("sqlite3", dsn)
+}
+
+// ensureMissingTracksSchema creates the table and a UNIQUE(playlist_id,
+// track_path) index. Historical duplicate rows (recorded before the index
+// existed) are collapsed first so the unique index can be built and so counts
+// are no longer inflated by repeated imports.
+func ensureMissingTracksSchema(db *sql.DB) error {
+	if _, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        playlist_id TEXT,
+        track_path TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`DELETE FROM missing_playlist_tracks
+WHERE id NOT IN (SELECT MIN(id) FROM missing_playlist_tracks GROUP BY playlist_id, track_path)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_missing_playlist_track
+ON missing_playlist_tracks (playlist_id, track_path)`); err != nil {
+		return err
+	}
+	return nil
+}
+
 func recordMissingPlaylistTrack(ctx context.Context, playlistPath, trackPath string) {
-	if trackPath == "" || conf.Server.DataFolder.String() == "" {
+	dbFile := missingTracksDBFile()
+	if trackPath == "" || dbFile == "" {
 		return
 	}
 
-	dbFile := filepath.Join(conf.Server.DataFolder.String(), "missing_tracks.db")
-	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(dbFile))
-
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := openMissingTracksDB(dbFile)
 	if err != nil {
 		log.Debug(ctx, "Unable to open missing tracks database", "path", dbFile, "err", err)
 		return
 	}
 	defer db.Close()
 
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-		log.Debug(ctx, "Unable to enable WAL for missing tracks database", "path", dbFile, "err", err)
-		return
-	}
-
-	_, err = db.Exec(`
-CREATE TABLE IF NOT EXISTS missing_playlist_tracks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        playlist_id TEXT,
-        track_path TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)`)
-	if err != nil {
+	if err := ensureMissingTracksSchema(db); err != nil {
 		log.Debug(ctx, "Unable to ensure missing tracks table", "path", dbFile, "err", err)
 		return
 	}
 
-	if _, err := db.Exec(`INSERT INTO missing_playlist_tracks (playlist_id, track_path) VALUES (?, ?)`, playlistPath, trackPath); err != nil {
+	// INSERT OR IGNORE relies on the UNIQUE index so re-importing a playlist does
+	// not record the same missing track more than once.
+	if _, err := db.Exec(`INSERT OR IGNORE INTO missing_playlist_tracks (playlist_id, track_path) VALUES (?, ?)`, playlistPath, trackPath); err != nil {
 		log.Debug(ctx, "Unable to record missing track", "path", dbFile, "err", err)
+	}
+}
+
+// clearMissingPlaylistTracks removes every recorded missing track for a playlist
+// file path. It is called before re-importing a playlist (so entries that now
+// resolve stop being reported) and when a playlist is deleted (so its missing
+// tracks do not linger in the notifications panel). An empty path is a no-op so
+// it can never wipe the whole table.
+func clearMissingPlaylistTracks(ctx context.Context, playlistPath string) {
+	playlistPath = strings.TrimSpace(playlistPath)
+	dbFile := missingTracksDBFile()
+	if playlistPath == "" || dbFile == "" {
+		return
+	}
+	if _, err := os.Stat(dbFile); err != nil {
+		return // nothing has been recorded yet
+	}
+
+	db, err := openMissingTracksDB(dbFile)
+	if err != nil {
+		log.Debug(ctx, "Unable to open missing tracks database", "path", dbFile, "err", err)
+		return
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`DELETE FROM missing_playlist_tracks WHERE playlist_id = ?`, playlistPath); err != nil {
+		if !strings.Contains(err.Error(), "no such table") {
+			log.Debug(ctx, "Unable to clear missing tracks", "path", dbFile, "playlist", playlistPath, "err", err)
+		}
 	}
 }
 
