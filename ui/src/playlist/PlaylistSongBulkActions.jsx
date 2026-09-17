@@ -12,46 +12,13 @@ import { AddToPlaylistButton } from '../common/AddToPlaylistButton'
 import { EditSongCommentButton } from '../common/EditSongCommentButton'
 import { OptimizeLufsButton } from '../common/OptimizeLufsButton'
 import { makeStyles } from '@material-ui/core/styles'
+import { resolveSelectedMediaIds } from './resolveSelectedMediaIds'
 
 const useStyles = makeStyles((theme) => ({
   button: {
     color: theme.palette.type === 'dark' ? 'white' : undefined,
   },
 }))
-
-export const resolveSelectedMediaIds = async ({
-  selectedIds,
-  data = {},
-  playlistId,
-  dataProvider,
-}) => {
-  const resolveFromRecords = (records) => {
-    const lookup = { ...records }
-    return selectedIds.map((id) => lookup[id]?.mediaFileId ?? id)
-  }
-
-  const allIdsAreKnown = selectedIds.every((id) => data?.[id])
-  if (allIdsAreKnown) {
-    return resolveFromRecords(data)
-  }
-
-  try {
-    const { data: records } = await dataProvider.getList('playlistTrack', {
-      filter: { playlist_id: playlistId },
-      pagination: { page: 1, perPage: 0 },
-      sort: { field: 'id', order: 'ASC' },
-    })
-
-    const lookup = records.reduce(
-      (acc, record) => ({ ...acc, [record.id]: record }),
-      { ...data },
-    )
-
-    return resolveFromRecords(lookup)
-  } catch {
-    return selectedIds
-  }
-}
 
 // Replace original resource with "fake" one for removing tracks from playlist
 const PlaylistSongBulkActions = ({

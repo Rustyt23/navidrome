@@ -1,11 +1,7 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import PublishIcon from '@material-ui/icons/Publish'
-import {
-  Button as RaButton,
-  useNotify,
-  useTranslate,
-} from 'react-admin'
+import { Button as RaButton, useNotify, useTranslate } from 'react-admin'
 import {
   Button,
   Dialog,

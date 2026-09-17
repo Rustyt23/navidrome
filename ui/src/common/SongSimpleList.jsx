@@ -31,9 +31,10 @@ const useStyles = makeStyles(
     },
     currentRowMobile: {
       backgroundColor: theme.palette.action.hover,
-      '& $title, & $secondary, & $artist, & $timeStamp, & $mobileTitleText, & $mobileArtist': {
-        color: 'var(--accent)',
-      },
+      '& $title, & $secondary, & $artist, & $timeStamp, & $mobileTitleText, & $mobileArtist':
+        {
+          color: 'var(--accent)',
+        },
       '& svg': {
         fill: 'var(--accent)',
         color: 'var(--accent)',
@@ -138,10 +139,7 @@ export const SongSimpleList = ({
     return window.matchMedia('(max-width: 768px)').matches
   }, [])
   const classes = useStyles({ classes: classesOverride })
-  const getTrackId = useCallback(
-    (song) => song?.mediaFileId || song?.id,
-    [],
-  )
+  const getTrackId = useCallback((song) => song?.mediaFileId || song?.id, [])
 
   const handlePlay = useCallback(
     (songId) => () => {
@@ -190,8 +188,8 @@ export const SongSimpleList = ({
       ? PausedLight
       : PausedDark
     : theme.palette.type === 'light'
-    ? PlayingLight
-    : PlayingDark
+      ? PlayingLight
+      : PlayingDark
   const playingIconAlt = paused ? 'paused' : 'playing'
   const playingIconClassName = clsx(
     classes.mobilePlayingIcon,
@@ -247,12 +245,12 @@ export const SongSimpleList = ({
                     )
                   }
                   secondary={
-                    isMobile ? (
-                      null
-                    ) : (
+                    isMobile ? null : (
                       <>
                         <span className={classes.secondary}>
-                          <span className={classes.artist}>{record.artist}</span>
+                          <span className={classes.artist}>
+                            {record.artist}
+                          </span>
                           <span className={classes.timeStamp}>
                             <DurationField
                               record={record}

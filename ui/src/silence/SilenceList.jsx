@@ -121,10 +121,18 @@ const SilenceList = (props) => {
         />
       ),
       status: (
-        <SilenceStatusField source="status" label="State" sortBy="silence_trimmed" />
+        <SilenceStatusField
+          source="status"
+          label="State"
+          sortBy="silence_trimmed"
+        />
       ),
       method: (
-        <SilenceMethodField source="method" label="Method" sortBy="silence_method" />
+        <SilenceMethodField
+          source="method"
+          label="Method"
+          sortBy="silence_method"
+        />
       ),
       durationChange: (
         <DurationChangeField
@@ -202,7 +210,11 @@ const SilenceList = (props) => {
           {/* Fixed column: how many seconds come off this song is the question
               the page exists to answer, so the picker can never hide it. The
               default sort puts the biggest at the top. */}
-          <TotalTrimField source="totalTrim" label="To trim" sortBy="total_trim" />
+          <TotalTrimField
+            source="totalTrim"
+            label="To trim"
+            sortBy="total_trim"
+          />
           {columns}
         </Datagrid>
       </List>

@@ -102,7 +102,11 @@ const MissingTracksPanel = () => {
         return
       }
       const existing = merged[key]
-      if (existing === undefined || existing === null || (typeof existing === 'string' && existing.trim() === '')) {
+      if (
+        existing === undefined ||
+        existing === null ||
+        (typeof existing === 'string' && existing.trim() === '')
+      ) {
         merged[key] = value
       }
     })
@@ -153,8 +157,14 @@ const MissingTracksPanel = () => {
       }
 
       const requests = [
-        httpClient(`/api/notifications/missing-tracks?${notificationsParams.toString()}`, requestOptions),
-        httpClient(`${REST_URL}/missing?${missingParams.toString()}`, requestOptions),
+        httpClient(
+          `/api/notifications/missing-tracks?${notificationsParams.toString()}`,
+          requestOptions,
+        ),
+        httpClient(
+          `${REST_URL}/missing?${missingParams.toString()}`,
+          requestOptions,
+        ),
       ]
 
       return Promise.allSettled(requests)
@@ -165,19 +175,28 @@ const MissingTracksPanel = () => {
 
           const [notificationsResult, missingResult] = results
           const notificationsSuccess =
-            notificationsResult.status === 'fulfilled' ? notificationsResult.value : null
-          const missingSuccess = missingResult.status === 'fulfilled' ? missingResult.value : null
+            notificationsResult.status === 'fulfilled'
+              ? notificationsResult.value
+              : null
+          const missingSuccess =
+            missingResult.status === 'fulfilled' ? missingResult.value : null
 
           const isNotificationsError =
-            notificationsResult.status === 'rejected' && notificationsResult.reason?.name !== 'AbortError'
+            notificationsResult.status === 'rejected' &&
+            notificationsResult.reason?.name !== 'AbortError'
           const isMissingError =
-            missingResult.status === 'rejected' && missingResult.reason?.name !== 'AbortError'
+            missingResult.status === 'rejected' &&
+            missingResult.reason?.name !== 'AbortError'
 
           if (!notificationsSuccess && !missingSuccess) {
             if (isNotificationsError || isMissingError) {
-              const error = isMissingError ? missingResult.reason : notificationsResult.reason
+              const error = isMissingError
+                ? missingResult.reason
+                : notificationsResult.reason
               notify('ra.notification.http_error', 'warning', {
-                messageArgs: { error: (error && error.message) || 'Unknown error' },
+                messageArgs: {
+                  error: (error && error.message) || 'Unknown error',
+                },
               })
             }
             if (!append) {
@@ -190,10 +209,14 @@ const MissingTracksPanel = () => {
           }
 
           if (isNotificationsError || isMissingError) {
-            const error = isMissingError ? missingResult.reason : notificationsResult.reason
+            const error = isMissingError
+              ? missingResult.reason
+              : notificationsResult.reason
             if (error?.name !== 'AbortError') {
               notify('ra.notification.http_error', 'warning', {
-                messageArgs: { error: (error && error.message) || 'Unknown error' },
+                messageArgs: {
+                  error: (error && error.message) || 'Unknown error',
+                },
               })
             }
           }
@@ -201,7 +224,9 @@ const MissingTracksPanel = () => {
           const notificationList = Array.isArray(notificationsSuccess?.json)
             ? notificationsSuccess.json
             : []
-          const missingList = Array.isArray(missingSuccess?.json) ? missingSuccess.json : []
+          const missingList = Array.isArray(missingSuccess?.json)
+            ? missingSuccess.json
+            : []
 
           const notificationsHeader = notificationsSuccess?.headers?.get
             ? notificationsSuccess.headers.get('X-Total-Count')
@@ -240,7 +265,8 @@ const MissingTracksPanel = () => {
                 return `${value}`.trim()
               }
 
-              const lowerStringValue = (value) => stringValue(value).toLocaleLowerCase()
+              const lowerStringValue = (value) =>
+                stringValue(value).toLocaleLowerCase()
 
               const candidates = [
                 lowerStringValue(entry.path),
@@ -269,13 +295,18 @@ const MissingTracksPanel = () => {
             }
 
             previous.forEach((entry, index) => addEntry(entry, index))
-            missingList.forEach((entry, index) => addEntry(entry, start + index))
-            notificationList.forEach((entry, index) => addEntry(entry, start + index + missingList.length))
+            missingList.forEach((entry, index) =>
+              addEntry(entry, start + index),
+            )
+            notificationList.forEach((entry, index) =>
+              addEntry(entry, start + index + missingList.length),
+            )
 
             const nextEntries = Array.from(nextEntriesMap.values())
 
             const hasMoreMissing =
-              Number.isFinite(parsedMissingTotal) && start + missingList.length < parsedMissingTotal
+              Number.isFinite(parsedMissingTotal) &&
+              start + missingList.length < parsedMissingTotal
             const hasMoreNotifications =
               Number.isFinite(parsedNotificationsTotal) &&
               start + notificationList.length < parsedNotificationsTotal
@@ -283,14 +314,18 @@ const MissingTracksPanel = () => {
             const computedTotal = Math.max(
               nextEntries.length,
               Number.isFinite(parsedMissingTotal) ? parsedMissingTotal : 0,
-              Number.isFinite(parsedNotificationsTotal) ? parsedNotificationsTotal : 0,
+              Number.isFinite(parsedNotificationsTotal)
+                ? parsedNotificationsTotal
+                : 0,
             )
 
             setTotalCount(computedTotal)
-            setNextOffset(start + Math.max(missingList.length, notificationList.length))
+            setNextOffset(
+              start + Math.max(missingList.length, notificationList.length),
+            )
             setHasMore(
               (hasMoreMissing || hasMoreNotifications) &&
-              (missingList.length > 0 || notificationList.length > 0),
+                (missingList.length > 0 || notificationList.length > 0),
             )
 
             return nextEntries
@@ -309,7 +344,10 @@ const MissingTracksPanel = () => {
     [mergeEntries, notify],
   )
 
-  const refreshEntries = useCallback(() => fetchEntries(0, false), [fetchEntries])
+  const refreshEntries = useCallback(
+    () => fetchEntries(0, false),
+    [fetchEntries],
+  )
 
   const handleOpen = useCallback(
     (event) => {
@@ -338,9 +376,12 @@ const MissingTracksPanel = () => {
         rawTitle ||
         fallbackTitle ||
         translate('notifications.missingTracksUnknownTitle')
-      const unknownArtist = translate('notifications.missingTracksUnknownArtist').trim()
+      const unknownArtist = translate(
+        'notifications.missingTracksUnknownArtist',
+      ).trim()
       const hasArtist =
-        rawArtist && rawArtist.toLocaleLowerCase() !== unknownArtist.toLocaleLowerCase()
+        rawArtist &&
+        rawArtist.toLocaleLowerCase() !== unknownArtist.toLocaleLowerCase()
       return hasArtist ? `${title} — ${rawArtist}` : title
     },
     [translate],
@@ -409,12 +450,13 @@ const MissingTracksPanel = () => {
             ) : (
               <List className={classes.list} dense>
                 {entries.map((entry, index) => {
-                  const key = entry?.id || entry?.path || `${index}-${entry?.title || 'missing'}`
+                  const key =
+                    entry?.id ||
+                    entry?.path ||
+                    `${index}-${entry?.title || 'missing'}`
                   return (
                     <ListItem key={key} className={classes.listItem}>
-                      <ListItemText
-                        primary={getEntryLabel(entry)}
-                      />
+                      <ListItemText primary={getEntryLabel(entry)} />
                     </ListItem>
                   )
                 })}
@@ -429,7 +471,9 @@ const MissingTracksPanel = () => {
                       <CircularProgress size={20} />
                     ) : (
                       <ListItemText
-                        primary={translate('ra.action.load_more', { _: 'Load More…' })}
+                        primary={translate('ra.action.load_more', {
+                          _: 'Load More…',
+                        })}
                         primaryTypographyProps={{ align: 'center' }}
                       />
                     )}

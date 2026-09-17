@@ -6,11 +6,7 @@ export const RETAIL_PLAYER_DND_TYPES = {
   DEVICE: 'RETAIL_PLAYER_DEVICE',
 }
 
-export const useRetailPlayerDeviceDrag = ({
-  deviceId,
-  deviceName,
-  origin,
-}) => {
+export const useRetailPlayerDeviceDrag = ({ deviceId, deviceName, origin }) => {
   const [{ isDragging }, dragRef, previewRef] = useDrag(
     () => ({
       type: RETAIL_PLAYER_DND_TYPES.DEVICE,

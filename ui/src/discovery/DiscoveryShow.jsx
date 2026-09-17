@@ -24,7 +24,7 @@ const DiscoveryShowLayout = (props) => {
     const value =
       typeof eventOrValue === 'string'
         ? eventOrValue
-        : eventOrValue?.target?.value ?? ''
+        : (eventOrValue?.target?.value ?? '')
 
     setSearchTerm(value)
   }, [])
@@ -63,7 +63,10 @@ const DiscoveryShowLayout = (props) => {
               title={<Title subTitle={record.name} />}
               actions={<DiscoveryActions record={record} />}
               pagination={
-                <Pagination rowsPerPageOptions={[25, 50, 100, 200]} perPage={50} />
+                <Pagination
+                  rowsPerPageOptions={[25, 50, 100, 200]}
+                  perPage={50}
+                />
               }
             />
           </ReferenceManyField>

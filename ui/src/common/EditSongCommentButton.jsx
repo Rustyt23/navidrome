@@ -199,9 +199,7 @@ export const EditSongCommentButton = ({
         maxWidth="sm"
       >
         <form onSubmit={handleSubmit}>
-          <DialogTitle id="edit-song-comment-dialog-title">
-            {title}
-          </DialogTitle>
+          <DialogTitle id="edit-song-comment-dialog-title">{title}</DialogTitle>
           <DialogContent>
             <DialogContentText>{description}</DialogContentText>
             <TextField

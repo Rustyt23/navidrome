@@ -61,7 +61,9 @@ const SilenceListActions = ({
     ? [
         `${analyzeStatus.changed || 0} with silence`,
         `${analyzeStatus.failed || 0} failed`,
-        analyzeStatus.cancelled ? `${analyzeStatus.cancelled} left for next run` : null,
+        analyzeStatus.cancelled
+          ? `${analyzeStatus.cancelled} left for next run`
+          : null,
       ]
         .filter(Boolean)
         .join(' · ')
@@ -74,7 +76,9 @@ const SilenceListActions = ({
           ? `${formatTotalTime(trimStatus.secondsRemoved)} removed`
           : null,
         `${trimStatus.failed || 0} failed`,
-        trimStatus.cancelled ? `${trimStatus.cancelled} left for next run` : null,
+        trimStatus.cancelled
+          ? `${trimStatus.cancelled} left for next run`
+          : null,
       ]
         .filter(Boolean)
         .join(' · ')
@@ -89,7 +93,11 @@ const SilenceListActions = ({
             status={analyzeStatus}
             detail={analyzeDetail}
           />
-          <SilenceProgress label="Trimming" status={trimStatus} detail={trimDetail} />
+          <SilenceProgress
+            label="Trimming"
+            status={trimStatus}
+            detail={trimDetail}
+          />
           {analyzeStatus?.running && (
             <StopSilenceJobButton
               url={ANALYZE_URL}
@@ -109,7 +117,11 @@ const SilenceListActions = ({
         </div>
       )}
       <div className={classes.row}>
-        <AnalyzeSilenceButton all disabled={busy} onStarted={onAnalyzeStarted} />
+        <AnalyzeSilenceButton
+          all
+          disabled={busy}
+          onStarted={onAnalyzeStarted}
+        />
         <TrimSilenceButton
           all
           disabled={busy || !summary?.trimmable}
@@ -118,7 +130,10 @@ const SilenceListActions = ({
         />
       </div>
       <div className={`${classes.row} ${classes.utilityRow}`}>
-        <ClearSilenceAnalysisButton disabled={busy} onCleared={onAnalyzeStarted} />
+        <ClearSilenceAnalysisButton
+          disabled={busy}
+          onCleared={onAnalyzeStarted}
+        />
         <ExportButton maxResults={total} />
         <ToggleFieldsMenu resource="silence" />
       </div>

@@ -48,9 +48,9 @@ export const ToggleFieldsMenu = ({
   )
   const omittedColumns =
     useSelector((state) => state.settings.omittedFields[resource]) || []
-  const columnsOrder = useSelector(
-    (state) => state.settings.columnsOrder[resource],
-  ) || Object.keys(toggleableColumns || {})
+  const columnsOrder =
+    useSelector((state) => state.settings.columnsOrder[resource]) ||
+    Object.keys(toggleableColumns || {})
 
   const classes = useStyles()
   const open = Boolean(anchorEl)
@@ -135,7 +135,9 @@ export const ToggleFieldsMenu = ({
                     />
                   ) : null,
                 )}
-                <DragOverlay>{activeId ? renderOverlay(activeId) : null}</DragOverlay>
+                <DragOverlay>
+                  {activeId ? renderOverlay(activeId) : null}
+                </DragOverlay>
               </DndContext>
             </div>
           </div>
@@ -166,7 +168,11 @@ const DraggableMenuItem = ({ id, onClick, checked, label }) => {
       style={{ opacity: isDragging ? 0.5 : 1 }}
       onClick={onClick}
     >
-      <DragIndicatorIcon className="dragHandle" {...listeners} {...attributes} />
+      <DragIndicatorIcon
+        className="dragHandle"
+        {...listeners}
+        {...attributes}
+      />
       <Checkbox checked={checked} />
       {label}
     </MenuItem>

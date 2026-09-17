@@ -7,7 +7,7 @@ import {
   useTranslate,
   useRefresh,
   useNotify,
-  useRedirect
+  useRedirect,
 } from 'react-admin'
 import { Title } from '../common'
 import { useLocation } from 'react-router-dom'
@@ -36,7 +36,11 @@ const PlaylistCreate = (props) => {
       <SimpleForm redirect="list" variant={'outlined'}>
         <TextInput source="name" validate={required()} />
         <TextInput multiline source="comment" />
-        <TextInput source="folderId" defaultValue={playlistFolderId} style={{ display: 'none' }} />
+        <TextInput
+          source="folderId"
+          defaultValue={playlistFolderId}
+          style={{ display: 'none' }}
+        />
         <BooleanInput source="public" initialValue={true} />
       </SimpleForm>
     </Create>

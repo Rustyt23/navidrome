@@ -39,7 +39,9 @@ const getDeviceIdentifiers = (device) => {
     normalizeValue(device?.id),
   ].filter(Boolean)
 
-  return identifiers.filter((value, index, array) => array.indexOf(value) === index)
+  return identifiers.filter(
+    (value, index, array) => array.indexOf(value) === index,
+  )
 }
 
 export const isDeviceLocked = (device) => Boolean(device?.isLocked)

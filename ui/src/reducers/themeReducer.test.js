@@ -14,8 +14,10 @@ describe('themeReducer', () => {
     },
     { configTheme: 'Dark', expected: 'DarkTheme', description: 'is "Dark"' },
     {
+      // An unrecognised theme falls back to this fork's own default rather
+      // than to upstream's DarkTheme.
       configTheme: 'NonExistent',
-      expected: 'DarkTheme',
+      expected: 'MusicMattersTheme',
       description: 'is unrecognized',
     },
   ])(

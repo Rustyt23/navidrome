@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
-import { resolveSelectedMediaIds } from './PlaylistSongBulkActions.jsx'
+import { resolveSelectedMediaIds } from './resolveSelectedMediaIds'
 
 describe('resolveSelectedMediaIds', () => {
   it('returns media ids from the current page data when already loaded', async () => {
     const data = {
-      '1': { id: '1', mediaFileId: 'media-1' },
-      '2': { id: '2', mediaFileId: 'media-2' },
+      1: { id: '1', mediaFileId: 'media-1' },
+      2: { id: '2', mediaFileId: 'media-2' },
     }
 
     const selectedIds = ['1', '2']
@@ -24,7 +24,7 @@ describe('resolveSelectedMediaIds', () => {
 
   it('fetches playlist tracks to resolve media ids when needed', async () => {
     const selectedIds = ['1', '2', '3']
-    const data = { '1': { id: '1', mediaFileId: 'media-1' } }
+    const data = { 1: { id: '1', mediaFileId: 'media-1' } }
     const dataProvider = {
       getList: vi.fn().mockResolvedValue({
         data: [

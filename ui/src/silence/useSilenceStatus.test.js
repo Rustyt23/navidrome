@@ -16,9 +16,12 @@ import {
 describe('silence endpoint URLs', () => {
   const urls = { ANALYZE_URL, TRIM_URL, SUMMARY_URL, CLEAR_URL }
 
-  it.each(Object.entries(urls))('%s is absolute and under /api', (_name, url) => {
-    expect(url.startsWith('/api/song/silence')).toBe(true)
-  })
+  it.each(Object.entries(urls))(
+    '%s is absolute and under /api',
+    (_name, url) => {
+      expect(url.startsWith('/api/song/silence')).toBe(true)
+    },
+  )
 
   it('derives the stop endpoints from the same base', () => {
     expect(`${ANALYZE_URL}/stop`).toBe('/api/song/silence/analyze/stop')

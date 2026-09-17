@@ -98,11 +98,20 @@ export const SilenceSummary = ({ refreshKey, onLoaded }) => {
           label="waiting to be removed"
           value={formatTotalTime(summary.pendingSeconds)}
         />
-        <Stat label="songs ready to trim" value={summary.trimmable.toLocaleString()} />
-        <Stat label="nothing to remove" value={summary.clean.toLocaleString()} />
+        <Stat
+          label="songs ready to trim"
+          value={summary.trimmable.toLocaleString()}
+        />
+        <Stat
+          label="nothing to remove"
+          value={summary.clean.toLocaleString()}
+        />
         <Stat label="left alone" value={summary.skipped.toLocaleString()} />
         {summary.failed > 0 && (
-          <Stat label="could not measure" value={summary.failed.toLocaleString()} />
+          <Stat
+            label="could not measure"
+            value={summary.failed.toLocaleString()}
+          />
         )}
         <Stat label="analysed" value={summary.analyzed.toLocaleString()} />
       </CardContent>

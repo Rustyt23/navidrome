@@ -13,7 +13,10 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
-const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) => {
+const CovertartSongBulkActions = ({
+  onUnselectItems,
+  onSpotifyCoverUpdated,
+}) => {
   const classes = useStyles()
   const notify = useNotify()
   const translate = useTranslate()
@@ -40,7 +43,6 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
           onUnselectItems?.()
           return
         }
-
       })
       .catch((error) => {
         if (error?.status === 409) {
@@ -84,7 +86,9 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
         }
         notify('activity.musicbrainz.spotifyCoverUpdateFailed', 'warning')
       })
-      .catch(() => notify('activity.musicbrainz.spotifyCoverUpdateFailed', 'warning'))
+      .catch(() =>
+        notify('activity.musicbrainz.spotifyCoverUpdateFailed', 'warning'),
+      )
       .finally(() => setIsLoadingSpotify(false))
   }
 
@@ -95,7 +99,9 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
         variant="outlined"
         color="primary"
         startIcon={<BiEdit />}
-        disabled={selectedIds.length === 0 || isLoadingMusicBrainz || isLoadingSpotify}
+        disabled={
+          selectedIds.length === 0 || isLoadingMusicBrainz || isLoadingSpotify
+        }
         onClick={editSpotifyUrl}
       >
         {translate('activity.musicbrainz.editSpotifyUrl')}
@@ -104,7 +110,9 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
         <Button
           className={classes.button}
           startIcon={<BiDownload />}
-          disabled={selectedIds.length === 0 || isLoadingMusicBrainz || isLoadingSpotify}
+          disabled={
+            selectedIds.length === 0 || isLoadingMusicBrainz || isLoadingSpotify
+          }
           onClick={() =>
             startFetch(
               '/api/metadata/musicbrainz/fetch',
@@ -119,7 +127,9 @@ const CovertartSongBulkActions = ({ onUnselectItems, onSpotifyCoverUpdated }) =>
       <Button
         className={classes.button}
         startIcon={<BiDownload />}
-        disabled={selectedIds.length === 0 || isLoadingMusicBrainz || isLoadingSpotify}
+        disabled={
+          selectedIds.length === 0 || isLoadingMusicBrainz || isLoadingSpotify
+        }
         onClick={() =>
           startFetch(
             '/api/metadata/musicbrainz/spotify/fetch',

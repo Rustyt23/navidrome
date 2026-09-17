@@ -27,7 +27,10 @@ import List from '@material-ui/core/List'
 import ListItem from '@material-ui/core/ListItem'
 import ListItemText from '@material-ui/core/ListItemText'
 import Divider from '@material-ui/core/Divider'
-import { buildDuplicateInfo, buildDuplicateTrackIdsByPlaylist } from './playlistComparison'
+import {
+  buildDuplicateInfo,
+  buildDuplicateTrackIdsByPlaylist,
+} from './playlistComparison'
 
 const useStyles = makeStyles((theme) => ({
   button: {
@@ -57,7 +60,7 @@ async function safeUpdateMany(dataProvider, resource, ids, data) {
     return { data: Array.isArray(res?.data) ? res.data : [] }
   } catch (e) {
     const settled = await Promise.allSettled(
-      ids.map((id) => dataProvider.update(resource, { id, data }))
+      ids.map((id) => dataProvider.update(resource, { id, data })),
     )
     const okIds = settled
       .map((r, i) => (r.status === 'fulfilled' ? ids[i] : null))
@@ -72,7 +75,7 @@ async function safeDeleteMany(dataProvider, resource, ids) {
     return { data: Array.isArray(res?.data) ? res.data : [] }
   } catch (e) {
     const settled = await Promise.allSettled(
-      ids.map((id) => dataProvider.delete(resource, { id }))
+      ids.map((id) => dataProvider.delete(resource, { id })),
     )
     const okIds = settled
       .map((r, i) => (r.status === 'fulfilled' ? ids[i] : null))
@@ -90,70 +93,88 @@ const useBulkActionHandler = (listResource, actionKind, makePublic) => {
   const [loading, setLoading] = useState(false)
 
   return useMemo(
-    () =>
-      async () => {
-        if (!selectedIds?.length || loading) return
-        setLoading(true)
-        try {
-          const playlistIds = []
-          const folderIds = []
+    () => async () => {
+      if (!selectedIds?.length || loading) return
+      setLoading(true)
+      try {
+        const playlistIds = []
+        const folderIds = []
 
-          selectedIds.forEach((id) => {
-            const rec = getRecord(data, id)
-            if (!rec) return
-            if (rec.type === 'playlist') playlistIds.push(id)
-            else if (rec.type === 'folder') folderIds.push(id)
-          })
+        selectedIds.forEach((id) => {
+          const rec = getRecord(data, id)
+          if (!rec) return
+          if (rec.type === 'playlist') playlistIds.push(id)
+          else if (rec.type === 'folder') folderIds.push(id)
+        })
 
-          const ops = []
+        const ops = []
 
-          if (actionKind === 'togglePublic') {
-            if (playlistIds.length)
-              ops.push(safeUpdateMany(dataProvider, 'playlist', playlistIds, { public: makePublic }))
-            if (folderIds.length)
-              ops.push(
-                safeUpdateMany(dataProvider, 'folder', folderIds, { public: makePublic })
-              )
-          }
+        if (actionKind === 'togglePublic') {
+          if (playlistIds.length)
+            ops.push(
+              safeUpdateMany(dataProvider, 'playlist', playlistIds, {
+                public: makePublic,
+              }),
+            )
+          if (folderIds.length)
+            ops.push(
+              safeUpdateMany(dataProvider, 'folder', folderIds, {
+                public: makePublic,
+              }),
+            )
+        }
 
-          if (actionKind === 'delete') {
-            if (playlistIds.length)
-              ops.push(safeDeleteMany(dataProvider, 'playlist', playlistIds))
-            if (folderIds.length)
-              ops.push(
-                safeDeleteMany(dataProvider, 'folder', folderIds)
-              )
-          }
+        if (actionKind === 'delete') {
+          if (playlistIds.length)
+            ops.push(safeDeleteMany(dataProvider, 'playlist', playlistIds))
+          if (folderIds.length)
+            ops.push(safeDeleteMany(dataProvider, 'folder', folderIds))
+        }
 
-          const settled = await Promise.allSettled(ops)
-          const successCount = settled.reduce((sum, r) => {
-            if (r.status === 'fulfilled') {
-              return sum + (Array.isArray(r.value?.data) ? r.value.data.length : 0)
-            }
-            return sum
-          }, 0)
-
-          const rejected = settled.find((r) => r.status === 'rejected')
-          if (rejected) {
-            notify(rejected.reason?.message || 'ra.notification.http_error', {
-              type: 'warning',
-            })
-          }
-
-          if (successCount > 0) {
-            notify(
-              actionKind === 'delete' ? 'ra.notification.deleted' : 'ra.notification.updated',
-              { type: 'info', messageArgs: { smart_count: successCount } }
+        const settled = await Promise.allSettled(ops)
+        const successCount = settled.reduce((sum, r) => {
+          if (r.status === 'fulfilled') {
+            return (
+              sum + (Array.isArray(r.value?.data) ? r.value.data.length : 0)
             )
           }
+          return sum
+        }, 0)
 
-          unselectAll(listResource)
-          refresh({ hard: true })
-        } finally {
-          setLoading(false)
+        const rejected = settled.find((r) => r.status === 'rejected')
+        if (rejected) {
+          notify(rejected.reason?.message || 'ra.notification.http_error', {
+            type: 'warning',
+          })
         }
-      },
-    [selectedIds, data, dataProvider, notify, unselectAll, refresh, listResource, actionKind, makePublic, loading]
+
+        if (successCount > 0) {
+          notify(
+            actionKind === 'delete'
+              ? 'ra.notification.deleted'
+              : 'ra.notification.updated',
+            { type: 'info', messageArgs: { smart_count: successCount } },
+          )
+        }
+
+        unselectAll(listResource)
+        refresh({ hard: true })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [
+      selectedIds,
+      data,
+      dataProvider,
+      notify,
+      unselectAll,
+      refresh,
+      listResource,
+      actionKind,
+      makePublic,
+      loading,
+    ],
   )
 }
 
@@ -186,7 +207,8 @@ const ComparePlaylistsButton = ({ resource }) => {
   const [open, setOpen] = useState(false)
   const [duplicates, setDuplicates] = useState([])
   const [playlists, setPlaylists] = useState([])
-  const [duplicateTrackIdsByPlaylist, setDuplicateTrackIdsByPlaylist] = useState({})
+  const [duplicateTrackIdsByPlaylist, setDuplicateTrackIdsByPlaylist] =
+    useState({})
   const [loading, setLoading] = useState(false)
 
   const closeDialog = useCallback(() => {
@@ -201,14 +223,16 @@ const ComparePlaylistsButton = ({ resource }) => {
       selectedIds
         .map((id) => getRecord(data, id))
         .filter((record) => record?.type === 'playlist'),
-    [selectedIds, data]
+    [selectedIds, data],
   )
 
   const handleCompare = useCallback(async () => {
     if (loading) return
 
     if (selectedIds.length !== 2 || selectedPlaylists.length !== 2) {
-      notify('resources.playlist.message.compareSelectTwoPlaylists', { type: 'warning' })
+      notify('resources.playlist.message.compareSelectTwoPlaylists', {
+        type: 'warning',
+      })
       return
     }
 
@@ -232,7 +256,10 @@ const ComparePlaylistsButton = ({ resource }) => {
       const leftTracks = leftResult?.data || []
       const rightTracks = rightResult?.data || []
       const matches = buildDuplicateInfo(leftTracks, rightTracks)
-      const duplicateTrackIds = buildDuplicateTrackIdsByPlaylist(leftTracks, rightTracks)
+      const duplicateTrackIds = buildDuplicateTrackIdsByPlaylist(
+        leftTracks,
+        rightTracks,
+      )
 
       setDuplicates(matches)
       setPlaylists([
@@ -258,19 +285,24 @@ const ComparePlaylistsButton = ({ resource }) => {
       try {
         const trackIdsToDelete = duplicateTrackIdsByPlaylist[playlistId] || []
         if (!trackIdsToDelete.length) {
-          notify('resources.playlist.message.compareNoDuplicates', { type: 'warning' })
+          notify('resources.playlist.message.compareNoDuplicates', {
+            type: 'warning',
+          })
           return
         }
 
         const result = await safeDeleteMany(
           dataProvider,
           `playlist/${playlistId}/tracks`,
-          trackIdsToDelete
+          trackIdsToDelete,
         )
 
-        const removedCount = Array.isArray(result?.data) ? result.data.length : 0
+        const removedCount = Array.isArray(result?.data)
+          ? result.data.length
+          : 0
         const playlistName =
-          playlists.find((playlist) => playlist.id === playlistId)?.name || playlistId
+          playlists.find((playlist) => playlist.id === playlistId)?.name ||
+          playlistId
 
         notify('resources.playlist.message.compareDeletedFromPlaylist', {
           type: removedCount > 0 ? 'info' : 'warning',
@@ -285,7 +317,17 @@ const ComparePlaylistsButton = ({ resource }) => {
         setLoading(false)
       }
     },
-    [duplicates.length, duplicateTrackIdsByPlaylist, dataProvider, notify, playlists, closeDialog, unselectAll, resource, refresh]
+    [
+      duplicates.length,
+      duplicateTrackIdsByPlaylist,
+      dataProvider,
+      notify,
+      playlists,
+      closeDialog,
+      unselectAll,
+      resource,
+      refresh,
+    ],
   )
 
   return (
@@ -302,7 +344,9 @@ const ComparePlaylistsButton = ({ resource }) => {
 
       <Dialog open={open} onClose={closeDialog} fullWidth maxWidth="sm">
         <DialogTitle disableTypography>
-          <Typography variant="h6">{translate('resources.playlist.actions.compare')}</Typography>
+          <Typography variant="h6">
+            {translate('resources.playlist.actions.compare')}
+          </Typography>
           <IconButton
             aria-label={translate('ra.action.close')}
             className={classes.closeButton}
@@ -315,9 +359,12 @@ const ComparePlaylistsButton = ({ resource }) => {
           {duplicates.length > 0 ? (
             <>
               <Typography variant="body2" className={classes.hint}>
-                {translate('resources.playlist.message.compareDuplicatesFound', {
-                  smart_count: duplicates.length,
-                })}
+                {translate(
+                  'resources.playlist.message.compareDuplicatesFound',
+                  {
+                    smart_count: duplicates.length,
+                  },
+                )}
               </Typography>
               <List className={classes.duplicateList} dense>
                 {duplicates.map((duplicate) => (
@@ -365,7 +412,11 @@ const ComparePlaylistsButton = ({ resource }) => {
 const ChangePublicStatusButton = ({ resource, makePublic }) => {
   const classes = useStyles()
   const translate = useTranslate()
-  const handleChangeStatus = useBulkActionHandler(resource, 'togglePublic', makePublic)
+  const handleChangeStatus = useBulkActionHandler(
+    resource,
+    'togglePublic',
+    makePublic,
+  )
   const label = makePublic
     ? translate('resources.playlist.actions.makePublic')
     : translate('resources.playlist.actions.makePrivate')

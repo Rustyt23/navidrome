@@ -130,7 +130,9 @@ const CovertartList = (props) => {
       title: <TextField source="title" />,
       artist: <TextField source="artist" label="Artist" />,
       album: <TextField source="album" label="Album" />,
-      createdAt: <DateField source="createdAt" sortBy="recently_added" showTime />,
+      createdAt: (
+        <DateField source="createdAt" sortBy="recently_added" showTime />
+      ),
       year: <TextField source="year" label="Release Year" />,
       genre: <TextField source="genre" label="Genre" />,
       fetched: (
@@ -173,7 +175,11 @@ const CovertartList = (props) => {
             }
 
             return (
-              <a href={entry.spotifyUrl} target="_blank" rel="noopener noreferrer">
+              <a
+                href={entry.spotifyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 {label}
               </a>
             )
@@ -257,12 +263,12 @@ const CovertartList = (props) => {
       perPage={50}
       pagination={<Pagination />}
       bulkActionButtons={
-        <CovertartSongBulkActions onSpotifyCoverUpdated={loadConfidenceEntries} />
+        <CovertartSongBulkActions
+          onSpotifyCoverUpdated={loadConfidenceEntries}
+        />
       }
     >
-      <Datagrid rowClick={false}>
-        {columns}
-      </Datagrid>
+      <Datagrid rowClick={false}>{columns}</Datagrid>
     </List>
   )
 }

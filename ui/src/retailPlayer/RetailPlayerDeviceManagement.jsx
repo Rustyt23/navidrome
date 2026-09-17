@@ -1034,6 +1034,7 @@ const RetailPlayerDeviceManagement = () => {
         }
       }
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.warn('Unable to hydrate retail player device statuses', err)
     }
 
@@ -1101,6 +1102,7 @@ const RetailPlayerDeviceManagement = () => {
       try {
         await assignDeviceToFolder(deviceId, folderId)
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error('Failed to assign retail player device to folder', err)
       }
     },
@@ -1170,6 +1172,7 @@ const RetailPlayerDeviceManagement = () => {
             folderIdSet.add(newFolder.id)
           }
         } catch (err) {
+          // eslint-disable-next-line no-console
           console.error('Failed to create retail player folder', err)
         }
       }
@@ -1198,6 +1201,7 @@ const RetailPlayerDeviceManagement = () => {
           try {
             await updateDevice({ id: deviceId, folderIds: mergedIds })
           } catch (err) {
+            // eslint-disable-next-line no-console
             console.error('Failed to update retail player device folders', err)
           }
         }
@@ -1216,6 +1220,7 @@ const RetailPlayerDeviceManagement = () => {
           try {
             await updateFolder({ id: folderId, parentId: parentFolderId })
           } catch (err) {
+            // eslint-disable-next-line no-console
             console.error('Failed to move retail player folder', err)
           }
         }
@@ -1252,6 +1257,7 @@ const RetailPlayerDeviceManagement = () => {
         deviceIds: selectedDeviceIds,
       })
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Failed to delete retail player items', err)
       return
     }
@@ -1425,6 +1431,7 @@ const RetailPlayerDeviceManagement = () => {
       }
       handleFolderDialogClose()
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Failed to save retail player folder', err)
     }
   }
@@ -1438,6 +1445,7 @@ const RetailPlayerDeviceManagement = () => {
       }
       handleDeviceDialogClose()
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Failed to save retail player device', err)
     }
   }
@@ -1502,6 +1510,7 @@ const RetailPlayerDeviceManagement = () => {
         try {
           await updateDevice({ id: device.id, isLocked: true })
         } catch (err) {
+          // eslint-disable-next-line no-console
           console.error('Failed to lock retail player device from folder', err)
         }
       }
@@ -1521,6 +1530,7 @@ const RetailPlayerDeviceManagement = () => {
         try {
           await updateDevice({ id: device.id, isLocked: false })
         } catch (err) {
+          // eslint-disable-next-line no-console
           console.error(
             'Failed to unlock retail player device from folder',
             err,
@@ -1644,6 +1654,7 @@ const RetailPlayerDeviceManagement = () => {
         await updateDevice({ id: device.id, isLocked: nextLockedValue })
         setSelectedIds((previous) => new Set(previous))
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error('Failed to update retail player device lock state', err)
       }
     },

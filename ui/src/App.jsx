@@ -131,7 +131,11 @@ const Admin = (props) => {
           show={PlaylistShow}
           edit={PlaylistEdit}
         />,
-        <Resource name="discovery" {...discovery} options={{ subMenu: 'discovery' }} />,
+        <Resource
+          name="discovery"
+          {...discovery}
+          options={{ subMenu: 'discovery' }}
+        />,
         <Resource
           {...playlist_folder}
           name="folder"
@@ -168,7 +172,9 @@ const Admin = (props) => {
         ) : null,
         permissions === 'admin' ? <Resource name="lufs" {...lufs} /> : null,
         permissions === 'admin' ? <Resource name="lufs2" {...lufs2} /> : null,
-        permissions === 'admin' ? <Resource name="silence" {...silence} /> : null,
+        permissions === 'admin' ? (
+          <Resource name="silence" {...silence} />
+        ) : null,
         permissions === 'admin' && config.pluginsEnabled ? (
           <Resource
             name="plugin"

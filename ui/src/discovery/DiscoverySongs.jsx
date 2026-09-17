@@ -84,8 +84,8 @@ const DiscoverySongs = ({ actions, pagination, discoveryId, searchTerm }) => {
       album: isDesktop && (
         <TextField source="album" label="resources.song.fields.album" />
       ),
-      duration: <DurationField source="duration" />, 
-      size: isDesktop && <SizeField source="size" />, 
+      duration: <DurationField source="duration" />,
+      size: isDesktop && <SizeField source="size" />,
       path: <PathField source="path" label="resources.song.fields.path" />,
     }),
     [isDesktop],

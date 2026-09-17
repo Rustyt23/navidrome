@@ -10,8 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"

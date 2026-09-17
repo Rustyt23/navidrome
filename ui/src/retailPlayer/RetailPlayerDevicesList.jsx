@@ -226,21 +226,29 @@ const RetailPlayerDevicesList = () => {
           </div>
         ) : devicesError ? (
           <div className={classes.noResults}>
-            {translate('menu.retailPlayer.error', { _: 'Unable to load devices' })}
+            {translate('menu.retailPlayer.error', {
+              _: 'Unable to load devices',
+            })}
           </div>
         ) : filteredDevices.length > 0 ? (
           filteredDevices.map((device) => (
-          <ButtonBase
-            key={device.apiId || device.id}
+            <ButtonBase
+              key={device.apiId || device.id}
               className={classes.buttonBase}
               onClick={() => handleNavigate(device)}
               focusRipple
               aria-label={`Open ${device.name}`}
             >
               <span className={classes.rowButton}>
-                <span className={`${classes.cell} ${classes.actionCell}`} data-area="actions">
+                <span
+                  className={`${classes.cell} ${classes.actionCell}`}
+                  data-area="actions"
+                >
                   View
-                  <ChevronRightIcon className={classes.chevron} aria-hidden="true" />
+                  <ChevronRightIcon
+                    className={classes.chevron}
+                    aria-hidden="true"
+                  />
                 </span>
                 <span className={classes.cell} data-area="name">
                   {device.name}

@@ -135,9 +135,7 @@ const mapRetailPlayerDevice = (device) => {
     remoteControlId,
     ...(typeof isLocked === 'boolean' ? { isLocked } : {}),
     ...(typeof isOnline === 'boolean' ? { online: isOnline } : {}),
-    ...(typeof isVolumeEnabled === 'boolean'
-      ? { isVolumeEnabled }
-      : {}),
+    ...(typeof isVolumeEnabled === 'boolean' ? { isVolumeEnabled } : {}),
   }
 }
 

@@ -52,12 +52,14 @@ const getItemStyles = (currentOffset) => {
 
 const RetailPlayerDragPreview = () => {
   const classes = useStyles()
-  const { itemType, item, isDragging, currentOffset } = useDragLayer((monitor) => ({
-    item: monitor.getItem(),
-    itemType: monitor.getItemType(),
-    currentOffset: monitor.getClientOffset(),
-    isDragging: monitor.isDragging(),
-  }))
+  const { itemType, item, isDragging, currentOffset } = useDragLayer(
+    (monitor) => ({
+      item: monitor.getItem(),
+      itemType: monitor.getItemType(),
+      currentOffset: monitor.getClientOffset(),
+      isDragging: monitor.isDragging(),
+    }),
+  )
 
   if (!isDragging || itemType !== RETAIL_PLAYER_DND_TYPES.DEVICE) {
     return null
@@ -69,7 +71,10 @@ const RetailPlayerDragPreview = () => {
 
   return (
     <div className={classes.layer}>
-      <div className={classes.previewWrapper} style={getItemStyles(currentOffset)}>
+      <div
+        className={classes.previewWrapper}
+        style={getItemStyles(currentOffset)}
+      >
         <div className={classes.preview}>{item.deviceName}</div>
       </div>
     </div>

@@ -40,11 +40,20 @@ const PlaylistFolderCreate = (props) => {
   }
 
   return (
-    <Create title={<Title subTitle={title} />} {...props} onSuccess={onSuccess} onFailure={onFailure}>
+    <Create
+      title={<Title subTitle={title} />}
+      {...props}
+      onSuccess={onSuccess}
+      onFailure={onFailure}
+    >
       <SimpleForm redirect="list" variant="outlined">
         <TextInput source="name" validate={required()} />
         <BooleanInput source="public" initialValue />
-        <TextInput source="parentId" defaultValue={parentId} style={{ display: 'none' }} />
+        <TextInput
+          source="parentId"
+          defaultValue={parentId}
+          style={{ display: 'none' }}
+        />
       </SimpleForm>
     </Create>
   )

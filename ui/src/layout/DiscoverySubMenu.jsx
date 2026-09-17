@@ -31,7 +31,10 @@ const useStyles = makeStyles((theme) => ({
     paddingTop: 1,
     paddingBottom: 1,
     transition: 'all 0.2s ease-in-out',
-    '&:hover': { backgroundColor: theme.palette.action.hover, transform: 'translateX(2px)' },
+    '&:hover': {
+      backgroundColor: theme.palette.action.hover,
+      transform: 'translateX(2px)',
+    },
   },
   nested: { paddingLeft: theme.spacing(2) },
   listItemIcon: { minWidth: 28 },
@@ -42,17 +45,16 @@ const useStyles = makeStyles((theme) => ({
 }))
 
 const normalisePathSegments = (path) =>
-  (path || '')
-    .replace(/\\/g, '/')
-    .split('/')
-    .filter(Boolean)
+  (path || '').replace(/\\/g, '/').split('/').filter(Boolean)
 
 const buildTree = (discoveries) => {
   if (!discoveries?.length) {
     return new Map([['', { folders: [], discoveries: [] }]])
   }
 
-  const segmentsList = discoveries.map((disc) => normalisePathSegments(disc.path))
+  const segmentsList = discoveries.map((disc) =>
+    normalisePathSegments(disc.path),
+  )
   let commonPrefix = segmentsList[0]
   for (let i = 1; i < segmentsList.length; i += 1) {
     const parts = segmentsList[i]
@@ -82,12 +84,17 @@ const buildTree = (discoveries) => {
   const folderCache = new Map()
 
   const sortByName = (a, b) =>
-    (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base', numeric: true })
+    (a.name || '').localeCompare(b.name || '', undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    })
 
   discoveries.forEach((disc) => {
     const parts = normalisePathSegments(disc.path)
     const relSegments = parts.slice(commonPrefix.length)
-    const effectiveSegments = relSegments.length ? relSegments : [disc.name || disc.id]
+    const effectiveSegments = relSegments.length
+      ? relSegments
+      : [disc.name || disc.id]
 
     let parentId = ''
     effectiveSegments.forEach((segment, idx) => {
@@ -198,12 +205,15 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
     (menu) => {
       setState((prev) => ({ ...prev, [menu]: !prev[menu] }))
     },
-    [setState]
+    [setState],
   )
 
   const rootChildren = childrenMap.get('') || { folders: [], discoveries: [] }
 
-  const isActive = useCallback((id) => location.pathname.includes(`/discovery/${id}`), [location.pathname])
+  const isActive = useCallback(
+    (id) => location.pathname.includes(`/discovery/${id}`),
+    [location.pathname],
+  )
 
   const renderDiscovery = useCallback(
     (disc, depth) => (
@@ -231,13 +241,16 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
         />
       </ListItem>
     ),
-    [classes, history, isActive, theme]
+    [classes, history, isActive, theme],
   )
 
   const renderFolder = useCallback(
     (folder, depth = 0) => {
       const open = !!openMap[folder.id]
-      const childGroup = childrenMap.get(folder.id) || { folders: [], discoveries: [] }
+      const childGroup = childrenMap.get(folder.id) || {
+        folders: [],
+        discoveries: [],
+      }
 
       const toggle = (event) => {
         event.stopPropagation()
@@ -252,8 +265,16 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
             className={classes.listItem}
             style={{ paddingLeft: theme.spacing(3) + depth * theme.spacing(2) }}
           >
-            <IconButton size="small" onClick={toggle} className={classes.toggleButton}>
-              {open ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+            <IconButton
+              size="small"
+              onClick={toggle}
+              className={classes.toggleButton}
+            >
+              {open ? (
+                <ExpandMoreIcon fontSize="small" />
+              ) : (
+                <ChevronRightIcon fontSize="small" />
+              )}
             </IconButton>
             <ListItemIcon className={classes.listItemIcon}>
               <FolderIcon fontSize="small" />
@@ -268,14 +289,18 @@ const DiscoverySubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
           </ListItem>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <List disablePadding className={classes.nested}>
-              {childGroup.folders.map((child) => renderFolder(child, depth + 1))}
-              {childGroup.discoveries.map((disc) => renderDiscovery(disc, depth + 1))}
+              {childGroup.folders.map((child) =>
+                renderFolder(child, depth + 1),
+              )}
+              {childGroup.discoveries.map((disc) =>
+                renderDiscovery(disc, depth + 1),
+              )}
             </List>
           </Collapse>
         </React.Fragment>
       )
     },
-    [childrenMap, classes, openMap, renderDiscovery, theme]
+    [childrenMap, classes, openMap, renderDiscovery, theme],
   )
 
   return (

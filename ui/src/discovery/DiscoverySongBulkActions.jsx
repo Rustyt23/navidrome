@@ -20,14 +20,15 @@ const DiscoverySongBulkActions = ({ discoveryId, onUnselectItems }) => {
   const { data, selectedIds } = useListContext()
 
   const handleAction = useCallback(
-    (action, includeSelectedId = false) => () => {
-      if (!selectedIds || selectedIds.length === 0) {
-        return
-      }
-      const selectedId = includeSelectedId ? selectedIds[0] : undefined
-      dispatch(action(data, selectedIds, selectedId))
-      onUnselectItems?.()
-    },
+    (action, includeSelectedId = false) =>
+      () => {
+        if (!selectedIds || selectedIds.length === 0) {
+          return
+        }
+        const selectedId = includeSelectedId ? selectedIds[0] : undefined
+        dispatch(action(data, selectedIds, selectedId))
+        onUnselectItems?.()
+      },
     [dispatch, data, selectedIds, onUnselectItems],
   )
 

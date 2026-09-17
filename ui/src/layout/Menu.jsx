@@ -327,6 +327,7 @@ const Menu = ({ dense = false }) => {
           setOpenFolders((prev) => ({ ...prev, [folderId]: true }))
         }
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error('Failed to assign retail player device to folder', err)
       }
     },

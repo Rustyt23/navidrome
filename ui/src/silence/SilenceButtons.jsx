@@ -32,7 +32,12 @@ import { formatTotalTime } from './format'
 //
 // Always safe to press, which is why it needs no confirmation: it reads the
 // files and writes a record, and the worst it can do is take a while.
-export const AnalyzeSilenceButton = ({ all, selectedIds, disabled, onStarted }) => {
+export const AnalyzeSilenceButton = ({
+  all,
+  selectedIds,
+  disabled,
+  onStarted,
+}) => {
   const notify = useNotify()
   const unselectAll = useUnselectAll()
   const [starting, setStarting] = useState(false)
@@ -138,8 +143,8 @@ export const TrimSilenceButton = ({
                 <strong>{count ?? 0} song(s)</strong>
                 {seconds ? (
                   <>
-                    , removing about <strong>{formatTotalTime(seconds)}</strong> in
-                    total
+                    , removing about <strong>{formatTotalTime(seconds)}</strong>{' '}
+                    in total
                   </>
                 ) : null}
                 .
@@ -156,7 +161,9 @@ export const TrimSilenceButton = ({
               out, and albums that play continuously, are not touched.
             </p>
             <p>
-              <strong>This rewrites the files and cannot be undone from here.</strong>
+              <strong>
+                This rewrites the files and cannot be undone from here.
+              </strong>
             </p>
           </DialogContentText>
         </DialogContent>
@@ -226,7 +233,11 @@ export const ClearSilenceAnalysisButton = ({ disabled, onCleared }) => {
 
   return (
     <>
-      <Button label="Clear analysis" onClick={() => setOpen(true)} disabled={disabled}>
+      <Button
+        label="Clear analysis"
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+      >
         <DeleteSweepIcon />
       </Button>
       <Dialog open={open} onClose={() => setOpen(false)}>

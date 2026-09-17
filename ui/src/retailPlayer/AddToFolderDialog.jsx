@@ -99,9 +99,7 @@ const AddToFolderDialog = ({
 
   const availableFolders = useMemo(
     () =>
-      (folders || []).filter(
-        (folder) => folder && !excludeSet.has(folder.id),
-      ),
+      (folders || []).filter((folder) => folder && !excludeSet.has(folder.id)),
     [folders, excludeSet],
   )
 
@@ -120,25 +118,17 @@ const AddToFolderDialog = ({
     if (!normalizedSearch) {
       return false
     }
-    const existsInSelection = selectedFolderIds.some(
-      (folderId) => {
-        const match = availableFolders.find((folder) => folder.id === folderId)
-        return match && match.name.toLowerCase() === normalizedSearch
-      },
-    )
+    const existsInSelection = selectedFolderIds.some((folderId) => {
+      const match = availableFolders.find((folder) => folder.id === folderId)
+      return match && match.name.toLowerCase() === normalizedSearch
+    })
     const existsInList = availableFolders.some(
       (folder) => (folder.name || '').toLowerCase() === normalizedSearch,
     )
     const matchesPending =
-      pendingFolderName &&
-      pendingFolderName.toLowerCase() === normalizedSearch
+      pendingFolderName && pendingFolderName.toLowerCase() === normalizedSearch
     return !existsInSelection && !existsInList && !matchesPending
-  }, [
-    availableFolders,
-    normalizedSearch,
-    pendingFolderName,
-    selectedFolderIds,
-  ])
+  }, [availableFolders, normalizedSearch, pendingFolderName, selectedFolderIds])
 
   const canSubmit =
     selectedFolderIds.length > 0 || Boolean(pendingFolderName.trim())
@@ -276,9 +266,7 @@ const AddToFolderDialog = ({
               <ListItemIcon className={classes.createItemIcon}>
                 <AddIcon />
               </ListItemIcon>
-              <ListItemText
-                primary={`Create folder "${searchTerm.trim()}"`}
-              />
+              <ListItemText primary={`Create folder "${searchTerm.trim()}"`} />
             </ListItem>
           ) : null}
 

@@ -81,10 +81,10 @@ const TogglePublicInput = ({ source }) => {
             setChecked(!next)
             notify('ra.page.error', 'warning')
           },
-        }
+        },
       )
     },
-    [checked, notify, record, update]
+    [checked, notify, record, update],
   )
 
   return (
@@ -116,7 +116,7 @@ const FolderChildrenList = (props) => {
       updatedAt: isDesktop && <DateField source="updatedAt" />,
       public: !isXsmall && <TogglePublicInput source="public" />,
     }),
-    [isDesktop, isXsmall]
+    [isDesktop, isXsmall],
   )
 
   const columns = useSelectedFields({

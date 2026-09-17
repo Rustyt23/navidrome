@@ -38,7 +38,8 @@ export const SilenceProgress = ({ label, status, detail }) => {
 
   const processed = status.processed || 0
   const total = status.total || 0
-  const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : null
+  const pct =
+    total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : null
   const remaining = eta(processed, total, status.startedAt)
 
   // While stopping, the count of songs still open is the only number moving,

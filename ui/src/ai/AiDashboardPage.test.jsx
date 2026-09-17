@@ -92,9 +92,7 @@ describe('AiDashboardPage', () => {
 
   it('navigates to the AI tool pages from the tabs', async () => {
     const location = renderPage()
-    fireEvent.click(
-      await screen.findByRole('button', { name: /Ai-Matters/ }),
-    )
+    fireEvent.click(await screen.findByRole('button', { name: /Ai-Matters/ }))
     expect(location.pathname).toBe('/ai-tool')
 
     fireEvent.click(screen.getByRole('button', { name: /Playlist AI Tool/ }))

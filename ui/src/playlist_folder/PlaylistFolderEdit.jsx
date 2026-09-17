@@ -63,7 +63,10 @@ const FolderEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
     if (!record?.id) return
     try {
       await dataProvider.delete('folder', { id: record.id })
-      notify('ra.notification.deleted', { type: 'info', messageArgs: { smart_count: 1 } })
+      notify('ra.notification.deleted', {
+        type: 'info',
+        messageArgs: { smart_count: 1 },
+      })
 
       const parentId = record?.parentId ?? location.state?.parentId ?? null
       if (parentId) redirect(`/folder/${parentId}/show`)
@@ -85,7 +88,11 @@ const FolderEditToolbar = ({ handleSubmitWithRedirect, saving }) => {
         handleSubmitWithRedirect={handleSubmitWithRedirect}
       />
       <span className={classes.grow} />
-      <Button onClick={handleDelete} startIcon={<DeleteIcon />} className={classes.delete}>
+      <Button
+        onClick={handleDelete}
+        startIcon={<DeleteIcon />}
+        className={classes.delete}
+      >
         DELETE
       </Button>
     </Toolbar>
@@ -105,12 +112,21 @@ const PlaylistFolderEditForm = () => {
     async (values) => {
       if (!record?.id) return
       try {
-        const res = await dataProvider.update('folder', { id: record.id, data: values })
+        const res = await dataProvider.update('folder', {
+          id: record.id,
+          data: values,
+        })
         const saved = res?.data ?? values
-        notify('ra.notification.updated', { type: 'info', messageArgs: { smart_count: 1 } })
+        notify('ra.notification.updated', {
+          type: 'info',
+          messageArgs: { smart_count: 1 },
+        })
 
         const parentId =
-          saved?.parentId ?? saved?.parent_id ?? location.state?.parentId ?? null
+          saved?.parentId ??
+          saved?.parent_id ??
+          location.state?.parentId ??
+          null
 
         if (parentId) redirect(`/folder/${parentId}/show`)
         else redirect('list', '/folder')
@@ -120,7 +136,7 @@ const PlaylistFolderEditForm = () => {
         notify(e?.message || 'ra.page.error', { type: 'warning' })
       }
     },
-    [dataProvider, record?.id, notify, redirect, refresh, location]
+    [dataProvider, record?.id, notify, redirect, refresh, location],
   )
 
   return (
@@ -150,7 +166,10 @@ const PlaylistFolderEditForm = () => {
 
       <FormDataConsumer>
         {({ formData }) => (
-          <BooleanInput source="public" disabled={!isWritable(formData?.ownerId)} />
+          <BooleanInput
+            source="public"
+            disabled={!isWritable(formData?.ownerId)}
+          />
         )}
       </FormDataConsumer>
 

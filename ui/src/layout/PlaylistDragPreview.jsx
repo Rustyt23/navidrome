@@ -58,12 +58,14 @@ const getItemStyles = (currentOffset) => {
 
 const PlaylistDragPreview = () => {
   const classes = useStyles()
-  const { itemType, item, isDragging, currentOffset } = useDragLayer((monitor) => ({
-    item: monitor.getItem(),
-    itemType: monitor.getItemType(),
-    currentOffset: monitor.getClientOffset(),
-    isDragging: monitor.isDragging(),
-  }))
+  const { itemType, item, isDragging, currentOffset } = useDragLayer(
+    (monitor) => ({
+      item: monitor.getItem(),
+      itemType: monitor.getItemType(),
+      currentOffset: monitor.getClientOffset(),
+      isDragging: monitor.isDragging(),
+    }),
+  )
 
   if (!isDragging || itemType !== DraggableTypes.PLAYLIST || !item?.name) {
     return null
@@ -76,7 +78,10 @@ const PlaylistDragPreview = () => {
 
   return ReactDOM.createPortal(
     <div className={classes.layer}>
-      <div className={classes.previewWrapper} style={getItemStyles(currentOffset)}>
+      <div
+        className={classes.previewWrapper}
+        style={getItemStyles(currentOffset)}
+      >
         <div className={classes.preview}>
           <div className={classes.iconWrapper}>
             <RiPlayListFill size={18} />
@@ -85,7 +90,7 @@ const PlaylistDragPreview = () => {
         </div>
       </div>
     </div>,
-    portalTarget
+    portalTarget,
   )
 }
 

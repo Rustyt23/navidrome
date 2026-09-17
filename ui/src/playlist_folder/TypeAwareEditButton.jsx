@@ -11,7 +11,7 @@ const TypeAwareEditButton = () => {
   if (!record) return null
 
   return (
-   <Button
+    <Button
       component={Link}
       to={`/${record.type}/${record.id}`}
       label="ra.action.edit"

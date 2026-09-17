@@ -336,15 +336,21 @@ const CoverArtPanel = () => {
                       {translate('activity.musicbrainz.saveProgressTitle')}
                     </Typography>
                     <Box className={classes.row}>
-                      <span>{translate('activity.musicbrainz.savedCount')}</span>
+                      <span>
+                        {translate('activity.musicbrainz.savedCount')}
+                      </span>
                       <span>{saveSummary.saved || 0}</span>
                     </Box>
                     <Box className={classes.row}>
-                      <span>{translate('activity.musicbrainz.remainingCount')}</span>
+                      <span>
+                        {translate('activity.musicbrainz.remainingCount')}
+                      </span>
                       <span>{saveSummary.remaining || 0}</span>
                     </Box>
                     <Box className={classes.row}>
-                      <span>{translate('activity.musicbrainz.savingCount')}</span>
+                      <span>
+                        {translate('activity.musicbrainz.savingCount')}
+                      </span>
                       <span>{saveSummary.saving || 0}</span>
                     </Box>
                   </CardContent>

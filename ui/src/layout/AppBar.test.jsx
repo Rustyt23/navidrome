@@ -19,6 +19,11 @@ vi.mock('react-admin', () => ({
 vi.mock('./NowPlayingPanel', () => ({
   default: () => <div data-testid="now-playing-panel" />,
 }))
+// Stubbed like the sibling panels above: it reaches the real dataProvider,
+// which this file's react-admin mock does not carry.
+vi.mock('./MissingTracksPanel', () => ({
+  default: () => <div data-testid="missing-tracks-panel" />,
+}))
 vi.mock('./ActivityPanel', () => ({
   default: () => <div data-testid="activity-panel" />,
 }))

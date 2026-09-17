@@ -34,8 +34,9 @@ const useStyles = makeStyles({
 
 export const AddToPlaylistDialog = () => {
   const classes = useStyles()
-  const { open, selectedIds, onSuccess } =
-    useSelector((state) => state.addToPlaylistDialog)
+  const { open, selectedIds, onSuccess } = useSelector(
+    (state) => state.addToPlaylistDialog,
+  )
   const dispatch = useDispatch()
   const translate = useTranslate()
   const notify = useNotify()

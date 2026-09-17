@@ -174,10 +174,14 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   }
 
   const hasStatusPayload = payload && typeof payload === 'object'
-  const payloadDevice = hasStatusPayload && payload.device && typeof payload.device === 'object'
-    ? payload.device
-    : null
-  const status = hasStatusPayload && typeof payload.status === 'object' ? payload.status || {} : {}
+  const payloadDevice =
+    hasStatusPayload && payload.device && typeof payload.device === 'object'
+      ? payload.device
+      : null
+  const status =
+    hasStatusPayload && typeof payload.status === 'object'
+      ? payload.status || {}
+      : {}
   const streamMetadata = ensureArray(payload?.streamMetadata).filter(
     (item) => item && typeof item === 'object',
   )
@@ -231,7 +235,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
   const normalizedSchedules = streamMetadata
     .map((item, index) => {
-      const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
+      const metadata =
+        item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
       const channelName = normalizeValue(item.channelName)
       const keyCandidates = [
         channelName,
@@ -239,7 +244,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
         normalizeValue(item.filename),
         `channel-${index + 1}`,
       ]
-      const key = keyCandidates.find((candidate) => candidate) || `channel-${index + 1}`
+      const key =
+        keyCandidates.find((candidate) => candidate) || `channel-${index + 1}`
       const labelCandidates = [
         channelName,
         normalizeValue(metadata.title),
@@ -253,7 +259,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
         normalizeValue(baseDevice.organization),
         baseDevice.name,
       ]
-      const artist = artistCandidates.find((candidate) => candidate) || baseDevice.name
+      const artist =
+        artistCandidates.find((candidate) => candidate) || baseDevice.name
       const volume = parseVolume(item.volume)
 
       return {
@@ -285,7 +292,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
         return false
       }
 
-      const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
+      const metadata =
+        item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
       const hasTitle = normalizeValue(metadata.title)
       const hasArtist = normalizeValue(metadata.artist)
       if (!hasTitle && !hasArtist) {
@@ -293,17 +301,28 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
       }
 
       const itemResource = normalizeValue(item.activeResource).toLowerCase()
-      if (normalizedActiveResource && itemResource === normalizedActiveResource) {
+      if (
+        normalizedActiveResource &&
+        itemResource === normalizedActiveResource
+      ) {
         return true
       }
 
       const itemChannelName = normalizeValue(item.channelName)
-      if (activeStreamName && itemChannelName && itemChannelName.toLowerCase() === activeStreamName.toLowerCase()) {
+      if (
+        activeStreamName &&
+        itemChannelName &&
+        itemChannelName.toLowerCase() === activeStreamName.toLowerCase()
+      ) {
         return true
       }
 
       const itemFilename = normalizeValue(item.filename)
-      if (streamName && itemFilename && itemFilename.toLowerCase() === streamName.toLowerCase()) {
+      if (
+        streamName &&
+        itemFilename &&
+        itemFilename.toLowerCase() === streamName.toLowerCase()
+      ) {
         return true
       }
 
@@ -313,17 +332,22 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
       if (!item || typeof item !== 'object') {
         return false
       }
-      const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
-      return Boolean(normalizeValue(metadata.title) || normalizeValue(metadata.artist))
+      const metadata =
+        item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
+      return Boolean(
+        normalizeValue(metadata.title) || normalizeValue(metadata.artist),
+      )
     }) ||
     null
 
   const schedulesWithActive = normalizedSchedules.map((schedule, index) => {
     const metadata = schedule.metadata ? { ...schedule.metadata } : {}
     const matchesResource =
-      activeResource && normalizeValue(metadata.activeResource) === activeResource
+      activeResource &&
+      normalizeValue(metadata.activeResource) === activeResource
     const matchesChannel =
-      activeStreamName && normalizeValue(metadata.channelName) === activeStreamName
+      activeStreamName &&
+      normalizeValue(metadata.channelName) === activeStreamName
     const isActive =
       matchesResource ||
       matchesChannel ||
@@ -368,7 +392,9 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
       const scheduleMetadata = schedule.metadata || {}
       const idKey = normalizeValue(scheduleMetadata.channelId)
       const nameKey = deviceSlugKey(
-        normalizeValue(scheduleMetadata.channelName) || schedule.label || schedule.key,
+        normalizeValue(scheduleMetadata.channelName) ||
+          schedule.label ||
+          schedule.key,
       )
       if (idKey) {
         metadataById.set(idKey, schedule)
@@ -378,9 +404,11 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
       }
     })
 
-    const activeMetadata = metadataSchedules.find((schedule) => schedule.isActive) || null
+    const activeMetadata =
+      metadataSchedules.find((schedule) => schedule.isActive) || null
     const activeId =
-      normalizeValue(activeMetadata?.metadata?.channelId) || normalizeValue(baseDevice.channel)
+      normalizeValue(activeMetadata?.metadata?.channelId) ||
+      normalizeValue(baseDevice.channel)
     const activeNameKey = activeMetadata
       ? deviceSlugKey(
           normalizeValue(activeMetadata.metadata?.channelName) ||
@@ -391,7 +419,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
 
     let mergedSchedules = normalizedChannelList.map((schedule, index) => {
       const channelId = normalizeValue(schedule.metadata.channelId)
-      const channelName = normalizeValue(schedule.metadata.channelName) || schedule.label
+      const channelName =
+        normalizeValue(schedule.metadata.channelName) || schedule.label
       const nameKey = deviceSlugKey(channelName)
       const metadataMatch =
         (channelId && metadataById.get(channelId)) ||
@@ -422,7 +451,10 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
       }
     })
 
-    if (!mergedSchedules.some((schedule) => schedule.isActive) && mergedSchedules.length) {
+    if (
+      !mergedSchedules.some((schedule) => schedule.isActive) &&
+      mergedSchedules.length
+    ) {
       mergedSchedules = mergedSchedules.map((schedule, index) => ({
         ...schedule,
         isActive: index === 0,
@@ -433,7 +465,9 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     mergedSchedules.forEach((schedule) => {
       const idValue = normalizeValue(schedule.metadata?.channelId)
       const nameKey = deviceSlugKey(
-        normalizeValue(schedule.metadata?.channelName) || schedule.label || schedule.key,
+        normalizeValue(schedule.metadata?.channelName) ||
+          schedule.label ||
+          schedule.key,
       )
       if (idValue) {
         identifierSet.add(`id:${idValue}`)
@@ -446,11 +480,16 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     metadataSchedules.forEach((schedule) => {
       const idValue = normalizeValue(schedule.metadata?.channelId)
       const nameKey = deviceSlugKey(
-        normalizeValue(schedule.metadata?.channelName) || schedule.label || schedule.key,
+        normalizeValue(schedule.metadata?.channelName) ||
+          schedule.label ||
+          schedule.key,
       )
       const idToken = idValue ? `id:${idValue}` : ''
       const nameToken = nameKey ? `name:${nameKey}` : ''
-      if ((idToken && identifierSet.has(idToken)) || (nameToken && identifierSet.has(nameToken))) {
+      if (
+        (idToken && identifierSet.has(idToken)) ||
+        (nameToken && identifierSet.has(nameToken))
+      ) {
         return
       }
       mergedSchedules.push(schedule)
@@ -459,14 +498,19 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     schedules = mergedSchedules
   }
 
-  const activeSchedule = schedules.find((schedule) => schedule.isActive) || schedules[0]
+  const activeSchedule =
+    schedules.find((schedule) => schedule.isActive) || schedules[0]
 
   const activeScheduleMetadata =
-    activeSchedule && activeSchedule.metadata && typeof activeSchedule.metadata === 'object'
+    activeSchedule &&
+    activeSchedule.metadata &&
+    typeof activeSchedule.metadata === 'object'
       ? activeSchedule.metadata
       : {}
   const streamMetadataDetails =
-    metadataCandidate && metadataCandidate.metadata && typeof metadataCandidate.metadata === 'object'
+    metadataCandidate &&
+    metadataCandidate.metadata &&
+    typeof metadataCandidate.metadata === 'object'
       ? metadataCandidate.metadata
       : {}
 
@@ -551,16 +595,17 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     'artist',
   ])
   const scheduleArtist = normalizeValue(activeSchedule?.artist)
-  const { title: parsedStreamTitle, artist: parsedStreamArtist } = parseActiveStreamInfo(streamName)
+  const { title: parsedStreamTitle, artist: parsedStreamArtist } =
+    parseActiveStreamInfo(streamName)
 
   const hasNowPlayingDetails = Boolean(
     metadataTitle ||
-      statusTitle ||
-      parsedStreamTitle ||
-      streamName ||
-      metadataArtist ||
-      statusArtist ||
-      parsedStreamArtist,
+    statusTitle ||
+    parsedStreamTitle ||
+    streamName ||
+    metadataArtist ||
+    statusArtist ||
+    parsedStreamArtist,
   )
 
   let nowPlayingTitle =
@@ -588,7 +633,10 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const isLoadingNowPlaying =
     !isOffline &&
     ((!hasNowPlayingDetails && !streamMetadata.length) ||
-      (normalizedActiveResource === 'none' && !streamName && !metadataTitle && !metadataArtist))
+      (normalizedActiveResource === 'none' &&
+        !streamName &&
+        !metadataTitle &&
+        !metadataArtist))
 
   if (isOffline) {
     nowPlayingTitle = 'Offline'
@@ -601,7 +649,9 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   const payloadVolume = parseVolume(payloadDevice?.volume)
 
   const volume =
-    payloadVolume ?? parseVolume(combinedMetadata.volume) ?? parseVolume(status.volume)
+    payloadVolume ??
+    parseVolume(combinedMetadata.volume) ??
+    parseVolume(status.volume)
 
   const scheduleStatus = normalizeValue(status.scheduleStatus).toLowerCase()
   const isConnected =
@@ -609,8 +659,10 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     normalizeValue(status.ipAddress) !== '' ||
     normalizeValue(status.webSocketReconnect) !== ''
   const hasSignal =
-    Boolean(normalizeValue(status.activeStream) || normalizeValue(status.activeStreamName)) ||
-    Boolean(activeSchedule)
+    Boolean(
+      normalizeValue(status.activeStream) ||
+      normalizeValue(status.activeStreamName),
+    ) || Boolean(activeSchedule)
 
   const deviceTimeZone =
     normalizeValue(baseDevice.timeZone) || normalizeValue(status.timeZone)
@@ -630,7 +682,9 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
   }
 
   const isMuted =
-    typeof payloadDevice?.muted === 'boolean' ? payloadDevice.muted : volume === 0
+    typeof payloadDevice?.muted === 'boolean'
+      ? payloadDevice.muted
+      : volume === 0
 
   return {
     ...baseDevice,
@@ -640,7 +694,8 @@ const mapStatusPayloadToDevice = (baseDevice, payload, channelList) => {
     volume: Number.isFinite(volume) ? volume : null,
     schedules,
     nowPlaying: {
-      title: nowPlayingTitle || (isLoadingNowPlaying ? 'Loading' : 'Now Playing'),
+      title:
+        nowPlayingTitle || (isLoadingNowPlaying ? 'Loading' : 'Now Playing'),
       artist: nowPlayingArtist || (isLoadingNowPlaying ? '' : 'Retail Player'),
       album: metadataAlbum || normalizeValue(activeScheduleMetadata.album),
       artworkUrl:
@@ -740,8 +795,7 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       }
 
       const candidateKey =
-        device.slugKey ||
-        deviceSlugKey(device.slug || device.name || device.id)
+        device.slugKey || deviceSlugKey(device.slug || device.name || device.id)
       if (!candidateKey) {
         return null
       }
@@ -789,7 +843,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     }
 
     const match = devices.find((device) => {
-      const key = device.slugKey || deviceSlugKey(device.slug || device.name || device.id)
+      const key =
+        device.slugKey || deviceSlugKey(device.slug || device.name || device.id)
       return key && key === normalizedSlugKey
     })
 
@@ -835,7 +890,9 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [slugParam])
 
   const [remoteControlId, setRemoteControlId] = useState(() =>
-    normalizeValue(baseDevice?.remoteControlId || deviceState.data?.remoteControlId),
+    normalizeValue(
+      baseDevice?.remoteControlId || deviceState.data?.remoteControlId,
+    ),
   )
 
   const remoteControlDeviceId = useMemo(() => {
@@ -876,7 +933,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       baseDevice?.remoteControlId || deviceState.data?.remoteControlId,
     )
 
-    if (latestRemoteControlId && latestRemoteControlId !== stickyRemoteControlId.current) {
+    if (
+      latestRemoteControlId &&
+      latestRemoteControlId !== stickyRemoteControlId.current
+    ) {
       stickyRemoteControlId.current = latestRemoteControlId
       setRemoteControlId(latestRemoteControlId)
       return
@@ -885,7 +945,11 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     if (!remoteControlId && stickyRemoteControlId.current) {
       setRemoteControlId(stickyRemoteControlId.current)
     }
-  }, [baseDevice?.remoteControlId, deviceState.data?.remoteControlId, remoteControlId])
+  }, [
+    baseDevice?.remoteControlId,
+    deviceState.data?.remoteControlId,
+    remoteControlId,
+  ])
 
   useEffect(() => {
     const isLoading = Boolean(slugParam)
@@ -914,7 +978,8 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
   }, [hasRealtimeStatus, slugParam])
 
   const normalizedDevice = useMemo(
-    () => mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
+    () =>
+      mapStatusPayloadToDevice(baseDevice, statusState.data, channelState.data),
     [baseDevice, channelState.data, statusState.data],
   )
 
@@ -961,7 +1026,11 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
     subscriptionMessages.forEach((message) => {
       sendRemoteControlMessage(message)
     })
-  }, [isRemoteControlConnected, remoteControlDeviceId, sendRemoteControlMessage])
+  }, [
+    isRemoteControlConnected,
+    remoteControlDeviceId,
+    sendRemoteControlMessage,
+  ])
 
   useEffect(() => {
     if (remoteControlId) {
@@ -977,8 +1046,13 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         return
       }
 
-      const payloadDevice = payload.device && typeof payload.device === 'object' ? payload.device : null
-      const payloadChannels = Array.isArray(payload.channels) ? payload.channels : null
+      const payloadDevice =
+        payload.device && typeof payload.device === 'object'
+          ? payload.device
+          : null
+      const payloadChannels = Array.isArray(payload.channels)
+        ? payload.channels
+        : null
       const payloadTriggers = Array.isArray(payload.buttonTriggers)
         ? payload.buttonTriggers
         : null
@@ -987,7 +1061,9 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         return
       }
 
-      const payloadId = normalizeValue(payloadDevice.id || payloadDevice.deviceId)
+      const payloadId = normalizeValue(
+        payloadDevice.id || payloadDevice.deviceId,
+      )
       const expectedDeviceId =
         remoteControlDeviceId || stickyRemoteControlDeviceId.current || ''
 
@@ -1000,9 +1076,18 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       }
 
       const previousDevice = realtimeDeviceRef.current || {}
-      const mergedStatus = { ...(previousDevice.status || {}), ...(payloadDevice.status || {}) }
-      const previousExtra = previousDevice.extra && typeof previousDevice.extra === 'object' ? previousDevice.extra : {}
-      const nextExtra = payloadDevice.extra && typeof payloadDevice.extra === 'object' ? payloadDevice.extra : {}
+      const mergedStatus = {
+        ...(previousDevice.status || {}),
+        ...(payloadDevice.status || {}),
+      }
+      const previousExtra =
+        previousDevice.extra && typeof previousDevice.extra === 'object'
+          ? previousDevice.extra
+          : {}
+      const nextExtra =
+        payloadDevice.extra && typeof payloadDevice.extra === 'object'
+          ? payloadDevice.extra
+          : {}
       const nextStreamMetadata = ensureArray(nextExtra.streamMetadata)
       const mergedExtra = {
         ...previousExtra,
@@ -1068,7 +1153,9 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
         })
       }
 
-      const mergedStreamMetadata = ensureArray(mergedDevice.extra?.streamMetadata)
+      const mergedStreamMetadata = ensureArray(
+        mergedDevice.extra?.streamMetadata,
+      )
       const statusPayload = {
         device: mergedDevice,
         status: mergedDevice.status || {},
@@ -1087,7 +1174,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       setChannelState((previous) => {
         if (payloadChannels) {
           return {
-            data: mapChannelListResponse({ channels: payloadChannels }, previous.data),
+            data: mapChannelListResponse(
+              { channels: payloadChannels },
+              previous.data,
+            ),
             error: null,
             isLoading: false,
             fetchedAt: new Date(),
@@ -1145,9 +1235,10 @@ const useRetailPlayerDeviceStatus = (slugParam) => {
       return
     }
 
-    const payload = parsedMessage.payload && typeof parsedMessage.payload === 'object'
-      ? parsedMessage.payload
-      : null
+    const payload =
+      parsedMessage.payload && typeof parsedMessage.payload === 'object'
+        ? parsedMessage.payload
+        : null
 
     if (!payload) {
       return

@@ -1,9 +1,23 @@
-import React, { useState, useCallback, memo, useEffect, useMemo, useRef } from 'react'
+import React, {
+  useState,
+  useCallback,
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react'
 import { useDataProvider, useNotify, useRefresh } from 'react-admin'
 import { useHistory } from 'react-router-dom'
 import {
-  Typography, List, ListItem, ListItemIcon, ListItemText,
-  IconButton, makeStyles, Collapse, CircularProgress,
+  Typography,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  IconButton,
+  makeStyles,
+  Collapse,
+  CircularProgress,
 } from '@material-ui/core'
 import { BiCog } from 'react-icons/bi'
 import { useDrop } from 'react-dnd'
@@ -61,15 +75,23 @@ const useStyles = makeStyles((theme) => ({
     paddingTop: 1,
     paddingBottom: 1,
     transition: 'all 0.2s ease-in-out',
-    '&:hover': { backgroundColor: theme.palette.action.hover, transform: 'translateX(2px)' },
+    '&:hover': {
+      backgroundColor: theme.palette.action.hover,
+      transform: 'translateX(2px)',
+    },
   },
-  active: { backgroundColor: theme.palette.action.selected, fontWeight: theme.typography.fontWeightMedium },
+  active: {
+    backgroundColor: theme.palette.action.selected,
+    fontWeight: theme.typography.fontWeightMedium,
+  },
   text: { transition: 'color 0.2s ease' },
   toggleButton: { padding: 4, marginRight: 4 },
   listItemIcon: { minWidth: 28, transition: 'color 0.2s ease' },
   spacer: { width: 24 },
   nested: { paddingLeft: theme.spacing(2) },
-  depth: (props) => ({ paddingLeft: theme.spacing(2) + props.depth * theme.spacing(2) }),
+  depth: (props) => ({
+    paddingLeft: theme.spacing(2) + props.depth * theme.spacing(2),
+  }),
   spinner: { marginLeft: 6 },
   dropTarget: {
     backgroundColor: alpha(theme.palette.primary.main, 0.08),
@@ -97,7 +119,10 @@ const useChildrenStore = () => {
       parent_id:
         it.parent_id ?? it.parentId ?? it.folder_id ?? it.folderId ?? key,
     }))
-    setStore((s) => ({ ...s, [key]: { items: enriched, dirty: false, cached: true } }))
+    setStore((s) => ({
+      ...s,
+      [key]: { items: enriched, dirty: false, cached: true },
+    }))
   }, [])
 
   const markDirty = useCallback((parentIds) => {
@@ -114,29 +139,32 @@ const useChildrenStore = () => {
 
   const get = useCallback(
     (pid) => store[parentKey(pid)] || { items: [], dirty: true, cached: false },
-    [store]
+    [store],
   )
 
-  const ensure = useCallback(async (parentId, fetcher) => {
-    const key = parentKey(parentId)
-    const entry = store[key]
-    if (entry && entry.cached && !entry.dirty) return entry.items
+  const ensure = useCallback(
+    async (parentId, fetcher) => {
+      const key = parentKey(parentId)
+      const entry = store[key]
+      if (entry && entry.cached && !entry.dirty) return entry.items
 
-    const inFlight = inFlightRef.current.get(key)
-    if (inFlight) return inFlight
+      const inFlight = inFlightRef.current.get(key)
+      if (inFlight) return inFlight
 
-    const p = (async () => {
-      const data = await fetcher()
-      setItems(parentId, data || [])
-      inFlightRef.current.delete(key)
-      return data
-    })().catch((e) => {
-      inFlightRef.current.delete(key)
-      throw e
-    })
-    inFlightRef.current.set(key, p)
-    return p
-  }, [setItems, store])
+      const p = (async () => {
+        const data = await fetcher()
+        setItems(parentId, data || [])
+        inFlightRef.current.delete(key)
+        return data
+      })().catch((e) => {
+        inFlightRef.current.delete(key)
+        throw e
+      })
+      inFlightRef.current.set(key, p)
+      return p
+    },
+    [setItems, store],
+  )
 
   const moveItem = useCallback((item, fromPid, toPid) => {
     setStore((s) => {
@@ -147,11 +175,15 @@ const useChildrenStore = () => {
       if (next[fromKey]?.items) {
         next[fromKey] = {
           ...next[fromKey],
-          items: next[fromKey].items.filter((i) => !(i.id === item.id && i.type === item.type)),
+          items: next[fromKey].items.filter(
+            (i) => !(i.id === item.id && i.type === item.type),
+          ),
         }
       }
       if (next[toKey]?.items) {
-        const withoutDup = next[toKey].items.filter((i) => !(i.id === item.id && i.type === item.type))
+        const withoutDup = next[toKey].items.filter(
+          (i) => !(i.id === item.id && i.type === item.type),
+        )
         next[toKey] = {
           ...next[toKey],
           items: [...withoutDup, { ...item, parent_id: toPid }],
@@ -241,7 +273,8 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
   const hasTrackData = useCallback((dt) => {
     const types = Array.from(dt?.types || [])
     return (
-      types.includes('application/x-navidrome-tracks') || types.includes('text/plain')
+      types.includes('application/x-navidrome-tracks') ||
+      types.includes('text/plain')
     )
   }, [])
 
@@ -354,12 +387,18 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     [addTrackIdsToPlaylist, submitAddPayload],
   )
 
-  const { dragDropRef, dragPreviewRef, isDragging, isOver, canDrop } = useDragAndDrop(
-    DraggableTypes.PLAYLIST,
-    { id: pls.id, type: 'playlist', parentId: parentIdForDnD, name: pls.name },
-    canChangeTracks(pls) ? DraggableTypes.ALL : [],
-    handleDrop
-  )
+  const { dragDropRef, dragPreviewRef, isDragging, isOver, canDrop } =
+    useDragAndDrop(
+      DraggableTypes.PLAYLIST,
+      {
+        id: pls.id,
+        type: 'playlist',
+        parentId: parentIdForDnD,
+        name: pls.name,
+      },
+      canChangeTracks(pls) ? DraggableTypes.ALL : [],
+      handleDrop,
+    )
 
   useEffect(() => {
     dragPreviewRef?.(getEmptyImage(), { captureDraggingState: true })
@@ -371,173 +410,218 @@ const PlaylistMenuItemLink = memo(({ pls, depth = 0 }) => {
     <ListItem
       button
       onClick={() => history.push(`/playlist/${pls.id}/show`)}
-      className={clsx(classes.listItem, classes.depth, showDropHighlight && classes.dropTarget)}
+      className={clsx(
+        classes.listItem,
+        classes.depth,
+        showDropHighlight && classes.dropTarget,
+      )}
       ref={dragDropRef}
       style={{ opacity: isDragging ? 0.5 : 1 }}
       onDragOver={handleNativeDragOver}
       onDrop={handleNativeDrop}
     >
       <span className={classes.spacer} />
-      <ListItemIcon className={classes.listItemIcon}><RiPlayListFill /></ListItemIcon>
+      <ListItemIcon className={classes.listItemIcon}>
+        <RiPlayListFill />
+      </ListItemIcon>
       <ListItemText
-        primary={(
-          <Typography variant="body2" noWrap className={classes.text} title={pls.name}>
+        primary={
+          <Typography
+            variant="body2"
+            noWrap
+            className={classes.text}
+            title={pls.name}
+          >
             {pls.name}
           </Typography>
-        )}
+        }
       />
     </ListItem>
   )
 })
 PlaylistMenuItemLink.displayName = 'PlaylistMenuItemLink'
 
-const FolderRow = memo(function FolderRow({
-  node,
-  depth,
-  open,
-  openMap = {},
-  setOpenMap,
-  childrenStore,
-  onAnyMove,
-}) {
-  const classes = useStyles({ depth })
-  const dataProvider = useDataProvider()
-  const notify = useNotify()
-  const history = useHistory()
-  const refresh = useRefresh()
-  const [loading, setLoading] = useState(false)
+const FolderRow = memo(
+  function FolderRow({
+    node,
+    depth,
+    open,
+    openMap = {},
+    setOpenMap,
+    childrenStore,
+    onAnyMove,
+  }) {
+    const classes = useStyles({ depth })
+    const dataProvider = useDataProvider()
+    const notify = useNotify()
+    const history = useHistory()
+    const refresh = useRefresh()
+    const [loading, setLoading] = useState(false)
 
-  const { get, markDirty, moveItem, ensure } = childrenStore
-  const { items, dirty, cached } = get(node.id)
+    const { get, markDirty, moveItem, ensure } = childrenStore
+    const { items, dirty, cached } = get(node.id)
 
-  const fetchChildrenOnce = useCallback(async () => {
-    if (!open) return
-    if (!dirty && cached) return
-    setLoading(true)
-    try {
-      await ensure(node.id, async () => {
-        const res = await dataProvider.getList('folder', {
-          pagination: { page: 1, perPage: config.maxSidebarPlaylistFolders },
-          sort: { field: 'name', order: 'ASC' },
-          filter: { parent_id: parentFilterValue(node.id) },
-        })
-        return res?.data || []
-      })
-    } catch {
-      notify('ra.page.error', 'warning')
-    } finally {
-      setLoading(false)
-    }
-  }, [open, dirty, cached, ensure, node.id, dataProvider, notify])
-
-  useEffect(() => { fetchChildrenOnce() }, [fetchChildrenOnce])
-
-  const toggle = (e) => {
-    e.stopPropagation()
-    setOpenMap((s) => ({ ...s, [node.id]: !open }))
-  }
-
-  const parentIdForDnD = node.parent_id ?? ''
-
-  const { dragDropRef, isDragging, isOver, canDrop } = useDragAndDrop(
-    DraggableTypes.FOLDER,
-    { id: node.id, type: 'folder', parentId: parentIdForDnD },
-    [DraggableTypes.FOLDER, DraggableTypes.PLAYLIST],
-    async (item) => {
+    const fetchChildrenOnce = useCallback(async () => {
+      if (!open) return
+      if (!dirty && cached) return
+      setLoading(true)
       try {
-        if (item.id === node.id) return
-
-        const sourceParentId = item.parentId ?? ''
-
-        if (item.type === 'playlist') {
-          await dataProvider.setPlaylistFolder({
-            playlistId: item.id,
-            targetFolderId: node.id,
-            sourceParentId,
+        await ensure(node.id, async () => {
+          const res = await dataProvider.getList('folder', {
+            pagination: { page: 1, perPage: config.maxSidebarPlaylistFolders },
+            sort: { field: 'name', order: 'ASC' },
+            filter: { parent_id: parentFilterValue(node.id) },
           })
-        } else if (item.type === 'folder') {
-          await dataProvider.moveFolder({
-            folderId: item.id,
-            targetParentId: node.id,
-            sourceParentId,
-          })
-        }
-
-        moveItem(
-          { id: item.id, type: item.type, name: item.name ?? '', parent_id: node.id },
-          sourceParentId,
-          node.id
-        )
-        markDirty([node.id])
-
-        refresh()
-        onAnyMove?.()
-        await fetchChildrenOnce()
+          return res?.data || []
+        })
       } catch {
         notify('ra.page.error', 'warning')
+      } finally {
+        setLoading(false)
       }
+    }, [open, dirty, cached, ensure, node.id, dataProvider, notify])
+
+    useEffect(() => {
+      fetchChildrenOnce()
+    }, [fetchChildrenOnce])
+
+    const toggle = (e) => {
+      e.stopPropagation()
+      setOpenMap((s) => ({ ...s, [node.id]: !open }))
     }
-  )
 
-  const childrenTyped = useMemo(() => ({
-    folders: (items || []).filter((i) => i.type === 'folder'),
-    playlists: (items || []).filter((i) => i.type === 'playlist'),
-  }), [items])
+    const parentIdForDnD = node.parent_id ?? ''
 
-  const showDropHighlight = isOver && canDrop
+    const { dragDropRef, isDragging, isOver, canDrop } = useDragAndDrop(
+      DraggableTypes.FOLDER,
+      { id: node.id, type: 'folder', parentId: parentIdForDnD },
+      [DraggableTypes.FOLDER, DraggableTypes.PLAYLIST],
+      async (item) => {
+        try {
+          if (item.id === node.id) return
 
-  return (
-    <>
-      <ListItem
-        button
-        onClick={() => history.push(`/folder/${node.id}/show`)}
-        className={clsx(classes.listItem, classes.depth, showDropHighlight && classes.dropTarget)}
-        ref={dragDropRef}
-        style={{ opacity: isDragging ? 0.5 : 1 }}
-      >
-        <IconButton size="small" className={classes.toggleButton} onClick={toggle}>
-          {open ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
-        </IconButton>
-        <ListItemIcon className={classes.listItemIcon}><RiFolder3Fill /></ListItemIcon>
-        <ListItemText
-          primary={(
-            <Typography variant="body2" noWrap className={classes.text} title={node.name}>
-              {node.name}
-            </Typography>
+          const sourceParentId = item.parentId ?? ''
+
+          if (item.type === 'playlist') {
+            await dataProvider.setPlaylistFolder({
+              playlistId: item.id,
+              targetFolderId: node.id,
+              sourceParentId,
+            })
+          } else if (item.type === 'folder') {
+            await dataProvider.moveFolder({
+              folderId: item.id,
+              targetParentId: node.id,
+              sourceParentId,
+            })
+          }
+
+          moveItem(
+            {
+              id: item.id,
+              type: item.type,
+              name: item.name ?? '',
+              parent_id: node.id,
+            },
+            sourceParentId,
+            node.id,
+          )
+          markDirty([node.id])
+
+          refresh()
+          onAnyMove?.()
+          await fetchChildrenOnce()
+        } catch {
+          notify('ra.page.error', 'warning')
+        }
+      },
+    )
+
+    const childrenTyped = useMemo(
+      () => ({
+        folders: (items || []).filter((i) => i.type === 'folder'),
+        playlists: (items || []).filter((i) => i.type === 'playlist'),
+      }),
+      [items],
+    )
+
+    const showDropHighlight = isOver && canDrop
+
+    return (
+      <>
+        <ListItem
+          button
+          onClick={() => history.push(`/folder/${node.id}/show`)}
+          className={clsx(
+            classes.listItem,
+            classes.depth,
+            showDropHighlight && classes.dropTarget,
           )}
-        />
-        {loading && <CircularProgress size={14} className={classes.spinner} />}
-      </ListItem>
+          ref={dragDropRef}
+          style={{ opacity: isDragging ? 0.5 : 1 }}
+        >
+          <IconButton
+            size="small"
+            className={classes.toggleButton}
+            onClick={toggle}
+          >
+            {open ? (
+              <ExpandMoreIcon fontSize="small" />
+            ) : (
+              <ChevronRightIcon fontSize="small" />
+            )}
+          </IconButton>
+          <ListItemIcon className={classes.listItemIcon}>
+            <RiFolder3Fill />
+          </ListItemIcon>
+          <ListItemText
+            primary={
+              <Typography
+                variant="body2"
+                noWrap
+                className={classes.text}
+                title={node.name}
+              >
+                {node.name}
+              </Typography>
+            }
+          />
+          {loading && (
+            <CircularProgress size={14} className={classes.spinner} />
+          )}
+        </ListItem>
 
-      <Collapse in={open} timeout="auto" unmountOnExit>
-        <List disablePadding className={classes.nested}>
-          {childrenTyped.folders.map((f) => (
-            <FolderRow
-              key={f.id}
-              node={f}
-              depth={depth + 1}
-              open={!!openMap[f.id]}
-              openMap={openMap}
-              setOpenMap={setOpenMap}
-              childrenStore={childrenStore}
-              onAnyMove={onAnyMove}
-            />
-          ))}
-          {childrenTyped.playlists.map((p) => (
-            <PlaylistMenuItemLink key={p.id} pls={p} depth={depth + 1} />
-          ))}
-        </List>
-      </Collapse>
-    </>
-  )
-}, (prev, next) => {
-  return (
-    prev.node.id === next.node.id &&
-    prev.open === next.open &&
-    prev.depth === next.depth &&
-    prev.childrenStore === next.childrenStore
-  )
-})
+        <Collapse in={open} timeout="auto" unmountOnExit>
+          <List disablePadding className={classes.nested}>
+            {childrenTyped.folders.map((f) => (
+              <FolderRow
+                key={f.id}
+                node={f}
+                depth={depth + 1}
+                open={!!openMap[f.id]}
+                openMap={openMap}
+                setOpenMap={setOpenMap}
+                childrenStore={childrenStore}
+                onAnyMove={onAnyMove}
+              />
+            ))}
+            {childrenTyped.playlists.map((p) => (
+              <PlaylistMenuItemLink key={p.id} pls={p} depth={depth + 1} />
+            ))}
+          </List>
+        </Collapse>
+      </>
+    )
+  },
+  (prev, next) => {
+    return (
+      prev.node.id === next.node.id &&
+      prev.open === next.open &&
+      prev.depth === next.depth &&
+      prev.childrenStore === next.childrenStore
+    )
+  },
+)
 
 const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const history = useHistory()
@@ -573,11 +657,14 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
     }
   }, [rootDirty, rootCached, ensure, dataProvider, notify])
 
-  useEffect(() => { fetchRootOnce() }, [fetchRootOnce])
+  useEffect(() => {
+    fetchRootOnce()
+  }, [fetchRootOnce])
 
   useEffect(() => {
     const onChanged = (e) => {
-      const { type, resource, id, name, sourceParentId, targetParentId } = e.detail || {}
+      const { type, resource, id, name, sourceParentId, targetParentId } =
+        e.detail || {}
       if (type === 'update' && resource && id) {
         const item = { id, type: resource }
         if (typeof name === 'string') item.name = name
@@ -595,41 +682,55 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
     return () => window.removeEventListener('folder:changed', onChanged)
   }, [markDirty, refresh, updateItem])
 
-  const [, dropRef] = useDrop(() => ({
-    accept: [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
-    drop: async (item) => {
-      try {
-        const sourceParentId = item.parentId ?? ''
+  const [, dropRef] = useDrop(
+    () => ({
+      accept: [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
+      drop: async (item) => {
+        try {
+          const sourceParentId = item.parentId ?? ''
 
-        if (item.type === 'playlist') {
-          await dataProvider.setPlaylistFolder({
-            playlistId: item.id,
-            targetFolderId: null,
+          if (item.type === 'playlist') {
+            await dataProvider.setPlaylistFolder({
+              playlistId: item.id,
+              targetFolderId: null,
+              sourceParentId,
+            })
+          } else if (item.type === 'folder') {
+            await dataProvider.moveFolder({
+              folderId: item.id,
+              targetParentId: null,
+              sourceParentId,
+            })
+          }
+          moveItem(
+            {
+              id: item.id,
+              type: item.type,
+              name: item.name ?? '',
+              parent_id: '',
+            },
             sourceParentId,
-          })
-        } else if (item.type === 'folder') {
-          await dataProvider.moveFolder({
-            folderId: item.id,
-            targetParentId: null,
-            sourceParentId,
-          })
+            '',
+          )
+          markDirty([''])
+
+          refresh()
+        } catch {
+          notify('ra.page.error', 'warning')
         }
-        moveItem(
-          { id: item.id, type: item.type, name: item.name ?? '', parent_id: '' },
-          sourceParentId,
-          ''
-        )
-        markDirty([''])
+      },
+    }),
+    [dataProvider, notify, moveItem, markDirty, refresh],
+  )
 
-        refresh()
-      } catch {
-        notify('ra.page.error', 'warning')
-      }
-    },
-  }), [dataProvider, notify, moveItem, markDirty, refresh])
-
-  const folders = useMemo(() => (rootItems || []).filter((i) => i.type === 'folder'), [rootItems])
-  const playlists = useMemo(() => (rootItems || []).filter((i) => i.type === 'playlist'), [rootItems])
+  const folders = useMemo(
+    () => (rootItems || []).filter((i) => i.type === 'folder'),
+    [rootItems],
+  )
+  const playlists = useMemo(
+    () => (rootItems || []).filter((i) => i.type === 'playlist'),
+    [rootItems],
+  )
 
   return (
     <SubMenu
@@ -646,7 +747,9 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
       <PlaylistDragPreview />
       <List disablePadding>
         {!rootCached && rootDirty ? (
-          <ListItem><CircularProgress size={16} className={classes.spinner} /></ListItem>
+          <ListItem>
+            <CircularProgress size={16} className={classes.spinner} />
+          </ListItem>
         ) : (
           <>
             {folders.map((f) => (

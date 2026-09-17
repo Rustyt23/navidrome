@@ -79,10 +79,10 @@ const TogglePublicInput = ({ source }) => {
             setChecked(!next)
             notify('ra.page.error', 'warning')
           },
-        }
+        },
       )
     },
-    [checked, notify, record, update]
+    [checked, notify, record, update],
   )
 
   return (

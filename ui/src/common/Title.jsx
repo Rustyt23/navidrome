@@ -7,10 +7,12 @@ const resolvePluralText = (value, args) => {
     return value
   }
 
-  const [singular = '', plural = ''] = value.split('||||').map((part) => part.trim())
+  const [singular = '', plural = ''] = value
+    .split('||||')
+    .map((part) => part.trim())
   const smartCount =
     (args && (args.smart_count ?? args.smartCount ?? args.count)) !== undefined
-      ? args.smart_count ?? args.smartCount ?? args.count
+      ? (args.smart_count ?? args.smartCount ?? args.count)
       : 1
 
   if (smartCount === 1) {
@@ -28,7 +30,12 @@ export const Title = ({ subTitle, args }) => {
   const brand = <span className="brand-title">MusicMatters</span>
 
   if (isDesktop) {
-    return <span className="title-line">{brand}{text ? ` - ${text}` : ''}</span>
+    return (
+      <span className="title-line">
+        {brand}
+        {text ? ` - ${text}` : ''}
+      </span>
+    )
   }
   return <span className="title-line">{text ? text : brand}</span>
 }

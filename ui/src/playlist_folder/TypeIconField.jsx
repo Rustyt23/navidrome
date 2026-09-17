@@ -9,12 +9,17 @@ const TypeIconField = ({ sx }) => {
 
   const isFolder = record.type === 'folder'
   const Icon = isFolder ? RiFolder3Fill : RiPlayListFill
-  const color = isFolder ? theme.palette.primary.main : theme.palette.secondary.main
+  const color = isFolder
+    ? theme.palette.primary.main
+    : theme.palette.secondary.main
 
   return (
     <Box
       style={{
-        display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: '100%',
         ...(sx || {}),
       }}
       aria-label={isFolder ? 'Folder' : 'Playlist'}

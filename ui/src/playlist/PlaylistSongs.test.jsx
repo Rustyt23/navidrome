@@ -12,11 +12,9 @@ describe('selectPlaylistTrackIds', () => {
     const idsToSelect = Array.from({ length: 50 }, (_, index) => index + 1)
     const contextTotal = 63
     const onSelect = vi.fn()
-    const getList = vi
-      .fn()
-      .mockResolvedValue({
-        data: createRecords(contextTotal, 1, [3, 5, 7, 11]),
-      })
+    const getList = vi.fn().mockResolvedValue({
+      data: createRecords(contextTotal, 1, [3, 5, 7, 11]),
+    })
 
     await selectPlaylistTrackIds({
       idsToSelect,

@@ -26,7 +26,13 @@ const stores = new Map()
 const getStore = (url) => {
   let store = stores.get(url)
   if (!store) {
-    store = { url, status: null, listeners: new Set(), timer: null, inFlight: null }
+    store = {
+      url,
+      status: null,
+      listeners: new Set(),
+      timer: null,
+      inFlight: null,
+    }
     stores.set(url, store)
   }
   return store

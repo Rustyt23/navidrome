@@ -37,7 +37,13 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
-const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) => {
+const PlaylistFolderRow = ({
+  record,
+  children,
+  className,
+  rowClick,
+  ...rest
+}) => {
   const classes = useStyles()
   const dataProvider = useDataProvider()
   const notify = useNotify()
@@ -57,7 +63,9 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
     sourceIdRef.current = sourceId
   }, [sourceId])
 
-  const fields = React.Children.toArray(children).filter((c) => isValidElement(c))
+  const fields = React.Children.toArray(children).filter((c) =>
+    isValidElement(c),
+  )
 
   const handleDrop = useCallback(
     async (item) => {
@@ -67,9 +75,15 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
         const isTargetFolder = record.type === 'folder'
         const isTargetPlaylist = record.type === 'playlist'
 
-        if (isTargetPlaylist && item.type !== 'playlist' && item.type !== 'folder') {
+        if (
+          isTargetPlaylist &&
+          item.type !== 'playlist' &&
+          item.type !== 'folder'
+        ) {
           const res = await dataProvider.addToPlaylist(record.id, item)
-          notify('message.songsAddedToPlaylist', 'info', { smart_count: res?.data?.added })
+          notify('message.songsAddedToPlaylist', 'info', {
+            smart_count: res?.data?.added,
+          })
           refresh()
           return
         }
@@ -81,14 +95,14 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
           await dataProvider.setPlaylistFolder({
             playlistId: item.id,
             targetFolderId: targetFolderId,
-            sourceParentId: currentSourceId
+            sourceParentId: currentSourceId,
           })
         } else if (item.type === 'folder') {
           const targetParentId = isTargetFolder ? record.id : null
           await dataProvider.moveFolder({
             folderId: item.id,
             targetParentId: targetParentId,
-            sourceParentId: currentSourceId
+            sourceParentId: currentSourceId,
           })
         }
         notify('message.movedSuccess', 'info')
@@ -97,14 +111,18 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
         notify('ra.page.error', 'warning')
       }
     },
-    [dataProvider, notify, refresh, record.id, record.type]
+    [dataProvider, notify, refresh, record.id, record.type],
   )
 
   const { dragDropRef, isDragging, isOver, canDrop } = useDragAndDrop(
-    record.type === 'playlist' ? DraggableTypes.PLAYLIST : DraggableTypes.FOLDER,
+    record.type === 'playlist'
+      ? DraggableTypes.PLAYLIST
+      : DraggableTypes.FOLDER,
     { id: record.id, type: record.type },
-    record.type === 'playlist' ? DraggableTypes.ALL : [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
-    handleDrop
+    record.type === 'playlist'
+      ? DraggableTypes.ALL
+      : [DraggableTypes.PLAYLIST, DraggableTypes.FOLDER],
+    handleDrop,
   )
 
   const showDropHighlight = record.type === 'folder' && isOver && canDrop
@@ -113,7 +131,7 @@ const PlaylistFolderRow = ({ record, children, className, rowClick, ...rest }) =
     className,
     classes.row,
     record.missing && classes.missingRow,
-    showDropHighlight && classes.dropTarget
+    showDropHighlight && classes.dropTarget,
   )
 
   const handleRowClick = (event) => {

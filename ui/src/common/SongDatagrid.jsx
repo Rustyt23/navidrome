@@ -293,8 +293,8 @@ export const SongDatagridRow = ({
     const selection = contextSelectedIds.length
       ? contextSelectedIds
       : Array.isArray(selectedIdsFromStore)
-      ? selectedIdsFromStore
-      : []
+        ? selectedIdsFromStore
+        : []
     const isSelected = recordId != null && selection.includes(recordId)
     const baseIds = isSelected ? selection : [recordId]
     const seen = new Set()
@@ -348,9 +348,7 @@ export const SongDatagridRow = ({
     }
     const preventTextSelection = (event) => {
       if (
-        event?.target?.closest(
-          'button,input,textarea,select,a,[data-no-drag]',
-        )
+        event?.target?.closest('button,input,textarea,select,a,[data-no-drag]')
       ) {
         return
       }
@@ -358,8 +356,7 @@ export const SongDatagridRow = ({
     }
     node.addEventListener('selectstart', preventTextSelection)
 
-    const interactiveSelector =
-      'button,input,textarea,select,a,[data-no-drag]'
+    const interactiveSelector = 'button,input,textarea,select,a,[data-no-drag]'
     const interactiveElements = Array.from(
       node.querySelectorAll(interactiveSelector),
     )
@@ -380,7 +377,9 @@ export const SongDatagridRow = ({
 
   const handleDragStart = useCallback(
     (event) => {
-      if (event?.target?.closest('button,input,textarea,select,a,[data-no-drag]')) {
+      if (
+        event?.target?.closest('button,input,textarea,select,a,[data-no-drag]')
+      ) {
         return
       }
       if (!event?.dataTransfer) {

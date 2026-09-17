@@ -112,7 +112,9 @@ describe('ArtistActions', () => {
         expect(subsonic.getSimilarSongs2).toHaveBeenCalledWith('ar1', 100),
       )
       const action = mockDispatch.mock.calls[0][0]
-      expect(action.data.rec1).toMatchObject({
+      // Queue keys are prefixed to hold insertion order, so assert on the
+      // queued song itself rather than on the key it is filed under.
+      expect(Object.values(action.data)[0]).toMatchObject({
         rgAlbumGain: -5,
         rgAlbumPeak: 1,
         rgTrackGain: -6,
@@ -140,7 +142,9 @@ describe('ArtistActions', () => {
         expect(subsonic.getTopSongs).toHaveBeenCalledWith('Artist', 100),
       )
       const action = mockDispatch.mock.calls[0][0]
-      expect(action.data.rec1).toMatchObject({
+      // Queue keys are prefixed to hold insertion order, so assert on the
+      // queued song itself rather than on the key it is filed under.
+      expect(Object.values(action.data)[0]).toMatchObject({
         rgAlbumGain: -5,
         rgAlbumPeak: 1,
         rgTrackGain: -6,

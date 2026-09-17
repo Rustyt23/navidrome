@@ -180,10 +180,7 @@ const AlbumSongs = (props) => {
         return
       }
 
-      const orderedIds = [
-        ...ids.slice(startIndex),
-        ...ids.slice(0, startIndex),
-      ]
+      const orderedIds = [...ids.slice(startIndex), ...ids.slice(0, startIndex)]
 
       dispatch(playTracks(data, orderedIds, id))
     },

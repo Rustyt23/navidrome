@@ -13,4 +13,4 @@ export const Pagination = (props) => {
       rowsPerPage={rowsPerPage}
     />
   )
-} 
+}

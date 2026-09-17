@@ -21,7 +21,10 @@ const useStyles = makeStyles((theme) => ({
   // The headline number. Bigger and bolder than everything else on the row
   // because it is the one thing the page exists to answer.
   total: { fontWeight: 700, fontVariantNumeric: 'tabular-nums' },
-  totalZero: { color: theme.palette.text.disabled, fontVariantNumeric: 'tabular-nums' },
+  totalZero: {
+    color: theme.palette.text.disabled,
+    fontVariantNumeric: 'tabular-nums',
+  },
   ends: {
     display: 'flex',
     gap: theme.spacing(0.5),
@@ -56,7 +59,9 @@ export const TotalTrimField = ({ record }) => {
     const found = (audit.leadSilence || 0) + (audit.trailSilence || 0)
     if (audit.verdict === 'skipped' && found > 0) {
       return (
-        <Tooltip title={`${formatSeconds(found)} of silence found, none removed`}>
+        <Tooltip
+          title={`${formatSeconds(found)} of silence found, none removed`}
+        >
           <span className={classes.totalZero}>none</span>
         </Tooltip>
       )
@@ -65,8 +70,12 @@ export const TotalTrimField = ({ record }) => {
   }
 
   const detail = [
-    audit.leadTrim > 0 ? `${formatSeconds(audit.leadTrim)} from the start` : null,
-    audit.trailTrim > 0 ? `${formatSeconds(audit.trailTrim)} from the end` : null,
+    audit.leadTrim > 0
+      ? `${formatSeconds(audit.leadTrim)} from the start`
+      : null,
+    audit.trailTrim > 0
+      ? `${formatSeconds(audit.trailTrim)} from the end`
+      : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -90,7 +99,8 @@ export const SilenceFoundField = ({ record }) => {
   if (!audit) return <span className={classes.muted}>-</span>
   const lead = audit.leadSilence || 0
   const trail = audit.trailSilence || 0
-  if (lead === 0 && trail === 0) return <span className={classes.muted}>none</span>
+  if (lead === 0 && trail === 0)
+    return <span className={classes.muted}>none</span>
   return (
     <Tooltip title="Silence measured at the start and end, before the margin is kept back">
       <span className={classes.ends}>
@@ -231,7 +241,11 @@ export const DurationChangeField = ({ record }) => {
     return <span className={classes.muted}>{formatSeconds(before)}</span>
   }
   return (
-    <Tooltip title={audit.trimmedAt ? 'Actual length after trimming' : 'Length once trimmed'}>
+    <Tooltip
+      title={
+        audit.trimmedAt ? 'Actual length after trimming' : 'Length once trimmed'
+      }
+    >
       <span className={classes.ends}>
         {formatSeconds(before)}
         <span className={classes.endLabel}>→</span>
@@ -255,7 +269,8 @@ export const OnsetField = ({ record }) => {
   if (!audit) return <span className={classes.muted}>-</span>
   const lead = audit.leadOnsetGap || 0
   const trail = audit.trailOnsetGap || 0
-  if (lead === 0 && trail === 0) return <span className={classes.muted}>sharp</span>
+  if (lead === 0 && trail === 0)
+    return <span className={classes.muted}>sharp</span>
   return (
     <Tooltip title="How gradually the audio arrives at the start and end. Informational - what decides whether a song is trimmed is the measured level of the audio being removed, not this.">
       <span className={classes.ends}>
@@ -273,7 +288,8 @@ OnsetField.defaultProps = { addLabel: true }
 export const SizeChangeField = ({ record }) => {
   const classes = useStyles()
   const audit = auditOf(record)
-  if (!audit?.trimmedAt || !audit.sizeBefore) return <span className={classes.muted}>-</span>
+  if (!audit?.trimmedAt || !audit.sizeBefore)
+    return <span className={classes.muted}>-</span>
   const saved = audit.sizeBefore - audit.sizeAfter
   if (saved <= 0) return <span className={classes.muted}>-</span>
   return <Typography variant="body2">{formatBytes(saved)}</Typography>
@@ -323,7 +339,11 @@ export const GaplessField = ({ record }) => {
   if (!audit.gapless) return <span className={classes.muted}>-</span>
   return (
     <Tooltip title="This album's tracks run into one another, so trimming would close gaps that belong to the recording">
-      <Chip size="small" label="Continuous" className={`${classes.chip} ${classes.skipped}`} />
+      <Chip
+        size="small"
+        label="Continuous"
+        className={`${classes.chip} ${classes.skipped}`}
+      />
     </Tooltip>
   )
 }

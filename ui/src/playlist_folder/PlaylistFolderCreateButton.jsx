@@ -28,7 +28,12 @@ const PlaylistFolderCreateButton = ({ recordId = null }) => {
       <Button color="primary" onClick={open} startIcon={<AddIcon />}>
         {translate('ra.action.create')}
       </Button>
-      <Menu anchorEl={anchorEl} keepMounted open={Boolean(anchorEl)} onClose={close}>
+      <Menu
+        anchorEl={anchorEl}
+        keepMounted
+        open={Boolean(anchorEl)}
+        onClose={close}
+      >
         <MenuItem onClick={goFolder}>
           {translate('resources.playlist.actions.createFolder')}
         </MenuItem>

@@ -1,11 +1,7 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import PublishIcon from '@material-ui/icons/Publish'
-import {
-  Button as RaButton,
-  useTranslate,
-  useNotify,
-} from 'react-admin'
+import { Button as RaButton, useTranslate, useNotify } from 'react-admin'
 import {
   Button,
   Dialog,
@@ -106,7 +102,10 @@ const PublishPlaylistButton = ({ record }) => {
         aria-labelledby="publish-playlist-dialog"
         PaperProps={{ className: classes.dialogPaper }}
       >
-        <DialogTitle id="publish-playlist-dialog" className={classes.dialogTitle}>
+        <DialogTitle
+          id="publish-playlist-dialog"
+          className={classes.dialogTitle}
+        >
           {translate('resources.playlist.actions.publish')}
         </DialogTitle>
         <DialogContent>
