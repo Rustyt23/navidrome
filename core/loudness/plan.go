@@ -219,7 +219,25 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 	// peaks happen to sit.
 	case p.GainToTarget > maxAutomaticGainDB:
 		p.Phase = PhaseReview
-	case math.Abs(lufs-target) <= tolerance && peakWithinCeiling(truePeak, ceiling):
+	// Loudness alone decides this, and the peak is deliberately not consulted.
+	//
+	// A constant gain moves the loudness and the true peak by exactly the same
+	// amount, so the two cannot be separated: pulling a peak down to the ceiling
+	// pulls the loudness down with it, straight out of the band the client asked
+	// the song to stay in. The only alternative is a limiter, which holds the
+	// level but re-encodes the file and reshapes its transients.
+	//
+	// So "leave songs inside the tolerance alone" and "correct their peaks" are
+	// contradictory instructions, and the client chose the first: a peak a
+	// fraction of a decibel over the house ceiling is inaudible, while the
+	// loudness is what a listener hears across a shuffled library. Consulting
+	// the peak here cost a re-encode - and a generation of lossy quality - on
+	// every song that was already correct, because most commercial masters peak
+	// above the ceiling as they were mastered.
+	//
+	// The ceiling still binds every song this package actually rewrites; it is
+	// enforced in Optimize, where there is a produced file to judge.
+	case math.Abs(lufs-target) <= tolerance:
 		p.Phase = PhaseDone
 	case math.Abs(p.SafeLoudness-target) <= tolerance:
 		p.Phase = PhaseGain
@@ -227,9 +245,15 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 		// The level alone cannot get there, but the peaks only have to come
 		// down by an amount nobody can hear. Nothing is gained by asking.
 		p.Phase = PhaseTrim
-	case math.Abs(lufs-target) <= leaveAloneToleranceDB && peakWithinCeiling(truePeak, ceiling):
+	case math.Abs(lufs-target) <= leaveAloneToleranceDB:
 		// Reaching the target from here needs a decision, and the track is
 		// already close enough that the decision is not worth asking for.
+		//
+		// The peak is not consulted, for the reason given at PhaseDone above.
+		// Reaching this case at all means the peaks need a cut deeper than
+		// audibleShaveDB, which is audible - so the only thing consulting the
+		// peak here achieves is putting a song nobody can distinguish from
+		// correct in front of the client as a decision to make.
 		p.Phase = PhaseCloseEnough
 	default:
 		p.Phase = PhaseReview

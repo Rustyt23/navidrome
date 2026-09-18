@@ -10,7 +10,11 @@ import (
 	"github.com/navidrome/navidrome/core/ffmpeg"
 )
 
-func TestOptimizeRepairsAnUnsafePeakAtTargetLoudness(t *testing.T) {
+// The client's rule end to end, through real ffmpeg rather than a stub: audio
+// already at the target loudness is never opened, however far its peaks sit
+// above the ceiling. The file must come back byte for byte, with no backup
+// taken and no temporary output left behind.
+func TestOptimizeLeavesOnTargetAudioAloneDespiteUnsafePeaks(t *testing.T) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg is not installed")
 	}
@@ -34,19 +38,30 @@ func TestOptimizeRepairsAnUnsafePeakAtTargetLoudness(t *testing.T) {
 		t.Fatalf("fixture needs unsafe peaks, got %g", before.TruePeak)
 	}
 	opts.Target.IntegratedLUFS = before.LUFS
+	original := digest(t, track)
+
 	res, err := Optimize(context.Background(), n, track, DecisionPending, opts)
-	if err != nil || !res.Changed {
-		t.Fatalf("on-target audio still needs peak correction: changed=%v phase=%d rejection=%q error=%v", res.Changed, res.Phase, res.Rejected, err)
-	}
-	after, err := Measure(context.Background(), n, track, opts.Target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.TruePeak > opts.Target.TruePeak || math.Abs(after.LUFS-before.LUFS) > opts.Tolerance {
-		t.Fatalf("result misses target: LUFS %g -> %g, peak %g (ceiling %g)", before.LUFS, after.LUFS, after.TruePeak, opts.Target.TruePeak)
+	if res.Changed || res.Rejected != "" || res.Phase != PhaseDone {
+		t.Fatalf("on-target audio was opened: changed=%v phase=%d rejection=%q",
+			res.Changed, res.Phase, res.Rejected)
 	}
-	if after.Probe.Duration != before.Probe.Duration {
-		t.Fatalf("duration changed: %g -> %g", before.Probe.Duration, after.Probe.Duration)
+	if digest(t, track) != original {
+		t.Fatal("an in-band song was rewritten")
+	}
+	if res.BackupCreated {
+		t.Fatal("a backup was taken for a song that was never touched")
+	}
+	if files, _ := filepath.Glob(filepath.Join(library, ".*.lufs-*")); len(files) != 0 {
+		t.Fatalf("temporary outputs left behind: %v", files)
+	}
+	// The measurement still has to be honest about why it was left: the peaks
+	// really are over the ceiling, and the record says so.
+	if math.Abs(res.OldLUFS-before.LUFS) > 1e-9 || res.BeforeSet.TruePeak <= opts.Target.TruePeak {
+		t.Fatalf("result misreports the song: LUFS %g, peak %g (ceiling %g)",
+			res.OldLUFS, res.BeforeSet.TruePeak, opts.Target.TruePeak)
 	}
 }
 
@@ -99,12 +114,19 @@ func TestOptimizeEnforcesPeakCeilingBeforeReplacingAudio(t *testing.T) {
 		wantChanged  bool
 		wantAttempts int
 	}{
-		{"gain never accepts even 0.01 above ceiling", -18, -8, -12.6, []float64{-0.49}, false, 3},
-		{"gain overshoot is trimmed by the limiter", -18, -8, -12.6, []float64{-0.42, -0.6}, true, 2},
-		{"limiter never falls back", -12.6, 1, -12.6, []float64{-0.4, -0.2, -0.1}, false, 3},
-		{"unsafe near miss is not kept", -12.6, 1, -12.9, []float64{-0.1}, false, 3},
-		{"limiter retries until peak is safe", -12.6, 1, -12.6, []float64{-0.4, -0.6}, true, 2},
+		// -18/-8 plans as a plain gain; -14/-1 plans as a trim, so the limiter
+		// is on from the first attempt. Both are outside the tolerance, which
+		// is the only reason either file is opened at all.
 		{"gain accepts exactly the ceiling", -18, -8, -12.6, []float64{-0.5}, true, 1},
+		// Measurement noise, not a louder file: 0.05 over the ceiling still
+		// leaves the result well clear of clipping, and rebuilding it only
+		// produces another measurement equally likely to land either side.
+		{"gain accepts a peak inside the measurement tolerance", -18, -8, -12.6, []float64{-0.45}, true, 1},
+		{"gain never accepts a peak beyond the tolerance", -18, -8, -12.6, []float64{-0.3}, false, 3},
+		{"gain overshoot is trimmed by the limiter", -18, -8, -12.6, []float64{-0.3, -0.6}, true, 2},
+		{"limiter never falls back", -14, -1, -12.6, []float64{-0.3, -0.2, -0.1}, false, 3},
+		{"unsafe near miss is not kept", -14, -1, -12.9, []float64{-0.1}, false, 3},
+		{"limiter retries until peak is safe", -14, -1, -12.6, []float64{-0.3, -0.6}, true, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			library, backups := t.TempDir(), t.TempDir()
@@ -127,7 +149,7 @@ func TestOptimizeEnforcesPeakCeilingBeforeReplacingAudio(t *testing.T) {
 				t.Fatalf("changed=%v, attempts=%d, rejection=%q; want changed=%v, attempts=%d", res.Changed, res.Attempts, res.Rejected, tc.wantChanged, tc.wantAttempts)
 			}
 			if tc.wantChanged {
-				if res.AfterSet == nil || res.AfterSet.TruePeak > opts.Target.TruePeak {
+				if res.AfterSet == nil || !peakAcceptable(res.AfterSet.TruePeak, opts.Target.TruePeak) {
 					t.Fatal("accepted an unsafe result")
 				}
 				if res.Rejected != "" || digest(t, track) == original {
@@ -150,9 +172,11 @@ func TestGainToCeilingDecisionIsNeverLimited(t *testing.T) {
 	track := filepath.Join(library, "song.mp3")
 	writeQuietTestMP3(t, track, 2)
 	original := digest(t, track)
+	// The overshoot has to be beyond the measurement tolerance, or the result
+	// is simply accepted and the test proves nothing about limiting.
 	n := &peakSequenceNormalizer{
 		before: ffmpeg.LoudnessAnalysis{InputIntegrated: -18, InputTruePeak: -3},
-		after:  []ffmpeg.LoudnessAnalysis{{InputIntegrated: -15.5, InputTruePeak: -0.42}, {InputIntegrated: -15.5, InputTruePeak: -0.6}},
+		after:  []ffmpeg.LoudnessAnalysis{{InputIntegrated: -15.5, InputTruePeak: -0.2}, {InputIntegrated: -15.5, InputTruePeak: -0.6}},
 	}
 	res, err := Optimize(context.Background(), n, track, DecisionCeiling, OptimizeOptions{
 		Target:    ffmpeg.LoudnessTarget{IntegratedLUFS: -12.6, TruePeak: -0.5, LRA: 11},

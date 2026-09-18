@@ -21,7 +21,25 @@ const (
 	maxDriftCorrectionDB = 1.5
 	// peakRetryHeadroomDB is extra clearance on a retry, never acceptance slack.
 	peakRetryHeadroomDB = 0.1
+	// truePeakToleranceDB is how far over the ceiling a finished file may sit
+	// before it is rejected. Only measurement noise belongs in here.
+	//
+	// A true peak is not read off the file, it is reconstructed by oversampling
+	// the decoded signal, and encoding shifts it by a little in a direction
+	// nothing can predict. Judged to the exact decibel, a result landing a
+	// hundredth over is thrown away and rebuilt - and the rebuild lands somewhere
+	// equally arbitrary, so the usual outcome is three full encodes and then a
+	// refusal, for a file that was never wrong.
+	//
+	// 0.1 is that noise and nothing more. At the -0.5 default it means a shipped
+	// file may peak at -0.4, which is still four tenths of a decibel clear of
+	// where clipping begins, and inaudible either way.
+	truePeakToleranceDB = 0.1
 )
+
+// TruePeakToleranceDB is truePeakToleranceDB for the run filter, which judges
+// the same band in SQL.
+const TruePeakToleranceDB = truePeakToleranceDB
 
 // OptimizeOptions carries the target, the safety limits and where backups go.
 type OptimizeOptions struct {
@@ -198,7 +216,7 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 		miss := expectedLUFS - after.LUFS
 		peakOver := after.TruePeak - ceiling
 		loudnessOK := math.Abs(miss) <= opts.Tolerance
-		peakOK := peakWithinCeiling(after.TruePeak, ceiling)
+		peakOK := peakAcceptable(after.TruePeak, ceiling)
 
 		if loudnessOK && peakOK {
 			accepted = out
@@ -289,11 +307,18 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 	return res, nil
 }
 
-// peakWithinCeiling requires a finite measurement at or below the configured
-// ceiling. No fallback or measurement slack is allowed to raise this bound.
+// peakWithinCeiling requires a finite measurement at or below the ceiling it is
+// given. No fallback is allowed to raise this bound.
 func peakWithinCeiling(truePeak, ceiling float64) bool {
 	return !math.IsNaN(truePeak) && !math.IsInf(truePeak, 0) &&
 		!math.IsNaN(ceiling) && !math.IsInf(ceiling, 0) && truePeak <= ceiling
+}
+
+// peakAcceptable reports whether a produced file's measured peak may ship: the
+// configured ceiling plus truePeakToleranceDB of measurement noise, and nothing
+// else. An unmeasurable peak is never acceptable, at any bound.
+func peakAcceptable(truePeak, ceiling float64) bool {
+	return peakWithinCeiling(truePeak, ceiling+truePeakToleranceDB)
 }
 
 // mayTrimSpringBack reports whether a gain-only result whose peaks landed over

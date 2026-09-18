@@ -16,18 +16,23 @@ describe('finished LUFS job', () => {
     )
   })
 
-  it('reports both record-save errors and rejected candidates', () => {
+  // The raw error text is not shown to the client. It is ffmpeg's own output,
+  // which carries hundreds of progress lines around a few words of message, and
+  // it stays on screen until the next run starts. It is still recorded in the
+  // server log, which is where it is read.
+  it('does not put the raw job error on the page', () => {
     render(
       <JobProgress
         label="Optimising"
         status={{
           running: false,
           rejected: 1,
-          error: 'Could not save LUFS records',
+          error: 'analyzing loudness: signal: killed: Input #0, mp3, from ...',
         }}
       />,
     )
-    expect(screen.getAllByRole('alert')).toHaveLength(2)
-    expect(screen.getByText('Could not save LUFS records')).toBeInTheDocument()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert')).toHaveTextContent('1 rejected')
+    expect(screen.queryByText(/signal: killed/)).not.toBeInTheDocument()
   })
 })

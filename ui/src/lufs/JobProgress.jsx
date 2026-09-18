@@ -39,11 +39,6 @@ export const JobProgress = ({ label, status, detail }) => {
   if (!status?.running) {
     return (
       <>
-        {status?.error && (
-          <Typography role="alert" color="error">
-            {status.error}
-          </Typography>
-        )}
         {!!status?.rejected && (
           <Typography role="alert" color="error">
             {`${status.rejected} rejected; working audio unchanged. Review the LUFS exceptions for details.`}
@@ -77,11 +72,6 @@ export const JobProgress = ({ label, status, detail }) => {
   return (
     <Tooltip title={remaining || ''}>
       <div className={classes.root}>
-        {status.error && (
-          <Typography role="alert" color="error">
-            {status.error}
-          </Typography>
-        )}
         <div className={classes.line}>
           <Typography variant="caption" color="textSecondary">
             {text}

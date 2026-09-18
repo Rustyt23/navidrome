@@ -123,23 +123,43 @@ var _ = Describe("loudnessRunFilter", func() {
 			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("done"))
 		})
 
-		It("revisits completed tracks with unsafe or unknown current peaks", func() {
+		// A finished song stays finished, whatever its peaks measure. The peak
+		// is not part of this judgement, for the same reason it is not part of
+		// PlanFor's: gain moves the peak and the loudness together, so a song
+		// cannot have its peak corrected and stay inside the tolerance. Peaks
+		// above the ceiling are ordinary in commercial masters, so requiring a
+		// safe one here re-selected a large part of the library on every sweep
+		// and rebuilt it, for ever, to reach the same conclusion each time.
+		It("leaves completed tracks alone whatever their peaks measure", func() {
 			for _, phase := range []int{loudness.PhaseDone, loudness.PhaseCloseEnough} {
-				for _, peak := range []any{nil, -0.49, 1.0} {
+				for _, peak := range []any{nil, -2.0, -0.49, 0.0, 1.0} {
 					_, err := db.Exec("update media_file_loudness set phase = ?, tp_before = ?, tp_after = null where media_file_id = 'done'", phase, peak)
 					Expect(err).ToNot(HaveOccurred())
-					Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("done"))
+					Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("done"))
 				}
 			}
 		})
 
-		It("uses the processed peak instead of the original peak", func() {
-			_, err := db.Exec("update media_file_loudness set tp_before = -2, tp_after = -0.1 where media_file_id = 'done'")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("done"))
-			_, err = db.Exec("update media_file_loudness set tp_before = 1, tp_after = -0.5 where media_file_id = 'done'")
+		// A rewritten song is recognised as finished by the same bound Optimize
+		// accepted it against. Judged against the bare ceiling instead, a result
+		// that landed inside the measurement tolerance reads as unfinished and
+		// is rebuilt on the next sweep - to produce another file the same
+		// tolerance accepts, and another codec generation, every run.
+		It("treats a result inside the measurement tolerance as finished", func() {
+			_, err := db.Exec(`update media_file_loudness
+				set phase = 1, lufs_before = -15.2, tp_before = -3,
+				    lufs_after = -12.6, tp_after = ? where media_file_id = 'done'`,
+				conf.Server.Scanner.LoudnessNormalization.TruePeak+loudness.TruePeakToleranceDB)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("done"))
+		})
+
+		It("still opens a rewritten track whose peak is beyond that tolerance", func() {
+			_, err := db.Exec(`update media_file_loudness
+				set phase = 1, lufs_before = -15.2, tp_before = -3,
+				    lufs_after = -12.6, tp_after = -0.1 where media_file_id = 'done'`)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("done"))
 		})
 
 		It("still opens an on-target track that was never measured", func() {
@@ -206,7 +226,7 @@ var _ = Describe("loudnessRunFilter", func() {
 		It("still applies decisions when the output needs correction", func() {
 			_, err := db.Exec("update media_file_loudness set decision = 'limit' where media_file_id = 'gain'")
 			Expect(err).ToNot(HaveOccurred())
-			for _, result := range [][2]float64{{-13.2, -1.2}, {-12.94, -0.4}} {
+			for _, result := range [][2]float64{{-13.2, -1.2}, {-12.94, -0.2}} {
 				rewrite(-16.0, -4.0, result[0], result[1])
 				Expect(selectedBy(loudness.PhaseReview)).To(ContainElement("gain"))
 			}
@@ -227,8 +247,11 @@ var _ = Describe("loudnessRunFilter", func() {
 			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("gain"))
 		})
 
-		It("is revisited when its peaks are over the ceiling", func() {
-			rewrite(-13.0, -1.09, -12.94, -0.4)
+		// Over the bound Optimize would have accepted it against, not merely
+		// over the bare ceiling - a result inside the measurement tolerance was
+		// accepted on purpose and reopening it rebuilds it for ever.
+		It("is revisited when its peaks are beyond the accepted bound", func() {
+			rewrite(-13.0, -1.09, -12.94, -0.2)
 			Expect(selectedBy(loudness.PhaseGain)).To(ContainElement("gain"))
 		})
 

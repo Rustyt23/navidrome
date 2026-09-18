@@ -462,12 +462,17 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 		// Deliberately left alone: near enough to target that correcting it is
 		// not worth what it would cost. Retrying it every sweep would spend a
 		// full encode per run to arrive at the same conclusion.
-		// Older audits called tracks done based on LUFS alone, and some were
-		// accepted against a relaxed ceiling. Revisit those on the next sweep.
-		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and coalesce(coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) <= ?, false))",
-			loudness.PhaseUnplanned, loudness.PhaseCloseEnough, conf.Server.Scanner.LoudnessNormalization.TruePeak),
-		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and media_file_loudness.lufs_before is not null and coalesce(coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) <= ?, false))",
-			loudness.PhaseUnplanned, loudness.PhaseDone, conf.Server.Scanner.LoudnessNormalization.TruePeak),
+		//
+		// Judged on loudness alone, exactly as PlanFor judges it. These two
+		// clauses briefly also required a safe peak, which un-finished every
+		// song whose master peaked above the ceiling - a normal property of
+		// commercial audio, not a defect. Those songs were re-selected on every
+		// sweep and rebuilt for ever, because nothing a rebuild can do changes
+		// the fact. The peak is enforced in Optimize, on files being written.
+		squirrel.Expr("coalesce(media_file_loudness.phase, ?) <> ?",
+			loudness.PhaseUnplanned, loudness.PhaseCloseEnough),
+		squirrel.Expr("not (coalesce(media_file_loudness.phase, ?) = ? and media_file_loudness.lufs_before is not null)",
+			loudness.PhaseUnplanned, loudness.PhaseDone),
 		// A song already rewritten that landed near enough, with safe peaks, is
 		// finished. Its phase is re-planned from the result and still says a
 		// fraction of gain remains, so every sweep used to rewrite it again - one
@@ -490,6 +495,12 @@ func loudnessRunFilter(phase int, ids []string) squirrel.Sqlizer {
 
 // Shared by ordinary sweeps and Apply decisions. Explicitly selected IDs bypass
 // this guard so the client can still request a retry of an accepted near miss.
+//
+// The peak bound is the one Optimize accepts against - the ceiling plus its
+// measurement tolerance - and not the bare ceiling. A song accepted at a peak
+// inside that tolerance is finished; judged against the bare ceiling it reads
+// as unfinished on the next sweep and is rebuilt again, every run, to produce
+// another file the same tolerance accepts.
 func loudnessNotAlreadyNearTarget() squirrel.Sqlizer {
 	return squirrel.Expr(`not (
 		media_file_loudness.lufs_after is not null and media_file_loudness.tp_after is not null
@@ -498,5 +509,6 @@ func loudnessNotAlreadyNearTarget() squirrel.Sqlizer {
 		and (abs(media_file_loudness.lufs_after - coalesce(media_file_loudness.lufs_before, media_file_loudness.lufs_after)) >= ?
 			or abs(media_file_loudness.tp_after - coalesce(media_file_loudness.tp_before, media_file_loudness.tp_after)) >= ?))`,
 		conf.Server.Scanner.LoudnessNormalization.TargetLUFS, loudness.LeaveAloneToleranceDB,
-		conf.Server.Scanner.LoudnessNormalization.TruePeak, rewrittenByDB, rewrittenByDB)
+		conf.Server.Scanner.LoudnessNormalization.TruePeak+loudness.TruePeakToleranceDB,
+		rewrittenByDB, rewrittenByDB)
 }

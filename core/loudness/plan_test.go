@@ -25,7 +25,10 @@ func TestGainToCeilingPreviewContract(t *testing.T) {
 		{"turn up with headroom", -16.56, -1.25, 0.2, 0.6, -15.96, true},
 		{"already within configured tolerance", -12.9, -2, 0.4, 0, 0, false},
 		{"tiny adjustment", -14, -0.6, 0.2, 0, 0, false},
-		{"on target but unsafe peaks", -12.6, 0.2, 0.2, -0.85, -13.45, true},
+		// In band, so it is finished and no decision reopens it. Turning the
+		// peaks down here would carry the loudness down with them, out of the
+		// band the client asked this song to stay in.
+		{"on target, unsafe peaks", -12.6, 0.2, 0.2, 0, 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			plan := PlanFor(tc.lufs, tc.peak, -12.6, -0.5, tc.tolerance, 320)
@@ -395,26 +398,52 @@ func TestPeakOvershootIsDecidedByDynamicsAlone(t *testing.T) {
 	}
 }
 
-// Near-target loudness never excuses unsafe peaks, including the wider band.
-func TestNearTargetTracksStillRequirePeakSafety(t *testing.T) {
-	for _, lufs := range []float64{-12.6, -12.7, -12.9, -13.05} {
-		for _, peak := range []float64{-0.49, 0.1, 1, 4} {
+// The client's rule, and the one this page is measured against: a song already
+// inside the tolerance is left alone, whatever its peaks are doing.
+//
+// A constant gain moves loudness and true peak by the same amount, so the two
+// cannot be corrected independently - pulling a peak down to the ceiling pulls
+// the loudness out of the band the client asked the song to stay in. Peaks
+// above the ceiling are how a great deal of commercial music is mastered, not
+// a defect, so consulting the peak here un-finished a large part of the library
+// at once: each song was re-encoded to move its level by a hundredth of a
+// decibel, and the ones whose rebuild missed the ceiling were then shown to the
+// client as exceptions. On 90,000 songs that is hours per sweep, every sweep,
+// and a generation of lossy quality spent on songs that were already correct.
+func TestPlanLeavesInBandTracksAloneWhateverTheirPeaks(t *testing.T) {
+	// Well inside +/-0.2 of -12.6, with peaks from just over the -0.5 ceiling
+	// to well past where clipping begins.
+	for _, lufs := range []float64{-12.6, -12.41, -12.79, -12.61, -12.59} {
+		for _, peak := range []float64{-0.49, -0.2, 0, 0.1, 1, 4} {
 			p := PlanFor(lufs, peak, -12.6, -0.5, 0.2, 320)
-			if p.Phase == PhaseDone || p.Phase == PhaseCloseEnough {
-				t.Errorf("%g LUFS, %g dBTP was incorrectly marked complete: phase %d", lufs, peak, p.Phase)
+			if p.Phase != PhaseDone {
+				t.Errorf("%g LUFS, %g dBTP: phase %d, want %d - in band, must not be opened",
+					lufs, peak, p.Phase, PhaseDone)
 			}
-			if _, _, ok := SpecFor(p, DecisionLimit, &ffmpeg.FileProbe{}, -12.6, -0.5); !ok {
-				t.Errorf("explicit peak correction was ignored at %g LUFS, %g dBTP", lufs, peak)
+			// And nothing downstream may rewrite it either. A decision is a
+			// person overruling how a song is corrected, not whether a song
+			// that needs no correction gets re-encoded anyway.
+			for _, decision := range []string{DecisionPending, DecisionLimit, DecisionCeiling} {
+				if _, _, ok := SpecFor(p, decision, &ffmpeg.FileProbe{}, -12.6, -0.5); ok {
+					t.Errorf("%g LUFS, %g dBTP: decision %q produced a transform for an in-band song",
+						lufs, peak, decision)
+				}
 			}
 		}
 	}
-	p := PlanFor(-12.6, 1, -12.6, -0.5, 0.2, 320)
-	spec, _, ok := SpecFor(p, DecisionPending, &ffmpeg.FileProbe{}, -12.6, -0.5)
-	if !ok || !spec.LimitTruePeak {
-		t.Fatal("moderate unsafe peak at target should automatically reach the limiter")
-	}
-	if p := PlanFor(-12.6, -0.5, -12.6, -0.5, 0.2, 320); p.Phase != PhaseDone {
-		t.Errorf("safe on-target track should be left unchanged, phase %d", p.Phase)
+}
+
+// The wider leave-alone band answers to loudness only for the same reason.
+// Reaching it at all means the peaks need a cut deeper than audibleShaveDB,
+// which is audible - so consulting the peak here only ever moved a song nobody
+// can tell from correct onto the client's exceptions page.
+func TestCloseEnoughBandIgnoresPeaksToo(t *testing.T) {
+	for _, lufs := range []float64{-12.9, -13.05} {
+		for _, peak := range []float64{4, 6} {
+			if p := PlanFor(lufs, peak, -12.6, -0.5, 0.2, 320); p.Phase != PhaseCloseEnough {
+				t.Errorf("%g LUFS, %g dBTP: phase %d, want %d", lufs, peak, p.Phase, PhaseCloseEnough)
+			}
+		}
 	}
 }
 
