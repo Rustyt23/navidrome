@@ -508,7 +508,7 @@ func loudnessNotAlreadyNearTarget() squirrel.Sqlizer {
 		and media_file_loudness.tp_after <= ?
 		and (abs(media_file_loudness.lufs_after - coalesce(media_file_loudness.lufs_before, media_file_loudness.lufs_after)) >= ?
 			or abs(media_file_loudness.tp_after - coalesce(media_file_loudness.tp_before, media_file_loudness.tp_after)) >= ?))`,
-		conf.Server.Scanner.LoudnessNormalization.TargetLUFS, loudness.LeaveAloneToleranceDB,
-		conf.Server.Scanner.LoudnessNormalization.TruePeak+loudness.TruePeakToleranceDB,
+		conf.Server.Scanner.LoudnessNormalization.TargetLUFS, loudness.LeaveAloneToleranceDB+model.LoudnessComparisonEpsilon,
+		model.LoudnessShippingCeiling(conf.Server.Scanner.LoudnessNormalization.TruePeak),
 		rewrittenByDB, rewrittenByDB)
 }

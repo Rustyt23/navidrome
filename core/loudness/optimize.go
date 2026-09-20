@@ -9,6 +9,7 @@ import (
 
 	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/filelock"
 )
 
@@ -21,25 +22,7 @@ const (
 	maxDriftCorrectionDB = 1.5
 	// peakRetryHeadroomDB is extra clearance on a retry, never acceptance slack.
 	peakRetryHeadroomDB = 0.1
-	// truePeakToleranceDB is how far over the ceiling a finished file may sit
-	// before it is rejected. Only measurement noise belongs in here.
-	//
-	// A true peak is not read off the file, it is reconstructed by oversampling
-	// the decoded signal, and encoding shifts it by a little in a direction
-	// nothing can predict. Judged to the exact decibel, a result landing a
-	// hundredth over is thrown away and rebuilt - and the rebuild lands somewhere
-	// equally arbitrary, so the usual outcome is three full encodes and then a
-	// refusal, for a file that was never wrong.
-	//
-	// 0.1 is that noise and nothing more. At the -0.5 default it means a shipped
-	// file may peak at -0.4, which is still four tenths of a decibel clear of
-	// where clipping begins, and inaudible either way.
-	truePeakToleranceDB = 0.1
 )
-
-// TruePeakToleranceDB is truePeakToleranceDB for the run filter, which judges
-// the same band in SQL.
-const TruePeakToleranceDB = truePeakToleranceDB
 
 // OptimizeOptions carries the target, the safety limits and where backups go.
 type OptimizeOptions struct {
@@ -159,7 +142,7 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 	}()
 	keepAsNearMiss := func(path string, after *Measurement, gain float64) bool {
 		offBy := math.Abs(after.LUFS - opts.Target.IntegratedLUFS)
-		if offBy > leaveAloneToleranceDB {
+		if !withinLoudnessTolerance(after.LUFS, opts.Target.IntegratedLUFS, leaveAloneToleranceDB) {
 			return false
 		}
 		// Closest to target wins, so extra attempts can only improve on it.
@@ -215,7 +198,7 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 		// -12.6 by pushing peaks past the limit is not what was asked for.
 		miss := expectedLUFS - after.LUFS
 		peakOver := after.TruePeak - ceiling
-		loudnessOK := math.Abs(miss) <= opts.Tolerance
+		loudnessOK := withinLoudnessTolerance(after.LUFS, expectedLUFS, opts.Tolerance)
 		peakOK := peakAcceptable(after.TruePeak, ceiling)
 
 		if loudnessOK && peakOK {
@@ -314,11 +297,16 @@ func peakWithinCeiling(truePeak, ceiling float64) bool {
 		!math.IsNaN(ceiling) && !math.IsInf(ceiling, 0) && truePeak <= ceiling
 }
 
-// peakAcceptable reports whether a produced file's measured peak may ship: the
-// configured ceiling plus truePeakToleranceDB of measurement noise, and nothing
-// else. An unmeasurable peak is never acceptable, at any bound.
+// peakAcceptable reports whether a produced file's measured peak may ship.
+//
+// The bound is model.LoudnessShippingCeiling and is not restated here. Every
+// other layer that judges a finished peak - the exceptions list, the on-target
+// count, the verdicts on both pages - reads that same function, so a file this
+// accepts can never be called unsafe by the page that displays it.
+//
+// An unmeasurable peak is never acceptable, at any bound.
 func peakAcceptable(truePeak, ceiling float64) bool {
-	return peakWithinCeiling(truePeak, ceiling+truePeakToleranceDB)
+	return peakWithinCeiling(truePeak, model.LoudnessShippingCeiling(ceiling))
 }
 
 // mayTrimSpringBack reports whether a gain-only result whose peaks landed over

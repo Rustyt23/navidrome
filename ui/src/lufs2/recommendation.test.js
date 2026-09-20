@@ -54,7 +54,7 @@ describe('optionsFor', () => {
     expect(o[DECISION_CEILING].cost).toContain('unsafe output is rejected')
   })
 
-  it('leaves safe songs within the configured tolerance unchanged', () => {
+  it('leaves songs within the configured tolerance unchanged regardless of peak', () => {
     const rec = recommendationFor(
       {
         loudnessAudit: { lufsBefore: -12.9, tpBefore: -2, bitrateBefore: 320 },
@@ -63,7 +63,7 @@ describe('optionsFor', () => {
     )
     expect(optionsFor(rec)[DECISION_CEILING].lands).toBe('-12.90 LUFS')
     expect(optionsFor(rec)[DECISION_CEILING].short).toContain('no change')
-    expect(song(-12.6, 0.2)[DECISION_CEILING].short).toContain('quieter')
+    expect(song(-12.6, 0.2)[DECISION_CEILING].short).toContain('no change')
   })
 
   it('shows no change for a volume adjustment smaller than the server minimum', () => {
@@ -97,6 +97,46 @@ describe('optionsFor', () => {
     ]) {
       expect(JSON.stringify(o)).not.toMatch(/[+][\d]/)
     }
+  })
+})
+
+describe('inclusive loudness tolerance', () => {
+  it.each([-12.8, -12.79, -12.6, -12.41, -12.4])(
+    'leaves %s LUFS alone with either safe or high peaks',
+    (lufs) => {
+      for (const peak of [-3, 0.2]) {
+        const rec = recommendationFor(
+          {
+            loudnessAudit: {
+              lufsBefore: lufs,
+              tpBefore: peak,
+              bitrateBefore: 320,
+            },
+          },
+          settings,
+        )
+        expect(rec.alreadyDone).toBe(true)
+        expect(rec.suggested).toBe(DECISION_SKIP)
+        expect(rec.best.worthDoing).toBe(false)
+        for (const option of Object.values(optionsFor(rec))) {
+          expect(option.short).toContain('no change')
+          expect(option.lands).toBe(`${lufs.toFixed(2)} LUFS`)
+          expect(option.sole).toContain('peaks unchanged')
+        }
+      }
+    },
+  )
+
+  it.each([-12.81, -12.39])('keeps %s LUFS eligible for processing', (lufs) => {
+    const rec = recommendationFor(
+      {
+        loudnessAudit: { lufsBefore: lufs, tpBefore: 0.2, bitrateBefore: 320 },
+      },
+      settings,
+    )
+    expect(rec.alreadyDone).toBe(false)
+    expect(optionsFor(rec)[DECISION_LIMIT].short).not.toContain('no change')
+    expect(optionsFor(rec)[DECISION_CEILING].short).toContain('quieter')
   })
 })
 

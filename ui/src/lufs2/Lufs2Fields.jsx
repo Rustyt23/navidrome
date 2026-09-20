@@ -14,6 +14,7 @@ import {
 } from './recommendation'
 import { reasonFor } from './reason'
 import { currentMeasurement } from '../lufs/currentMeasurement'
+import { peakAcceptable, withinLoudnessTolerance } from '../lufs/tolerance'
 
 const useStyles = makeStyles((theme) => ({
   muted: { color: theme.palette.text.secondary },
@@ -110,11 +111,14 @@ export const OptionLimitField = (props) => {
   const record = useRecordContext(props)
   const rec = recommendationFor(record, props.settings)
   if (!rec) return <span className={classes.muted}>-</span>
+  const option = optionsFor(rec)[DECISION_LIMIT]
   return (
     <span className={classes.nowrap}>
-      <span className={classes.ok}>{`${fmtLufs(rec.target)} LUFS`}</span>
+      <span className={classes.ok}>{option.lands}</span>
       <span className={`${classes.sub} ${classes.warn}`}>
-        {`${fmtDb(rec.peakOverBy)} dB of limiting`}
+        {rec.alreadyDone
+          ? option.short
+          : `${fmtDb(rec.peakOverBy)} dB of limiting`}
       </span>
     </span>
   )
@@ -261,18 +265,22 @@ export const BestWithoutDistortionField = (props) => {
       ? classes.warn
       : classes.muted
 
-  const note = best.onTarget
-    ? 'reaches the target with volume alone'
-    : best.worthDoing
-      ? `${fmtDb(best.gains)} dB closer than it is now`
-      : 'no closer than leaving it alone'
+  const note = rec.alreadyDone
+    ? 'already within loudness tolerance; no change'
+    : best.onTarget
+      ? 'reaches the target with volume alone'
+      : best.worthDoing
+        ? `${fmtDb(best.gains)} dB closer than it is now`
+        : 'no closer than leaving it alone'
 
   return (
     <Tooltip
       title={
-        best.estimated
-          ? 'Estimated. Rewriting a low-bitrate file costs loudness and can lift its peaks unpredictably, so the real result may fall a little short.'
-          : 'On a source this clean the peak follows the gain exactly, so this is what it will do.'
+        rec.alreadyDone
+          ? 'The server leaves this song unchanged because its loudness is already within tolerance.'
+          : best.estimated
+            ? 'Estimated. Rewriting a low-bitrate file costs loudness and can lift its peaks unpredictably, so the real result may fall a little short.'
+            : 'On a source this clean the peak follows the gain exactly, so this is what it will do.'
       }
     >
       <span className={classes.nowrap}>
@@ -390,8 +398,9 @@ export const DecisionField = (props) => {
     const target = rec?.target ?? -12.6
     const tolerance = props.settings?.tolerance ?? 0.2
     const { peak } = currentMeasurement(a)
-    const peakOK = peak !== null && peak <= (props.settings?.truePeak ?? -0.5)
-    const onTarget = Math.abs(applied - target) <= tolerance && peakOK
+    const peakOK = peakAcceptable(peak, props.settings?.truePeak ?? -0.5)
+    const onTarget =
+      withinLoudnessTolerance(applied, target, tolerance) && peakOK
     return (
       <span className={classes.cell}>
         <span className={classes.nowrap}>

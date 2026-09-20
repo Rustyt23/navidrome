@@ -12,6 +12,7 @@
 // with it.
 
 import { currentMeasurement, measuredNumber } from './currentMeasurement'
+import { peakAcceptable, withinLoudnessTolerance } from './tolerance'
 
 export const OUTCOME_ON_TARGET = 'on_target'
 export const OUTCOME_SHORT_BY_CHOICE = 'short_by_choice'
@@ -36,17 +37,37 @@ const LEVEL_TWO_TOLERANCE = 0.5
 // has to do something about. Peaks over the ceiling count once the engine has
 // had its go - a rewritten file still over, or a refusal left over - but not
 // on a song that has only been measured, which the next run will handle.
-export const isException = (audit, offBy, truePeak = -0.5) => {
+export const isException = (audit, offBy, truePeak = -0.5, tolerance = 0.2) => {
+  // Judged against the bound the engine ships at, not the bare ceiling, so a
+  // file accepted inside the measurement tolerance is not then listed as one
+  // needing a decision. Mirrors loudnessExceptionFilter.
   const rewrittenPeak = measuredNumber(audit.tpAfter)
-  if (rewrittenPeak !== null && rewrittenPeak > truePeak) return true
-  const { peak } = currentMeasurement(audit)
-  if (audit.action === 'refused' && peak !== null && peak > truePeak)
+  if (rewrittenPeak !== null && !peakAcceptable(rewrittenPeak, truePeak))
     return true
+  const { peak } = currentMeasurement(audit)
+  if (
+    audit.action === 'refused' &&
+    peak !== null &&
+    !peakAcceptable(peak, truePeak)
+  )
+    return true
+  // wasException is history - "a person once had to look at this" - and the
+  // column is a one-way latch that nothing lowers. Honoured only while the song
+  // still needs something, or every song the old peak rule wrongly listed stays
+  // listed for ever. Mirrors loudnessExceptionFilter.
+  //
+  // offBy is already the distance from target, so the loudness half is read
+  // from it rather than from a target this function is not given.
+  const stillNeedsSomething = !(
+    withinLoudnessTolerance(offBy, 0, tolerance) &&
+    peakAcceptable(peak, truePeak)
+  )
   return (
     audit.phase !== PHASE_CLOSE_ENOUGH &&
-    (!!audit.wasException ||
+    ((!!audit.wasException && stillNeedsSomething) ||
       audit.phase === 2 ||
-      (audit.action === 'refused' && offBy > LEVEL_TWO_TOLERANCE) ||
+      (audit.action === 'refused' &&
+        !withinLoudnessTolerance(offBy, 0, LEVEL_TWO_TOLERANCE)) ||
       !!audit.decision)
   )
 }
@@ -63,12 +84,16 @@ export const isLevelTwo = (audit, settings) => {
   const target = settings?.targetLUFS ?? -12.6
   const tolerance = settings?.tolerance ?? 0.2
   const { lufs: now, peak } = currentMeasurement(audit)
-  if (now === null || peak === null || peak > (settings?.truePeak ?? -0.5))
+  if (now === null || !peakAcceptable(peak, settings?.truePeak ?? -0.5))
     return false
 
   const offBy = Math.abs(now - target)
-  if (offBy <= tolerance || offBy > LEVEL_TWO_TOLERANCE) return false
-  return !isException(audit, offBy, settings?.truePeak)
+  if (
+    withinLoudnessTolerance(now, target, tolerance) ||
+    !withinLoudnessTolerance(now, target, LEVEL_TWO_TOLERANCE)
+  )
+    return false
+  return !isException(audit, offBy, settings?.truePeak, tolerance)
 }
 
 // outcomeFor reports where a song ended up relative to the target.
@@ -95,7 +120,7 @@ export const outcomeFor = (record, settings) => {
 
   const base = { offBy, now }
 
-  if (peak === null || peak > (settings?.truePeak ?? -0.5)) {
+  if (!peakAcceptable(peak, settings?.truePeak ?? -0.5)) {
     return {
       ...base,
       id: OUTCOME_NOT_ATTEMPTED,
@@ -107,7 +132,7 @@ export const outcomeFor = (record, settings) => {
     }
   }
 
-  if (offBy <= tolerance) {
+  if (withinLoudnessTolerance(now, target, tolerance)) {
     return { ...base, id: OUTCOME_ON_TARGET, tone: 'good', detail }
   }
   if (isLevelTwo(a, settings)) {

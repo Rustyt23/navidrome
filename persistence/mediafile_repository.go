@@ -309,9 +309,9 @@ func LoudnessLevelTwoFilter() Sqlizer {
 	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
 	withinBand := Expr(
 		fmt.Sprintf("%s is not null and abs(%s - ?) <= ?", measured, measured),
-		options.TargetLUFS, loudnessLeaveAloneToleranceDB)
+		options.TargetLUFS, loudnessLeaveAloneToleranceDB+model.LoudnessComparisonEpsilon)
 	outsideOrdinary := Expr(
-		fmt.Sprintf("abs(%s - ?) > ?", measured), options.TargetLUFS, tolerance)
+		fmt.Sprintf("abs(%s - ?) > ?", measured), options.TargetLUFS, tolerance+model.LoudnessComparisonEpsilon)
 
 	// Defined as the complement of the exceptions list rather than by
 	// enumerating the ways a track gets here. There turned out to be a third:
@@ -330,9 +330,33 @@ func LoudnessLevelTwoFilter() Sqlizer {
 	return And{withinBand, outsideOrdinary, loudnessPeakSafeFilter(), Expr("not ("+sql+")", args...)}
 }
 
+// The bound is the one the engine ships against, not the bare ceiling. A file
+// accepted at a peak inside the measurement tolerance is finished; judged here
+// against the ceiling alone it was dropped from the on-target count and listed
+// as an exception, so a song the engine had corrected exactly was shown to the
+// client as one still needing a decision.
+// loudnessNotCurrentlyFinished is true of a song that still needs something
+// done to it: never measured, outside the loudness tolerance, or carrying a
+// peak the engine would not ship.
+//
+// Judged from whatever the song measures now - the after snapshot once it has
+// been rewritten, the before one while it has only been measured - so it says
+// where the song stands today rather than what was once true of it.
+func loudnessNotCurrentlyFinished() Sqlizer {
+	options := conf.Server.Scanner.LoudnessNormalization
+	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
+	peak := "coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before)"
+	return Expr(fmt.Sprintf(
+		"not (%s is not null and abs(%s - ?) <= ? and %s is not null and %s <= ?)",
+		measured, measured, peak, peak),
+		options.TargetLUFS,
+		effectiveLoudnessTolerance(options.Tolerance)+model.LoudnessComparisonEpsilon,
+		model.LoudnessShippingCeiling(options.TruePeak))
+}
+
 func loudnessPeakSafeFilter() Sqlizer {
 	return Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) <= ?",
-		conf.Server.Scanner.LoudnessNormalization.TruePeak)
+		model.LoudnessShippingCeiling(conf.Server.Scanner.LoudnessNormalization.TruePeak))
 }
 
 func loudnessExceptionFilter(_ string, _ any) Sqlizer {
@@ -347,7 +371,7 @@ func loudnessExceptionFilter(_ string, _ any) Sqlizer {
 	// had been refused - after Analyse, most of a library.
 	worthListing := Expr(
 		fmt.Sprintf("(%s is null or abs(%s - ?) > ?)", measured, measured),
-		options.TargetLUFS, loudnessLeaveAloneToleranceDB)
+		options.TargetLUFS, loudnessLeaveAloneToleranceDB+model.LoudnessComparisonEpsilon)
 
 	return Or{
 		// A peak over the ceiling needs a person only once the engine has had
@@ -357,16 +381,44 @@ func loudnessExceptionFilter(_ string, _ any) Sqlizer {
 		// clips. A song that has only been measured is not an exception yet.
 		// Most commercial masters peak above the ceiling, so listing them between
 		// Analyse and Optimise filled the page with songs the next run would fix.
-		Expr("media_file_loudness.tp_after > ?", options.TruePeak),
+		//
+		// Both bounds are the shipping ceiling rather than the configured one,
+		// for the reason given on loudnessPeakSafeFilter: a peak inside the
+		// measurement tolerance is one the engine accepted on purpose, and
+		// listing it here contradicts the decision that produced the file.
+		Expr("media_file_loudness.tp_after > ?", model.LoudnessShippingCeiling(options.TruePeak)),
 		And{
 			Eq{"media_file_loudness.action": model.LoudnessActionRefused},
-			Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) > ?", options.TruePeak),
+			Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) > ?",
+				model.LoudnessShippingCeiling(options.TruePeak)),
 		},
 		And{
 			// Never list a track the engine deliberately left alone.
 			NotEq{"media_file_loudness.phase": loudnessPhaseCloseEnough},
 			Or{
-				Eq{"media_file_loudness.was_exception": true},
+				// was_exception records HISTORY - "a person once had to look at
+				// this" - and is deliberately a one-way latch: nothing in the
+				// application lowers it, by design, so the record of what needed
+				// attention survives a later fix.
+				//
+				// Reading a historical mark as a current state is what put
+				// finished songs on this page for ever. Every song the earlier
+				// peak rule wrongly listed was latched on the way past, and no
+				// correction to the rules could release it: re-analysing writes
+				// a record that is not an exception, which Put then declines to
+				// write over the latch.
+				//
+				// So the latch is honoured only while the song still needs
+				// something. A song now inside the tolerance with a peak the
+				// engine would ship is finished, whatever its history, and the
+				// mark stays in the column for the record without dragging the
+				// song back onto the page. The other two arms below are current
+				// state already - the planner's verdict, and a decision waiting
+				// to be applied - so neither needs this guard.
+				And{
+					Eq{"media_file_loudness.was_exception": true},
+					loudnessNotCurrentlyFinished(),
+				},
 				Eq{"media_file_loudness.phase": model.LoudnessPhaseReview},
 				And{Eq{"media_file_loudness.action": model.LoudnessActionRefused}, worthListing},
 				NotEq{"media_file_loudness.decision": ""},
@@ -395,10 +447,10 @@ func loudnessOutcomeFilter(_ string, value any) Sqlizer {
 		switch one {
 		case "on_target":
 			return And{loudnessPeakSafeFilter(), Expr(fmt.Sprintf("%s is not null and abs(%s - ?) <= ?", measured, measured),
-				options.TargetLUFS, tolerance)}
+				options.TargetLUFS, tolerance+model.LoudnessComparisonEpsilon)}
 		case "short":
 			return Expr(fmt.Sprintf("%s is not null and abs(%s - ?) > ?", measured, measured),
-				options.TargetLUFS, tolerance)
+				options.TargetLUFS, tolerance+model.LoudnessComparisonEpsilon)
 		case "not_measured":
 			return Expr(fmt.Sprintf("%s is null", measured))
 		}

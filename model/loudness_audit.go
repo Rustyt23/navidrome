@@ -56,6 +56,38 @@ const (
 // cannot be imported back. core/loudness asserts the two stay equal.
 const LoudnessPhaseReview = 2
 
+// LoudnessComparisonEpsilon absorbs floating-point subtraction error at an
+// inclusive LUFS boundary, e.g. abs(-12.8 - -12.6) > 0.2. This is numerical
+// precision only, not extra measurement tolerance or true-peak headroom.
+const LoudnessComparisonEpsilon = 1e-9
+
+// LoudnessTruePeakToleranceDB is how far above the configured ceiling a
+// finished file may measure and still be correct.
+//
+// A true peak is not read from the file, it is reconstructed by oversampling
+// the decoded signal, and encoding shifts it by a little in a direction nothing
+// can predict. Judged to the exact decibel, a result landing a hundredth over
+// is thrown away and rebuilt into another equally arbitrary measurement.
+//
+// 0.1 is that noise and nothing else. At the -0.5 default a shipped file may
+// reach -0.4, still four tenths of a decibel clear of where clipping starts.
+const LoudnessTruePeakToleranceDB = 0.1
+
+// LoudnessShippingCeiling is the highest true peak a finished file may carry.
+//
+// It lives here, alone, because every layer has to agree about it: the engine
+// that accepts a produced file, the SQL that lists exceptions and counts what
+// is on target, and the pages that report a verdict. Written down separately
+// they drift, and the drift is not visible as a bug - it is a song the engine
+// finished perfectly being shown to the client as one that needs a decision.
+// That is exactly what happened when the tolerance above was added in one
+// place and nowhere else.
+//
+// The UI mirrors this in ui/src/lufs/tolerance.js, which cannot import Go.
+func LoudnessShippingCeiling(ceiling float64) float64 {
+	return ceiling + LoudnessTruePeakToleranceDB
+}
+
 // IsException reports whether this record describes a track that needed a human
 // to look at it. It is the condition that raises WasException; the stored latch
 // is what keeps the answer true afterwards.

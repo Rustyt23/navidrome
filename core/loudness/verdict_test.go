@@ -188,12 +188,12 @@ func TestConfiguredPeakCeilingIsAHardBound(t *testing.T) {
 // arrive back where it started. It is not permission to ship a louder file.
 func TestPeakAcceptanceAllowsMeasurementNoiseAndNothingElse(t *testing.T) {
 	for _, ceiling := range []float64{-3, -1.5, -0.5} {
-		for _, peak := range []float64{ceiling - 1, ceiling, ceiling + truePeakToleranceDB/2, ceiling + truePeakToleranceDB} {
+		for _, peak := range []float64{ceiling - 1, ceiling, ceiling + model.LoudnessTruePeakToleranceDB/2, ceiling + model.LoudnessTruePeakToleranceDB} {
 			if !peakAcceptable(peak, ceiling) {
 				t.Errorf("peak %g should ship against ceiling %g", peak, ceiling)
 			}
 		}
-		for _, peak := range []float64{ceiling + truePeakToleranceDB + 0.05, ceiling + 1, 0, 1,
+		for _, peak := range []float64{ceiling + model.LoudnessTruePeakToleranceDB + 0.05, ceiling + 1, 0, 1,
 			math.NaN(), math.Inf(1), math.Inf(-1)} {
 			if peakAcceptable(peak, ceiling) {
 				t.Errorf("accepted peak %g above/invalid for ceiling %g", peak, ceiling)
@@ -203,9 +203,9 @@ func TestPeakAcceptanceAllowsMeasurementNoiseAndNothingElse(t *testing.T) {
 
 	// The property that actually matters: whatever the tolerance is set to, it
 	// must never carry a shipped file up to where clipping begins.
-	if truePeakToleranceDB >= -conf.DefaultLoudnessNormalizationTruePeak {
+	if model.LoudnessTruePeakToleranceDB >= -conf.DefaultLoudnessNormalizationTruePeak {
 		t.Fatalf("a tolerance of %.2f reaches 0 dBTP from the %.2f default ceiling",
-			truePeakToleranceDB, conf.DefaultLoudnessNormalizationTruePeak)
+			model.LoudnessTruePeakToleranceDB, conf.DefaultLoudnessNormalizationTruePeak)
 	}
 }
 

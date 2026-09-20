@@ -4,6 +4,7 @@
 // the audio - and if not, precisely what each option would cost.
 
 import { currentMeasurement } from '../lufs/currentMeasurement'
+import { withinLoudnessTolerance } from '../lufs/tolerance'
 
 export const DECISION_PENDING = ''
 export const DECISION_LIMIT = 'limit'
@@ -77,7 +78,14 @@ const peakSpringBack = (bitRate) => {
 // The result is an estimate. It is exact on a clean source, where the peak
 // follows the gain to within a couple of hundredths. On a degraded one the peak
 // can jump unpredictably as the gain rises, so the real ceiling may be lower.
-const bestWithoutDistortion = (lufs, peak, target, ceiling, bitRate) => {
+const bestWithoutDistortion = (
+  lufs,
+  peak,
+  target,
+  ceiling,
+  bitRate,
+  tolerance,
+) => {
   const cost = rewriteCost(bitRate)
   const headroom = ceiling - peakSpringBack(bitRate) - peak
   const gain = Math.min(target - lufs + cost, headroom)
@@ -103,7 +111,7 @@ const bestWithoutDistortion = (lufs, peak, target, ceiling, bitRate) => {
       offBy: offNow,
       gains: gains > 0 ? gains : 0,
       worthDoing: false,
-      onTarget: offNow <= 0.2,
+      onTarget: withinLoudnessTolerance(lufs, target, tolerance),
       estimated: false,
     }
   }
@@ -112,7 +120,7 @@ const bestWithoutDistortion = (lufs, peak, target, ceiling, bitRate) => {
     offBy: offAfter,
     gains,
     worthDoing: true,
-    onTarget: offAfter <= 0.2,
+    onTarget: withinLoudnessTolerance(lands, target, tolerance),
     estimated: cost > 0,
   }
 }
@@ -121,6 +129,7 @@ export const recommendationFor = (record, settings) => {
   const audit = record?.loudnessAudit
   const target = settings?.targetLUFS ?? -12.6
   const ceiling = settings?.truePeak ?? -0.5
+  const tolerance = settings?.tolerance ?? 0.2
   const current = currentMeasurement(audit)
   if (current.lufs === null || current.peak === null) {
     return null
@@ -154,22 +163,31 @@ export const recommendationFor = (record, settings) => {
   const peakOverBy = Math.max(0, predictedPeakEncoded - ceiling)
 
   // Match PlanFor/SpecFor: gain-to-ceiling can turn a song DOWN. The server
-  // skips songs already on target with safe peaks, and volume changes <0.1 dB.
+  // skips songs within loudness tolerance regardless of peak, and changes <0.1 dB.
   const plannedCeilingGain = ceiling - peak - springBack
-  const alreadyDone =
-    Math.abs(lufs - target) <= (settings?.tolerance ?? 0.2) && peak <= ceiling
+  const alreadyDone = withinLoudnessTolerance(lufs, target, tolerance)
   const transparentGain =
     alreadyDone || Math.abs(plannedCeilingGain) < 0.1 ? 0 : plannedCeilingGain
   const loudnessAtCeiling = lufs + transparentGain
   const shortfall = Math.max(0, target - loudnessAtCeiling)
 
-  const best = bestWithoutDistortion(lufs, peak, target, ceiling, bitRate)
+  const best = alreadyDone
+    ? {
+        lufs,
+        offBy: Math.abs(lufs - target),
+        gains: 0,
+        worthDoing: false,
+        onTarget: true,
+        estimated: false,
+      }
+    : bestWithoutDistortion(lufs, peak, target, ceiling, bitRate, tolerance)
 
   return {
     lufs,
     peak,
     bitRate,
     best,
+    alreadyDone,
     // Peak-to-loudness ratio: how much headroom the track's dynamics demand.
     plr: peak - lufs,
     gainToTarget,
@@ -251,7 +269,7 @@ export const fmtMag = (v, digits = 2) =>
 // arithmetic hide that. shortfall is max(0, ...), so a song already louder than
 // the target reported "0.00 dB short" - true to the formula and a plain
 // falsehood about the song, on the row most likely to be questioned.
-const distanceTo = (lufs, target) => {
+export const distanceTo = (lufs, target) => {
   const d = lufs - target
   if (Math.abs(d) < 0.005) return `exactly on ${fmtLufs(target)}`
   return `${fmtMag(d)} dB ${d > 0 ? 'louder than' : 'below'} ${fmtLufs(target)}`
@@ -266,6 +284,19 @@ const distanceTo = (lufs, target) => {
 // costs, because an option with only an upside reads as the obvious answer and
 // none of these are obvious.
 export const optionsFor = (rec) => {
+  // SpecFor returns without processing before consulting either saved decision.
+  if (rec.alreadyDone) {
+    const unchanged = {
+      lands: `${fmtLufs(rec.lufs)} LUFS`,
+      short: 'no change - within loudness tolerance',
+      sole: 'loudness is already acceptable; the server leaves the audio and peaks unchanged',
+    }
+    return {
+      [DECISION_LIMIT]: unchanged,
+      [DECISION_CEILING]: unchanged,
+      [DECISION_SKIP]: unchanged,
+    }
+  }
   const ceilingMoves = rec.transparentGain !== 0
   const ceilingChange = `${fmtMag(rec.transparentGain)} dB ${rec.transparentGain < 0 ? 'quieter' : 'louder'}`
   // And with no peak problem to solve, "limit to target" does no limiting: it
@@ -299,7 +330,7 @@ export const optionsFor = (rec) => {
       : {
           lands: `${fmtLufs(rec.lufs)} LUFS`,
           short: 'no change - same as leaving it alone',
-          sole: 'the song already meets the target and peak limit, or the planned volume change is below 0.10 dB; the server leaves the file unchanged',
+          sole: 'the planned volume change is below 0.10 dB; the server leaves the file unchanged',
         },
     [DECISION_SKIP]: {
       lands: `${fmtLufs(rec.lufs)} LUFS`,

@@ -2,6 +2,7 @@ package loudness
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +72,46 @@ type peakSequenceNormalizer struct {
 	before ffmpeg.LoudnessAnalysis
 	after  []ffmpeg.LoudnessAnalysis
 	calls  int
+}
+
+func TestOptimizeNeverRewritesToleranceBoundaries(t *testing.T) {
+	for _, lufs := range []float64{-12.8, -12.4} {
+		for _, decision := range []string{DecisionPending, DecisionLimit, DecisionCeiling} {
+			t.Run(fmt.Sprintf("%g/%s", lufs, decision), func(t *testing.T) {
+				library := t.TempDir()
+				track := filepath.Join(library, "song.mp3")
+				writeQuietTestMP3(t, track, 2)
+				original := digest(t, track)
+				n := &peakSequenceNormalizer{
+					before: ffmpeg.LoudnessAnalysis{InputIntegrated: lufs, InputTruePeak: 0.2},
+					after:  []ffmpeg.LoudnessAnalysis{{InputIntegrated: -12.6, InputTruePeak: -1}},
+				}
+				res, err := Optimize(context.Background(), n, track, decision, OptimizeOptions{
+					Target:    ffmpeg.LoudnessTarget{IntegratedLUFS: -12.6, TruePeak: -0.5, LRA: 11},
+					Tolerance: 0.2, Backup: true, LibraryPath: library, BackupFolder: t.TempDir(), MediaFileID: "boundary-song",
+				})
+				if err != nil || res.Changed || res.BackupCreated || res.Attempts != 0 || n.calls != 1 || digest(t, track) != original {
+					t.Fatalf("boundary song was processed: result=%+v measurements=%d error=%v", res, n.calls, err)
+				}
+			})
+		}
+	}
+}
+
+func TestOptimizeAcceptsResultOnLoudnessBoundaryWithoutRetry(t *testing.T) {
+	library := t.TempDir()
+	track := filepath.Join(library, "song.mp3")
+	writeQuietTestMP3(t, track, 2)
+	n := &peakSequenceNormalizer{
+		before: ffmpeg.LoudnessAnalysis{InputIntegrated: -18, InputTruePeak: -8},
+		after:  []ffmpeg.LoudnessAnalysis{{InputIntegrated: -12.8, InputTruePeak: -1}},
+	}
+	res, err := Optimize(context.Background(), n, track, DecisionPending, OptimizeOptions{
+		Target: ffmpeg.LoudnessTarget{IntegratedLUFS: -12.6, TruePeak: -0.5, LRA: 11}, Tolerance: 0.2,
+	})
+	if err != nil || !res.Changed || res.Attempts != 1 || res.NewLUFS != -12.8 {
+		t.Fatalf("boundary output should pass without retry: result=%+v error=%v", res, err)
+	}
 }
 
 func TestInvalidLoudnessMeasurementCannotReplaceAudio(t *testing.T) {

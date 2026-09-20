@@ -7,6 +7,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/loudness"
+	"github.com/navidrome/navidrome/model"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -149,7 +150,7 @@ var _ = Describe("loudnessRunFilter", func() {
 			_, err := db.Exec(`update media_file_loudness
 				set phase = 1, lufs_before = -15.2, tp_before = -3,
 				    lufs_after = -12.6, tp_after = ? where media_file_id = 'done'`,
-				conf.Server.Scanner.LoudnessNormalization.TruePeak+loudness.TruePeakToleranceDB)
+				model.LoudnessShippingCeiling(conf.Server.Scanner.LoudnessNormalization.TruePeak))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(selectedBy(loudness.PhaseGain)).ToNot(ContainElement("done"))
 		})

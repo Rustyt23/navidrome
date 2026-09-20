@@ -1,7 +1,12 @@
 import React from 'react'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { CurrentField, OptionCeilingField } from './Lufs2Fields'
+import {
+  CurrentField,
+  OptionCeilingField,
+  OptionLimitField,
+  BestWithoutDistortionField,
+} from './Lufs2Fields'
 
 describe('Now column', () => {
   it('shows the latest measured audio instead of the original', () => {
@@ -46,3 +51,30 @@ it('shows the gain-to-ceiling reduction in the option column', () => {
   expect(screen.getByText('about -14.85 LUFS')).toBeInTheDocument()
   expect(screen.getByText('0.85 dB quieter, no limiting')).toBeInTheDocument()
 })
+
+it.each([-12.8, -12.4])(
+  'shows no processing for either option at %s LUFS',
+  (lufs) => {
+    const props = {
+      settings: { targetLUFS: -12.6, truePeak: -0.5, tolerance: 0.2 },
+      record: {
+        loudnessAudit: { lufsBefore: lufs, tpBefore: 0.2, bitrateBefore: 320 },
+      },
+    }
+    render(
+      <>
+        <OptionCeilingField {...props} />
+        <OptionLimitField {...props} />
+        <BestWithoutDistortionField {...props} />
+      </>,
+    )
+    expect(screen.getAllByText(`${lufs.toFixed(2)} LUFS`)).toHaveLength(3)
+    expect(
+      screen.getByText(/already within loudness tolerance; no change/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('no change - within loudness tolerance'),
+    ).toHaveLength(2)
+    expect(screen.queryByText(/dB of limiting/)).not.toBeInTheDocument()
+  },
+)

@@ -5,9 +5,9 @@ import { recommendationFor } from '../lufs2/recommendation'
 import { reportFor } from './report'
 
 describe('current loudness', () => {
-  it('flags older outputs even slightly above the configured ceiling', () => {
+  it('flags outputs beyond the bound the engine ships at', () => {
     const report = reportFor(
-      { loudnessAudit: { status: 'processed', tpBefore: -3, tpAfter: -0.49 } },
+      { loudnessAudit: { status: 'processed', tpBefore: -3, tpAfter: -0.3 } },
       { truePeak: -0.5 },
     )
     expect(
@@ -18,6 +18,20 @@ describe('current loudness', () => {
     expect(report.minor.some((message) => message.includes('ceiling'))).toBe(
       false,
     )
+  })
+
+  // The engine accepts a finished file up to TRUE_PEAK_TOLERANCE_DB above the
+  // ceiling, because a true peak is reconstructed rather than read. Asking
+  // someone to recheck a file that was accepted on purpose is the page
+  // contradicting the run that produced it.
+  it('does not ask for a recheck of a peak inside the measurement tolerance', () => {
+    const report = reportFor(
+      { loudnessAudit: { status: 'processed', tpBefore: -3, tpAfter: -0.49 } },
+      { truePeak: -0.5 },
+    )
+    expect(
+      report.significant.some((message) => message.includes('ceiling')),
+    ).toBe(false)
   })
   it.each([
     undefined,
@@ -74,8 +88,17 @@ describe('current loudness', () => {
 
   it('does not label an unsafe measured peak on target', () => {
     expect(
-      outcomeFor({ loudnessAudit: { lufsBefore: -12.6, tpBefore: -0.49 } }).id,
+      outcomeFor({ loudnessAudit: { lufsBefore: -12.6, tpBefore: -0.3 } }).id,
     ).not.toBe('on_target')
+  })
+
+  // A song at the target whose peak sits inside the measurement tolerance is
+  // on target. Judged against the bare ceiling it was reported as never
+  // attempted, which dropped finished songs out of the headline count.
+  it('counts a peak inside the measurement tolerance as on target', () => {
+    expect(
+      outcomeFor({ loudnessAudit: { lufsBefore: -12.6, tpBefore: -0.49 } }).id,
+    ).toBe('on_target')
   })
 
   it('keeps a real zero measurement', () => {

@@ -1,18 +1,36 @@
 import { describe, expect, it } from 'vitest'
-import { isException } from './outcome'
+import { isException, isLevelTwo, outcomeFor } from './outcome'
+
+it.each([-12.8, -12.4])(
+  'reports %s LUFS as on target at the inclusive boundary',
+  (lufs) => {
+    const audit = { phase: 0, lufsBefore: lufs, tpBefore: -1 }
+    const settings = { targetLUFS: -12.6, tolerance: 0.2, truePeak: -0.5 }
+    expect(outcomeFor({ loudnessAudit: audit }, settings).id).toBe('on_target')
+    expect(isLevelTwo(audit, settings)).toBe(false)
+  },
+)
 
 // The same rows the server's exceptions filter is tested against, so the
 // verdict column and the Exception LUFS page agree about every song.
 describe('isException', () => {
   const offBy = (lufs) => Math.abs(lufs + 12.6)
 
-  it('lists a rewritten file whose peak is still over the ceiling', () => {
-    const audit = { phase: 0, action: 'gain', tpBefore: -8, tpAfter: -0.49 }
+  it('lists a rewritten file whose peak is beyond the shipping bound', () => {
+    const audit = { phase: 0, action: 'gain', tpBefore: -8, tpAfter: -0.3 }
     expect(isException(audit, offBy(-12.6), -0.5)).toBe(true)
   })
 
   it('does not list a rewritten file exactly on the ceiling', () => {
     const audit = { phase: 0, action: 'gain', tpBefore: -8, tpAfter: -0.5 }
+    expect(isException(audit, offBy(-12.6), -0.5)).toBe(false)
+  })
+
+  // Accepted on purpose, inside the measurement tolerance. Listing it here
+  // put songs the engine had corrected exactly in front of the client as
+  // decisions to make - which is what this whole bound exists to prevent.
+  it('does not list a peak inside the measurement tolerance', () => {
+    const audit = { phase: 0, action: 'gain', tpBefore: -8, tpAfter: -0.49 }
     expect(isException(audit, offBy(-12.6), -0.5)).toBe(false)
   })
 
@@ -24,6 +42,32 @@ describe('isException', () => {
       tpBefore: 0.63,
     }
     expect(isException(audit, offBy(-12.15), -0.5)).toBe(true)
+  })
+
+  // wasException is a one-way latch: nothing in the application lowers it, so
+  // every song the old peak rule wrongly listed carries it for ever. Honouring
+  // it on a song that is now finished would keep those on the page permanently,
+  // and no correction to the rules could ever release them.
+  it('releases a latched song once it is finished', () => {
+    const fixed = {
+      phase: 0,
+      action: 'gain',
+      wasException: true,
+      lufsAfter: -12.6,
+      tpAfter: -0.43,
+    }
+    expect(isException(fixed, offBy(-12.6), -0.5, 0.2)).toBe(false)
+  })
+
+  it('keeps a latched song listed while it still needs something', () => {
+    const stillOut = {
+      phase: 1,
+      action: 'gain',
+      wasException: true,
+      lufsAfter: -13.6,
+      tpAfter: -2,
+    }
+    expect(isException(stillOut, offBy(-13.6), -0.5, 0.2)).toBe(true)
   })
 
   it('does not list a song that has only been measured', () => {

@@ -237,15 +237,15 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 	//
 	// The ceiling still binds every song this package actually rewrites; it is
 	// enforced in Optimize, where there is a produced file to judge.
-	case math.Abs(lufs-target) <= tolerance:
+	case withinLoudnessTolerance(lufs, target, tolerance):
 		p.Phase = PhaseDone
-	case math.Abs(p.SafeLoudness-target) <= tolerance:
+	case withinLoudnessTolerance(p.SafeLoudness, target, tolerance):
 		p.Phase = PhaseGain
 	case p.PeakOverBy <= audibleShaveDB:
 		// The level alone cannot get there, but the peaks only have to come
 		// down by an amount nobody can hear. Nothing is gained by asking.
 		p.Phase = PhaseTrim
-	case math.Abs(lufs-target) <= leaveAloneToleranceDB:
+	case withinLoudnessTolerance(lufs, target, leaveAloneToleranceDB):
 		// Reaching the target from here needs a decision, and the track is
 		// already close enough that the decision is not worth asking for.
 		//
@@ -259,6 +259,10 @@ func PlanFor(lufs, truePeak, target, ceiling, tolerance float64, sourceBitRate i
 		p.Phase = PhaseReview
 	}
 	return p
+}
+
+func withinLoudnessTolerance(lufs, target, tolerance float64) bool {
+	return math.Abs(lufs-target) <= tolerance+model.LoudnessComparisonEpsilon
 }
 
 // SpecFor turns a plan plus a decision into the exact transform to apply, along

@@ -14,6 +14,8 @@
 //
 // The loudness change itself is never a fault: it is the job.
 
+import { peakAcceptable } from './tolerance'
+
 const has = (v) => v !== null && v !== undefined && !Number.isNaN(Number(v))
 const n = (v) => Number(v)
 const f2 = (v) => n(v).toFixed(2)
@@ -78,8 +80,10 @@ export const reportFor = (record, settings) => {
   const unchanged = []
 
   // Older outputs may have been accepted under a relaxed policy. They need
-  // attention whenever they exceed today's configured ceiling.
-  if (has(a.tpAfter) && n(a.tpAfter) > ceiling) {
+  // attention whenever they exceed what the engine ships at today - not the
+  // bare ceiling, which would ask someone to recheck a file that was accepted
+  // correctly, inside the measurement tolerance.
+  if (has(a.tpAfter) && !peakAcceptable(n(a.tpAfter), ceiling)) {
     significant.push(
       `True peak ${f2(a.tpAfter)} dBTP exceeds the ${f2(ceiling)} ceiling. Recheck this song.` +
         (n(a.tpAfter) > 0 ? ' The file can clip.' : ''),

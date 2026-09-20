@@ -40,6 +40,24 @@ func TestGainToCeilingPreviewContract(t *testing.T) {
 	}
 }
 
+func TestLoudnessToleranceIncludesBothBoundaries(t *testing.T) {
+	for _, lufs := range []float64{-12.81, -12.8, -12.79, -12.6, -12.41, -12.4, -12.39} {
+		wantDone := lufs >= -12.8 && lufs <= -12.4
+		for _, peak := range []float64{-3, 0.2} {
+			plan := PlanFor(lufs, peak, -12.6, -0.5, 0.2, 320)
+			if (plan.Phase == PhaseDone) != wantDone {
+				t.Fatalf("LUFS %v, peak %v: phase %d, want done=%v", lufs, peak, plan.Phase, wantDone)
+			}
+			for _, decision := range []string{DecisionPending, DecisionLimit, DecisionCeiling} {
+				_, _, apply := SpecFor(plan, decision, &ffmpeg.FileProbe{BitRate: 320}, -12.6, -0.5)
+				if apply == wantDone {
+					t.Fatalf("LUFS %v, peak %v, decision %q: apply=%v", lufs, peak, decision, apply)
+				}
+			}
+		}
+	}
+}
+
 func TestPlanForClassifiesByHeadroom(t *testing.T) {
 	cases := []struct {
 		name      string

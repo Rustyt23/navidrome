@@ -136,7 +136,10 @@ const verdictOf = (a, settings) => {
   // there is still something to decide.
   if (a && !a.verdict) {
     const offBy = offByFor(a, settings)
-    if (offBy !== null && isException(a, offBy, settings?.truePeak))
+    if (
+      offBy !== null &&
+      isException(a, offBy, settings?.truePeak, settings?.tolerance)
+    )
       return NEEDS_DECISION
   }
   if (a?.verdict) return a.verdict

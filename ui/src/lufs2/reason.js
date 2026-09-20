@@ -12,7 +12,7 @@
 // so an error shape this file has not seen degrades to what the page showed
 // before rather than to a blank cell.
 
-import { fmtLufs, fmtMag } from './recommendation'
+import { AUDIBLE_SHAVE_DB, distanceTo, fmtLufs, fmtMag } from './recommendation'
 
 const PEAK_ONLY =
   /true peak (-?[\d.]+) dBTP exceeds the (-?[\d.]+) dBTP ceiling/
@@ -156,13 +156,58 @@ export const reasonFor = (record, rec) => {
   }
 
   if (!rec) return null
+
+  // The three cases below all carry REASON_TRADE, because the server defines
+  // that category by exclusion - not refused, not already peak-trimmed - and
+  // groups all three into it. The id is what "show me everything like this"
+  // selects, so it has to match the server's grouping exactly; the wording is
+  // what the row says about itself, and that can be honest per song. Giving the
+  // two new cases no id instead left the dropdown returning rows whose headline
+  // disagreed with the filter that had just fetched them.
+
+  // A song inside the tolerance is finished, and saying anything else about it
+  // is false. This used to fall through to the trade line below, which told a
+  // client a song sitting exactly on -12.60 was "too quiet to fix" and "sits
+  // 0.00 dB below the target" - a sentence that contradicts itself, on the row
+  // most likely to be questioned. Reaching this at all now means the song is
+  // here for some other reason: a stored decision, or the exception latch.
+  if (rec.alreadyDone) {
+    return {
+      id: REASON_TRADE,
+      headline: 'Already within tolerance',
+      headlineTone: 'ok',
+      detail:
+        `This song is ${distanceTo(rec.lufs, rec.target)} and needs no correction. ` +
+        `It is listed because a choice was recorded against it, not because anything is wrong with it.`,
+      tone: 'ok',
+    }
+  }
+
+  // The genuine trade: the level alone cannot reach the target, and the peak
+  // cut that would is deep enough to hear.
+  if (rec.peakOverBy > AUDIBLE_SHAVE_DB) {
+    return {
+      id: REASON_TRADE,
+      headline: 'Too quiet to fix without a trade',
+      detail:
+        `This song is ${distanceTo(rec.lufs, rec.target)} and its peaks are already near the limit. ` +
+        `Reaching ${fmtLufs(rec.target)} means cutting ${fmtMag(rec.peakOverBy)} dB off them, ` +
+        `which is deep enough to hear on drums and transients.`,
+    }
+  }
+
+  // Outside the tolerance, but no audible peak cut is needed to get there. The
+  // engine handles this shape on its own, so a song reaching here is waiting on
+  // something else - and guessing "too quiet to fix" about it would be a story
+  // rather than a reason.
   return {
     id: REASON_TRADE,
-    headline: 'Too quiet to fix without a trade',
+    headline: 'Waiting for a decision',
     detail:
-      `This song sits ${fmtMag(rec.lufs - rec.target)} dB below the target and its peaks are already ` +
-      `near the limit. Reaching ${fmtLufs(rec.target)} means cutting ${fmtMag(rec.peakOverBy)} dB off them, ` +
-      `which is deep enough to hear on drums and transients.`,
+      `This song is ${distanceTo(rec.lufs, rec.target)}. ` +
+      (rec.peakOverBy > 0.005
+        ? `Reaching ${fmtLufs(rec.target)} means taking ${fmtMag(rec.peakOverBy)} dB off the peaks, which is too little to hear.`
+        : `Reaching ${fmtLufs(rec.target)} is a volume change - nothing comes off the peaks.`),
   }
 }
 
@@ -170,7 +215,11 @@ export const reasonFor = (record, rec) => {
 // them in.
 export const REASON_CHOICES = [
   { id: REASON_PEAK, name: 'Re-encoding pushed the peaks back up' },
-  { id: REASON_TRADE, name: 'Too quiet to fix without a trade' },
+  // Named for the group rather than for one member of it. The server files
+  // three different situations here - a genuine trade, a song already within
+  // tolerance, and one waiting on a choice - so a label naming only the first
+  // described two thirds of its own results wrongly.
+  { id: REASON_TRADE, name: 'Needs a decision' },
   { id: REASON_FORMAT, name: 'The rewrite came back a different file' },
   { id: REASON_MISSED, name: 'The rewrite did not land on the target' },
   { id: REASON_TRIMMED, name: 'Peaks trimmed - done' },
