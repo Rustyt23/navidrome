@@ -12,7 +12,6 @@ import {
   DurationField,
   List,
   OptimizeLufsButton,
-  Pagination,
   PathField,
   SizeField,
   useSelectedFields,
@@ -307,19 +306,11 @@ const LufsList = (props) => {
         }
         filters={<LufsFilter />}
         bulkActionButtons={<LufsBulkActions />}
-        // A page of 5000, and the option to pick it, on this page only. The
-        // shared Pagination is used by every other list, where 500 is plenty;
-        // here a library runs to tens of thousands of songs and the work done
-        // from this page - selecting a filtered set to analyse, optimise or
-        // download - is done a page at a time, so a small page turns one action
-        // into dozens. The smaller sizes are kept, since a wide row with every
-        // column shown is expensive to render 5000 times.
-        pagination={
-          <Pagination
-            rowsPerPageOptions={[25, 50, 100, 200, 500, 1000, 5000]}
-          />
-        }
-        perPage={5000}
+        // 500 is the largest page this view offers. A row here carries every
+        // before/after column, so it is far heavier to render than a row on any
+        // other list, and the 1000 and 5000 options this briefly had cost more
+        // in a stalled page than they saved in trips through the pager.
+        perPage={500}
       >
         <Datagrid rowClick={null}>
           <TextField source="title" sortBy="title" />

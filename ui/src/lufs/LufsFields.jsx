@@ -4,7 +4,13 @@ import { useRecordContext, useTranslate } from 'react-admin'
 import { Chip, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import { nullFloorFor, reportFor } from './report'
-import { isException, isLevelTwo, offByFor, outcomeFor } from './outcome'
+import {
+  isException,
+  isLevelTwo,
+  offByFor,
+  outcomeFor,
+  OUTCOME_NOT_ATTEMPTED,
+} from './outcome'
 import { verdictReason } from './verdictReason'
 
 const useStyles = makeStyles((theme) => ({
@@ -30,6 +36,11 @@ const useStyles = makeStyles((theme) => ({
   // a track held to the wider tolerance is: nothing was done and nothing needs
   // doing, but it is not silently on target either.
   info: { backgroundColor: '#1565c0', color: '#fff' },
+  // "Not attempted" gets its own colour rather than sharing amber with "Short
+  // of target". Amber is reserved for a song that needs a decision; this one is
+  // a song nothing has been done to yet, which is a different thing to scan for
+  // and was indistinguishable at a glance while the two shared a swatch.
+  notAttempted: { backgroundColor: '#6a1b9a', color: '#fff' },
   bad: { backgroundColor: '#c62828', color: '#fff' },
   neutral: { backgroundColor: theme.palette.action.selected },
   pair: { whiteSpace: 'nowrap' },
@@ -185,14 +196,19 @@ export const OutcomeField = (props) => {
   const outcome = outcomeFor(record, props.settings)
   if (!outcome) return <span className={classes.same}>Not measured</span>
 
+  // Keyed on the outcome before the tone: "not attempted" reaches here as both
+  // warn and neutral depending on why nothing was done, and it is the same
+  // answer either way, so it should not change colour with the reason.
   const tone =
-    outcome.tone === 'good'
-      ? classes.safe
-      : outcome.tone === 'warn'
-        ? classes.warn
-        : outcome.tone === 'info'
-          ? classes.info
-          : classes.neutral
+    outcome.id === OUTCOME_NOT_ATTEMPTED
+      ? classes.notAttempted
+      : outcome.tone === 'good'
+        ? classes.safe
+        : outcome.tone === 'warn'
+          ? classes.warn
+          : outcome.tone === 'info'
+            ? classes.info
+            : classes.neutral
 
   return (
     <Tooltip title={outcome.detail}>
