@@ -91,7 +91,13 @@ var _ = Describe("loudness outcome peak safety", func() {
 			(media_file_id, phase, action, was_exception, lufs_before, tp_before, lufs_after, tp_after) values
 			('1001', 0, 'gain', 1, -20, -8, -12.6, -0.43),
 			('1002', 1, 'gain', 1, -20, -8, -13.6, -2),
-			('1003', 0, 'gain', 1, -20, -8, -12.6, -0.2)`).Execute()
+			('1003', 0, 'gain', 1, -20, -8, -12.6, -0.2),
+			-- Never rewritten: on target as it was mastered, with the peak a
+			-- commercial master ordinarily has. The planner calls this finished
+			-- and the peak is not correctable without moving the loudness out of
+			-- the band, so the latch must let go of it. This is the shape that
+			-- filled the client's page - almost every song it had ever marked.
+			('1004', 0, 'skipped', 1, -12.53, -0.26, null, null)`).Execute()
 		Expect(err).ToNot(HaveOccurred())
 		matched := func(filter squirrel.Sqlizer) []string {
 			sql, args, err := squirrel.Select("media_file_id").From("media_file_loudness").Where(filter).OrderBy("media_file_id").ToSql()
@@ -108,10 +114,15 @@ var _ = Describe("loudness outcome peak safety", func() {
 			Expect(query.Err()).ToNot(HaveOccurred())
 			return ids
 		}
-		// 1001 is on target with a peak the engine ships, so the latch lets go.
-		// 1002 is still a decibel out and 1003 carries a peak beyond the
-		// tolerance, so both stay - the latch is not being ignored, only read
-		// as history rather than as a verdict about the song today.
+		// 1001 and 1004 are on target, so the latch lets go of both - 1004 even
+		// though its peak sits above the ceiling, because that peak cannot be
+		// corrected without moving the song out of the band.
+		//
+		// 1002 is still a decibel out, so it stays. 1003 stays too, but not
+		// through the latch: it was rewritten and SHIPPED at -0.2, past the
+		// bound the engine accepts, which the first arm of the filter catches.
+		// That is a peak someone can act on, and the distinction is the whole
+		// point - an unreachable peak on an in-band song is not.
 		Expect(matched(LoudnessExceptionFilter())).To(Equal([]string{"1002", "1003"}))
 	})
 })

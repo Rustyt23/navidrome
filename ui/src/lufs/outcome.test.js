@@ -59,6 +59,23 @@ describe('isException', () => {
     expect(isException(fixed, offBy(-12.6), -0.5, 0.2)).toBe(false)
   })
 
+  // The shape that filled the client's page: on target as it was mastered,
+  // never rewritten, with the peak a commercial master ordinarily carries. The
+  // planner calls it finished, so this must agree - the peak cannot be brought
+  // down without carrying the loudness out of the band with it.
+  it('releases a latched in-band song whatever its peak', () => {
+    for (const peak of [-0.26, 0.04, 0.28, 1.5]) {
+      const mastered = {
+        phase: 0,
+        action: 'skipped',
+        wasException: true,
+        lufsBefore: -12.53,
+        tpBefore: peak,
+      }
+      expect(isException(mastered, offBy(-12.53), -0.5, 0.2)).toBe(false)
+    }
+  })
+
   it('keeps a latched song listed while it still needs something', () => {
     const stillOut = {
       phase: 1,

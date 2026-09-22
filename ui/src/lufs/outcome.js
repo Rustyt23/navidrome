@@ -56,12 +56,14 @@ export const isException = (audit, offBy, truePeak = -0.5, tolerance = 0.2) => {
   // still needs something, or every song the old peak rule wrongly listed stays
   // listed for ever. Mirrors loudnessExceptionFilter.
   //
-  // offBy is already the distance from target, so the loudness half is read
-  // from it rather than from a target this function is not given.
-  const stillNeedsSomething = !(
-    withinLoudnessTolerance(offBy, 0, tolerance) &&
-    peakAcceptable(peak, truePeak)
-  )
+  // Loudness alone, exactly as PlanFor decides PhaseDone: a gain moves the
+  // loudness and the peak together, so a song inside the tolerance cannot have
+  // its peak corrected and stay inside it, and the peak is not something anyone
+  // can act on here. Requiring a shippable peak as well made this row disagree
+  // with its own text - "Already within tolerance, needs no correction" beside a
+  // listing that said otherwise. An actionable peak is still caught by the two
+  // checks above. offBy is already the distance from target.
+  const stillNeedsSomething = !withinLoudnessTolerance(offBy, 0, tolerance)
   return (
     audit.phase !== PHASE_CLOSE_ENOUGH &&
     ((!!audit.wasException && stillNeedsSomething) ||

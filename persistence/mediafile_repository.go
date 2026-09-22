@@ -336,8 +336,23 @@ func LoudnessLevelTwoFilter() Sqlizer {
 // as an exception, so a song the engine had corrected exactly was shown to the
 // client as one still needing a decision.
 // loudnessNotCurrentlyFinished is true of a song that still needs something
-// done to it: never measured, outside the loudness tolerance, or carrying a
-// peak the engine would not ship.
+// done to it: never measured, or outside the loudness tolerance.
+//
+// Loudness alone, exactly as PlanFor decides PhaseDone, and the peak is
+// deliberately not consulted. A gain moves the loudness and the true peak
+// together, so a song inside the tolerance cannot have its peak corrected and
+// stay inside it - which makes the peak, on these songs, not something anyone
+// can act on. The planner has said so since the client's rule was restored.
+//
+// This briefly required a shippable peak as well, and the disagreement showed
+// up on screen: the row read "Already within tolerance - needs no correction"
+// from the planner's rule while the page went on listing it as an exception
+// from this one. Most commercial masters peak above the ceiling as mastered, so
+// that caught almost every song the latch had ever marked.
+//
+// A peak that IS actionable is still listed, by the two arms above this: a
+// rewritten file that shipped over the bound, and a refusal that left the
+// original's peaks over it.
 //
 // Judged from whatever the song measures now - the after snapshot once it has
 // been rewritten, the before one while it has only been measured - so it says
@@ -345,13 +360,9 @@ func LoudnessLevelTwoFilter() Sqlizer {
 func loudnessNotCurrentlyFinished() Sqlizer {
 	options := conf.Server.Scanner.LoudnessNormalization
 	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
-	peak := "coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before)"
-	return Expr(fmt.Sprintf(
-		"not (%s is not null and abs(%s - ?) <= ? and %s is not null and %s <= ?)",
-		measured, measured, peak, peak),
+	return Expr(fmt.Sprintf("not (%s is not null and abs(%s - ?) <= ?)", measured, measured),
 		options.TargetLUFS,
-		effectiveLoudnessTolerance(options.Tolerance)+model.LoudnessComparisonEpsilon,
-		model.LoudnessShippingCeiling(options.TruePeak))
+		effectiveLoudnessTolerance(options.Tolerance)+model.LoudnessComparisonEpsilon)
 }
 
 func loudnessPeakSafeFilter() Sqlizer {
