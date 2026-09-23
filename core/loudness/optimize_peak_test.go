@@ -231,3 +231,54 @@ func TestGainToCeilingDecisionIsNeverLimited(t *testing.T) {
 			res.Changed, res.Attempts, res.Rejected)
 	}
 }
+
+// A rewrite has to be an improvement on doing nothing.
+//
+// Keeping a near miss is justified by one argument: deleting it leaves the song
+// further from target than the file being thrown away. That argument was never
+// checked, so the one case where it did not hold went through anyway - a song
+// at -13.00 came back at -13.06, moved AWAY from target, and the rewrite was
+// kept. It happens when the peaks are the obstacle: a song already peaking
+// above zero leaves the limiter pulling down harder than the gain pushes up.
+func TestARewriteThatLandsFurtherFromTargetIsNotKept(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		afterLUFS   float64
+		wantChanged bool
+	}{
+		// The real song, with its real numbers. 0.06 dB is inaudible, but it
+		// spends a codec generation to make the song worse.
+		{"further from target than it started", -13.06, false},
+		// Still outside the tolerance, but closer than it was: worth keeping,
+		// which is what this path exists for.
+		{"closer than it started, though short", -12.90, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			library, backups := t.TempDir(), t.TempDir()
+			track := filepath.Join(library, "song.mp3")
+			writeQuietTestMP3(t, track, 2)
+			original := digest(t, track)
+			n := &peakSequenceNormalizer{
+				before: ffmpeg.LoudnessAnalysis{InputIntegrated: -13.00, InputTruePeak: 0.18},
+				after: []ffmpeg.LoudnessAnalysis{
+					{InputIntegrated: tc.afterLUFS, InputTruePeak: -1.0},
+				},
+			}
+			res, err := Optimize(context.Background(), n, track, DecisionPending, OptimizeOptions{
+				Target:    ffmpeg.LoudnessTarget{IntegratedLUFS: -12.6, TruePeak: -0.5, LRA: 11},
+				Tolerance: 0.2, Backup: true, LibraryPath: library, BackupFolder: backups,
+				MediaFileID: "track-1",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Changed != tc.wantChanged {
+				t.Fatalf("changed=%v, want %v (landed %.2f, started -13.00, target -12.60)",
+					res.Changed, tc.wantChanged, tc.afterLUFS)
+			}
+			if !tc.wantChanged && digest(t, track) != original {
+				t.Fatal("the song was rewritten with a worse result")
+			}
+		})
+	}
+}

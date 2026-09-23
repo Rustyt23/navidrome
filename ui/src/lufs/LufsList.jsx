@@ -198,7 +198,19 @@ const LufsList = (props) => {
           sortBy="loudness_decision"
         />
       ),
-      gain: <GainField source="gain" label="Gain" sortBy="gain_applied" />,
+      // "Loudness change", not "Gain": the figure is measured after the
+      // fact as the distance the song's loudness actually moved, not the
+      // gain the transform asked for. On a pure gain the two are the same
+      // number. On a capped song they are not - the limiter eats part of
+      // the gain - and calling it Gain understated the work: one song read
+      // "+0.03 dB" while its peak had been pulled down 2.37 dB.
+      gain: (
+        <GainField
+          source="gain"
+          label="Loudness change"
+          sortBy="gain_applied"
+        />
+      ),
       truePeak: (
         <TruePeakField source="truePeak" label="True Peak" sortBy="tp_before" />
       ),

@@ -22,6 +22,8 @@ import {
   ToggleFieldsMenu,
   useSelectedFields,
 } from '../common'
+import { useHistory } from 'react-router-dom'
+import { makeStyles } from '@material-ui/core/styles'
 import { httpClient } from '../dataProvider'
 import { useLibraryStatus } from '../lufs/useLibraryStatus'
 import { useAnalyzeStatus } from '../lufs/useAnalyzeStatus'
@@ -185,7 +187,60 @@ const Lufs2Actions = ({
       />
       <ExportButton maxResults={total} />
       <ToggleFieldsMenu resource={COLUMNS_KEY} />
+      <ShortOfTargetNote />
     </TopToolbar>
+  )
+}
+
+// A deliberately quiet readout of the songs that were corrected as far as they
+// would go and still sit outside the ordinary tolerance.
+//
+// It is a number worth being able to check and not one anyone has to act on:
+// nothing more will be done to these songs, so giving it a card beside "needs a
+// decision" put a figure that requires no work next to one that does. Here it
+// reads as a footnote, which is what it is - small, muted, and out of the way
+// of the page's actual job. Clicking it opens them on the LUFS page.
+const useShortStyles = makeStyles((theme) => ({
+  short: {
+    fontSize: '0.68rem',
+    color: theme.palette.text.secondary,
+    opacity: 0.55,
+    cursor: 'pointer',
+    userSelect: 'none',
+    alignSelf: 'center',
+    marginLeft: theme.spacing(1),
+    whiteSpace: 'nowrap',
+    '&:hover': { opacity: 0.9, textDecoration: 'underline' },
+  },
+}))
+
+const ShortOfTargetNote = () => {
+  const classes = useShortStyles()
+  const history = useHistory()
+  const [count, setCount] = useState(null)
+
+  useEffect(() => {
+    httpClient('/api/song/loudness/summary')
+      .then(({ json }) => setCount(json?.shortOfTarget ?? 0))
+      .catch(() => setCount(null))
+  }, [])
+
+  if (!count) return null
+  return (
+    <span
+      className={classes.short}
+      title="Corrected as far as the song allowed, still outside the ordinary tolerance. Nothing more will be done to them."
+      onClick={() =>
+        history.push({
+          pathname: '/lufs',
+          search: `?filter=${encodeURIComponent(
+            JSON.stringify({ loudness_short: true }),
+          )}&page=1`,
+        })
+      }
+    >
+      {`${count.toLocaleString()} short`}
+    </span>
   )
 }
 
@@ -342,7 +397,19 @@ const Lufs2List = (props) => {
         <TruePeakField source="truePeak" label="True Peak" sortBy="tp_before" />
       ),
       lra: <LraField source="lra" label="LRA" sortBy="lra_before" />,
-      gain: <GainField source="gain" label="Gain" sortBy="gain_applied" />,
+      // "Loudness change", not "Gain": the figure is measured after the
+      // fact as the distance the song's loudness actually moved, not the
+      // gain the transform asked for. On a pure gain the two are the same
+      // number. On a capped song they are not - the limiter eats part of
+      // the gain - and calling it Gain understated the work: one song read
+      // "+0.03 dB" while its peak had been pulled down 2.37 dB.
+      gain: (
+        <GainField
+          source="gain"
+          label="Loudness change"
+          sortBy="gain_applied"
+        />
+      ),
       status: (
         <StatusField source="status" label="Status" sortBy="loudness_status" />
       ),

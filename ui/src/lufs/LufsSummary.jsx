@@ -177,7 +177,8 @@ export const LufsSummary = ({ refreshKey }) => {
     restorable,
     exceptions,
     levelTwo,
-    rejected,
+    // Still counted, and still part of "complete" - it is reported on the
+    // exceptions page rather than here.
     shortOfTarget,
   } = summary
   // Level two counts as reached. Those songs are inside half a decibel with
@@ -285,8 +286,8 @@ export const LufsSummary = ({ refreshKey }) => {
 
           <div className={classes.section}>Where the library stands</div>
           <div className={classes.sectionNote}>
-            Every song is in exactly one of these — they add up to{' '}
-            {songs.toLocaleString()}.
+            Where each song currently stands. Songs still waiting on a person
+            are counted below.
           </div>
           <div className={classes.grid}>
             {card({
@@ -306,17 +307,6 @@ export const LufsSummary = ({ refreshKey }) => {
               onOpen:
                 levelTwo > 0
                   ? openFiltered({ loudness_level_two: true })
-                  : undefined,
-            })}
-            {card({
-              label: 'Short of target',
-              value: shortOfTarget || 0,
-              note: share(shortOfTarget || 0),
-              title:
-                'Corrected as far as the song allowed, and still outside the ordinary tolerance. Nothing more will be done to them. Click to see them.',
-              onOpen:
-                shortOfTarget > 0
-                  ? openFiltered({ loudness_short: true })
                   : undefined,
             })}
             {card({
@@ -362,18 +352,6 @@ export const LufsSummary = ({ refreshKey }) => {
               note: share(exceptions),
               accent: exceptions > 0 ? WARN : undefined,
               title: 'Listed on the exceptions page, waiting on a person',
-            })}
-            {card({
-              label: 'Rejected',
-              value: rejected || 0,
-              note: share(rejected || 0),
-              accent: rejected > 0 ? WARN : undefined,
-              title:
-                'A corrected copy was built, measured, judged not good enough and thrown away. The song on disk was never touched. Click to see them and why each was refused.',
-              onOpen:
-                rejected > 0
-                  ? openFiltered({ loudness_rejected: true })
-                  : undefined,
             })}
           </div>
         </div>

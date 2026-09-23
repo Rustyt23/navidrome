@@ -145,6 +145,23 @@ func Optimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, trackPa
 		if !withinLoudnessTolerance(after.LUFS, opts.Target.IntegratedLUFS, leaveAloneToleranceDB) {
 			return false
 		}
+		// It has to be an improvement on doing nothing.
+		//
+		// This rule exists because deleting a near miss left the song FURTHER
+		// from target than the file being thrown away. That argument only holds
+		// while the produced file is actually closer - and it was never checked,
+		// so the one case where it was not went through anyway: a song at -13.00
+		// came back at -13.06, moved away from target, and the rewrite was kept.
+		//
+		// It happens when the peaks are the obstacle. A song whose peaks already
+		// sit above zero leaves the limiter pulling down harder than the gain
+		// pushes up, and the result lands on the wrong side. Rare - one song in
+		// 585 on the client's library - and inaudible at 0.06 dB, but it spends
+		// a codec generation to make the song worse, which is the one thing this
+		// path was written to avoid.
+		if offBy >= math.Abs(before.LUFS-opts.Target.IntegratedLUFS) {
+			return false
+		}
 		// Closest to target wins, so extra attempts can only improve on it.
 		if nearAfter != nil &&
 			offBy >= math.Abs(nearAfter.LUFS-opts.Target.IntegratedLUFS) {
