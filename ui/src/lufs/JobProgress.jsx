@@ -36,17 +36,17 @@ const eta = (processed, total, startedAt) => {
 // matters when a run takes days.
 export const JobProgress = ({ label, status, detail }) => {
   const classes = useStyles()
-  if (!status?.running) {
-    return (
-      <>
-        {!!status?.rejected && (
-          <Typography role="alert" color="error">
-            {`${status.rejected} rejected; working audio unchanged. Review the LUFS exceptions for details.`}
-          </Typography>
-        )}
-      </>
-    )
-  }
+  // A finished job shows nothing here.
+  //
+  // The rejection count used to stay on screen in red once the run ended, and
+  // stayed there until the next one started - a permanent alarm about work that
+  // was already over, next to controls for a job that was no longer running.
+  // It also had nowhere to go: "review the LUFS exceptions" stopped being true
+  // once rejections near the target were filed as level two instead.
+  //
+  // It is a property of the library now, not of the run: the summary panel
+  // carries the count and opens the songs it refers to.
+  if (!status?.running) return null
 
   const processed = status.processed || 0
   const total = status.total || 0

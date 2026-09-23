@@ -239,3 +239,60 @@ func TestAuditFromOptimizeStillDefersToAnOlderStoredOriginal(t *testing.T) {
 		t.Error("took this run's measurement as the original; the stored one is older")
 	}
 }
+
+// The last gate before a song reaches the client.
+//
+// A song outside the ordinary tolerance is corrected, and some corrections
+// cannot land: re-encoding pushes the peak back up, or the loudness comes out
+// somewhere other than it was aimed. The produced file is thrown away and the
+// song is left exactly as the client delivered it - and it was then shown to
+// them as a decision to make, on a difference of less than half a decibel.
+//
+// Recorded as PhaseCloseEnough instead: tried, could not be improved
+// transparently, near enough to leave alone.
+func TestARefusalNearTargetIsFiledAsCloseEnough(t *testing.T) {
+	const tolerance = 0.2 // distinct from leaveAloneToleranceDB, so the bands differ
+
+	t.Run("inside the wider band, whatever the master peaks at", func(t *testing.T) {
+		// Real rows off the client's page: 0.34 to 0.42 from target, with the
+		// peaks a commercial master ordinarily carries - two of them clipping.
+		for _, tc := range []struct{ lufs, peak float64 }{
+			{-12.94, 0.79}, {-12.97, -0.38}, {-12.99, 0.39}, {-13.01, 0.26}, {-13.02, -0.06},
+		} {
+			libraryPath, trackPath, backupFolder := auditTestPaths(t)
+			res := OptimizeResult{
+				Rejected:      "true peak 0.12 dBTP exceeds the -0.50 dBTP ceiling",
+				BackupSkipped: true,
+				BeforeSet:     testMeasurement(tc.lufs, tc.peak, 7.0),
+			}
+			audit := AuditFromOptimize(context.Background(), &countingNormalizer{}, "track-1",
+				libraryPath, trackPath, res, auditTestTarget, tolerance, backupFolder)
+
+			if audit.Phase != PhaseCloseEnough {
+				t.Errorf("%g LUFS, %g dBTP: phase %d, want %d - near enough to leave alone",
+					tc.lufs, tc.peak, audit.Phase, PhaseCloseEnough)
+			}
+			// Still recorded as a refusal: what happened to it is not in doubt,
+			// only whether it is worth anyone's attention.
+			if audit.Action != model.LoudnessActionRefused || audit.Error == "" {
+				t.Errorf("%g LUFS: the refusal itself was lost (action %q, error %q)",
+					tc.lufs, audit.Action, audit.Error)
+			}
+		}
+	})
+
+	t.Run("far from target it still reaches the client", func(t *testing.T) {
+		libraryPath, trackPath, backupFolder := auditTestPaths(t)
+		res := OptimizeResult{
+			Rejected:      "landed at -14.10 LUFS, expected -12.60",
+			BackupSkipped: true,
+			BeforeSet:     testMeasurement(-14.76, 0.56, 7.0),
+		}
+		audit := AuditFromOptimize(context.Background(), &countingNormalizer{}, "track-1",
+			libraryPath, trackPath, res, auditTestTarget, tolerance, backupFolder)
+
+		if audit.Phase == PhaseCloseEnough {
+			t.Error("2.16 dB from target was filed as close enough; that one is a real decision")
+		}
+	})
+}

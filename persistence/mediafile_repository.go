@@ -300,6 +300,73 @@ func effectiveLoudnessTolerance(tolerance float64) float64 {
 // counting them as exceptions.
 func LoudnessExceptionFilter() Sqlizer { return loudnessExceptionFilter("", nil) }
 
+// LoudnessRejectedFilter is the songs a run built a file for and threw away.
+//
+// A rejection is not a failure: the song was read, a corrected copy was
+// produced, it was measured and judged not good enough, and the working audio
+// was left exactly as it was. Nothing is lost, which is why this is reported as
+// its own number rather than counted among the failures.
+//
+// Separate from the exceptions list on purpose. Most rejections near the target
+// are filed as level two and never trouble anyone, so "was anything thrown
+// away" and "does anyone have to act" stopped being the same question.
+func LoudnessRejectedFilter() Sqlizer { return loudnessRejectedFilter("", nil) }
+
+// loudnessUntouched is a song whose audio this project never rewrote.
+//
+// It is what separates "left alone because it was close enough" from "corrected
+// as far as it would go and landed a little short". Both sit in the same band
+// and until now both were called level two - so a song lifted 3.2 dB, from
+// -16.30 to -13.10, was reported as one nobody had touched. That is not a
+// wording problem: the whole point of the wider tolerance is that the file was
+// never opened, and the client asked for it precisely so their originals would
+// be left alone.
+//
+// Read from the status rather than from the presence of an after snapshot,
+// because a song that was rewritten and then RESTORED is untouched again - its
+// file is the original once more, and its record says analysed, not processed.
+func loudnessUntouched() Sqlizer {
+	return NotEq{"media_file_loudness.status": model.LoudnessStatusProcessed}
+}
+
+// LoudnessShortOfTargetFilter is the songs this project corrected as far as
+// they would go, which is still outside the ordinary tolerance.
+//
+// Defined as what is left over rather than by listing the ways a song gets
+// here, so the five groups on the panel still account for every song: measured,
+// off target, nobody has to act, and not one of the untouched ones. Narrowing
+// level two without this would have dropped 24 songs out of the totals
+// entirely, and the panel promises that every song is in exactly one group.
+func LoudnessShortOfTargetFilter() Sqlizer {
+	options := conf.Server.Scanner.LoudnessNormalization
+	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
+	sql, args, err := loudnessExceptionFilter("", nil).ToSql()
+	if err != nil {
+		return Expr("1 = 0")
+	}
+	levelTwoSQL, levelTwoArgs, err := LoudnessLevelTwoFilter().ToSql()
+	if err != nil {
+		return Expr("1 = 0")
+	}
+	return And{
+		Expr(fmt.Sprintf("%s is not null and abs(%s - ?) > ?", measured, measured),
+			options.TargetLUFS,
+			effectiveLoudnessTolerance(options.Tolerance)+model.LoudnessComparisonEpsilon),
+		Expr("not ("+sql+")", args...),
+		Expr("not ("+levelTwoSQL+")", levelTwoArgs...),
+	}
+}
+
+func loudnessRejectedFilter(_ string, _ any) Sqlizer {
+	return Eq{"media_file_loudness.action": model.LoudnessActionRefused}
+}
+
+// The list form of LoudnessLevelTwoFilter, so the summary card can open the
+// songs it counts. Both go through the one expression: a card that opened a
+// different set from the number printed on it would be worse than not opening
+// anything.
+func loudnessLevelTwoFilter(_ string, _ any) Sqlizer { return LoudnessLevelTwoFilter() }
+
 // LoudnessLevelTwoFilter selects tracks held to the wider tolerance: near enough
 // to target that correcting them was judged not worth a re-encode, so they were
 // left untouched rather than sent to the client.
@@ -327,7 +394,14 @@ func LoudnessLevelTwoFilter() Sqlizer {
 		// everything.
 		return Expr("1 = 0")
 	}
-	return And{withinBand, outsideOrdinary, loudnessPeakSafeFilter(), Expr("not ("+sql+")", args...)}
+	// Loudness alone, exactly as PlanFor decides PhaseCloseEnough. A song in
+	// this band is left untouched on purpose, so its peak is the client's own
+	// master and not a property of anything this project produced. Requiring a
+	// shippable peak here excluded almost every song that belongs in the band -
+	// most commercial masters peak above the ceiling as mastered - and the
+	// count read 57 on a library of 91,254.
+	return And{withinBand, outsideOrdinary, loudnessUntouched(),
+		Expr("not ("+sql+")", args...)}
 }
 
 // The bound is the one the engine ships against, not the bare ceiling. A file
@@ -365,11 +439,6 @@ func loudnessNotCurrentlyFinished() Sqlizer {
 		effectiveLoudnessTolerance(options.Tolerance)+model.LoudnessComparisonEpsilon)
 }
 
-func loudnessPeakSafeFilter() Sqlizer {
-	return Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) <= ?",
-		model.LoudnessShippingCeiling(conf.Server.Scanner.LoudnessNormalization.TruePeak))
-}
-
 func loudnessExceptionFilter(_ string, _ any) Sqlizer {
 	options := conf.Server.Scanner.LoudnessNormalization
 	measured := "coalesce(media_file_loudness.lufs_after, media_file_loudness.lufs_before)"
@@ -385,24 +454,26 @@ func loudnessExceptionFilter(_ string, _ any) Sqlizer {
 		options.TargetLUFS, loudnessLeaveAloneToleranceDB+model.LoudnessComparisonEpsilon)
 
 	return Or{
-		// A peak over the ceiling needs a person only once the engine has had
-		// its go: a rewritten file still over it - older runs accepted some
-		// against a relaxed ceiling - or a refusal that left the original's peaks
-		// over it, however near target, since that is no comfort to a file that
-		// clips. A song that has only been measured is not an exception yet.
-		// Most commercial masters peak above the ceiling, so listing them between
-		// Analyse and Optimise filled the page with songs the next run would fix.
+		// Only a file this project WROTE is judged on its peak. tp_after exists
+		// only for a rewrite that was accepted and kept, so this asks the one
+		// question worth asking: did we ship something over the bound?
 		//
-		// Both bounds are the shipping ceiling rather than the configured one,
-		// for the reason given on loudnessPeakSafeFilter: a peak inside the
-		// measurement tolerance is one the engine accepted on purpose, and
-		// listing it here contradicts the decision that produced the file.
-		Expr("media_file_loudness.tp_after > ?", model.LoudnessShippingCeiling(options.TruePeak)),
-		And{
-			Eq{"media_file_loudness.action": model.LoudnessActionRefused},
-			Expr("coalesce(media_file_loudness.tp_after, media_file_loudness.tp_before) > ?",
-				model.LoudnessShippingCeiling(options.TruePeak)),
-		},
+		// A refusal used to be listed here too, on the peak of whatever was
+		// measured - which, with no accepted rewrite, is the client's own
+		// master. That put a song back in front of them over a peak that was
+		// theirs before we touched anything, and that nothing we are allowed to
+		// do could change: correcting it means turning the song down, out of
+		// the band it is being kept in, or limiting it, which rewrites the file
+		// this path has just decided not to rewrite. A refusal is now listed by
+		// distance alone, below, exactly like every other untouched song.
+		//
+		// Coalesced because tp_after is NULL for every song never rewritten,
+		// and NULL > x is NULL rather than false. That is harmless while some
+		// other arm still matches, and quietly fatal once this is the only peak
+		// arm left: the whole Or evaluates to NULL, and the level-two filter,
+		// which is defined as NOT this expression, then matches nothing at all.
+		Expr("coalesce(media_file_loudness.tp_after > ?, false)",
+			model.LoudnessShippingCeiling(options.TruePeak)),
 		And{
 			// Never list a track the engine deliberately left alone.
 			NotEq{"media_file_loudness.phase": loudnessPhaseCloseEnough},
@@ -457,8 +528,12 @@ func loudnessOutcomeFilter(_ string, value any) Sqlizer {
 	build := func(one string) Sqlizer {
 		switch one {
 		case "on_target":
-			return And{loudnessPeakSafeFilter(), Expr(fmt.Sprintf("%s is not null and abs(%s - ?) <= ?", measured, measured),
-				options.TargetLUFS, tolerance+model.LoudnessComparisonEpsilon)}
+			// On target means the loudness is where the client asked for it.
+			// A song inside the band is never rewritten, so judging it by its
+			// peak marked finished songs as unattempted and held the headline
+			// below the truth.
+			return Expr(fmt.Sprintf("%s is not null and abs(%s - ?) <= ?", measured, measured),
+				options.TargetLUFS, tolerance+model.LoudnessComparisonEpsilon)
 		case "short":
 			return Expr(fmt.Sprintf("%s is not null and abs(%s - ?) > ?", measured, measured),
 				options.TargetLUFS, tolerance+model.LoudnessComparisonEpsilon)
@@ -641,13 +716,15 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		// filter does not work".
 		"loudness_verdict": func(_ string, value any) Sqlizer {
 			var stored []string
-			refused, needsDecision := false, false
+			refused, needsDecision, levelTwo := false, false, false
 			for _, v := range filterStrings(value) {
 				switch v {
 				case leftAsIsVerdict:
 					refused = true
 				case needsDecisionVerdict:
 					needsDecision = true
+				case levelTwoVerdict:
+					levelTwo = true
 				default:
 					stored = append(stored, v)
 				}
@@ -658,6 +735,12 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 			}
 			if refused {
 				any = append(any, Eq{"media_file_loudness.action": model.LoudnessActionRefused})
+			}
+			if levelTwo {
+				// The same expression the column and the summary card use, so
+				// the filter cannot select a different set from the one the
+				// page labelled.
+				any = append(any, LoudnessLevelTwoFilter())
 			}
 			if needsDecision {
 				// Exactly the songs the exceptions page lists, and only while
@@ -716,9 +799,16 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		// Why a song is listed, so a page of exceptions can be worked one cause
 		// at a time instead of one row at a time.
 		"loudness_reason": loudnessReasonFilter,
-		"artists_id":      artistFilter,
-		"library_id":      libraryIdFilter,
-		"path":            containsFilter("media_file.path"),
+		// Songs a run built a file for and discarded. What the summary's
+		// "rejected" card opens, so the number and the list are one query.
+		"loudness_rejected": loudnessRejectedFilter,
+		// Songs held to the wider tolerance, for the summary's "level 2" card.
+		"loudness_level_two": loudnessLevelTwoFilter,
+		// Corrected as far as they would go, still off target.
+		"loudness_short": func(_ string, _ any) Sqlizer { return LoudnessShortOfTargetFilter() },
+		"artists_id":     artistFilter,
+		"library_id":     libraryIdFilter,
+		"path":           containsFilter("media_file.path"),
 	}
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {
@@ -738,6 +828,11 @@ const leftAsIsVerdict = "left_as_is"
 // page and nothing has resolved it yet". Mirrors verdictOf in
 // ui/src/lufs/LufsFields.jsx.
 const needsDecisionVerdict = "needs_decision"
+
+// levelTwoVerdict is displayed, never stored: it means "inside the wider
+// tolerance and left alone". Worked out from the measurements, like the two
+// above, so the filter has to compute it rather than look it up.
+const levelTwoVerdict = "level_two"
 
 // filterStrings normalises whatever a filter value arrives as - one value, or
 // several from a multi-select - into a plain list.

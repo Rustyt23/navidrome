@@ -34,22 +34,22 @@ const PHASE_CLOSE_ENOUGH = 4
 const LEVEL_TWO_TOLERANCE = 0.5
 
 // isException mirrors the server's exceptions filter: the songs a person still
-// has to do something about. Peaks over the ceiling count once the engine has
-// had its go - a rewritten file still over, or a refusal left over - but not
-// on a song that has only been measured, which the next run will handle.
+// has to do something about. A peak counts only against a file this project
+// wrote and kept; on every other song the peak belongs to the client's master
+// and is not something anyone here can act on.
 export const isException = (audit, offBy, truePeak = -0.5, tolerance = 0.2) => {
-  // Judged against the bound the engine ships at, not the bare ceiling, so a
-  // file accepted inside the measurement tolerance is not then listed as one
-  // needing a decision. Mirrors loudnessExceptionFilter.
+  // Only a file this project WROTE is judged on its peak - tpAfter exists only
+  // for a rewrite that was accepted and kept.
+  //
+  // A refusal was listed here too, on whatever the song measured - which, with
+  // no accepted rewrite, is the client's own master. That put a song in front
+  // of them over a peak that was theirs before anything was touched, and that
+  // nothing allowed here could change: correcting it means turning the song
+  // down, out of the band it is being kept in, or limiting it, which rewrites
+  // the file this path has just decided not to rewrite. A refusal is judged by
+  // distance alone below, like every other untouched song.
   const rewrittenPeak = measuredNumber(audit.tpAfter)
   if (rewrittenPeak !== null && !peakAcceptable(rewrittenPeak, truePeak))
-    return true
-  const { peak } = currentMeasurement(audit)
-  if (
-    audit.action === 'refused' &&
-    peak !== null &&
-    !peakAcceptable(peak, truePeak)
-  )
     return true
   // wasException is history - "a person once had to look at this" - and the
   // column is a one-way latch that nothing lowers. Honoured only while the song
@@ -83,11 +83,23 @@ export const isException = (audit, offBy, truePeak = -0.5, tolerance = 0.2) => {
 // all and quietly went missing from the library totals.
 export const isLevelTwo = (audit, settings) => {
   if (!audit) return false
+  // Level two means the file was never opened. A song corrected as far as it
+  // would go and left a little short sits in the same band and is a different
+  // thing entirely - one was spared a re-encode, the other had one. Calling
+  // both level two reported a song lifted 3.2 dB as untouched.
+  //
+  // Read from the status, because a song rewritten and then RESTORED is
+  // untouched again: its file is the original once more.
+  if (audit.status === 'processed') return false
   const target = settings?.targetLUFS ?? -12.6
   const tolerance = settings?.tolerance ?? 0.2
-  const { lufs: now, peak } = currentMeasurement(audit)
-  if (now === null || !peakAcceptable(peak, settings?.truePeak ?? -0.5))
-    return false
+  // Loudness alone, exactly as PlanFor decides PhaseCloseEnough. A song in this
+  // band is left untouched on purpose, so its peak belongs to the client's
+  // master rather than to anything produced here. Requiring a shippable peak
+  // excluded almost every song that belongs in the band, because most
+  // commercial masters peak above the ceiling as they were mastered.
+  const { lufs: now } = currentMeasurement(audit)
+  if (now === null) return false
 
   const offBy = Math.abs(now - target)
   if (
@@ -111,7 +123,7 @@ export const outcomeFor = (record, settings) => {
   const target = settings?.targetLUFS ?? -12.6
   const tolerance = settings?.tolerance ?? 0.2
 
-  const { lufs: now, peak } = currentMeasurement(a)
+  const { lufs: now } = currentMeasurement(a)
   if (now === null) return null
 
   const offBy = Math.abs(now - target)
@@ -122,15 +134,20 @@ export const outcomeFor = (record, settings) => {
 
   const base = { offBy, now }
 
-  if (!peakAcceptable(peak, settings?.truePeak ?? -0.5)) {
+  // Judged on the peak only when there is a file this project wrote. An
+  // untouched song reported "not attempted - true peak exceeds the configured
+  // ceiling" on the strength of its own master's peak, which read as a fault
+  // on songs that were sitting exactly on target and had never been opened.
+  const written = measuredNumber(a.tpAfter)
+  if (
+    written !== null &&
+    !peakAcceptable(written, settings?.truePeak ?? -0.5)
+  ) {
     return {
       ...base,
       id: OUTCOME_NOT_ATTEMPTED,
       tone: 'warn',
-      detail:
-        peak === null
-          ? `${detail} - true peak not measured`
-          : `${detail} - true peak exceeds the configured ceiling`,
+      detail: `${detail} - true peak exceeds the configured ceiling`,
     }
   }
 

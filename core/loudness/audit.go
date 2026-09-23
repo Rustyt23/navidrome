@@ -103,6 +103,23 @@ func Audit(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFileI
 // auditWith is Audit with the option of reusing a measurement of trackPath the
 // caller already holds. Measuring decodes the entire file, so a caller that has
 // just measured it should not pay for it a second time.
+// currentLoudness is what the song measures as it now stands on disk: the
+// after snapshot once it has been rewritten, the before one while it has only
+// been measured. Reports ok=false when nothing was measurable, so a caller
+// cannot mistake a missing reading for a song sitting on zero.
+func currentLoudness(audit *model.LoudnessAudit) (float64, bool) {
+	if audit == nil {
+		return 0, false
+	}
+	if audit.LufsAfter != nil {
+		return *audit.LufsAfter, true
+	}
+	if audit.LufsBefore != nil {
+		return *audit.LufsBefore, true
+	}
+	return 0, false
+}
+
 func auditWith(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer, mediaFileID, libraryPath, trackPath string,
 	current *Measurement, target ffmpeg.LoudnessTarget, tolerance float64, backupFolder string) *model.LoudnessAudit {
 	audit := &model.LoudnessAudit{MediaFileID: mediaFileID, AnalyzedAt: time.Now()}
@@ -234,6 +251,27 @@ func AuditFromOptimize(ctx context.Context, normalizer ffmpeg.LoudnessNormalizer
 			// outcome would not either; a fresh analysis clears this and the
 			// track is tried again.
 			audit.Action = model.LoudnessActionRefused
+			// The last gate before a song reaches the client.
+			//
+			// A song outside the ordinary tolerance is corrected, and some of
+			// those corrections cannot land: re-encoding pushes the peak back
+			// up, or the loudness comes out somewhere other than it was aimed.
+			// The attempt is thrown away and the file is untouched - and the
+			// song was then shown to the client as a decision to make.
+			//
+			// If it is inside the wider band it is not worth that. The file is
+			// where it started, which is within half a decibel of target, and
+			// the difference is below what anyone can hear. Recording it as
+			// PhaseCloseEnough says exactly that: tried, could not be improved
+			// transparently, near enough to leave alone.
+			//
+			// Deliberately after the attempt rather than before it. A song that
+			// CAN be corrected still is; only the ones that cannot are filed
+			// here, so nothing is given up that was reachable.
+			if lufs, ok := currentLoudness(audit); ok &&
+				withinLoudnessTolerance(lufs, target.IntegratedLUFS, leaveAloneToleranceDB) {
+				audit.Phase = PhaseCloseEnough
+			}
 		}
 		return audit
 	}
@@ -382,10 +420,26 @@ func recordAfter(audit *model.LoudnessAudit, m *Measurement) {
 // movement at all: a peak that tracked the gain exactly was not limited, however
 // expensive the rewrite turned out to be.
 func inferAction(audit *model.LoudnessAudit, before, after *Measurement, gain float64) string {
-	lraMoved := math.Abs(after.LRA - before.LRA)
+	// Both signals are directional, and only one direction is damage.
+	//
+	// A loudness range that CLOSED means the quiet parts came up and the loud
+	// parts came down - the song was squeezed. A range that opened is not
+	// something any process here can do: a gain moves the whole song together
+	// and leaves the distance between its quietest and loudest moments exactly
+	// as it was. Measured as wider, it is the measurement wobbling, not the
+	// music changing, and reading it as damage accuses a clean rewrite.
+	//
+	// Measured on a real library: across 477 songs the engine called pure gains,
+	// the range never closed by more than 0.3 and never opened by more than 0.3;
+	// across 108 it called limited, it closed by as much as 1.5. The two
+	// populations do not overlap, and only the closing side separates them.
+	//
+	// shavedBy was already signed this way - positive when the peak came down
+	// further than the gain accounts for - so the two now read alike.
+	lraClosed := before.LRA - after.LRA
 	shavedBy := (before.TruePeak + gain) - after.TruePeak
 
-	if lraMoved > pureGainToleranceDB || shavedBy > pureGainToleranceDB {
+	if lraClosed > pureGainToleranceDB || shavedBy > pureGainToleranceDB {
 		return model.LoudnessActionLimited
 	}
 	if rewriteWasCostly(audit, after) && shavedBy > corroboratedShaveDB {
@@ -421,7 +475,9 @@ func verdict(audit *model.LoudnessAudit, before, after *Measurement) string {
 	if audit.Action == model.LoudnessActionLimited {
 		return model.LoudnessVerdictDynamicsChanged
 	}
-	if math.Abs(after.LRA-before.LRA) > pureGainToleranceDB {
+	// Closing only, for the reason given in inferAction: a range that opened
+	// describes a measurement, not a change to the music.
+	if before.LRA-after.LRA > pureGainToleranceDB {
 		return model.LoudnessVerdictDynamicsChanged
 	}
 	// Nothing reshaped the audio and the format survived, yet more of the file

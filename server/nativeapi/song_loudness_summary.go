@@ -25,8 +25,8 @@ type loudnessSummary struct {
 	// OnTarget counts songs measuring within tolerance of the target, whether
 	// they had to be changed to get there or were already fine.
 	//
-	// OnTarget, LevelTwo, Exceptions and NotMeasured partition the library: every
-	// song is in exactly one. "Short of target" used to sit alongside them and
+	// OnTarget, LevelTwo, ShortOfTarget, Exceptions and NotMeasured partition the
+	// library: every song is in exactly one. "Short of target" used to sit alongside them and
 	// did not partition anything - it overlapped both LevelTwo and Exceptions, so
 	// the panel invited adding numbers that double-counted.
 	OnTarget int64 `json:"onTarget"`
@@ -38,10 +38,25 @@ type loudnessSummary struct {
 	// Restorable counts songs whose untouched original is still stored.
 	Restorable int64 `json:"restorable"`
 	Exceptions int64 `json:"exceptions"`
+	// Rejected counts songs a run built a file for and threw away. The working
+	// audio was left exactly as it was, so this is not a count of damage - it is
+	// how much effort produced nothing, which is the number that tells someone
+	// whether the settings are reachable on this library.
+	//
+	// Deliberately not part of the partition above: a rejected song still sits
+	// in whichever of those four it belongs to.
+	Rejected int64 `json:"rejected"`
 	// LevelTwo is tracks held to the wider tolerance: left untouched because
 	// correcting them was not worth a re-encode. They are not exceptions - nobody
 	// has to do anything about them - but they are not silently on target either.
 	LevelTwo int64 `json:"levelTwo"`
+	// ShortOfTarget is songs this project corrected as far as they would go,
+	// which is still outside the ordinary tolerance.
+	//
+	// They used to be counted as level two, which says the opposite of what
+	// happened to them: level two means the file was never opened. A song lifted
+	// 3.2 dB was being reported as one nobody had touched.
+	ShortOfTarget int64 `json:"shortOfTarget"`
 }
 
 // loudnessSummaryHandler counts the library by outcome.
@@ -87,6 +102,8 @@ func (n *Router) loudnessSummaryHandler() http.HandlerFunc {
 		// headline came to disagree with the page underneath it.
 		summary.Exceptions = count(squirrel.And{present, persistence.LoudnessExceptionFilter()})
 		summary.LevelTwo = count(squirrel.And{present, persistence.LoudnessLevelTwoFilter()})
+		summary.Rejected = count(squirrel.And{present, persistence.LoudnessRejectedFilter()})
+		summary.ShortOfTarget = count(squirrel.And{present, persistence.LoudnessShortOfTargetFilter()})
 
 		_ = json.NewEncoder(w).Encode(summary)
 	}

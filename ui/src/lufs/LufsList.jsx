@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Datagrid,
   Filter,
@@ -38,6 +39,7 @@ import {
   LufsPairField,
   NullResidualField,
   ReportField,
+  RejectionField,
   OriginalLufsField,
   SampleRatePairField,
   StatusField,
@@ -72,6 +74,10 @@ const LufsFilter = (props) => (
         { id: 'rewrite_costly', name: 'Differs from original' },
         { id: 'reencoded', name: 'Quality lost' },
         { id: 'left_as_is', name: 'Left as-is' },
+        // Shown in the column, so it has to be selectable here. A verdict
+        // someone can read on a row and cannot filter by is the one they will
+        // try to filter by first.
+        { id: 'level_two', name: 'Level 2 tolerance' },
         { id: 'needs_decision', name: 'Needs decision' },
         { id: 'no_audio', name: 'No audio in file' },
         { id: 'failed', name: 'Could not process' },
@@ -137,8 +143,23 @@ const LufsBulkActions = (props) => (
 // LufsList is the audit view: every property that loudness normalization must
 // leave untouched, shown before -> after alongside the loudness measurements,
 // so a change can be proved rather than assumed.
+// showingRejected reads the filter out of the URL rather than the list context,
+// because the columns are chosen before the List renders and there is no
+// context to read yet.
+const showingRejected = (search) => {
+  const raw = new URLSearchParams(search).get('filter')
+  if (!raw) return false
+  try {
+    return !!JSON.parse(raw).loudness_rejected
+  } catch {
+    // A filter we cannot read is not a reason to change the columns.
+    return false
+  }
+}
+
 const LufsList = (props) => {
   const [settings, setSettings] = useState(null)
+  const { search } = useLocation()
   const { status: analyzeStatus, poll } = useAnalyzeStatus()
   const { status: libraryStatus, poll: pollLibrary } = useLibraryStatus()
 
@@ -198,6 +219,17 @@ const LufsList = (props) => {
           source="report"
           label="Report"
           settings={settings}
+          sortable={false}
+        />
+      ),
+      // Why a built file was thrown away. Off by default: it says nothing about
+      // the overwhelming majority of songs, and this table is already wide. The
+      // summary's "Rejected" card turns it on, which is the one moment anyone
+      // wants it.
+      rejection: (
+        <RejectionField
+          source="rejection"
+          label="Why refused"
           sortable={false}
         />
       ),
@@ -267,10 +299,17 @@ const LufsList = (props) => {
     [settings],
   )
 
+  // "Why refused" is off by default - it says nothing about the overwhelming
+  // majority of songs - but on when someone has asked for the rejected ones,
+  // which is the only moment the column is the point. A person who has toggled
+  // it themselves keeps their own choice either way: this only moves the
+  // default for someone who never expressed one.
+  const rejectedView = showingRejected(search)
   const columns = useSelectedFields({
     resource: 'lufs',
     columns: toggleableFields,
     defaultOff: [
+      ...(rejectedView ? [] : ['rejection']),
       'album',
       'action',
       'codec',

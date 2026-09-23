@@ -83,13 +83,33 @@ describe('current loudness', () => {
     const audit = { lufsBefore: -22, tpBefore: -8, lufsAfter: -12.6 }
     expect(currentMeasurement(audit).peak).toBeNull()
     expect(recommendationFor({ loudnessAudit: audit })).toBeNull()
-    expect(outcomeFor({ loudnessAudit: audit }).id).not.toBe('on_target')
   })
 
-  it('does not label an unsafe measured peak on target', () => {
+  // On target means the loudness is where the client asked for it. The peak of
+  // a song nothing was written for belongs to the client's master, and most
+  // commercial masters peak above the ceiling as they were mastered - reading
+  // that as a fault marked finished songs "not attempted".
+  it('labels a song on target however its own master peaks', () => {
+    for (const peak of [-0.3, 0, 0.28, 1.5]) {
+      expect(
+        outcomeFor({ loudnessAudit: { lufsBefore: -12.6, tpBefore: peak } }).id,
+      ).toBe('on_target')
+    }
+  })
+
+  // A file this project wrote IS judged on its peak: that is the one case
+  // where the number describes our own work rather than the client's.
+  it('still flags a written file that shipped past the bound', () => {
     expect(
-      outcomeFor({ loudnessAudit: { lufsBefore: -12.6, tpBefore: -0.3 } }).id,
-    ).not.toBe('on_target')
+      outcomeFor({
+        loudnessAudit: {
+          lufsBefore: -20,
+          tpBefore: -8,
+          lufsAfter: -12.6,
+          tpAfter: -0.2,
+        },
+      }).id,
+    ).toBe('not_attempted')
   })
 
   // A song at the target whose peak sits inside the measurement tolerance is

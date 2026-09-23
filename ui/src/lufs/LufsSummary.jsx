@@ -10,6 +10,7 @@ import EqualizerIcon from '@material-ui/icons/Equalizer'
 import ExpandLessIcon from '@material-ui/icons/ExpandLess'
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore'
 import { makeStyles } from '@material-ui/core/styles'
+import { useHistory } from 'react-router-dom'
 import { httpClient } from '../dataProvider'
 
 const SUMMARY_URL = '/api/song/loudness/summary'
@@ -114,6 +115,13 @@ const useStyles = makeStyles((theme) => ({
     backgroundColor: theme.palette.action.hover,
     borderLeft: `3px solid ${theme.palette.divider}`,
   },
+  // Only the cards that open something say so. A hover state on all of them
+  // would promise every number is a way in, and most are not.
+  clickable: {
+    cursor: 'pointer',
+    '&:hover': { backgroundColor: theme.palette.action.selected },
+    '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}` },
+  },
   value: {
     fontSize: '1.75rem',
     fontWeight: 700,
@@ -137,6 +145,8 @@ const useStyles = makeStyles((theme) => ({
 // never disagree with the page underneath it.
 export const LufsSummary = ({ refreshKey }) => {
   const classes = useStyles()
+  // Before the early return below: hooks cannot be called conditionally.
+  const history = useHistory()
   const [summary, setSummary] = useState(null)
   const [open, setOpen] = useState(
     () => localStorage.getItem(OPEN_KEY) === 'true',
@@ -167,6 +177,8 @@ export const LufsSummary = ({ refreshKey }) => {
     restorable,
     exceptions,
     levelTwo,
+    rejected,
+    shortOfTarget,
   } = summary
   // Level two counts as reached. Those songs are inside half a decibel with
   // nothing anyone would do about them, so excluding them reported the library
@@ -179,16 +191,45 @@ export const LufsSummary = ({ refreshKey }) => {
   // "complete" rather than "on target": the level two songs are not on target,
   // they are near enough that nothing more will be done to them. Claiming they
   // hit the figure would be an overclaim the cards below immediately contradict.
-  const complete = onTarget + levelTwo
+  // Short-of-target songs count as complete for the same reason level two does:
+  // nothing more will be done to them. They were corrected as far as the song
+  // allowed. Leaving them out would report the library as further from done
+  // than it is, on songs that are finished.
+  const complete = onTarget + levelTwo + (shortOfTarget || 0)
   const percent = Math.round((complete / songs) * 100)
   const share = (n) =>
     songs ? `${Math.round((n / songs) * 100)}% of library` : ''
 
-  const card = ({ label, value, note, accent, title }) => (
+  // The query string is taken whole by react-admin or not at all, so each
+  // filter is sent on its own: a card opens exactly the songs it counted,
+  // rather than narrowing whatever was already on screen. page=1 because the
+  // page someone was on has no meaning in a different set of rows.
+  //
+  // Every card routes through here so the number and the list can never come
+  // from different questions - the same reason the counts themselves are taken
+  // from the list's own filters rather than from a second copy of the rule.
+  const openFiltered = (filter) => () =>
+    history.push({
+      pathname: '/lufs',
+      search: `?filter=${encodeURIComponent(JSON.stringify(filter))}&page=1`,
+    })
+
+  // onOpen turns a card into a way into the songs it counts. Without it a
+  // number that says "35 of these exist" leaves someone to work out which 35,
+  // on a page of ninety thousand rows.
+  const card = ({ label, value, note, accent, title, onOpen }) => (
     <Tooltip key={label} title={title || ''}>
       <div
-        className={classes.card}
+        className={`${classes.card} ${onOpen ? classes.clickable : ''}`}
         style={accent ? { borderLeftColor: accent } : undefined}
+        onClick={onOpen}
+        onKeyDown={
+          onOpen
+            ? (e) => (e.key === 'Enter' || e.key === ' ') && onOpen()
+            : undefined
+        }
+        role={onOpen ? 'button' : undefined}
+        tabIndex={onOpen ? 0 : undefined}
       >
         <div
           className={classes.value}
@@ -261,13 +302,37 @@ export const LufsSummary = ({ refreshKey }) => {
               note: share(levelTwo),
               accent: INFO,
               title:
-                'Within half a decibel and left untouched: correcting them would have cost a re-encode for a difference nobody can hear',
+                'Within half a decibel of target and never opened: correcting them would have cost a re-encode for a difference nobody can hear. Click to see them.',
+              onOpen:
+                levelTwo > 0
+                  ? openFiltered({ loudness_level_two: true })
+                  : undefined,
             })}
             {card({
-              label: 'Not measured',
+              label: 'Short of target',
+              value: shortOfTarget || 0,
+              note: share(shortOfTarget || 0),
+              title:
+                'Corrected as far as the song allowed, and still outside the ordinary tolerance. Nothing more will be done to them. Click to see them.',
+              onOpen:
+                shortOfTarget > 0
+                  ? openFiltered({ loudness_short: true })
+                  : undefined,
+            })}
+            {card({
+              label: 'Could not process',
               value: notMeasured,
               note: share(notMeasured),
-              title: 'Nothing is known about these yet',
+              accent: notMeasured > 0 ? WARN : undefined,
+              title:
+                'Songs nothing could be read from - no audio in the file, or a decode that failed. Nothing is known about their loudness. Click to see them.',
+              // An array because the Outcome filter takes several at once, so
+              // the chip that appears on the page reads as a normal selection
+              // someone could have made themselves.
+              onOpen:
+                notMeasured > 0
+                  ? openFiltered({ loudness_outcome: ['not_measured'] })
+                  : undefined,
             })}
           </div>
 
@@ -297,6 +362,18 @@ export const LufsSummary = ({ refreshKey }) => {
               note: share(exceptions),
               accent: exceptions > 0 ? WARN : undefined,
               title: 'Listed on the exceptions page, waiting on a person',
+            })}
+            {card({
+              label: 'Rejected',
+              value: rejected || 0,
+              note: share(rejected || 0),
+              accent: rejected > 0 ? WARN : undefined,
+              title:
+                'A corrected copy was built, measured, judged not good enough and thrown away. The song on disk was never touched. Click to see them and why each was refused.',
+              onOpen:
+                rejected > 0
+                  ? openFiltered({ loudness_rejected: true })
+                  : undefined,
             })}
           </div>
         </div>

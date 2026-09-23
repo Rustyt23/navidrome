@@ -4,24 +4,29 @@ import { describe, expect, it } from 'vitest'
 import { JobProgress } from './JobProgress'
 
 describe('finished LUFS job', () => {
-  it('keeps rejected results visible after processing finishes', () => {
-    render(
+  // A finished job says nothing here.
+  //
+  // The rejection count used to stay on screen in red once the run ended, and
+  // stayed until the next one started: a permanent alarm about work that was
+  // already over, beside controls for a job no longer running. It is a property
+  // of the library rather than of the run, so the summary panel carries it now
+  // and can open the songs it refers to - which the banner never could.
+  it('shows nothing once the run is over', () => {
+    const { container } = render(
       <JobProgress
         label="Optimising"
-        status={{ running: false, rejected: 2 }}
+        status={{ running: false, rejected: 35, processed: 1678 }}
       />,
     )
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      '2 rejected; working audio unchanged',
-    )
+    expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  // The raw error text is not shown to the client. It is ffmpeg's own output,
-  // which carries hundreds of progress lines around a few words of message, and
-  // it stays on screen until the next run starts. It is still recorded in the
-  // server log, which is where it is read.
+  // The raw error text is ffmpeg's own output: hundreds of progress lines
+  // around a few words of message. It is kept in the server log, which is where
+  // it is read, and never put in front of the client.
   it('does not put the raw job error on the page', () => {
-    render(
+    const { container } = render(
       <JobProgress
         label="Optimising"
         status={{
@@ -31,8 +36,19 @@ describe('finished LUFS job', () => {
         }}
       />,
     )
-    expect(screen.getAllByRole('alert')).toHaveLength(1)
-    expect(screen.getByRole('alert')).toHaveTextContent('1 rejected')
+    expect(container).toBeEmptyDOMElement()
     expect(screen.queryByText(/signal: killed/)).not.toBeInTheDocument()
+  })
+
+  // While the job IS running the progress line still reports itself, including
+  // the counters - this only changed what a finished job leaves behind.
+  it('still reports progress while the run is going', () => {
+    render(
+      <JobProgress
+        label="Optimising"
+        status={{ running: true, processed: 1678, total: 91254 }}
+      />,
+    )
+    expect(screen.getByText(/Optimising 1,678 \/ 91,254/)).toBeInTheDocument()
   })
 })

@@ -87,6 +87,29 @@ func TestVerdict(t *testing.T) {
 		}
 	})
 
+	// Only one direction is damage. A range that CLOSED means the song was
+	// squeezed; a range that opened is not something any process here can do -
+	// a gain moves the whole song together and leaves the distance between its
+	// quietest and loudest moments exactly as it was. Measured wider, it is the
+	// measurement wobbling.
+	//
+	// Measured on a real library: across 477 pure gains the range never closed
+	// by more than 0.3 and never opened by more than 0.3; across 108 limited
+	// songs it closed by as much as 1.5. Only the closing side separates them.
+	t.Run("a loudness range that opened is not damage", func(t *testing.T) {
+		audit, before, _ := gainOnly()
+		// Opened from 4.7 to 6.0 - further than the tolerance, the wrong way.
+		after := testMeasurement(-12.62, -0.95, 6.0)
+		audit.Action = inferAction(audit, before, after, 0.40)
+		if audit.Action != model.LoudnessActionGain {
+			t.Errorf("action = %q, want %q - nothing squeezed this song",
+				audit.Action, model.LoudnessActionGain)
+		}
+		if got := verdict(audit, before, after); got == model.LoudnessVerdictDynamicsChanged {
+			t.Error("a widening loudness range was reported as reshaped audio")
+		}
+	})
+
 	t.Run("a peak that did not follow the gain is a change to the dynamics", func(t *testing.T) {
 		audit, before, after := gainOnly()
 		audit.Action = model.LoudnessActionLimited

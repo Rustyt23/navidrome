@@ -12,6 +12,7 @@ import {
   OUTCOME_NOT_ATTEMPTED,
 } from './outcome'
 import { verdictReason } from './verdictReason'
+import { explainRefusal } from '../lufs2/reason'
 
 const useStyles = makeStyles((theme) => ({
   chip: {
@@ -55,6 +56,16 @@ const useStyles = makeStyles((theme) => ({
     gap: 6,
   },
   sub: { fontSize: '0.72rem' },
+  // Amber, like every other "look at this" on the page - but as text, because
+  // a chip cannot hold a sentence and the sentence is the point here.
+  reasonHeadline: { color: '#ef6c00', fontWeight: 600, fontSize: '0.78rem' },
+  reasonCell: {
+    display: 'inline-flex',
+    flexDirection: 'column',
+    gap: 2,
+    maxWidth: 320,
+    whiteSpace: 'normal',
+  },
   reportHeading: {
     fontWeight: 700,
     fontSize: '0.72rem',
@@ -336,23 +347,37 @@ export const GainField = (props) => {
 export const TruePeakField = (props) => {
   const record = useRecordContext(props)
   const a = audit(record)
-  // A rising true peak means the peaks were pushed up rather than just scaled
-  const changed =
-    has(a?.tpBefore) &&
-    has(a?.tpAfter) &&
-    Number(a.tpAfter) > Number(a.tpBefore)
-  return (
-    <Pair before={num(a?.tpBefore)} after={num(a?.tpAfter)} changed={changed} />
-  )
+  // Never coloured.
+  //
+  // This used to redden whenever the peak rose, on the theory that a rising
+  // peak meant the peaks had been pushed up rather than scaled. That is what a
+  // gain does: turning a song up by 1.01 dB raises its loudest instant by 1.01
+  // dB, exactly. So the warning fired on every song that was turned up - most
+  // of them - and stayed off the ones turned down, which are no safer. Measured
+  // on the client's library, four songs wearing it had tracked their gain to
+  // within 0.01 dB: textbook transparent corrections, painted as faults.
+  //
+  // Whether the peak did something the gain does not explain is a real
+  // question, and the engine already asks it - that is what decides "volume
+  // only" against "levelled + peaks capped", and it is reported in the Verdict
+  // and Report columns. Repeating a worse version of it here only taught people
+  // to ignore the colour.
+  return <Pair before={num(a?.tpBefore)} after={num(a?.tpAfter)} />
 }
 
 export const LraField = (props) => {
   const record = useRecordContext(props)
   const a = audit(record)
+  // Coloured when the loudness range CLOSED - the quiet parts came up and the
+  // loud parts came down, which is the song being squeezed. A range that opened
+  // is not something any process here can do: a gain moves the whole song
+  // together and leaves the distance between its quietest and loudest moments
+  // exactly as it was, so a wider reading is the measurement wobbling rather
+  // than the music changing. Mirrors inferAction in core/loudness.
   const changed =
     has(a?.lraBefore) &&
     has(a?.lraAfter) &&
-    Math.abs(Number(a.lraAfter) - Number(a.lraBefore)) > 0.5
+    Number(a.lraBefore) - Number(a.lraAfter) > 0.5
   return (
     <Pair
       before={num(a?.lraBefore, 1)}
@@ -624,6 +649,36 @@ export const ReportField = (props) => {
     <Tooltip title={detail}>
       <span className={report.clean ? classes.ok : classes.changed}>
         {report.clean ? `✓ ${summary}` : `⚠ ${summary}`}
+      </span>
+    </Tooltip>
+  )
+}
+
+// Why a produced file was thrown away, in words rather than engine output.
+//
+// Reuses explainRefusal from the exceptions page, so a song refused for the
+// same cause reads the same wherever it is seen. The raw text the engine wrote
+// stays in the tooltip, because someone eventually has to debug one of these
+// and the sentence above is deliberately not it.
+//
+// Blank for every song that was not refused: a rejection is the exception, and
+// a column that invents something to say about the other ninety thousand rows
+// would be noise in every one of them.
+export const RejectionField = (props) => {
+  const classes = useStyles()
+  const record = useRecordContext(props)
+  const a = audit(record)
+  if (a?.action !== 'refused' || !a?.error) {
+    return <span className={classes.same}>-</span>
+  }
+  const reason = explainRefusal(a.error)
+  return (
+    <Tooltip title={a.error}>
+      <span className={classes.reasonCell}>
+        <span className={classes.reasonHeadline}>{reason.headline}</span>
+        <span className={`${classes.sub} ${classes.same}`}>
+          {reason.detail}
+        </span>
       </span>
     </Tooltip>
   )

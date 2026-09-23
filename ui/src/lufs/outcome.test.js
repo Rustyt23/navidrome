@@ -34,14 +34,33 @@ describe('isException', () => {
     expect(isException(audit, offBy(-12.6), -0.5)).toBe(false)
   })
 
-  it('lists a refusal that left the peaks over, even near target', () => {
+  // The last gate before a song reaches the client. A correction was attempted
+  // and could not land - re-encoding pushed the peak back up, or the loudness
+  // came out somewhere else - so the produced file was thrown away and the
+  // song is exactly as the client delivered it. Inside the wider band that is
+  // not a decision for anyone: the peak on the row is the client's own master,
+  // and nothing allowed here can change it without moving the song out of the
+  // band it is being kept in.
+  it('does not list a failed correction that is already near target', () => {
+    for (const peak of [0.63, 0, -0.2, 1.4]) {
+      const audit = {
+        phase: 3,
+        action: 'refused',
+        lufsBefore: -12.15,
+        tpBefore: peak,
+      }
+      expect(isException(audit, offBy(-12.15), -0.5)).toBe(false)
+    }
+  })
+
+  it('still lists a failed correction that is far from target', () => {
     const audit = {
       phase: 3,
       action: 'refused',
-      lufsBefore: -12.15,
-      tpBefore: 0.63,
+      lufsBefore: -14.2,
+      tpBefore: -3,
     }
-    expect(isException(audit, offBy(-12.15), -0.5)).toBe(true)
+    expect(isException(audit, offBy(-14.2), -0.5)).toBe(true)
   })
 
   // wasException is a one-way latch: nothing in the application lowers it, so
