@@ -994,6 +994,23 @@ func (r *mediaFileRepository) UpdateAudioProperties(id string, props model.Audio
 	return err
 }
 
+// UpdatePath records a song's new location after a rename on disk.
+//
+// The scanner decides a file is new or missing by its path, so renaming a file
+// without this leaves the library with a phantom missing track and a duplicate
+// of the same song. The row keeps its ID, so playlists, annotations and play
+// counts all survive the rename.
+func (r *mediaFileRepository) UpdatePath(id string, path string) error {
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(path) == "" {
+		return nil
+	}
+	upd := Update(r.tableName).
+		Set("path", path).
+		Where(Eq{"id": id})
+	_, err := r.executeSQL(upd)
+	return err
+}
+
 func (r *mediaFileRepository) UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error {
 	if album == nil && year == nil && genre == nil && mbzRecordingID == nil && mbzReleaseID == nil {
 		return nil

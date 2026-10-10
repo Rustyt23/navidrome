@@ -10,8 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/core/gcsync"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/gcpsync"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -86,7 +86,7 @@ func runNavidrome(ctx context.Context) {
 	g.Go(startScheduler(ctx))
 	g.Go(startPlaybackServer(ctx))
 	g.Go(schedulePeriodicBackup(ctx))
-	g.Go(startGCSync(ctx))
+	g.Go(startGCPSync(ctx))
 	g.Go(startInsightsCollector(ctx))
 	g.Go(scheduleDBOptimizer(ctx))
 	g.Go(startPluginManager(ctx))
@@ -246,23 +246,36 @@ func startScanWatcher(ctx context.Context) func() error {
 	}
 }
 
-// startGCSync starts the GCS sync upload worker and schedules the periodic
+// startGCPSync starts the GCS sync upload worker and schedules the periodic
 // Sync-folder sweep (playlist versioning + leftover MP3 archiving), replacing
 // the external sync-to-GCS bash script.
-func startGCSync(ctx context.Context) func() error {
+func startGCPSync(ctx context.Context) func() error {
 	return func() error {
-		if !conf.Server.GCSync.Enabled {
+		if !conf.Server.GCPSync.Enabled {
 			log.Info(ctx, "GCS sync is DISABLED")
 			return nil
 		}
-		svc := gcsync.GetInstance()
-		svc.Start(ctx)
+		// The naming gate is a UI-controlled setting, so the service needs a
+		// store to read it from.
+		gcpsync.SetDataStore(CreateDataStore())
 
-		schedule := conf.Server.GCSync.Schedule
+		svc := gcpsync.GetInstance()
+		svc.Start(ctx)
+		if !conf.Server.GCPSync.AutoUpload {
+			log.Info(ctx, "GCS sync is manual; updated files wait in SyncFolder/mp3 until Sync is clicked")
+			return nil
+		}
+
+		schedule := conf.Server.GCPSync.Schedule
+		if schedule == "0" {
+			log.Info(ctx, "Automatic GCS sync is disabled by Schedule=0; files wait until Sync is clicked")
+			return nil
+		}
 		if schedule == "" {
 			log.Info(ctx, "GCS sync sweep has no schedule; only event-driven uploads and manual sweeps will run")
 			return nil
 		}
+		log.Info(ctx, "GCS sync files will remain staged until the configured upload time", "schedule", schedule)
 		log.Info("Scheduling GCS sync sweep", "schedule", schedule)
 		_, err := scheduler.GetInstance().Add(schedule, func() {
 			if err := svc.Sweep(ctx); err != nil {

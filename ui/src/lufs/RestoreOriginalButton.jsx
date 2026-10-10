@@ -89,6 +89,7 @@ export const RestoreOriginalButton = ({ resource, selectedIds, disabled }) => {
   return (
     <>
       <RaButton
+        color="inherit"
         onClick={() => setConfirming(true)}
         label={translate('resources.lufs.actions.restore')}
         disabled={!selectedCount || saving || !!status?.running || disabled}

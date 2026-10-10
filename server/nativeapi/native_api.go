@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,7 +23,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
-	"github.com/navidrome/navidrome/core/gcsync"
+	"github.com/navidrome/navidrome/core/gcpsync"
 	"github.com/navidrome/navidrome/core/metrics"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/publicurl"
@@ -76,6 +77,9 @@ type Router struct {
 	imgUpload              core.ImageUploadService
 	devices                *retailPlayerDeviceResolver
 	songTracker            *retailPlayerSongTracker
+	musicBroadcastsOnce    sync.Once
+	musicBroadcasts        *retailPlayerBroadcasts
+	gcpSync                gcpsync.Service
 	metadataJob            *musicBrainzMetadataJob
 	spotifyJob             *spotifyMetadataJob
 	retailPlayerRefreshing atomic.Bool
@@ -201,7 +205,8 @@ func (api *Router) routes() http.Handler {
 			api.addSyncRoute(r)
 			api.addSongLoudnessRoute(r)
 			api.addMusicBrainzMetadataRoute(r)
-			api.addGCSyncRoute(r)
+			api.addGCPSyncRoute(r)
+			api.addSongNamingRoute(r)
 			api.addPluginRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)
 		})
@@ -581,18 +586,18 @@ func (api *Router) addConfigRoute(r chi.Router) {
 
 // addSyncRoute is triggered by the "Sync" button in the activity panel. It
 // used to call an external webhook that ran the sync-to-GCS bash script on the
-// server; it now runs the built-in GCSync sweep instead.
+// server; it now runs the built-in GCPSync sweep instead.
 func (n *Router) addSyncRoute(r chi.Router) {
 	r.Get("/sync", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !conf.Server.GCSync.Enabled {
+		if reason := syncUnavailableReason(); reason != "" {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"message":"GCS sync is disabled (set GCSync.Enabled in the config)"}`))
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": reason})
 			return
 		}
 		go func() {
-			if err := gcsync.GetInstance().Sweep(context.Background()); err != nil {
-				log.Error("GCSync: sweep triggered from UI failed", err)
+			if err := n.gcpSyncService().Sweep(context.Background()); err != nil {
+				log.Error("GCPSync: sweep triggered from UI failed", err)
 			}
 		}()
 		_, _ = w.Write([]byte(`{"message":"GCS sync started"}`))

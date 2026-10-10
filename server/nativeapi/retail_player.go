@@ -28,7 +28,6 @@ import (
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/publicurl"
-	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils"
@@ -1703,19 +1702,6 @@ const (
 	retailPlayerStreamBitRate    = 128
 	retailPlayerStreamSampleRate = 44100
 	retailPlayerStreamChannels   = 2
-
-	// How long to wait for the device's first song to arrive over the socket
-	// before giving up on the stream.
-	retailPlayerStreamReadyTimeout = 15 * time.Second
-	// Safety re-check when idle. This only re-reads the tracker's cached song
-	// name (no network call); it exists so a missed socket frame can't wedge a
-	// listener forever.
-	retailPlayerStreamIdleRecheck = 15 * time.Second
-
-	// How far ahead of real time the client is allowed to buffer. Enough for
-	// playback to start instantly and absorb jitter, small enough that a song
-	// change is heard quickly.
-	retailPlayerStreamPrebuffer = 2 * time.Second
 )
 
 // RetailPlayerMusicStreamHandler serves a continuous MP3 "radio" stream that
@@ -1769,31 +1755,11 @@ func (n *Router) handleRetailPlayerMusicStream() http.HandlerFunc {
 			return
 		}
 
-		// The in-memory device cache is refreshed from the vendor API, which does
-		// not carry our locally-assigned remote-control ids, so a cached device
-		// can be missing one. Recover it from the stored mapping.
-		if strings.TrimSpace(device.RemoteControlID) == "" {
-			device.RemoteControlID = n.storedRetailPlayerRemoteControlID(ctx, resolvedID)
-		}
-
-		// Follow the device over its remote-control websocket: song changes are
-		// pushed, so no status polling. Devices sharing a remoteControlId share
-		// one socket. Devices without one fall back to polling.
-		var source retailPlayerSongSource
-		if sub := n.songTracker.Subscribe(device); sub != nil {
-			source = sub
-		} else {
-			log.Info(ctx, "Retail player music stream: no remote control id, falling back to status polling",
-				"device", device.Name, "resolvedID", resolvedID,
-				"hint", "run the QR ID sync to enable push tracking for this device")
-			source = newRetailPlayerPollingSongSource(resolvedID)
-		}
-		defer source.Close()
-
 		// From here on this is a live, open-ended stream: commit to 200, disable
 		// range requests, and never send a Content-Length.
 		w.Header().Set("Content-Type", "audio/mpeg")
 		w.Header().Set("Accept-Ranges", "none")
+		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("icy-name", fmt.Sprintf("MusicMatters - %s", strings.TrimSpace(device.Name)))
@@ -1804,59 +1770,39 @@ func (n *Router) handleRetailPlayerMusicStream() http.HandlerFunc {
 			return
 		}
 
-		flusher, _ := w.(http.Flusher)
-		if flusher != nil {
-			flusher.Flush()
+		// Subscribe by canonical device ID: aliases of the same URL must share
+		// one producer. Its lifetime is independent of this HTTP request.
+		n.musicBroadcastsOnce.Do(func() {
+			n.musicBroadcasts = newRetailPlayerBroadcasts(n.produceRetailPlayerBroadcast, conf.Server.RetailPlayer.StreamBuffer)
+		})
+		sub := n.musicBroadcasts.Subscribe(device)
+		defer sub.Close()
+		controller := http.NewResponseController(w)
+		if err := controller.SetWriteDeadline(time.Now().Add(retailPlayerListenerWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return
 		}
-
-		log.Info(ctx, "Retail player music stream started", "identifier", deviceIdentifier, "resolvedID", resolvedID, "device", device.Name)
-
-		// Wait for the socket's first frame so we know what is playing. After
-		// this the loop is entirely push-driven — no status polling.
-		source.WaitReady(ctx, retailPlayerStreamReadyTimeout)
-
-		// Pacing state lives for the whole stream, not per song. Resetting it on
-		// every song change handed the client a fresh prebuffer each time, and
-		// that lead accumulated: after enough songs the listener was minutes
-		// behind the device.
-		var pacer mp3FramePacer
-		streamStart := time.Now()
-
-		lastMediaFileID := ""
+		if err := controller.Flush(); err != nil {
+			return
+		}
 		for {
-			if ctx.Err() != nil {
+			select {
+			case <-ctx.Done():
 				return
-			}
-
-			songName := source.CurrentSong()
-			var mf *model.MediaFile
-			if songName != "" {
-				mf = n.findRetailPlayerMediaFileByName(ctx, songName)
-			}
-
-			// Nothing new to play yet (device idle, song not in the library, or
-			// still the track we just streamed): sleep until the socket says the
-			// device moved on.
-			if mf == nil || mf.ID == lastMediaFileID {
-				select {
-				case <-ctx.Done():
+			case <-sub.done:
+				return
+			case frame := <-sub.frames:
+				// Bound a blocked socket write as well as the in-memory queue.
+				// ErrNotSupported permits middleware/test writers without deadlines.
+				if err := controller.SetWriteDeadline(time.Now().Add(retailPlayerListenerWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 					return
-				case <-source.Changes():
-				case <-time.After(retailPlayerStreamIdleRecheck):
 				}
-				continue
+				if _, err := w.Write(frame.data); err != nil {
+					return
+				}
+				if err := controller.Flush(); err != nil {
+					return
+				}
 			}
-
-			// Clear any stale signal so the song we are about to start isn't cut
-			// off by a change that has already been accounted for.
-			source.Drain()
-			log.Debug(ctx, "Retail player music stream: switching to song", "songName", songName,
-				"mediaFileId", mf.ID, "title", mf.Title)
-			if err := n.writeRetailPlayerSong(ctx, w, flusher, mf, source.Changes(), &pacer, streamStart); err != nil {
-				log.Debug(ctx, "Retail player music stream ended", "resolvedID", resolvedID, "mediaFileId", mf.ID, "err", err)
-				return
-			}
-			lastMediaFileID = mf.ID
 		}
 	}
 }
@@ -1913,91 +1859,6 @@ func (n *Router) findRetailPlayerMediaFileByName(ctx context.Context, songName s
 
 	log.Debug(ctx, "Retail player song NOT found in library", "songName", songName, "baseName", baseName)
 	return nil
-}
-
-// writeRetailPlayerSong transcodes a single song to the uniform MP3 profile and
-// copies it to the open response, flushing as it goes. Output is paced to real
-// time so the client stays close to the device, and writing stops early when
-// `changed` fires, so a song change on the device cuts over mid-track. Returns
-// an error only when the write side fails (client disconnected) so the caller
-// stops the loop.
-func (n *Router) writeRetailPlayerSong(ctx context.Context, w io.Writer, flusher http.Flusher, mf *model.MediaFile, changed <-chan struct{}, pacer *mp3FramePacer, streamStart time.Time) error {
-	openedAt := time.Now()
-	s, err := n.streamer.NewStream(ctx, mf, stream.Request{
-		Format:     retailPlayerStreamFormat,
-		BitRate:    retailPlayerStreamBitRate,
-		SampleRate: retailPlayerStreamSampleRate,
-		Channels:   retailPlayerStreamChannels,
-	})
-	if err != nil {
-		// A transcode failure for one song shouldn't kill the whole stream;
-		// treat it as "skip" by returning nil so the loop polls for the next.
-		log.Warn(ctx, "Retail player music stream: unable to transcode song", "mediaFileId", mf.ID, "title", mf.Title, "err", err)
-		return nil
-	}
-	defer func() {
-		if cerr := s.Close(); cerr != nil {
-			log.Debug(ctx, "Error closing retail player song stream", "mediaFileId", mf.ID, "err", cerr)
-		}
-	}()
-
-	log.Info(ctx, "Retail player music stream: now playing", "mediaFileId", mf.ID, "title", mf.Title, "artist", mf.Artist, "transcodeSetupMs", time.Since(openedAt).Milliseconds())
-
-	buf := make([]byte, 32*1024)
-
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		// The device moved to another song: stop mid-track so the caller can
-		// switch, instead of finishing this one first.
-		select {
-		case <-changed:
-			log.Debug(ctx, "Retail player music stream: device changed song, cutting over",
-				"mediaFileId", mf.ID, "title", mf.Title)
-			return nil
-		default:
-		}
-
-		nr, rerr := s.Read(buf)
-		if nr > 0 {
-			if _, werr := w.Write(buf[:nr]); werr != nil {
-				return werr
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
-			// Hold the client no more than prebuffer ahead of real time. This
-			// sleep is the bulk of a song's wall-clock time, so it must stay
-			// interruptible: waiting it out before re-checking `changed` would
-			// add up to a full chunk of latency to every song switch.
-			ahead := pacer.Consume(buf[:nr]) - time.Since(streamStart)
-			if delay := ahead - retailPlayerStreamPrebuffer; delay > 0 {
-				timer := time.NewTimer(delay)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return ctx.Err()
-				case <-changed:
-					timer.Stop()
-					log.Debug(ctx, "Retail player music stream: device changed song mid-pace, cutting over",
-						"mediaFileId", mf.ID, "title", mf.Title)
-					return nil
-				case <-timer.C:
-				}
-			}
-		}
-		if rerr != nil {
-			if errors.Is(rerr, io.EOF) {
-				return nil
-			}
-			// Read-side error (e.g. transcode aborted): stop this song, not the
-			// stream. Returning nil lets the loop advance to the next track.
-			log.Warn(ctx, "Retail player music stream: error reading song", "mediaFileId", mf.ID, "err", rerr)
-			return nil
-		}
-	}
 }
 
 // sleepOrDone waits for d or until the context is cancelled. It returns false if

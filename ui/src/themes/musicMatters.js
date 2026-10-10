@@ -33,6 +33,14 @@ export default {
     type: 'dark',
   },
   overrides: {
+    RaBulkActionsToolbar: {
+      toolbar: {
+        // Keep labels and icons readable over the pink selection toolbar.
+        '&&:hover, && *:hover': {
+          color: colors.text,
+        },
+      },
+    },
     MuiPaper: {
       root: {
         backgroundColor: colors.surface1,
@@ -53,6 +61,11 @@ export default {
         border: '1px solid transparent',
         '&:hover': {
           backgroundColor: colors.accent600,
+        },
+      },
+      text: {
+        '&$colorInherit': {
+          borderColor: 'transparent',
         },
       },
       contained: {

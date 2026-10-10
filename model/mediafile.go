@@ -472,6 +472,10 @@ type MediaFileRepository interface {
 	// ClearReplayGain drops the stored volume correction for a song whose audio
 	// has just been normalized, so no player applies it a second time.
 	ClearReplayGain(id string) error
+	// UpdatePath records a song's new location after it has been renamed on
+	// disk. Without it the scanner would see the old path as missing and the
+	// new one as a new track.
+	UpdatePath(id string, path string) error
 	UpdateMissingMetadata(id string, album *string, year *int, genre *string, mbzRecordingID *string, mbzReleaseID *string) error
 	UpdateCoverPath(id string, coverPath string) error
 	UpdateSpotifyMetadata(id string, confidence *float64, match *string, artist *string, spotifyURL *string) error

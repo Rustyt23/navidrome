@@ -3,11 +3,13 @@ package nativeapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/ffmpeg"
+	"github.com/navidrome/navidrome/core/gcpsync"
 	"github.com/navidrome/navidrome/core/loudness"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -82,16 +84,12 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 		log.Warn(recordCtx, "Could not save loudness audit record", "id", mf.ID, err)
 	}
 
-	// Nothing outside the library is touched. Loudness normalization rewrites the
-	// song in place, keeps its original in the backup folder and records the
-	// audit - and stops there.
+	// Loudness normalization rewrites the song in place, keeps its original in
+	// the backup folder, records the audit - and then hands the result to
+	// GCPSync so the bucket copy stops being the un-normalized one.
 	//
-	// It used to also copy the result into SyncFolder/mp3 and hand that copy to
-	// gcsync, which uploaded it and then moved it into the music folder under its
-	// basename alone - leaving a flattened duplicate of every normalized song at
-	// the library root, which the next scan indexed as a new track. The sync
-	// folder is an inbox for files arriving from outside; these files are already
-	// in the library, so there was nothing there to ingest.
+	// The staged copy preserves the library layout and waits for the Sync
+	// button unless automatic uploads have explicitly been enabled.
 	if res.Changed {
 		repo := ds.MediaFile(recordCtx)
 		updateSongLoudnessTag(recordCtx, repo, mf.ID, res.NewLUFS)
@@ -122,6 +120,13 @@ func optimizeOneTrack(ctx context.Context, ds model.DataStore, normalizer ffmpeg
 		// them from the row.
 		if err := repo.ClearReplayGain(mf.ID); err != nil {
 			log.Warn(recordCtx, "Could not clear stale ReplayGain after optimise", "id", mf.ID, err)
+		}
+
+		// Staged rather than uploaded from where it lies: SyncFolder/mp3 is the
+		// marker that says "processed", and it survives a restart that would
+		// lose the in-memory upload queue.
+		if err := gcpsync.StageSong(recordCtx, ds, mf, "LUFS normalized"); err != nil {
+			return res, fmt.Errorf("audio normalized, but sync preparation failed: %w", err)
 		}
 	}
 	return res, nil

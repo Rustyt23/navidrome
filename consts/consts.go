@@ -27,6 +27,10 @@ const (
 	// configured value is used.
 	LoudnessNormalizationBackupKey = "LoudnessNormalizationBackup"
 
+	// GCPSyncNamingEnforcementKey stores the UI-controlled on/off state for
+	// blocking bucket uploads of files not named "Artist - Title.mp3".
+	GCPSyncNamingEnforcementKey = "GCPSyncNamingEnforcement"
+
 	UIAuthorizationHeader  = "X-ND-Authorization"
 	UIClientUniqueIDHeader = "X-ND-Client-Unique-Id"
 	JWTSecretKey           = "JWTSecret"

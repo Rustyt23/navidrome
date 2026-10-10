@@ -5,6 +5,7 @@ import {
   SET_COLUMNS_ORDER,
   SET_APPBAR_ICONS,
   SET_MUSICBRAINZ_VISIBLE,
+  SET_NAMING_ENFORCEMENT,
 } from '../actions'
 
 const initialState = {
@@ -17,6 +18,7 @@ const initialState = {
     missingTracks: true,
   },
   showMusicBrainz: true,
+  namingEnforcement: true,
 }
 
 export const settingsReducer = (previousState = initialState, payload) => {
@@ -40,6 +42,11 @@ export const settingsReducer = (previousState = initialState, payload) => {
       return {
         ...previousState,
         showMusicBrainz: data,
+      }
+    case SET_NAMING_ENFORCEMENT:
+      return {
+        ...previousState,
+        namingEnforcement: data,
       }
     case SET_TOGGLEABLE_FIELDS:
       return {

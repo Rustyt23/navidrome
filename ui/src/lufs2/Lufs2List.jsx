@@ -184,7 +184,7 @@ const Lufs2Actions = ({
         onStarted={onStarted}
       />
       <ExportButton maxResults={total} />
-      <ToggleFieldsMenu resource={COLUMNS_KEY} />
+      <ToggleFieldsMenu resource="lufs2" preferenceKey={COLUMNS_KEY} />
     </TopToolbar>
   )
 }

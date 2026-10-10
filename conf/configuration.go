@@ -121,7 +121,7 @@ type configOptions struct {
 	Deezer                          deezerOptions       `json:",omitzero"`
 	ListenBrainz                    listenBrainzOptions `json:",omitzero"`
 	Spotify                         spotifyOptions      `json:",omitzero"`
-	GCSync                          gcsyncOptions       `json:",omitzero"`
+	GCPSync                         gcpsyncOptions      `json:",omitzero"`
 	RetailPlayer                    retailPlayerOptions `json:",omitzero"`
 	EnableScrobbleHistory           bool
 	Tags                            map[string]TagConf `json:",omitempty"`
@@ -298,9 +298,13 @@ type listenBrainzOptions struct {
 	TrackAlgorithm  string
 }
 
-// gcsyncOptions configures the built-in replacement for the sync-to-GCS
+// gcpsyncOptions configures the built-in replacement for the sync-to-GCS
 // script: uploads app-updated MP3s and versioned playlists to a GCS bucket.
-type gcsyncOptions struct {
+type gcpsyncOptions struct {
+	Notifications gcpsyncNotificationOptions
+	// AutoUpload enables automatic publishing. A configured Schedule holds files
+	// until that time; an empty Schedule uploads app edits immediately.
+	AutoUpload        bool
 	Enabled           bool
 	Bucket            string
 	CredentialsFile   string
@@ -308,6 +312,22 @@ type gcsyncOptions struct {
 	Schedule          string
 	DryRun            bool
 	LastVersionFolder string
+	// Deprecated: sync now derives names from artist/title metadata regardless
+	// of the existing filename. Retained for configuration compatibility.
+	EnforceNaming bool
+}
+
+// gcpsyncNotificationOptions sends upload results to the configured recipient.
+// SMTP requires TLS (STARTTLS on port 587, implicit TLS on port 465).
+type gcpsyncNotificationOptions struct {
+	Enabled    bool
+	SMTPServer string
+	SMTPPort   int
+	Username   string
+	Password   string
+	From       string
+	To         string
+	Subject    string
 }
 
 type retailPlayerNotificationOptions struct {
@@ -334,23 +354,26 @@ type retailPlayerOptions struct {
 	// events (song changes). The device's remoteControlId is appended as a path
 	// segment. Empty disables push tracking for the /music stream.
 	RemoteControlSocketURL string
-	QRLoginURL             string
-	QRBaseURL              string
-	QRTenant               string
-	QRUsername             string
-	QRPassword             string
-	QRPlatform             string
-	QRPageSize             int
-	QRPage                 int
-	PageSize               int
-	Page                   int
-	Filters                string
-	OrderBy                string
-	OrderDirection         string
-	Search                 string
-	Fields                 []string                        `json:",omitempty"`
-	AdditionalHeaders      map[string]string               `json:",omitempty"`
-	Notifications          retailPlayerNotificationOptions `json:",omitempty"`
+	// StreamBuffer is the recent audio sent to late joiners of /music streams.
+	// Values outside 1s..10s use the 3s default.
+	StreamBuffer      time.Duration
+	QRLoginURL        string
+	QRBaseURL         string
+	QRTenant          string
+	QRUsername        string
+	QRPassword        string
+	QRPlatform        string
+	QRPageSize        int
+	QRPage            int
+	PageSize          int
+	Page              int
+	Filters           string
+	OrderBy           string
+	OrderDirection    string
+	Search            string
+	Fields            []string                        `json:",omitempty"`
+	AdditionalHeaders map[string]string               `json:",omitempty"`
+	Notifications     retailPlayerNotificationOptions `json:",omitempty"`
 }
 
 type httpHeaderOptions struct {
@@ -528,6 +551,7 @@ func Load(noConfigDump bool) {
 	err = run.Sequentially(
 		validateScanSchedule,
 		validateBackupSchedule,
+		validateGCPSyncSchedule,
 		validatePlaylistsPath,
 		validateDiscoveryPath,
 		validatePurgeMissingOption,
@@ -809,6 +833,17 @@ func validateBackupSchedule() error {
 	return err
 }
 
+func validateGCPSyncSchedule() error {
+	Server.GCPSync.Schedule = strings.TrimSpace(Server.GCPSync.Schedule)
+	if !Server.GCPSync.Enabled || !Server.GCPSync.AutoUpload ||
+		Server.GCPSync.Schedule == "" || Server.GCPSync.Schedule == "0" {
+		return nil
+	}
+	var err error
+	Server.GCPSync.Schedule, err = validateSchedule(Server.GCPSync.Schedule, "GCPSync.Schedule")
+	return err
+}
+
 func validateSchedule(schedule, field string) (string, error) {
 	_, err := scheduler.ParseCrontab(schedule)
 	if err != nil {
@@ -1018,13 +1053,26 @@ func setViperDefaults() {
 	viper.SetDefault("listenbrainz.artistalgorithm", consts.DefaultListenBrainzArtistAlgorithm)
 	viper.SetDefault("listenbrainz.trackalgorithm", consts.DefaultListenBrainzTrackAlgorithm)
 	viper.SetDefault("enablescrobblehistory", true)
-	viper.SetDefault("gcsync.enabled", false)
-	viper.SetDefault("gcsync.bucket", "")
-	viper.SetDefault("gcsync.credentialsfile", "")
-	viper.SetDefault("gcsync.gcloudpath", "gcloud")
-	viper.SetDefault("gcsync.schedule", "")
-	viper.SetDefault("gcsync.dryrun", false)
-	viper.SetDefault("gcsync.lastversionfolder", "")
+	viper.SetDefault("gcpsync.autoupload", false)
+	viper.SetDefault("gcpsync.notifications.enabled", false)
+	viper.SetDefault("gcpsync.notifications.smtpserver", "")
+	viper.SetDefault("gcpsync.notifications.smtpport", 587)
+	viper.SetDefault("gcpsync.notifications.username", "")
+	viper.SetDefault("gcpsync.notifications.password", "")
+	viper.SetDefault("gcpsync.notifications.from", "")
+	viper.SetDefault("gcpsync.notifications.to", "") // Set the sync notification recipient here or in TOML.
+	viper.SetDefault("gcpsync.notifications.subject", "Music sync result")
+	viper.SetDefault("gcpsync.enabled", false)
+	viper.SetDefault("gcpsync.bucket", "")
+	viper.SetDefault("gcpsync.credentialsfile", "")
+	viper.SetDefault("gcpsync.gcloudpath", "gcloud")
+	// Set the upload time here, e.g. "CRON_TZ=Asia/Kolkata 0 2 * * *" for
+	// 2:00 AM daily. Requires GCPSync.AutoUpload=true. "0" waits for the Sync
+	// button; "" uploads app edits immediately. TOML/env override this default.
+	viper.SetDefault("gcpsync.schedule", "0")
+	viper.SetDefault("gcpsync.dryrun", false)
+	viper.SetDefault("gcpsync.lastversionfolder", "")
+	viper.SetDefault("gcpsync.enforcenaming", true)
 	viper.SetDefault("retailplayer.enabled", false)
 	viper.SetDefault("retailplayer.devicelockpassword", "")
 	viper.SetDefault("retailplayer.baseurl", "")
@@ -1032,6 +1080,7 @@ func setViperDefaults() {
 	viper.SetDefault("retailplayer.apikey", "")
 	viper.SetDefault("retailplayer.apikeyheader", "x-retailplayer-apikey")
 	viper.SetDefault("retailplayer.remotecontrolsocketurl", "wss://rc.jareddietch.com/remote-control")
+	viper.SetDefault("retailplayer.streambuffer", 3*time.Second)
 	viper.SetDefault("retailplayer.qrloginurl", "")
 	viper.SetDefault("retailplayer.qrbaseurl", "")
 	viper.SetDefault("retailplayer.qrtenant", "")

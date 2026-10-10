@@ -1,6 +1,11 @@
 package nativeapi
 
-import "time"
+import (
+	"bufio"
+	"errors"
+	"io"
+	"time"
+)
 
 // MPEG audio frame tables, indexed by the bitrate/sample-rate fields of a frame
 // header. Only Layer III entries are listed since that is all we transcode to.
@@ -15,56 +20,63 @@ var (
 	}
 )
 
-// mp3FramePacer measures how much audio a byte stream actually represents by
-// walking its MPEG frame headers.
-//
-// This exists because pacing cannot assume the nominal bitrate: Navidrome
-// transcodes with `ffmpeg -b:a 128k`, which is ABR, and real output averages
-// noticeably below target (~114kbps on this library). Pacing off the nominal
-// 128kbps shipped audio ~12% faster than real time, so a listener drifted
-// further ahead of the device the longer they listened — a song change was
-// heard long after it happened.
-type mp3FramePacer struct {
-	partial []byte
-	audio   time.Duration
-	// bytes/audio seen so far, used to estimate any trailing partial frame.
-	bytesParsed int64
+// retailPlayerMP3Reader strips tags and emits complete frames. Retaining only
+// frame-aligned audio lets late subscribers start decoding without receiving a
+// partial frame or a mid-stream ID3 tag from a new song.
+type retailPlayerMP3Reader struct{ r *bufio.Reader }
+
+func newRetailPlayerMP3Reader(r io.Reader) *retailPlayerMP3Reader {
+	return &retailPlayerMP3Reader{r: bufio.NewReader(r)}
 }
 
-// Consume feeds newly produced bytes and returns the total audio duration the
-// stream has carried so far. Unparseable data is skipped rather than fatal.
-func (p *mp3FramePacer) Consume(data []byte) time.Duration {
-	buf := data
-	if len(p.partial) > 0 {
-		buf = append(p.partial, data...)
-		p.partial = nil
-	}
-
-	i := 0
-	for i+4 <= len(buf) {
-		frameLen, frameDur, ok := mp3ParseFrameHeader(buf[i:])
-		if !ok {
-			i++ // not a frame boundary; resync
+func (r *retailPlayerMP3Reader) Next() ([]byte, time.Duration, error) {
+	for skipped := 0; skipped < 65536; skipped++ {
+		header, err := r.r.Peek(4)
+		if err != nil {
+			if errors.Is(err, io.EOF) && len(header) != 0 {
+				err = io.ErrUnexpectedEOF
+			}
+			return nil, 0, err
+		}
+		if string(header[:3]) == "ID3" {
+			tag, err := r.r.Peek(10)
+			if err != nil {
+				return nil, 0, io.ErrUnexpectedEOF
+			}
+			size := 0
+			for _, b := range tag[6:10] {
+				if b&0x80 != 0 {
+					return nil, 0, errors.New("invalid ID3 size")
+				}
+				size = size<<7 | int(b)
+			}
+			if tag[3] == 4 && tag[5]&0x10 != 0 {
+				size += 10
+			}
+			if size > 1024*1024 {
+				return nil, 0, errors.New("ID3 tag exceeds 1 MiB")
+			}
+			if _, err := io.CopyN(io.Discard, r.r, int64(size+10)); err != nil {
+				return nil, 0, io.ErrUnexpectedEOF
+			}
 			continue
 		}
-		if i+frameLen > len(buf) {
-			break // frame continues into the next chunk
+		size, duration, ok := mp3ParseFrameHeader(header)
+		if !ok {
+			_, _ = r.r.Discard(1)
+			continue
 		}
-		p.audio += frameDur
-		p.bytesParsed += int64(frameLen)
-		i += frameLen
-	}
-
-	// Carry the tail over. Cap it so a stream of non-MP3 bytes cannot grow this
-	// buffer without bound.
-	if rest := len(buf) - i; rest > 0 {
-		if rest > 8192 {
-			i = len(buf) - 8192
+		// A continuous broadcast must keep the same decoding profile at boundaries.
+		if (header[1]>>3)&3 != 3 || (header[2]>>2)&3 != 0 || header[3]>>6 == 3 {
+			return nil, 0, errors.New("broadcast requires 44100 Hz stereo MP3")
 		}
-		p.partial = append([]byte(nil), buf[i:]...)
+		data := make([]byte, size)
+		if _, err := io.ReadFull(r.r, data); err != nil {
+			return nil, 0, err
+		}
+		return data, duration, nil
 	}
-
-	return p.audio
+	return nil, 0, errors.New("unable to find an MP3 frame within 64 KiB")
 }
 
 // mp3ParseFrameHeader decodes a frame header, returning the frame length in

@@ -59,19 +59,21 @@ func retailPlayerSocketSongName(data []byte) string {
 }
 
 // retailPlayerSongTracker keeps one background websocket per actively-streamed
-// device and pushes song changes to every listener of that device, so the
-// /music stream never has to poll the remote status API.
+// device and pushes song changes to subscribers. A shared status poller covers
+// disconnected or quiet sockets.
 //
 // Connections are reference counted: opened on the first subscriber for a
 // device and closed with the last, so idle devices hold no sockets.
 type retailPlayerSongTracker struct {
-	mu      sync.Mutex
-	devices map[string]*retailPlayerTrackedDevice
+	mu          sync.Mutex
+	devices     map[string]*retailPlayerTrackedDevice
+	fetchStatus func(context.Context, string) (retailPlayerDeviceStatusResponse, error)
 }
 
 func newRetailPlayerSongTracker() *retailPlayerSongTracker {
 	return &retailPlayerSongTracker{
-		devices: make(map[string]*retailPlayerTrackedDevice),
+		devices:     make(map[string]*retailPlayerTrackedDevice),
+		fetchStatus: fetchRetailPlayerDeviceStatusRaw,
 	}
 }
 
@@ -87,6 +89,9 @@ type retailPlayerTrackedDevice struct {
 	refs        int
 	readyClosed bool
 	songName    string
+	connected   bool
+	lastMessage time.Time
+	revision    uint64
 	subscribers map[*retailPlayerSongSubscription]struct{}
 }
 
@@ -124,6 +129,7 @@ func (t *retailPlayerSongTracker) Subscribe(device retailPlayerDevice) *retailPl
 		}
 		t.devices[remoteControlID] = tracked
 		go t.run(ctx, tracked)
+		go t.pollWhenUnavailable(ctx, tracked)
 	}
 
 	sub := &retailPlayerSongSubscription{
@@ -139,35 +145,69 @@ func (t *retailPlayerSongTracker) Subscribe(device retailPlayerDevice) *retailPl
 }
 
 // publish records a new song for a device and wakes its listeners.
-func (t *retailPlayerSongTracker) publish(remoteControlID, songName string) {
+func (t *retailPlayerSongTracker) publish(tracked *retailPlayerTrackedDevice, songName string) {
 	t.mu.Lock()
-	tracked, ok := t.devices[remoteControlID]
-	if !ok {
-		t.mu.Unlock()
+	defer t.mu.Unlock()
+	if t.devices[tracked.remoteControlID] != tracked {
 		return
 	}
+	tracked.lastMessage = time.Now()
+	tracked.revision++
+	t.publishLocked(tracked, songName)
+}
+
+func (t *retailPlayerSongTracker) publishLocked(tracked *retailPlayerTrackedDevice, songName string) {
 	if !tracked.readyClosed {
 		tracked.readyClosed = true
 		close(tracked.ready)
 	}
 	if tracked.songName == songName {
-		t.mu.Unlock()
 		return
 	}
 	tracked.songName = songName
 	log.Debug("Retail player song socket: change received", "device", tracked.deviceName,
 		"song", songName, "listeners", len(tracked.subscribers))
-	subs := make([]*retailPlayerSongSubscription, 0, len(tracked.subscribers))
 	for sub := range tracked.subscribers {
-		subs = append(subs, sub)
-	}
-	t.mu.Unlock()
-
-	for _, sub := range subs {
 		select {
 		case sub.changes <- struct{}{}:
 		default:
 		}
+	}
+}
+
+// One fallback poller per tracked source, never per audio listener. It also
+// checks quiet sockets after 30 seconds, since an open TCP connection alone
+// cannot prove that song-change events are still arriving.
+func (t *retailPlayerSongTracker) pollWhenUnavailable(ctx context.Context, tracked *retailPlayerTrackedDevice) {
+	for ctx.Err() == nil {
+		t.pollStatus(ctx, tracked)
+		if !sleepOrDone(ctx, retailPlayerPollingInterval) {
+			return
+		}
+	}
+}
+
+func (t *retailPlayerSongTracker) pollStatus(ctx context.Context, tracked *retailPlayerTrackedDevice) {
+	t.mu.Lock()
+	if t.devices[tracked.remoteControlID] != tracked || (tracked.connected && tracked.readyClosed && time.Since(tracked.lastMessage) < 30*time.Second) {
+		t.mu.Unlock()
+		return
+	}
+	revision := tracked.revision
+	t.mu.Unlock()
+	payload, err := t.fetchStatus(ctx, tracked.deviceID)
+	if err != nil || ctx.Err() != nil {
+		return
+	}
+	song := retailPlayerStatusSongName(payload)
+	if song == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	// Never let a slow status response overwrite a newer websocket update.
+	if t.devices[tracked.remoteControlID] == tracked && tracked.revision == revision {
+		t.publishLocked(tracked, song)
 	}
 }
 
@@ -179,6 +219,9 @@ func (t *retailPlayerSongTracker) run(ctx context.Context, tracked *retailPlayer
 		if ctx.Err() != nil {
 			return
 		}
+		t.mu.Lock()
+		tracked.connected = false
+		t.mu.Unlock()
 
 		err := t.connectOnce(ctx, tracked)
 		if ctx.Err() != nil {
@@ -214,6 +257,14 @@ func (t *retailPlayerSongTracker) connectOnce(ctx context.Context, tracked *reta
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	t.mu.Lock()
+	tracked.connected = true
+	t.mu.Unlock()
+	defer func() {
+		t.mu.Lock()
+		tracked.connected = false
+		t.mu.Unlock()
+	}()
 
 	// ReadMessage blocks; closing the connection is what unblocks it when the
 	// last listener leaves. `done` keeps this watcher from outliving the call.
@@ -249,7 +300,7 @@ func (t *retailPlayerSongTracker) connectOnce(ctx context.Context, tracked *reta
 			return err
 		}
 		if songName := retailPlayerSocketSongName(data); songName != "" {
-			t.publish(tracked.remoteControlID, songName)
+			t.publish(tracked, songName)
 		}
 	}
 }

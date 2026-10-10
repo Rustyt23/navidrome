@@ -21,7 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/adapters/taglibwrite"
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/core/gcsync"
+	"github.com/navidrome/navidrome/core/gcpsync"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/pmezard/go-difflib/difflib"
@@ -1862,7 +1862,9 @@ func (n *Router) saveFetchedMetadataToSongs() (metadataSaveSummary, error) {
 		if coverFile != "" {
 			reason = "cover art embedded"
 		}
-		gcsync.GetInstance().EnqueueMP3(mf.AbsolutePath(), reason)
+		if err := gcpsync.StageSong(ctx, n.ds, &mf, reason); err != nil {
+			return summary, fmt.Errorf("metadata saved, but sync preparation failed: %w", err)
+		}
 	}
 
 	return summary, nil

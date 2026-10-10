@@ -68,11 +68,16 @@ export const SetDecisionButton = ({ decision, selectedIds, resource }) => {
 
   return (
     <RaButton
+      color="inherit"
       onClick={handleClick}
       disabled={!count || saving}
       label={translate(`resources.lufs2.actions.${decision}`)}
     >
-      {saving ? <CircularProgress size={16} /> : ICONS[decision]}
+      {saving ? (
+        <CircularProgress size={16} color="inherit" />
+      ) : (
+        ICONS[decision]
+      )}
     </RaButton>
   )
 }

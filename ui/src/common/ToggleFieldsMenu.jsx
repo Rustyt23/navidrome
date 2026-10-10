@@ -23,7 +23,8 @@ const useStyles = makeStyles({
     top: '-0.5em',
   },
   menu: {
-    width: '24ch',
+    width: '22rem',
+    maxWidth: 'calc(100vw - 32px)',
   },
   columns: {
     maxHeight: '21rem',
@@ -32,10 +33,21 @@ const useStyles = makeStyles({
   title: {
     margin: '1rem',
   },
+  item: {
+    whiteSpace: 'normal',
+    '& .dragHandle, & .MuiCheckbox-root': {
+      flexShrink: 0,
+    },
+  },
+  label: {
+    minWidth: 0,
+    overflowWrap: 'break-word',
+  },
 })
 
 export const ToggleFieldsMenu = ({
   resource,
+  preferenceKey = resource,
   topbarComponent: TopBarComponent,
   hideColumns,
 }) => {
@@ -44,13 +56,13 @@ export const ToggleFieldsMenu = ({
   const dispatch = useDispatch()
   const translate = useTranslate()
   const toggleableColumns = useSelector(
-    (state) => state.settings.toggleableFields[resource],
+    (state) => state.settings.toggleableFields[preferenceKey],
   )
   const omittedColumns =
-    useSelector((state) => state.settings.omittedFields[resource]) || []
-  const columnsOrder = useSelector(
-    (state) => state.settings.columnsOrder[resource],
-  ) || Object.keys(toggleableColumns || {})
+    useSelector((state) => state.settings.omittedFields[preferenceKey]) || []
+  const columnsOrder =
+    useSelector((state) => state.settings.columnsOrder[preferenceKey]) ||
+    Object.keys(toggleableColumns || {})
 
   const classes = useStyles()
   const open = Boolean(anchorEl)
@@ -65,7 +77,7 @@ export const ToggleFieldsMenu = ({
   const handleClick = (selectedColumn) => {
     dispatch(
       setToggleableFields({
-        [resource]: {
+        [preferenceKey]: {
           ...toggleableColumns,
           [selectedColumn]: !toggleableColumns[selectedColumn],
         },
@@ -80,16 +92,18 @@ export const ToggleFieldsMenu = ({
       const toIndex = updated.indexOf(over.id)
       updated.splice(fromIndex, 1)
       updated.splice(toIndex, 0, active.id)
-      dispatch(setColumnsOrder({ [resource]: updated }))
+      dispatch(setColumnsOrder({ [preferenceKey]: updated }))
     }
     setActiveId(null)
   }
 
   const renderOverlay = (id) => (
-    <MenuItem>
+    <MenuItem className={classes.item}>
       <DragIndicatorIcon className="dragHandle" />
       <Checkbox checked={toggleableColumns[id]} />
-      {translate(`resources.${resource}.fields.${id}`)}
+      <span className={classes.label}>
+        {translate(`resources.${resource}.fields.${id}`)}
+      </span>
     </MenuItem>
   )
 
@@ -132,10 +146,14 @@ export const ToggleFieldsMenu = ({
                       onClick={() => handleClick(key)}
                       checked={toggleableColumns[key]}
                       label={translate(`resources.${resource}.fields.${key}`)}
+                      className={classes.item}
+                      labelClassName={classes.label}
                     />
                   ) : null,
                 )}
-                <DragOverlay>{activeId ? renderOverlay(activeId) : null}</DragOverlay>
+                <DragOverlay>
+                  {activeId ? renderOverlay(activeId) : null}
+                </DragOverlay>
               </DndContext>
             </div>
           </div>
@@ -147,11 +165,19 @@ export const ToggleFieldsMenu = ({
 
 ToggleFieldsMenu.propTypes = {
   resource: PropTypes.string.isRequired,
+  preferenceKey: PropTypes.string,
   topbarComponent: PropTypes.elementType,
   hideColumns: PropTypes.bool,
 }
 
-const DraggableMenuItem = ({ id, onClick, checked, label }) => {
+const DraggableMenuItem = ({
+  id,
+  onClick,
+  checked,
+  label,
+  className,
+  labelClassName,
+}) => {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id })
   const { setNodeRef: setDroppableRef } = useDroppable({ id })
 
@@ -163,12 +189,17 @@ const DraggableMenuItem = ({ id, onClick, checked, label }) => {
   return (
     <MenuItem
       ref={ref}
+      className={className}
       style={{ opacity: isDragging ? 0.5 : 1 }}
       onClick={onClick}
     >
-      <DragIndicatorIcon className="dragHandle" {...listeners} {...attributes} />
+      <DragIndicatorIcon
+        className="dragHandle"
+        {...listeners}
+        {...attributes}
+      />
       <Checkbox checked={checked} />
-      {label}
+      <span className={labelClassName}>{label}</span>
     </MenuItem>
   )
 }
@@ -178,4 +209,6 @@ DraggableMenuItem.propTypes = {
   onClick: PropTypes.func.isRequired,
   checked: PropTypes.bool,
   label: PropTypes.node.isRequired,
+  className: PropTypes.string,
+  labelClassName: PropTypes.string,
 }

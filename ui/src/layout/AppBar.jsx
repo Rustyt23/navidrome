@@ -16,6 +16,7 @@ import PersonalMenu from './PersonalMenu'
 import ActivityPanel from './ActivityPanel'
 import CoverArtPanel from './CoverArtPanel'
 import MissingTracksPanel from './MissingTracksPanel'
+import NamingIssuesPanel from './NamingIssuesPanel'
 import NowPlayingPanel from './NowPlayingPanel'
 import QuickScanButton from './QuickScanButton'
 import UserMenu from './UserMenu'
@@ -74,6 +75,9 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
   const translate = useTranslate()
   const resources = useSelector(getResources)
   const appBarIcons = useSelector((state) => state.settings?.appBarIcons)
+  const namingEnforced = useSelector(
+    (state) => state.settings?.namingEnforcement !== false,
+  )
   const classes = useStyles(rest)
   const { permissions } = usePermissions()
 
@@ -128,6 +132,9 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
       {config.devActivityPanel &&
         permissions === 'admin' &&
         appBarIcons?.missingTracks !== false && <MissingTracksPanel />}
+      {config.devActivityPanel && permissions === 'admin' && namingEnforced && (
+        <NamingIssuesPanel />
+      )}
       {config.devActivityPanel &&
         permissions === 'admin' &&
         config.enableNowPlaying &&

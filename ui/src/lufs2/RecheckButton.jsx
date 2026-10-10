@@ -103,11 +103,12 @@ export const RecheckButton = ({ selectedIds, onDone }) => {
 
   return (
     <RaButton
+      color="inherit"
       onClick={handleClick}
       disabled={!count || busy}
       label={translate('resources.lufs2.actions.recheck')}
     >
-      {busy ? <CircularProgress size={16} /> : <ReplayIcon />}
+      {busy ? <CircularProgress size={16} color="inherit" /> : <ReplayIcon />}
     </RaButton>
   )
 }
