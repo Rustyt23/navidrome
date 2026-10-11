@@ -256,15 +256,21 @@ func (p *phaseFolders) processFolder(entry *folderEntry) (*folderEntry, error) {
 	// Remaining dbTracks are tracks that were not found in the FS, so they should be marked as missing
 	entry.missingTracks = slices.Collect(maps.Values(dbTracks))
 
-	// Loudness is never measured or changed during a scan: it is slow, and
-	// rewriting files as a side effect of scanning is not something anyone
-	// asked for. It is driven explicitly from the LUFS pages instead.
 	if len(filesToImport) > 0 {
 		err = p.loadTagsFromFiles(entry, filesToImport)
 		if err != nil {
 			log.Warn(p.ctx, "Scanner: Error loading tags from files. Skipping", "folder", entry.path, err)
 			p.state.sendWarning(fmt.Sprintf("Error loading tags from files in %s: %v", entry.path, err))
 			return entry, nil
+		}
+
+		// Full scans also re-read existing files. Only genuinely new imports
+		// enter the automatic LUFS queue; metadata edits and rescans do not.
+		entry.newTrackPaths = make(map[string]bool)
+		for filePath, previous := range filesToImport {
+			if previous == nil {
+				entry.newTrackPaths[filePath] = true
+			}
 		}
 
 		p.createAlbumsFromMediaFiles(entry)
@@ -401,6 +407,21 @@ func (p *phaseFolders) persistChanges(entry *folderEntry) (*folderEntry, error) 
 			if err != nil {
 				log.Error(p.ctx, "Scanner: Error persisting mediafile to DB", "folder", entry.path, "track", entry.tracks[i], err)
 				return err
+			}
+		}
+
+		// Queue alongside the new rows so interrupted scans cannot lose the
+		// work. Audio processing happens after scanning and move reconciliation,
+		// outside this transaction and in the application's main process.
+		if conf.Server.Scanner.LoudnessNormalization.Enabled {
+			var newIDs []string
+			for _, track := range entry.tracks {
+				if entry.newTrackPaths[track.Path] {
+					newIDs = append(newIDs, track.ID)
+				}
+			}
+			if err := queueNewSongs(p.ctx, tx, newIDs); err != nil {
+				return fmt.Errorf("queuing automatic LUFS normalization: %w", err)
 			}
 		}
 

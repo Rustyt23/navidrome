@@ -54,19 +54,31 @@ func (s *controller) getScanner() scanner {
 // CallScan starts an in-process scan of specific library/folder pairs.
 // If targets is empty, it scans all libraries.
 // This is meant to be called from the command line (see cmd/scan.go).
-func CallScan(ctx context.Context, ds model.DataStore, pls playlists.Playlists, disc core.Discoveries, fullScan bool, targets []model.ScanTarget) (<-chan *ProgressInfo, error) {
+// normalizeImports defaults to true; the external scanner subprocess passes
+// false because its parent consumes the automatic LUFS queue.
+func CallScan(ctx context.Context, ds model.DataStore, pls playlists.Playlists, disc core.Discoveries, fullScan bool, targets []model.ScanTarget, normalizeImports ...bool) (<-chan *ProgressInfo, error) {
 	release, err := lockScan(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer release()
-
 	ctx = auth.WithAdminUser(ctx, ds)
 	progress := make(chan *ProgressInfo, 100)
 	go func() {
+		defer release()
 		defer close(progress)
 		scanner := &scannerImpl{ds: ds, cw: artwork.NoopCacheWarmer(), pls: pls, disc: disc}
 		scanner.scanFolders(ctx, fullScan, targets, progress)
+		// The external scanner only queues imports. Its parent normalizes them
+		// using the same coordinator as manual LUFS, analysis and restore jobs.
+		if len(normalizeImports) == 0 || normalizeImports[0] {
+			for _, warning := range normalizeNewSongs(ctx, ds) {
+				select {
+				case progress <- &ProgressInfo{Warning: warning}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
 	}()
 	return progress, nil
 }
@@ -225,6 +237,7 @@ func (s *controller) ScanFolders(requestCtx context.Context, fullScan bool, targ
 
 	// Wait for the scan to finish, sending progress events to all connected clients
 	scanWarnings, scanError := s.trackProgress(ctx, progress)
+	scanWarnings = append(scanWarnings, normalizeNewSongs(ctx, s.ds)...)
 	for _, w := range scanWarnings {
 		log.Warn(ctx, fmt.Sprintf("Scan warning: %s", w))
 	}

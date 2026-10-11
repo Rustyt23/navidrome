@@ -96,9 +96,8 @@ func beginLoudnessAnalyze(ctx context.Context) (context.Context, bool) {
 	libraryLoudness.stopMu.Lock()
 	defer loudnessAnalyze.stopMu.Unlock()
 	defer libraryLoudness.stopMu.Unlock()
-	// The release function is discarded on purpose: finishLoudnessAnalyze clears
-	// the same flag, and it is the one path that also tears down the stop channel
-	// and the run context.
+	// finishLoudnessAnalyze releases the shared file-work claim and tears down
+	// the stop channel and run context.
 	if _, busy := claimLoudnessFileWork(&loudnessAnalyze.running); busy != "" {
 		return nil, false
 	}
@@ -146,7 +145,7 @@ func finishLoudnessAnalyze() {
 	}
 	loudnessAnalyze.inFlight.Store(0)
 	loudnessAnalyze.stopping.Store(false)
-	loudnessAnalyze.running.Store(false)
+	releaseLoudnessFileWork(&loudnessAnalyze.running)
 	loudnessAnalyze.stopMu.Unlock()
 }
 
@@ -174,13 +173,16 @@ func (n *Router) clearLoudnessAnalyzeResults() http.HandlerFunc {
 		defer loudnessAnalyze.stopMu.Unlock()
 		defer libraryLoudness.stopMu.Unlock()
 		// A restore counts too: it writes the very record this would delete.
-		if busy := loudnessFileWorkBusy(); busy != "" {
+		var clearing atomic.Bool
+		release, busy := claimLoudnessFileWork(&clearing)
+		if busy != "" {
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"message": "Stop " + busy + " before clearing analysis data",
 			})
 			return
 		}
+		defer release()
 		// Copy it before destroying it.
 		//
 		// This wipes every measurement in the library and there is no undo. A

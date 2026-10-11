@@ -219,3 +219,78 @@ func TestBackupCopyIsCompleteAndClean(t *testing.T) {
 		t.Fatalf("expected only the backup, found %d entries (stray temp file?)", len(entries))
 	}
 }
+
+func TestBackupOriginalSurvivesMetadataRenameAndRepeatedProcessing(t *testing.T) {
+	library, backups := t.TempDir(), t.TempDir()
+	originalPath := filepath.Join(library, "incoming.mp3")
+	canonicalPath := filepath.Join(library, "Artist - Title.mp3")
+	writeFile(t, originalPath, "the untouched original")
+	if err := BackupOriginal(originalPath, 0o644, library, backups, "song-1"); err != nil {
+		t.Fatal(err)
+	}
+	stored := FindLoudnessBackup(backups, library, "song-1", originalPath)
+	if err := os.Rename(originalPath, canonicalPath); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindLoudnessBackup(backups, library, "song-1", canonicalPath); got != stored {
+		t.Fatalf("metadata rename lost original: got %q, want %q", got, stored)
+	}
+	for range 2 {
+		writeFile(t, canonicalPath, "normalized again")
+		if err := BackupOriginal(canonicalPath, 0o644, library, backups, "song-1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := RestoreOriginal(canonicalPath, library, backups, "song-1"); err != nil {
+			t.Fatal(err)
+		}
+		if got := readFile(t, canonicalPath); got != "the untouched original" {
+			t.Fatalf("restored renamed song = %q", got)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Dir(stored))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("repeat processing created another original: %v, %v", entries, err)
+	}
+	if got := readFile(t, stored); got != "the untouched original" {
+		t.Fatalf("repeat processing overwrote original: %q", got)
+	}
+}
+
+func TestFindLoudnessBackupKeepsSongIdentityAfterRename(t *testing.T) {
+	library, backups := t.TempDir(), t.TempDir()
+	track := filepath.Join(library, "new-name.mp3")
+	other := LoudnessBackupPath(backups, library, "song-10", filepath.Join(library, "old-name.mp3"))
+	writeFile(t, other, "another song")
+	if got := FindLoudnessBackup(backups, library, "song-1", track); got != "" {
+		t.Fatalf("claimed another song's similarly-prefixed backup: %q", got)
+	}
+	stored := LoudnessBackupPath(backups, library, "song-1", filepath.Join(library, "old-name.mp3"))
+	writeFile(t, stored, "this song")
+	if got := FindLoudnessBackup(backups, library, "song-1", track); got != stored {
+		t.Fatalf("identity lookup = %q, want %q", got, stored)
+	}
+}
+
+func TestAmbiguousOriginalsAreNotSelectedOrReplaced(t *testing.T) {
+	library, backups := t.TempDir(), t.TempDir()
+	track := filepath.Join(library, "Artist - Title.mp3")
+	writeFile(t, track, "current audio")
+	old := LoudnessBackupPath(backups, library, "song-1", filepath.Join(library, "incoming.mp3"))
+	current := LoudnessBackupPath(backups, library, "song-1", track)
+	writeFile(t, old, "untouched original")
+	writeFile(t, current, "a mistaken normalized copy")
+	if got := FindLoudnessBackup(backups, library, "song-1", track); got != "" {
+		t.Fatalf("ambiguous backups selected %q", got)
+	}
+	for _, operation := range []func() error{
+		func() error { return BackupOriginal(track, 0o644, library, backups, "song-1") },
+		func() error { return RestoreOriginal(track, library, backups, "song-1") },
+	} {
+		if err := operation(); err == nil || !strings.Contains(err.Error(), "multiple stored originals") {
+			t.Fatalf("ambiguous backup operation was not refused: %v", err)
+		}
+	}
+	if readFile(t, track) != "current audio" || readFile(t, old) != "untouched original" || readFile(t, current) != "a mistaken normalized copy" {
+		t.Fatal("ambiguous backup operation changed audio")
+	}
+}

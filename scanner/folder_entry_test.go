@@ -431,6 +431,7 @@ var _ = Describe("folder_entry", func() {
 				})
 
 				It("returns true when hash has changed", func() {
+					entry.modTime = entry.updTime.Add(time.Second)
 					entry.numPlaylists = 10 // Change something to change the hash
 					Expect(entry.isOutdated()).To(BeTrue())
 				})
@@ -519,6 +520,7 @@ var _ = Describe("folder_entry", func() {
 
 			// Modify folder and verify it becomes outdated
 			entry.audioFiles["track3.mp3"] = &fakeDirEntry{name: "track3.mp3"}
+			entry.modTime = entry.updTime.Add(time.Second)
 			Expect(entry.isOutdated()).To(BeTrue())
 		})
 	})

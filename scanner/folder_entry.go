@@ -43,6 +43,7 @@ type folderEntry struct {
 	imagesUpdatedAt time.Time
 	prevHash        string // Previous hash from DB
 	tracks          model.MediaFiles
+	newTrackPaths   map[string]bool
 	albums          model.Albums
 	albumIDMap      map[string]string
 	artists         model.Artists

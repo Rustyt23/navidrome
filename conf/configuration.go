@@ -201,6 +201,8 @@ const DefaultLoudnessNormalizationTolerance = 0.2
 const DefaultLoudnessNormalizationTruePeak = -0.5
 
 type loudnessNormalizationOptions struct {
+	// Enabled automatically processes newly imported songs after a scan. It is
+	// independent of the UI's one-shot "Optimise all LUFS" switch.
 	Enabled    bool
 	TargetLUFS float64
 	TruePeak   float64

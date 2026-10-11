@@ -97,9 +97,8 @@ func (n *Router) beginLibraryLoudness(ctx context.Context, phase int, ids []stri
 	// Analysis reads files but writes the same records; the other two rewrite
 	// the files themselves. Any of them running means this run must wait.
 	//
-	// The release function is discarded on purpose: finishLibraryLoudness clears
-	// the same flag, and it is the one path that also tears down the stop channel
-	// and the run context.
+	// finishLibraryLoudness releases the shared file-work claim and tears down
+	// the stop channel and run context.
 	if _, busy := claimLoudnessFileWork(&libraryLoudness.running); busy != "" {
 		return false
 	}
@@ -164,7 +163,7 @@ func finishLibraryLoudness() {
 	}
 	libraryLoudness.inFlight.Store(0)
 	libraryLoudness.stopping.Store(false)
-	libraryLoudness.running.Store(false)
+	releaseLoudnessFileWork(&libraryLoudness.running)
 	libraryLoudness.stopMu.Unlock()
 }
 

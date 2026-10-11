@@ -3,6 +3,8 @@ package nativeapi
 import (
 	"sync"
 	"sync/atomic"
+
+	"github.com/navidrome/navidrome/core/loudness"
 )
 
 // Three operations act on library songs: an optimisation run, an analysis sweep
@@ -31,6 +33,8 @@ import (
 // covers, so libraryLoudness speaks for both.
 var loudnessFileWorkMu sync.Mutex
 
+var loudnessFileWorkReleases = make(map[*atomic.Bool]func())
+
 // loudnessFileWorkInProgress names the operation currently working on library
 // songs, or "" when none is. Callers must hold loudnessFileWorkMu.
 func loudnessFileWorkInProgress() string {
@@ -58,13 +62,60 @@ func claimLoudnessFileWork(flag *atomic.Bool) (release func(), busy string) {
 	if busy := loudnessFileWorkInProgress(); busy != "" {
 		return nil, busy
 	}
+	name := "a LUFS job"
+	switch flag {
+	case &libraryLoudness.running:
+		name = "a LUFS optimisation run"
+	case &loudnessAnalyze.running:
+		name = "a LUFS analysis"
+	case &restoreLoudness.running:
+		name = "a restore"
+	}
+	releaseCore, busy := loudness.ClaimFileWork(name)
+	if busy != "" {
+		return nil, busy
+	}
 	flag.Store(true)
-	return func() { flag.Store(false) }, ""
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			loudnessFileWorkMu.Lock()
+			defer loudnessFileWorkMu.Unlock()
+			delete(loudnessFileWorkReleases, flag)
+			flag.Store(false)
+			releaseCore()
+		})
+	}
+	loudnessFileWorkReleases[flag] = release
+	return release, ""
+}
+
+// finish handlers release the shared claim as well as their native status flag.
+func releaseLoudnessFileWork(flag *atomic.Bool) {
+	loudnessFileWorkMu.Lock()
+	release := loudnessFileWorkReleases[flag]
+	if release == nil {
+		flag.Store(false)
+	}
+	loudnessFileWorkMu.Unlock()
+	if release != nil {
+		release()
+	}
 }
 
 // loudnessFileWorkBusy reports what is rewriting files, for callers that manage
 // their own running flag rather than claiming one here.
 func loudnessFileWorkBusy() string {
+	loudnessFileWorkMu.Lock()
+	defer loudnessFileWorkMu.Unlock()
+	if busy := loudnessFileWorkInProgress(); busy != "" {
+		return busy
+	}
+	return loudness.FileWorkBusy()
+}
+
+// Raw native flags remain useful after a handler acquires its own core claim.
+func loudnessFileWorkFlagsBusy() string {
 	loudnessFileWorkMu.Lock()
 	defer loudnessFileWorkMu.Unlock()
 	return loudnessFileWorkInProgress()

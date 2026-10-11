@@ -105,7 +105,11 @@ func (n *Router) updateLoudnessSettings() http.HandlerFunc {
 		// restorable and the other half not, with nothing in the record saying
 		// where the line falls.
 		if payload.Backup != nil {
-			if libraryLoudness.running.Load() {
+			release, busy := loudness.ClaimFileWork("changing LUFS backup settings")
+			if busy != "" || loudnessFileWorkFlagsBusy() != "" {
+				if release != nil {
+					release()
+				}
 				w.WriteHeader(http.StatusConflict)
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"message": "Stop the optimisation before changing whether originals are kept",
@@ -113,10 +117,12 @@ func (n *Router) updateLoudnessSettings() http.HandlerFunc {
 				return
 			}
 			if err := loudness.SetBackupEnabled(ctx, n.ds, *payload.Backup); err != nil {
+				release()
 				log.Error(ctx, "Could not save loudness backup setting", "backup", *payload.Backup, err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			release()
 			log.Warn(ctx, "Keep original before optimising changed", "backup", *payload.Backup)
 		}
 

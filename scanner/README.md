@@ -440,18 +440,26 @@ The scanner's behavior can be customized through several configuration settings 
 
 ### Loudness Normalization
 
-When enabled, loudness normalization runs during folder scanning for audio files that are new, updated, or included in a full scan, before tags are read from the file. The scanner first analyzes each track, skips tracks already inside the configured target range, normalizes tracks outside the range, then analyzes the replaced file again and logs both `fromLUFS` and `finalLUFS`. If the verified result is still outside the target range, the scanner retries normalization up to three times before emitting a warning.
+With `Scanner.LoudnessNormalization.Enabled = true`, adding a song to a local music library automatically queues LUFS processing when the watcher imports it. Startup scans, scheduled scans, and Quick Scan also process newly imported songs. The app must be running with its scanner/watcher enabled; importing does not happen immediately while a file is still being copied.
+
+Only genuinely new imports are queued. Existing songs, metadata edits, and full rescans do not trigger another normalization. Work is saved in the database with the imported song and runs after all scan phases, including move detection. The application's main process performs normalization even when folder scanning runs in a subprocess. The scan remains active until this work finishes. A canceled or interrupted batch resumes from the pending queue on the next scan while the configured option is enabled.
+
+Automatic processing uses the same engine as the LUFS page. It analyzes each new song, applies safe constant gain where the target can be reached without exceeding the peak ceiling, verifies the replacement, keeps the configured original backup, and records the before/after audit. Songs already close enough to target stay unchanged. Songs requiring an exception decision remain unchanged for review on the Exception LUFS page. A failed song produces a warning and does not prevent other new songs from being processed.
+
+Changed MP3s are renamed from embedded Artist and Title tags and copied into `SyncFolder/mp3` when GCPSync is enabled. Uploads continue to follow `GCPSync.AutoUpload` and `GCPSync.Schedule`; enabling automatic LUFS does not enable automatic uploads. Other supported audio formats retain their format and are not staged as MP3s. Automatic normalization waits for active manual LUFS, analysis, or restore work, and never undoes a song explicitly marked as restored.
+
+The configuration option is independent of the UI's one-shot **Optimise all LUFS** switch. A manual library run turning that switch off after completion does not disable automatic processing of new imports.
 
 | Setting                                         | Description                                                                 | Default              |
 |-------------------------------------------------|-----------------------------------------------------------------------------|----------------------|
-| `Scanner.LoudnessNormalization.Enabled`         | Whether to run ffmpeg loudnorm on newly imported or updated audio files      | false                |
-| `Scanner.LoudnessNormalization.TargetLUFS`      | Integrated LUFS target passed to ffmpeg `loudnorm`                           | -12.6                |
-| `Scanner.LoudnessNormalization.TruePeak`        | True-peak target passed to ffmpeg `loudnorm`                                 | -1.5                 |
-| `Scanner.LoudnessNormalization.LRA`             | Loudness-range target passed to ffmpeg `loudnorm`                            | 11                   |
-| `Scanner.LoudnessNormalization.Tolerance`       | LUFS distance from the target that is considered already normalized           | 0.1                  |
+| `Scanner.LoudnessNormalization.Enabled`         | Automatically process newly imported local audio files after scanning      | false                |
+| `Scanner.LoudnessNormalization.TargetLUFS`      | Integrated LUFS target                                                     | -12.6                |
+| `Scanner.LoudnessNormalization.TruePeak`        | Maximum true peak, in dBTP                                                  | -0.5                 |
+| `Scanner.LoudnessNormalization.LRA`             | Loudness-range parameter used for measurement                              | 11                   |
+| `Scanner.LoudnessNormalization.Tolerance`       | LUFS tolerance for target verification                                      | 0.2                  |
 | `Scanner.LoudnessNormalization.Parallelism`     | Number of tracks to analyze/normalize with ffmpeg at the same time           | CPU count            |
 | `Scanner.LoudnessNormalization.Backup`          | Whether to keep the original file before replacing it with the normalized one | true                 |
-| `Scanner.LoudnessNormalization.BackupSuffix`    | Suffix appended to the original path when creating the backup                | `.before_loudnorm`   |
+| `Scanner.LoudnessNormalization.BackupFolder`    | Original backup directory; empty resolves outside the library               | empty                |
 
 ### Playlist Processing
 

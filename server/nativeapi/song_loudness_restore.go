@@ -81,9 +81,8 @@ func currentRestoreLoudnessStatus(msg string) restoreLoudnessStatus {
 }
 
 // beginRestoreLoudness claims the right to work on library songs and prepares a
-// fresh stop signal. The release function is discarded on purpose:
-// finishRestoreLoudness clears the same flag and is the one path that also tears
-// down the stop channel and the run context.
+// fresh stop signal. finishRestoreLoudness releases the shared file-work claim
+// and tears down the stop channel and run context.
 func beginRestoreLoudness(ctx context.Context, total int) (context.Context, bool) {
 	restoreLoudness.stopMu.Lock()
 	defer restoreLoudness.stopMu.Unlock()
@@ -109,7 +108,6 @@ func beginRestoreLoudness(ctx context.Context, total int) (context.Context, bool
 func finishRestoreLoudness() {
 	restoreLoudness.stopMu.Lock()
 	defer restoreLoudness.stopMu.Unlock()
-	restoreLoudness.running.Store(false)
 	restoreLoudness.stopping.Store(false)
 	if cancel := restoreLoudness.cancel; cancel != nil {
 		cancel()
@@ -117,6 +115,7 @@ func finishRestoreLoudness() {
 	}
 	restoreLoudness.stop = nil
 	restoreLoudness.inFlight.Store(0)
+	releaseLoudnessFileWork(&restoreLoudness.running)
 }
 
 // stopRestoreLoudness stops the sweep: no further songs are handed out, and the

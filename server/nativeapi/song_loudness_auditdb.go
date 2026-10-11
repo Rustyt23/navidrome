@@ -10,6 +10,7 @@ import (
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core/ffmpeg"
+	"github.com/navidrome/navidrome/core/loudness"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
@@ -160,13 +161,21 @@ func (n *Router) loudnessAuditDbRestore() http.HandlerFunc {
 			_ = json.NewDecoder(r.Body).Decode(&payload)
 		}
 
-		if busy := loudnessFileWorkBusy(); busy != "" {
+		release, busy := loudness.ClaimFileWork("restoring LUFS audit data")
+		if busy == "" {
+			busy = loudnessFileWorkFlagsBusy()
+		}
+		if busy != "" {
+			if release != nil {
+				release()
+			}
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"message": "Stop " + busy + " before restoring LUFS audit data",
 			})
 			return
 		}
+		defer release()
 
 		repo := n.ds.LoudnessAudit(ctx)
 		dir := loudnessAuditDbFolder(ctx, n.ds)

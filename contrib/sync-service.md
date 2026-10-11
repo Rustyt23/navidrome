@@ -248,6 +248,17 @@ the cloud Sync action itself. The
 fetched-metadata save currently writes album/year/genre/MusicBrainz identifiers
 and cover data; it should not be relied on to supply a missing Artist or Title.
 
+With `Scanner.LoudnessNormalization.Enabled = true`, new songs imported from a
+local music library are automatically processed after the scan. The durable
+pending queue survives an interrupted scan, and processing waits for active
+manual LUFS, analysis, or restore jobs. Only new imports are queued; full rescans
+and metadata edits do not process existing songs again. Safe changes use the
+same original-backup and audit workflow as manual LUFS and stage changed MP3s
+through `StageSong`. Songs that require an exception decision stay unchanged for
+review. This option does not change upload timing: staged MP3s still follow
+`GCPSync.AutoUpload` and `GCPSync.Schedule`. The UI's one-shot **Optimise all LUFS**
+toggle does not override the configured automatic-import option.
+
 **Restore Original currently restores local audio and loudness state only.** It
 does not stage the restored original, remove an existing normalized staged copy,
 or revert the bucket object. See [Current limitations](#current-limitations)
@@ -609,7 +620,7 @@ These are current implementation behaviors, not additional configuration options
 | Legacy naming setting | [settings.go](../core/gcpsync/settings.go) |
 | Manual sweep routes and admin mounting | [native_api.go](../server/nativeapi/native_api.go), [gcpsync.go](../server/nativeapi/gcpsync.go) |
 | Activity-panel Sync UI | [ActivityPanel.jsx](../ui/src/layout/ActivityPanel.jsx), [AppBar.jsx](../ui/src/layout/AppBar.jsx) |
-| LUFS staging and local restore | [song_loudness_run.go](../server/nativeapi/song_loudness_run.go), [song_loudness_restore.go](../server/nativeapi/song_loudness_restore.go) |
+| LUFS staging, automatic imports, and local restore | [process.go](../core/loudness/process.go), [auto_loudness.go](../scanner/auto_loudness.go), [song_loudness_run.go](../server/nativeapi/song_loudness_run.go), [song_loudness_restore.go](../server/nativeapi/song_loudness_restore.go) |
 | Fetched metadata/cover saving | [musicbrainz_metadata.go](../server/nativeapi/musicbrainz_metadata.go) |
 | Playlist publishing | [fork_features.go](../core/playlists/fork_features.go), [PublishPlaylistButton.jsx](../ui/src/playlist/PublishPlaylistButton.jsx) |
 | Discovery publishing | [discoveries.go](../core/discoveries.go) |

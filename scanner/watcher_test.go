@@ -23,6 +23,21 @@ var _ = Describe("Watcher", func() {
 	var w *watcher
 	var lib *model.Library
 
+	startWatcher := func() {
+		runReady := make(chan struct{})
+		mockDS.MockedLibrary = &watcherStartupLibraryRepo{LibraryRepository: mockDS.MockedLibrary, ready: runReady}
+		runDone := make(chan error, 1)
+		runCtx, runCancel, instance := ctx, cancel, w
+		go func() { runDone <- instance.Run(runCtx) }()
+		DeferCleanup(func() {
+			runCancel()
+			var err error
+			Eventually(runDone, time.Second).Should(Receive(&err))
+			Expect(err).ToNot(HaveOccurred())
+		})
+		Eventually(runReady, time.Second).Should(BeClosed())
+	}
+
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.Scanner.WatcherWait = 50 * time.Millisecond // Short wait for tests
@@ -33,7 +48,8 @@ var _ = Describe("Watcher", func() {
 		lib = &model.Library{
 			ID:   1,
 			Name: "Test Library",
-			Path: "/test/library",
+			// These tests inject notifications and do not need a real filesystem watcher.
+			Path: "watcher-test:///library",
 		}
 
 		// Set up mocks
@@ -64,15 +80,7 @@ var _ = Describe("Watcher", func() {
 	})
 
 	Describe("Target Collection and Deduplication", func() {
-		BeforeEach(func() {
-			// Start watcher in background
-			go func() {
-				_ = w.Run(ctx)
-			}()
-
-			// Give watcher time to initialize
-			time.Sleep(10 * time.Millisecond)
-		})
+		BeforeEach(startWatcher)
 
 		It("creates separate targets for different folders", FlakeAttempts(3), func() {
 			// Send notifications for different folders
@@ -135,15 +143,7 @@ var _ = Describe("Watcher", func() {
 	})
 
 	Describe("Timer Behavior", func() {
-		BeforeEach(func() {
-			// Start watcher in background
-			go func() {
-				_ = w.Run(ctx)
-			}()
-
-			// Give watcher time to initialize
-			time.Sleep(10 * time.Millisecond)
-		})
+		BeforeEach(startWatcher)
 
 		It("resets timer on each change (debouncing)", FlakeAttempts(3), func() {
 			// Send first notification
@@ -183,15 +183,7 @@ var _ = Describe("Watcher", func() {
 	})
 
 	Describe("Empty and Root Paths", func() {
-		BeforeEach(func() {
-			// Start watcher in background
-			go func() {
-				_ = w.Run(ctx)
-			}()
-
-			// Give watcher time to initialize
-			time.Sleep(10 * time.Millisecond)
-		})
+		BeforeEach(startWatcher)
 
 		It("handles empty folder path (library root)", func() {
 			// Send notification with empty folder path
@@ -234,19 +226,13 @@ var _ = Describe("Watcher", func() {
 			lib2 = &model.Library{
 				ID:   2,
 				Name: "Test Library 2",
-				Path: "/test/library2",
+				Path: "watcher-test:///library2",
 			}
 
 			mockLibRepo := mockDS.MockedLibrary.(*tests.MockLibraryRepo)
 			mockLibRepo.SetData(model.Libraries{*lib, *lib2})
 
-			// Start watcher in background
-			go func() {
-				_ = w.Run(ctx)
-			}()
-
-			// Give watcher time to initialize
-			time.Sleep(10 * time.Millisecond)
+			startWatcher()
 		})
 
 		It("creates separate targets for different libraries", func() {
@@ -314,11 +300,18 @@ var _ = Describe("Watcher", func() {
 
 		// Helper to start the real event processing loop
 		startEventProcessing := func() {
+			processingDone := make(chan error, 1)
 			go func() {
 				defer GinkgoRecover()
 				// Call the actual processLibraryEvents method - testing the real implementation!
-				_ = w.processLibraryEvents(ctx, lib, mockFS, eventChan, absLibPath)
+				processingDone <- w.processLibraryEvents(ctx, lib, mockFS, eventChan, absLibPath)
 			}()
+			DeferCleanup(func() {
+				cancel()
+				var err error
+				Eventually(processingDone, time.Second).Should(Receive(&err))
+				Expect(err).ToNot(HaveOccurred())
+			})
 		}
 
 		Context("when a folder matching .ndignore is deleted", func() {
@@ -430,6 +423,19 @@ var _ = Describe("Watcher", func() {
 		})
 	})
 })
+
+// Signal that Run has initialized its context and reached library enumeration.
+// Notifications are buffered, so no startup sleep is needed after this point.
+type watcherStartupLibraryRepo struct {
+	model.LibraryRepository
+	ready chan struct{}
+}
+
+func (r *watcherStartupLibraryRepo) GetAll(options ...model.QueryOptions) (model.Libraries, error) {
+	libs, err := r.LibraryRepository.GetAll(options...)
+	close(r.ready)
+	return libs, err
+}
 
 var _ = Describe("resolveFolderPath", func() {
 	var mockFS fs.FS
