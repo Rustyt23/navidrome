@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -361,6 +362,115 @@ func TestGCPSyncLocalRenameRefusesExistingDifferentFile(t *testing.T) {
 	got, _ := os.ReadFile(canonical)
 	if string(got) != "different song" {
 		t.Fatal("destination changed on collision")
+	}
+	if syncDigest(t, gcpsync.StagingPath(mf.LibraryPath, wrong)) != before {
+		t.Fatal("rename conflict lost the updated song from Sync staging")
+	}
+}
+
+func TestGCPSyncNormalizedMP3RemainsStagedWhenNamePreparationFails(t *testing.T) {
+	for _, failure := range []string{"canonical destination conflict", "pending playlist conflict"} {
+		t.Run(failure, func(t *testing.T) {
+			api, mf, bucket := setupSyncIntegration(t)
+			canonical := mf.AbsolutePath()
+			wrong := filepath.Join(filepath.Dir(canonical), "misnamed.mp3")
+			if err := os.Rename(canonical, wrong); err != nil {
+				t.Fatal(err)
+			}
+			mf.Path = "Album/misnamed.mp3"
+			original := syncDigest(t, wrong)
+			conf.Server.Scanner.LoudnessNormalization.BackupFolder = filepath.Join(t.TempDir(), "originals")
+			if err := loudness.SetBackupEnabled(t.Context(), api.ds, true); err != nil {
+				t.Fatal(err)
+			}
+
+			wantError := "already exists; resolve the duplicate first"
+			preserved := map[string][32]byte{}
+			if failure == "canonical destination conflict" {
+				if err := os.WriteFile(canonical, []byte("different song already at the canonical name"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				preserved[canonical] = syncDigest(t, canonical)
+			} else {
+				wantError = "has different content; sync or reconcile it first"
+				playlist := filepath.Join(conf.Server.MusicFolder, "Mix.m3u")
+				pendingPlaylist := filepath.Join(conf.Server.SyncFolder, "Mix.m3u")
+				if err := os.WriteFile(playlist, []byte("#EXTM3U\nmisnamed.mp3\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(pendingPlaylist, []byte("#EXTM3U\nindependent pending edit.mp3\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				preserved[playlist] = syncDigest(t, playlist)
+				preserved[pendingPlaylist] = syncDigest(t, pendingPlaylist)
+			}
+
+			result, err := optimizeOneTrack(t.Context(), api.ds, ffmpeg.NewLoudnessNormalizer(), mf)
+			if !result.Changed || err == nil || !strings.Contains(err.Error(), wantError) || !strings.Contains(err.Error(), "audio normalized, but sync preparation failed") {
+				t.Fatalf("normalization did not retain its preparation failure: %+v, %v", result, err)
+			}
+			updated := syncDigest(t, wrong)
+			if updated == original || mf.Path != "Album/misnamed.mp3" {
+				t.Fatal("normalization did not update the original library path")
+			}
+			staged := gcpsync.StagingPath(mf.LibraryPath, wrong)
+			if syncDigest(t, staged) != updated {
+				t.Fatal("preparation failure lost the exact normalized bytes from Sync/mp3")
+			}
+			backup := ffmpeg.FindLoudnessBackup(conf.Server.Scanner.LoudnessNormalization.BackupFolder, mf.LibraryPath, mf.ID, wrong)
+			if backup == "" || syncDigest(t, backup) != original {
+				t.Fatal("preparation failure changed or lost the original backup")
+			}
+			for path, digest := range preserved {
+				if syncDigest(t, path) != digest {
+					t.Fatalf("preparation failure changed unrelated pending/library data: %s", path)
+				}
+			}
+			audit, err := api.ds.LoudnessAudit(t.Context()).Get(mf.ID)
+			if err != nil || audit.Status != model.LoudnessStatusProcessed {
+				t.Fatalf("normalized song lost its LUFS audit: %+v, %v", audit, err)
+			}
+			if _, err := os.Stat(filepath.Join(bucket, "Artist - Song.mp3")); !os.IsNotExist(err) {
+				t.Fatalf("preparation failure unexpectedly uploaded the song: %v", err)
+			}
+		})
+	}
+}
+
+func TestGCPSyncNormalizedMP3RemainsStagedWhenUploadsAreUnconfigured(t *testing.T) {
+	for _, unavailable := range []string{"disabled", "missing bucket"} {
+		t.Run(unavailable, func(t *testing.T) {
+			api, mf, bucket := setupSyncIntegration(t)
+			if unavailable == "disabled" {
+				conf.Server.GCPSync.Enabled = false
+			} else {
+				conf.Server.GCPSync.Bucket = ""
+			}
+			conf.Server.GCPSync.AutoUpload = true
+			// Retention must not depend on canonical rename preparation while
+			// uploads are disabled or waiting for their bucket configuration.
+			old := mf.AbsolutePath()
+			wrong := filepath.Join(filepath.Dir(old), "arbitrary.mp3")
+			if err := os.Rename(old, wrong); err != nil {
+				t.Fatal(err)
+			}
+			mf.Path = "Album/arbitrary.mp3"
+			before := syncDigest(t, wrong)
+			result, err := optimizeOneTrack(t.Context(), api.ds, ffmpeg.NewLoudnessNormalizer(), mf)
+			if err != nil || !result.Changed {
+				t.Fatalf("normalization: %+v, %v", result, err)
+			}
+			updated := syncDigest(t, wrong)
+			if updated == before || mf.Path != "Album/arbitrary.mp3" {
+				t.Fatal("disabled uploads did not preserve the normalized library song")
+			}
+			if syncDigest(t, gcpsync.StagingPath(mf.LibraryPath, wrong)) != updated {
+				t.Fatal("disabled or missing-bucket uploads lost the normalized bytes from Sync/mp3")
+			}
+			if _, err := os.Stat(filepath.Join(bucket, "Artist - Song.mp3")); !os.IsNotExist(err) {
+				t.Fatalf("unconfigured uploads unexpectedly reached the bucket: %v", err)
+			}
+		})
 	}
 }
 

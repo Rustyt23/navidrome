@@ -99,7 +99,7 @@ These defaults are defined in [configuration.go](../conf/configuration.go).
 
 | Setting | Default | Use |
 |---|---|---|
-| `GCPSync.Enabled` | `false` | Enables the service. |
+| `GCPSync.Enabled` | `false` | Enables bucket uploads; local MP3 staging remains active. |
 | `GCPSync.Bucket` | Empty | Bucket name without `gs://`; required. |
 | `GCPSync.AutoUpload` | `false` | Enables automatic publishing according to `Schedule`. Manual Sync remains available. |
 | `GCPSync.Schedule` | `'0'` | `'0'`: manual only; `''`: immediate app MP3 uploads; cron/interval: timed sweeps. |
@@ -109,9 +109,10 @@ These defaults are defined in [configuration.go](../conf/configuration.go).
 | `GCPSync.LastVersionFolder` | Empty | Local playlist archive directory. Set this and `PlaylistsPath` to clear successfully processed playlists from Sync. |
 | `GCPSync.EnforceNaming` | `true` | Legacy compatibility setting. It does not bypass embedded Artist/Title requirements or control upload eligibility. |
 
-When `Enabled` is false or the bucket is empty, `StageSong` and `StageMP3` do not
-stage edits. Local LUFS/metadata operations can still modify songs, so enabling
-Sync later does not retrospectively copy every previously changed song.
+With `SyncFolder` configured, changed MP3s remain staged even when `Enabled` is
+false or the bucket is empty. No upload is queued in those cases. Enabling Sync
+and configuring the bucket later lets a manual or scheduled sweep publish the
+pending files, including files retained across an app restart.
 
 ### Changing defaults in Go
 
@@ -281,7 +282,9 @@ Example inbox layout:
 
 `mp3` means the file is processed and eligible to overwrite its bucket object.
 The hidden `.gcpsync` marker means it is a **copy of a library file**. It records
-ownership, not a source path, and survives restarts.
+ownership and, for app song edits, the stable media-file ID. It never records a
+mutable source path and survives restarts. Older `library copy` markers remain
+supported.
 
 | File | Bucket behavior | Local result after successful processing |
 |---|---|---|
@@ -333,9 +336,11 @@ exists is refused; a pending playlist with independent conflicting contents must
 be reconciled. If preparation fails after the audio/tag save, the local change
 may already have succeeded; the error says sync preparation failed.
 
-If metadata is missing, `StageSong` still attempts to stage the edited bytes and
-returns the naming error. A later upload also rejects the file until its embedded
-Artist and Title are supplied.
+If naming or playlist preparation fails, `StageSong` still attempts to stage the
+edited bytes from the surviving library path and returns the preparation error.
+An existing conflicting library file is never overwritten. Uploads still derive
+their object name from embedded tags. If metadata is missing, a later upload
+rejects the file until its embedded Artist and Title are supplied.
 
 The naming-issues UI and legacy settings remain available for diagnostics. The
 admin naming API provides:
@@ -354,8 +359,8 @@ Personal menu; the stored setting still controls naming-panel visibility.
 
 ## Staging, concurrent edits, and retries
 
-`StageMP3` preserves the path relative to the song's actual library root, falling
-back to `MusicFolder` and then the basename if neither root matches. Root checks
+`StageMP3` preserves the folder relative to the song's actual library root,
+falling back to `MusicFolder` and then the basename if neither root matches. Root checks
 can resolve symlink aliases. Basename fallback emits a warning because unrelated
 files can then share a staging destination.
 
@@ -363,6 +368,30 @@ The staging copy is written to a hidden temporary file beside the destination
 and atomically renamed into place. A later LUFS or cover-art edit replaces the
 same song's staged copy with the newest complete bytes. File locks coordinate
 the library writer, staging replacement, and upload snapshot.
+
+App edits pass the song ID into staging. Once the new copy is complete, older
+pending paths with the same ID are retired, including paths from before a rename
+or folder move. Different song IDs are never merged just because their audio
+bytes or titles match. A destination belonging to another ID or containing a
+different unmarked imported recording is refused rather than overwritten.
+
+Staging and sweeps also reconcile older aliases with no recorded ID. This
+requires byte-identical regular MP3s in the same folder and an app-owned surviving
+copy; two unmarked imports are left alone. No Artist/Title tags are inferred from
+the alias filename. If the surviving song has missing tags, it stays pending.
+
+When a raw filename and an `Artist - Title.mp3` sibling are proven copies of the
+same song, the formatted filename survives. The newest complete audio and its
+ownership marker are published under that name before the raw alias is removed.
+This also applies after a restart, including when the formatted same-ID copy has
+older audio. A current library filename already in `Artist - Title.mp3` form
+takes precedence over earlier names. Filename preference does not bypass the
+embedded metadata required for upload.
+
+If an older same-ID copy cannot be removed, both complete copies stay on disk
+and that song's upload is blocked until cleanup succeeds. Other songs and
+playlists continue. A rename cannot replace a newer pending version with an
+older one or discard a conflicting song's marker.
 
 Processed uploads use an immutable temporary snapshot named from the MP3 tags.
 After a successful transfer, the uploader compares the staged file's identity,
@@ -375,8 +404,14 @@ They cannot upload concurrently through this service. The immediate queue has
 capacity **4096** and is memory-only. Repeated requests for a path are coalesced;
 an edit made while that path is queued/uploading is remembered for another pass.
 
-Upload failure or cancellation retains the processed copy for retry. There is no
-general automatic retry/backoff loop for a failed attempt. Retry by clicking Sync,
+Every unuploaded normalized MP3 remains in `SyncFolder/mp3`; there is no expiry
+or cleanup based on its age. A newer edit of the same song replaces its pending
+copy with the latest complete bytes. Only a successful transfer of that exact
+staged version allows removal. Renaming a staged song can retire its old name
+after its replacement has been staged successfully.
+
+Upload failure or cancellation retains the processed copy and marker for retry.
+There is no general automatic retry/backoff loop for a failed attempt. Retry by clicking Sync,
 waiting for a configured sweep, or making another staging edit in immediate mode.
 Queue overflow can discard a queue request, but leaves its disk copy for a sweep.
 
@@ -537,7 +572,7 @@ For local `go run`, inspect the terminal that launched the app. Seeing
 |---|---|
 | Clicking a refresh icon scans but does not upload | Use the Activity panel's Sync control; quick/full scans have separate handlers. |
 | HTTP 503 / `Sync failed` | Check `Enabled`, nonempty `Bucket`, nonempty `SyncFolder`, and admin authentication. The UI's warning hides the detailed HTTP message. |
-| LUFS changed locally but no MP3 was staged | Check service enabled/bucket configured, `res.Changed`, sync-preparation errors, and the resolved Sync path. |
+| LUFS changed locally but no MP3 was staged | Check `res.Changed`, Sync path/permissions, and staging errors. Disabled uploads or an empty bucket do not suppress staging. |
 | Cover was fetched but MP3 did not change | Save fetched metadata to embed the cached artwork; a cached cover alone is not staged. |
 | `needs artist and title metadata before syncing` | Populate the MP3's embedded tags. Renaming the filename or changing only database fields does not satisfy this check. |
 | Canonical rename says destination already exists | Resolve the duplicate or conflicting path; metadata rename intentionally does not replace it. |
@@ -615,6 +650,7 @@ These are current implementation behaviors, not additional configuration options
 | Queue, staging, sweep, gcloud, playlist versioning | [core/gcpsync/gcpsync.go](../core/gcpsync/gcpsync.go) |
 | Embedded metadata naming and library preparation | [metadata_names.go](../core/gcpsync/metadata_names.go), [naming.go](../core/gcpsync/naming.go) |
 | Upload snapshots, markers, staged-copy cleanup | [staged_mp3.go](../core/gcpsync/staged_mp3.go) |
+| Stable song identity and legacy duplicate reconciliation | [staged_identity.go](../core/gcpsync/staged_identity.go) |
 | External M3U reference rewrites | [playlist_names.go](../core/gcpsync/playlist_names.go) |
 | SMTP summaries | [notifications.go](../core/gcpsync/notifications.go) |
 | Legacy naming setting | [settings.go](../core/gcpsync/settings.go) |
@@ -638,6 +674,8 @@ the bytes sent to the simulated bucket. They cover:
 - Failed transfers retaining staged copies and successful retry.
 - Concurrent restaging, source preservation, restart, queue overflow,
   cancellation, symlinks, and Unicode paths.
+- Renamed same-ID copies, byte-identical legacy aliases, distinct song identities,
+  destination collisions, and cleanup failures without blocking playlists.
 - Playlist upload continuing after metadata, MP3-transfer, bucket-listing, or
   earlier playlist failures, including empty playlists.
 - Notifications containing both uploaded objects and original failures.
@@ -652,6 +690,7 @@ go test -race -tags netgo,sqlite_fts5 ./server/nativeapi -run '^TestGCPSync' -co
 The corresponding tests are in
 [gcpsync_test.go](../core/gcpsync/gcpsync_test.go),
 [staged_mp3_test.go](../core/gcpsync/staged_mp3_test.go),
+[staged_identity_test.go](../core/gcpsync/staged_identity_test.go),
 [metadata_names_test.go](../core/gcpsync/metadata_names_test.go),
 [schedule_test.go](../core/gcpsync/schedule_test.go),
 [gcpsync_schedule_test.go](../conf/gcpsync_schedule_test.go), and

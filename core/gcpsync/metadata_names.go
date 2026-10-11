@@ -48,19 +48,35 @@ var libraryRenameMu sync.Mutex
 
 // StageSong corrects the library path and its database row before staging the
 // updated song. IDs stay stable, so database playlists retain their references.
-func StageSong(ctx context.Context, ds model.DataStore, mf *model.MediaFile, reason string) error {
+func StageSong(ctx context.Context, ds model.DataStore, mf *model.MediaFile, reason string) (resultErr error) {
 	if !enabled() {
-		return nil
+		// Upload configuration can be completed later. Preserve the updated
+		// bytes now without changing the library filename or playlists.
+		return GetInstance().StageMP3(mf.LibraryPath, mf.AbsolutePath(), reason, mf.ID)
 	}
 	if syncRoot() == "" {
 		return fmt.Errorf("SyncFolder is not configured")
 	}
+	// Naming and playlist updates must not make a rewritten library file
+	// disappear from the pending Sync work. Keep its surviving path so even a
+	// failed rename rollback can preserve the updated bytes for a later Sync.
+	// This defer runs after the rename locks are released: StageMP3 acquires
+	// the source lock itself.
+	fallbackPath := mf.AbsolutePath()
+	stagingAttempted := false
+	defer func() {
+		if resultErr != nil && !stagingAttempted {
+			if err := GetInstance().StageMP3(mf.LibraryPath, fallbackPath, reason, mf.ID); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("preserving updated song in Sync staging: %w", err))
+			}
+		}
+	}()
 	libraryRenameMu.Lock()
 	defer libraryRenameMu.Unlock()
 	oldPath := mf.AbsolutePath()
 	name, err := MetadataName(oldPath)
 	if err != nil {
-		return errors.Join(err, GetInstance().StageMP3(mf.LibraryPath, oldPath, reason))
+		return err
 	}
 	newPath := filepath.Join(filepath.Dir(oldPath), name)
 	var playlistEdits []playlistNameEdit
@@ -85,17 +101,22 @@ func StageSong(ctx context.Context, ds model.DataStore, mf *model.MediaFile, rea
 		if err := os.Rename(oldPath, newPath); err != nil {
 			return err
 		}
+		fallbackPath = newPath
 		oldRelative := mf.Path
 		relative := filepath.Join(filepath.Dir(oldRelative), name)
 		if err := ds.MediaFile(ctx).UpdatePath(mf.ID, relative); err != nil {
 			if rollback := os.Rename(newPath, oldPath); rollback != nil {
 				return fmt.Errorf("updating library path: %v; rolling back rename: %w", err, rollback)
 			}
+			fallbackPath = oldPath
 			return err
 		}
 		if err := applyPlaylistNameEdits(playlistEdits); err != nil {
 			rowErr := ds.MediaFile(ctx).UpdatePath(mf.ID, oldRelative)
 			fileErr := os.Rename(newPath, oldPath)
+			if fileErr == nil {
+				fallbackPath = oldPath
+			}
 			return fmt.Errorf("playlist rename failed: %v (database rollback: %v; file rollback: %v)", err, rowErr, fileErr)
 		}
 		mf.Path = relative
@@ -103,19 +124,15 @@ func StageSong(ctx context.Context, ds model.DataStore, mf *model.MediaFile, rea
 		unlockSecond()
 		unlockFirst()
 	}
-	if err := GetInstance().StageMP3(mf.LibraryPath, mf.AbsolutePath(), reason); err != nil {
+	stagingAttempted = true
+	if err := GetInstance().StageMP3(mf.LibraryPath, mf.AbsolutePath(), reason, mf.ID); err != nil {
 		return err
 	}
 	if oldPath != mf.AbsolutePath() && !dryRun() {
 		// A pending copy under the previous name targets the same metadata-derived
 		// object. Retire it so a later sweep cannot upload stale audio last.
 		oldStaged := StagingPath(mf.LibraryPath, oldPath)
-		unlock := filelock.Lock(oldStaged)
-		err := os.Remove(oldStaged)
-		if err == nil || os.IsNotExist(err) {
-			err = os.Remove(libraryCopyMarker(oldStaged))
-		}
-		unlock()
+		err := retireRenamedStagedCopy(oldStaged, mf.ID)
 		if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("retiring obsolete staged filename: %w", err)
 		}

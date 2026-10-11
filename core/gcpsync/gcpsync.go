@@ -67,8 +67,9 @@ type Service interface {
 	// StageMP3 copies an MP3 the app has just rewritten into the staging
 	// folder (SyncFolder/mp3), optionally queuing an automatic upload. libraryRoot is
 	// the library the file belongs to, which need not be MusicFolder; pass ""
-	// only when it is genuinely unknown.
-	StageMP3(libraryRoot, path, reason string) error
+	// only when it is genuinely unknown. Supply mediaFileID when known so renamed
+	// edits replace the same song's pending copy across scans and app restarts.
+	StageMP3(libraryRoot, path, reason string, mediaFileID ...string) error
 	// Sweep processes the Sync folder: playlists, leftover MP3s and other files.
 	Sweep(ctx context.Context) error
 	// Start creates the staging folder and, when enabled, starts automatic uploads.
@@ -172,44 +173,89 @@ func (s *service) enqueue(req uploadRequest) {
 }
 
 // StageMP3 copies a file the app has just rewritten into SyncFolder/mp3,
-// keeping its path relative to the music folder. Automatic queuing is opt-in.
+// keeping its folder relative to the music folder and preferring an existing
+// Artist - Title filename for the same pending song. Automatic queuing is opt-in.
+// Disk staging is independent of bucket availability and service enablement:
+// an edit must remain pending even when uploading has not been configured yet.
 // The original is left untouched: the library row, the loudness audit
 // and any in-flight playback all still point at it. After upload, the staged
 // copy is retired without replacing the library file again.
-func (s *service) StageMP3(libraryRoot, path, reason string) error {
-	if !enabled() {
-		return nil
-	}
+func (s *service) StageMP3(libraryRoot, path, reason string, mediaFileID ...string) error {
 	staging := stagingRoot()
 	if staging == "" {
 		log.Debug("GCPSync: SyncFolder not configured, not staging MP3", "path", path)
 		return fmt.Errorf("SyncFolder is not configured")
 	}
-	dest := filepath.Join(staging, libraryRel(libraryRoot, path))
+	nominal := filepath.Join(staging, libraryRel(libraryRoot, path))
+	dest := nominal
 	if dryRun() {
 		log.Info("GCPSync: (dry-run) would stage MP3 for upload", "src", path, "dest", dest, "reason", reason)
 		return nil
 	}
+	stagingMutationMu.Lock()
+	defer stagingMutationMu.Unlock()
 	// TagLib writes in place, whereas normalization replaces the file. Use
 	// the same library lock as both writers, and serialize staged replacements
 	// with the upload snapshot/cleanup steps.
 	unlockSource := filelock.Lock(path)
 	defer unlockSource()
+	id := ""
+	if len(mediaFileID) > 0 {
+		id = mediaFileID[0]
+	}
+	if id == "" {
+		unlockNominal := filelock.Lock(dest)
+		owner, err := readStagedOwner(dest)
+		unlockNominal()
+		if err != nil {
+			return err
+		}
+		id = owner.MediaFileID
+	}
+	paths, discoveryErr := stagedMP3Paths(staging)
+	if discoveryErr == nil {
+		dest = preferredStagedPath(dest, path, id, paths)
+	}
 	unlockStaged := filelock.Lock(dest)
 	defer unlockStaged()
-	// Persist provenance before publishing the copy so even a restart cannot
-	// mistake it for an imported file and move it over a newer library edit.
-	if err := markLibraryCopy(dest); err != nil {
-		log.Warn("GCPSync: could not mark staged library copy", "dest", dest, err)
+	owner, err := readStagedOwner(dest)
+	if err != nil {
 		return err
 	}
-	if err := copyFile(path, dest); err != nil {
+	destInfo, statErr := os.Lstat(dest)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return statErr
+	}
+	if id == "" {
+		id = owner.MediaFileID
+	}
+	if statErr == nil && owner.MediaFileID != "" && owner.MediaFileID != id {
+		return fmt.Errorf("staging destination %q belongs to a different song; existing pending audio preserved", dest)
+	}
+	if statErr == nil && !destInfo.Mode().IsRegular() {
+		return fmt.Errorf("staging destination %q is not a regular file", dest)
+	}
+	if statErr == nil && (!owner.owned || (dest != nominal && (id == "" || owner.MediaFileID != id))) {
+		same, err := identicalStagedBytes(path, dest)
+		if err != nil {
+			return err
+		}
+		if !same {
+			return fmt.Errorf("staging destination %q contains different pending audio; existing pending file preserved", dest)
+		}
+	}
+	if err := publishStagedCopy(path, dest, id); err != nil {
 		log.Warn("GCPSync: could not stage MP3 for upload", "src", path, "dest", dest, err)
 		return err
 	}
+	unlockStaged()
+	paths, err = stagedMP3Paths(staging)
+	if err == nil {
+		err = coalesceStagedCopies(dest, paths)
+	}
 	log.Info("GCPSync: staged MP3 for upload", "src", path, "dest", dest, "reason", reason)
 	s.enqueue(uploadRequest{path: dest, source: path, reason: reason})
-	return nil
+	return errors.Join(discoveryErr, err)
 }
 
 // copyFile copies src to dest, creating parent directories and replacing any
@@ -448,9 +494,9 @@ func libraryRel(libraryRoot, file string) string {
 	return filepath.Base(file)
 }
 
-// StagingPath returns where a staged copy of the given library file lives, or
-// "" when there is no Sync folder configured. Used to keep a staged copy in
-// step when the library file it was made from is renamed.
+// StagingPath returns the nominal staged path of a library file, or "" when no
+// Sync folder is configured. A raw library filename may instead be staged under
+// an existing Artist - Title sibling that is proven to be the same song.
 func StagingPath(libraryRoot, absPath string) string {
 	staging := stagingRoot()
 	if staging == "" {
@@ -623,6 +669,9 @@ func (s *service) Sweep(ctx context.Context) (resultErr error) {
 	}
 	start := time.Now()
 	log.Info(ctx, "GCPSync: sweep started", "syncFolder", root, "dryRun", dryRun())
+	if err := ReconcileStagedMP3s(); err != nil {
+		failures = append(failures, fmt.Errorf("reconciling staged MP3s: %w", err))
+	}
 
 	trash := trashRoot()
 	s.normalizeFilenamesNFC(ctx, root, trash)

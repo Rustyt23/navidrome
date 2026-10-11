@@ -261,6 +261,46 @@ func TestCancelledUploadKeepsStagedCopy(t *testing.T) {
 	assertContent(t, song, "normalized")
 }
 
+func TestInterruptedUploadKeepsNormalizedCopyAcrossRestart(t *testing.T) {
+	_, musicDir, _ := setupSweep(t, nil)
+	bucket := captureBucket(t)
+	song := filepath.Join(musicDir, "Artist - Song.mp3")
+	writeFile(t, song, "normalized")
+	svc := newService()
+	if err := svc.StageMP3(musicDir, song, "LUFS normalized"); err != nil {
+		t.Fatal(err)
+	}
+	staged := StagingPath(musicDir, song)
+	pause := filepath.Join(bucket, "pause")
+	writeFile(t, pause, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { svc.processUpload(ctx, <-svc.queue); close(done) }()
+	t.Cleanup(func() { cancel(); _ = os.Remove(pause); <-done })
+	waitSyncFile(t, filepath.Join(bucket, "started"))
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("interrupted upload did not stop")
+	}
+	assertContent(t, staged, "normalized")
+	if !exists(libraryCopyMarker(staged)) {
+		t.Fatal("interruption lost pending-file provenance")
+	}
+	if err := os.Remove(pause); err != nil {
+		t.Fatal(err)
+	}
+	if err := newService().Sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertContent(t, filepath.Join(bucket, filepath.Base(song)), "normalized")
+	assertContent(t, song, "normalized")
+	if exists(staged) || exists(libraryCopyMarker(staged)) {
+		t.Fatal("successful retry did not retire the staged copy")
+	}
+}
+
 func TestSyncUploadsStagedFilesWhenAutomaticQueueIsFull(t *testing.T) {
 	_, musicDir, _ := setupSweep(t, nil)
 	bucket := captureBucket(t)
@@ -326,6 +366,50 @@ func TestManualModeKeepsLUFSAndCoverEditsUntilSync(t *testing.T) {
 	}
 	assertContent(t, object, "normalized with cover")
 	assertContent(t, song, "normalized with cover")
+}
+
+func TestUnavailableUploadsKeepNormalizedMP3ForRestartAndRetry(t *testing.T) {
+	for _, unavailable := range []string{"service disabled", "bucket missing"} {
+		t.Run(unavailable, func(t *testing.T) {
+			_, musicDir, _ := setupSweep(t, nil)
+			bucket := captureBucket(t)
+			conf.Server.GCPSync.Enabled = unavailable != "service disabled"
+			if unavailable == "bucket missing" {
+				conf.Server.GCPSync.Bucket = ""
+			}
+			song := filepath.Join(musicDir, "Album", "Artist - Song.mp3")
+			object := filepath.Join(bucket, filepath.Base(song))
+			writeFile(t, object, "previous bucket version")
+			writeFile(t, song, "normalized audio")
+			svc := newService()
+			if err := svc.StageMP3(musicDir, song, "LUFS normalized"); err != nil {
+				t.Fatal(err)
+			}
+			staged := StagingPath(musicDir, song)
+			assertContent(t, staged, "normalized audio")
+			if !exists(libraryCopyMarker(staged)) || len(svc.queue) != 0 {
+				t.Fatal("unavailable upload lost provenance or queued an upload")
+			}
+			// A fresh process must keep pending disk files while uploads are
+			// unavailable and recover them once configuration is corrected.
+			restarted := newService()
+			if err := restarted.Sweep(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			assertContent(t, staged, "normalized audio")
+			assertContent(t, object, "previous bucket version")
+			conf.Server.GCPSync.Enabled = true
+			conf.Server.GCPSync.Bucket = "test-bucket"
+			if err := restarted.Sweep(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			assertContent(t, object, "normalized audio")
+			assertContent(t, song, "normalized audio")
+			if exists(staged) || exists(libraryCopyMarker(staged)) {
+				t.Fatal("successful retry left the uploaded copy pending")
+			}
+		})
+	}
 }
 
 func TestDirectQueuedMP3KeepsLibrarySource(t *testing.T) {
