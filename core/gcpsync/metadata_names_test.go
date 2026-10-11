@@ -3,12 +3,16 @@ package gcpsync
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/navidrome/navidrome/conf"
 )
 
 func taggedMP3(t *testing.T, path, artist, title string) {
@@ -143,20 +147,124 @@ func TestPlaylistNameRewritePreservesCommentsAndLineEndings(t *testing.T) {
 	}
 }
 
-func TestFailedAudioUploadDoesNotPublishRenamedPlaylist(t *testing.T) {
-	syncDir, _, logPath := setupSweep(t, nil)
-	playlist := filepath.Join(syncDir, "A Playlist.m3u")
-	writeFile(t, playlist, "Tagged Artist - Tagged Title.mp3\n")
-	writeFile(t, filepath.Join(syncDir, "mp3", "bad.mp3"), "audio")
+func TestFailedAudioUploadDoesNotBlockPlaylists(t *testing.T) {
+	for _, failure := range []string{"metadata", "audio"} {
+		t.Run(failure, func(t *testing.T) {
+			syncDir, _, _ := setupSweep(t, nil)
+			bucket := independentPlaylistBucket(t, failure)
+			playlistNames := []string{"A Playlist.m3u", "B Empty.m3u"}
+			writeFile(t, filepath.Join(syncDir, playlistNames[0]), "bad.mp3\n")
+			writeFile(t, filepath.Join(syncDir, playlistNames[1]), "")
+			staged := filepath.Join(syncDir, "mp3", "bad.mp3")
+			writeFile(t, staged, "audio")
+			svc := newService()
+			metadataErr := errors.New("missing artist metadata")
+			wantFailure := "simulated MP3 upload failure"
+			if failure == "metadata" {
+				svc.readName = func(string) (string, error) { return "", metadataErr }
+				wantFailure = metadataErr.Error()
+			}
+			var report syncReport
+			svc.notify = func(_ context.Context, r syncReport) error { report = r; return nil }
+
+			err := svc.Sweep(context.Background())
+			if err == nil || !strings.Contains(err.Error(), wantFailure) {
+				t.Fatalf("expected original MP3 failure, got %v", err)
+			}
+			if failure == "metadata" && !errors.Is(err, metadataErr) {
+				t.Fatalf("metadata error was replaced: %v", err)
+			}
+			assertContent(t, staged, "audio")
+			if exists(filepath.Join(bucket, "bad.mp3")) {
+				t.Fatal("failed audio reached the bucket")
+			}
+			assertContent(t, filepath.Join(bucket, playlistNames[0]), "bad.mp3\n")
+			assertContent(t, filepath.Join(bucket, playlistNames[1]), "")
+			for _, name := range playlistNames {
+				if exists(filepath.Join(syncDir, name)) {
+					t.Fatalf("successfully published playlist remains staged: %s", name)
+				}
+			}
+			if !slices.Equal(report.Uploaded, playlistNames) || len(report.Failed) != 1 || !strings.Contains(report.Failed[0], wantFailure) {
+				t.Fatalf("successful playlists or original MP3 failure missing from report: %+v", report)
+			}
+		})
+	}
+}
+
+func TestBucketListingFailureDoesNotBlockPlaylists(t *testing.T) {
+	syncDir, _, _ := setupSweep(t, nil)
+	bucket := independentPlaylistBucket(t, "listing")
+	writeFile(t, filepath.Join(syncDir, "drop", "Artist - Song.mp3"), "unclassified audio")
+	writeFile(t, filepath.Join(syncDir, "Playlist.m3u"), "Artist - Song.mp3\n")
+	var report syncReport
 	svc := newService()
-	svc.readName = func(string) (string, error) { return "", fmt.Errorf("missing artist metadata") }
-	if err := svc.Sweep(context.Background()); err == nil {
-		t.Fatal("expected MP3 failure")
+	svc.notify = func(_ context.Context, r syncReport) error { report = r; return nil }
+
+	if err := svc.Sweep(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	if got := uploadedObjects(t, logPath); len(got) != 0 {
-		t.Fatalf("playlist published before its audio: %v", got)
+	if exists(filepath.Join(bucket, "Artist - Song.mp3")) {
+		t.Fatal("unstaged MP3 uploaded despite failed bucket listing")
 	}
-	if !exists(playlist) {
-		t.Fatal("deferred playlist was removed")
+	assertContent(t, filepath.Join(bucket, "Playlist.m3u"), "Artist - Song.mp3\n")
+	if !slices.Equal(report.Uploaded, []string{"Playlist.m3u"}) {
+		t.Fatalf("published playlist missing from report: %+v", report)
 	}
+}
+
+func TestFailedPlaylistUploadDoesNotBlockNextPlaylist(t *testing.T) {
+	syncDir, _, _ := setupSweep(t, nil)
+	bucket := independentPlaylistBucket(t, "playlist")
+	failed := filepath.Join(syncDir, "A Failed.m3u")
+	next := filepath.Join(syncDir, "B Next.m3u")
+	writeFile(t, failed, "first.mp3\n")
+	writeFile(t, next, "next.mp3\n")
+	var report syncReport
+	svc := newService()
+	svc.notify = func(_ context.Context, r syncReport) error { report = r; return nil }
+
+	err := svc.Sweep(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "simulated playlist upload failure") {
+		t.Fatalf("expected first playlist failure, got %v", err)
+	}
+	assertContent(t, failed, "first.mp3\n")
+	if exists(filepath.Join(bucket, "A Failed.m3u")) {
+		t.Fatal("failed playlist reached the bucket")
+	}
+	assertContent(t, filepath.Join(bucket, "B Next.m3u"), "next.mp3\n")
+	if exists(next) {
+		t.Fatal("successfully published next playlist remains staged")
+	}
+	if !slices.Equal(report.Uploaded, []string{"B Next.m3u"}) || len(report.Failed) != 1 || !strings.Contains(report.Failed[0], "simulated playlist upload failure") {
+		t.Fatalf("next playlist or original failure missing from report: %+v", report)
+	}
+}
+
+// Capture actual playlist bytes while selectively failing one other operation.
+func independentPlaylistBucket(t *testing.T, failure string) string {
+	t.Helper()
+	bucket := t.TempDir()
+	t.Setenv("GCPSYNC_TEST_BUCKET", bucket)
+	t.Setenv("GCPSYNC_TEST_FAILURE", failure)
+	conf.Server.PlaylistsPath = t.TempDir()
+	conf.Server.GCPSync.LastVersionFolder = t.TempDir()
+	script := `#!/bin/sh
+if [ "$2" = "ls" ]; then
+ if [ "$GCPSYNC_TEST_FAILURE" = "listing" ]; then echo 'simulated bucket listing failure' >&2; exit 1; fi
+ exit 0
+fi
+if [ "$2" != "cp" ]; then exit 1; fi
+if [ "$GCPSYNC_TEST_FAILURE" = "audio" ] && [ "${4##*.}" = "mp3" ]; then
+ echo 'simulated MP3 upload failure' >&2; exit 1
+fi
+if [ "$GCPSYNC_TEST_FAILURE" = "playlist" ] && [ "${4##*/}" = "A Failed.m3u" ]; then
+ echo 'simulated playlist upload failure' >&2; exit 1
+fi
+cp "$3" "$GCPSYNC_TEST_BUCKET/${4##*/}" || exit 1
+`
+	if err := os.WriteFile(conf.Server.GCPSync.GcloudPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bucket
 }

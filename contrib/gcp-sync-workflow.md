@@ -1,5 +1,8 @@
 # Syncing normalized audio and embedded cover art
 
+For the complete service/button reference, configuration, file rules, and
+troubleshooting, see [sync-service.md](sync-service.md).
+
 With `GCPSync.Enabled = true`, a successful LUFS optimization or **Save fetched
 metadata** operation derives `Artist - Title.mp3` from the embedded artist/title
 tags, corrects the library filename and database path, and stages the updated MP3
@@ -27,8 +30,12 @@ Schedule = '0'
 The existing gcloud installation and authentication must allow overwriting objects
 in that bucket. Keep the existing credentials configuration. The existing filename is never used to infer artist or title.
 An MP3 with missing metadata remains staged and the sync reports which tags are
-needed. The legacy `EnforceNaming` option no longer controls uploads. A conflicting
-local destination is reported rather than overwritten. `DryRun = true` makes no uploads.
+needed. Each playlist is processed independently, even if an MP3, bucket listing,
+or another playlist fails in the same sweep. A playlist can therefore be published
+before a failed track is available in the bucket.
+The legacy `EnforceNaming` option no longer controls uploads. A conflicting
+destination during metadata filename correction is reported rather than
+overwritten. `DryRun = true` makes no uploads.
 
 Sync overwrites the bucket object at its root using the NFC-normalized filename,
 matching the filenames used in device playlists. After a successful upload, the
@@ -49,6 +56,9 @@ the timing through `Schedule`:
 - A cron expression or interval publishes the Sync folder on that schedule.
   App edits and playlist renames remain staged until the scheduled sweep; they
   do not upload immediately. The Sync button can still publish them earlier.
+
+Immediate mode uploads app-staged MP3 edits. An ordinary Playlist Publish only
+stages the M3U; it still needs the Sync button or a scheduled sweep.
 
 For example, daily at 2:00 AM in India:
 

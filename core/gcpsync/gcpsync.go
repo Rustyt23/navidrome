@@ -753,10 +753,6 @@ func (s *service) Sweep(ctx context.Context) (resultErr error) {
 				moved++
 			}
 		case ".m3u":
-			if len(failures) > 0 || bucketErr != nil {
-				failures = append(failures, fmt.Errorf("playlist %q remains staged because MP3 sync did not complete", file))
-				continue
-			}
 			if err := s.processPlaylist(ctx, root, file); err != nil {
 				log.Warn(ctx, "GCPSync: could not process playlist", "path", file, err)
 				failures = append(failures, err)
